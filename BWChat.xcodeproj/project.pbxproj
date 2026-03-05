@@ -1,0 +1,557 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10001 /* BWChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
+		A10002 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
+		A10003 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
+		A10004 /* Contact.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
+		A10005 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
+		A10006 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
+		A10007 /* ContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
+		A10008 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
+		A10009 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
+		A10010 /* ContactListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
+		A10011 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
+		A10012 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
+		A10013 /* ImagePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
+		A10014 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014; };
+		A10015 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015; };
+		A10016 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
+		A10017 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
+		A10018 /* ImageCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
+		A10019 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
+		A10020 /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
+		A10021 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
+		A10022 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022; };
+		A10023 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023; };
+		A10024 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
+		A10025 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10025; };
+		A10030 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C10001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P10001;
+			proxyType = 1;
+			remoteGlobalIDString = T10002;
+			remoteInfo = BWChatNotificationService;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CP10001 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		B10001 /* BWChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BWChatApp.swift; sourceTree = "<group>"; };
+		B10002 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		B10003 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		B10004 /* Contact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contact.swift; sourceTree = "<group>"; };
+		B10005 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
+		B10006 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
+		B10007 /* ContactsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsViewModel.swift; sourceTree = "<group>"; };
+		B10008 /* SplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreen.swift; sourceTree = "<group>"; };
+		B10009 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		B10010 /* ContactListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactListView.swift; sourceTree = "<group>"; };
+		B10011 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		B10012 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
+		B10013 /* ImagePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreviewView.swift; sourceTree = "<group>"; };
+		B10014 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
+		B10015 /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
+		B10016 /* PushService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushService.swift; sourceTree = "<group>"; };
+		B10017 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
+		B10018 /* ImageCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCacheManager.swift; sourceTree = "<group>"; };
+		B10019 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		B10020 /* LoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingView.swift; sourceTree = "<group>"; };
+		B10021 /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
+		B10022 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		B10023 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		B10024 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		B10025 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B10026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10030 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		B10031 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F10001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G10000 = {
+			isa = PBXGroup;
+			children = (
+				G10001 /* BWChat */,
+				G10009 /* BWChatNotificationService */,
+				G10010 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		G10001 /* BWChat */ = {
+			isa = PBXGroup;
+			children = (
+				B10001 /* BWChatApp.swift */,
+				B10026 /* Info.plist */,
+				B10025 /* Assets.xcassets */,
+				G10002 /* Models */,
+				G10003 /* ViewModels */,
+				G10004 /* Views */,
+				G10005 /* Services */,
+				G10006 /* Managers */,
+				G10007 /* Components */,
+				G10008 /* Utils */,
+			);
+			path = BWChat;
+			sourceTree = "<group>";
+		};
+		G10002 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B10002 /* User.swift */,
+				B10003 /* Message.swift */,
+				B10004 /* Contact.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		G10003 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				B10005 /* AuthViewModel.swift */,
+				B10006 /* ChatViewModel.swift */,
+				B10007 /* ContactsViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		G10004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B10008 /* SplashScreen.swift */,
+				B10009 /* LoginView.swift */,
+				B10010 /* ContactListView.swift */,
+				B10011 /* ChatView.swift */,
+				B10012 /* MessageBubble.swift */,
+				B10013 /* ImagePreviewView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		G10005 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B10014 /* APIService.swift */,
+				B10015 /* WebSocketService.swift */,
+				B10016 /* PushService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		G10006 /* Managers */ = {
+			isa = PBXGroup;
+			children = (
+				B10017 /* AuthManager.swift */,
+				B10018 /* ImageCacheManager.swift */,
+			);
+			path = Managers;
+			sourceTree = "<group>";
+		};
+		G10007 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				B10019 /* AvatarView.swift */,
+				B10020 /* LoadingView.swift */,
+				B10021 /* ToastView.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		G10008 /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				B10022 /* Constants.swift */,
+				B10023 /* Extensions.swift */,
+				B10024 /* KeychainHelper.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+		G10009 /* BWChatNotificationService */ = {
+			isa = PBXGroup;
+			children = (
+				B10030 /* NotificationService.swift */,
+				B10031 /* Info.plist */,
+			);
+			path = BWChatNotificationService;
+			sourceTree = "<group>";
+		};
+		G10010 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				PR10001 /* BWChat.app */,
+				PR10002 /* BWChatNotificationService.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		T10001 /* BWChat */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL10001;
+			buildPhases = (
+				S10001 /* Sources */,
+				F10001 /* Frameworks */,
+				R10001 /* Resources */,
+				CP10001 /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D10001,
+			);
+			name = BWChat;
+			productName = BWChat;
+			productReference = PR10001;
+			productType = "com.apple.product-type.application";
+		};
+		T10002 /* BWChatNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL10002;
+			buildPhases = (
+				S10002 /* Sources */,
+				F10002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BWChatNotificationService;
+			productName = BWChatNotificationService;
+			productReference = PR10002;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P10001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1520;
+				LastUpgradeCheck = 1520;
+				TargetAttributes = {
+					T10001 = {
+						CreatedOnToolsVersion = 15.2;
+					};
+					T10002 = {
+						CreatedOnToolsVersion = 15.2;
+					};
+				};
+			};
+			buildConfigurationList = CL10000;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = G10000;
+			productRefGroup = G10010;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T10001 /* BWChat */,
+				T10002 /* BWChatNotificationService */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		R10001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10025 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		S10001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001 /* BWChatApp.swift in Sources */,
+				A10002 /* User.swift in Sources */,
+				A10003 /* Message.swift in Sources */,
+				A10004 /* Contact.swift in Sources */,
+				A10005 /* AuthViewModel.swift in Sources */,
+				A10006 /* ChatViewModel.swift in Sources */,
+				A10007 /* ContactsViewModel.swift in Sources */,
+				A10008 /* SplashScreen.swift in Sources */,
+				A10009 /* LoginView.swift in Sources */,
+				A10010 /* ContactListView.swift in Sources */,
+				A10011 /* ChatView.swift in Sources */,
+				A10012 /* MessageBubble.swift in Sources */,
+				A10013 /* ImagePreviewView.swift in Sources */,
+				A10014 /* APIService.swift in Sources */,
+				A10015 /* WebSocketService.swift in Sources */,
+				A10016 /* PushService.swift in Sources */,
+				A10017 /* AuthManager.swift in Sources */,
+				A10018 /* ImageCacheManager.swift in Sources */,
+				A10019 /* AvatarView.swift in Sources */,
+				A10020 /* LoadingView.swift in Sources */,
+				A10021 /* ToastView.swift in Sources */,
+				A10022 /* Constants.swift in Sources */,
+				A10023 /* Extensions.swift in Sources */,
+				A10024 /* KeychainHelper.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		S10002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10030 /* NotificationService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D10001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10002;
+			targetProxy = C10001;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		BC10001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		BC10002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		BC10003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BWChat/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BWChat;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		BC10004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BWChat/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BWChat;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		BC10005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BWChatNotificationService;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.app.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		BC10006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = BWChatNotificationService;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.app.NotificationService;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CL10000 /* Build configuration list for PBXProject "BWChat" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC10001 /* Debug */,
+				BC10002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL10001 /* Build configuration list for PBXNativeTarget "BWChat" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC10003 /* Debug */,
+				BC10004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL10002 /* Build configuration list for PBXNativeTarget "BWChatNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC10005 /* Debug */,
+				BC10006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = P10001 /* Project object */;
+}
