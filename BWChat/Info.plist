@@ -28,6 +28,11 @@
     <array>
         <string>remote-notification</string>
     </array>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>BWChat 需要访问相册以保存图片</string>
     <key>NSPhotoLibraryUsageDescription</key>
