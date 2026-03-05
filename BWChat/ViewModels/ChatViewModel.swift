@@ -65,19 +65,18 @@ class ChatViewModel: ObservableObject {
         guard !text.isEmpty else { return }
 
         inputText = ""
-        isSending = true
 
         do {
             let message = try await APIService.shared.sendTextMessage(
                 receiverID: contact.userID,
                 content: text
             )
-            messages.append(message)
+            if !messages.contains(where: { $0.id == message.id }) {
+                messages.append(message)
+            }
         } catch {
             errorMessage = "发送失败，请重试"
         }
-
-        isSending = false
     }
 
     func sendImage(data: Data) async {
@@ -113,7 +112,7 @@ class ChatViewModel: ObservableObject {
     }
 
     var isSendEnabled: Bool {
-        !inputText.isBlank && !isSending
+        !inputText.isBlank
     }
 
     private func setupWebSocketListener() {

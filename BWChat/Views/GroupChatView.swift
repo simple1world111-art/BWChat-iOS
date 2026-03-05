@@ -40,6 +40,11 @@ struct GroupChatView: View {
                             )
                             .id(message.id)
                         }
+
+                        // Pending messages (optimistic)
+                        ForEach(viewModel.pendingTexts) { pending in
+                            PendingGroupBubble(pending: pending)
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -193,6 +198,38 @@ struct GroupMessageBubble: View {
             }
 
             if !isFromMe { Spacer(minLength: 40) }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Pending Group Bubble
+
+struct PendingGroupBubble: View {
+    let pending: PendingGroupText
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 40)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(pending.content)
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(pending.status == .sending ? 0.7 : 1))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(AppColors.sentBubbleGradient.opacity(pending.status == .sending ? 0.5 : 1))
+                    .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
+
+                if pending.status == .sending {
+                    ProgressView()
+                        .tint(AppColors.accent)
+                        .scaleEffect(0.6)
+                } else if pending.status == .failed {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(AppColors.errorColor)
+                        .font(.caption)
+                }
+            }
         }
         .padding(.vertical, 2)
     }

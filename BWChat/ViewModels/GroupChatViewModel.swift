@@ -12,6 +12,7 @@ class GroupChatViewModel: ObservableObject {
     @Published var isSending = false
     @Published var hasMore = false
     @Published var errorMessage: String?
+    @Published var pendingTexts: [PendingGroupText] = []
 
     let group: ChatGroup
     private var cancellables = Set<AnyCancellable>()
@@ -48,22 +49,35 @@ class GroupChatViewModel: ObservableObject {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         inputText = ""
-        isSending = true
+
+        // Optimistic: add a pending placeholder immediately
+        let pendingID = UUID().uuidString
+        let pending = PendingGroupText(id: pendingID, content: text, status: .sending)
+        pendingTexts.append(pending)
 
         do {
             let msg = try await APIService.shared.sendGroupText(groupID: group.groupID, content: text)
-            messages.append(msg)
+            // Remove pending, add real message
+            pendingTexts.removeAll { $0.id == pendingID }
+            if !messages.contains(where: { $0.id == msg.id }) {
+                messages.append(msg)
+            }
         } catch {
+            // Mark pending as failed
+            if let idx = pendingTexts.firstIndex(where: { $0.id == pendingID }) {
+                pendingTexts[idx].status = .failed
+            }
             errorMessage = "发送失败"
         }
-        isSending = false
     }
 
     func sendImage(data: Data) async {
         isSending = true
         do {
             let msg = try await APIService.shared.sendGroupImage(groupID: group.groupID, imageData: data, filename: "img_\(Int(Date().timeIntervalSince1970)).jpg")
-            messages.append(msg)
+            if !messages.contains(where: { $0.id == msg.id }) {
+                messages.append(msg)
+            }
         } catch {
             errorMessage = "图片发送失败"
         }
@@ -71,7 +85,7 @@ class GroupChatViewModel: ObservableObject {
     }
 
     var isSendEnabled: Bool {
-        !inputText.isBlank && !isSending
+        !inputText.isBlank
     }
 
     private func setupWebSocketListener() {
@@ -86,5 +100,16 @@ class GroupChatViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+}
+
+// Pending text message placeholder for optimistic UI
+struct PendingGroupText: Identifiable {
+    let id: String
+    let content: String
+    var status: PendingStatus = .sending
+
+    enum PendingStatus {
+        case sending, failed
     }
 }
