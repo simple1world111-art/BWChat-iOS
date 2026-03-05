@@ -6,7 +6,7 @@ import Combine
 
 @MainActor
 class GroupsViewModel: ObservableObject {
-    @Published var groups: [Group] = []
+    @Published var groups: [ChatGroup] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 

@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct Group: Codable, Identifiable, Equatable, Hashable {
+struct ChatGroup: Codable, Identifiable, Equatable, Hashable {
     let groupID: Int
     let name: String
     let avatarURL: String

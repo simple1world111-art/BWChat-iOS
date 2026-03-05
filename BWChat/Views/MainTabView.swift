@@ -207,7 +207,7 @@ struct GroupListView: View {
                         }
                     }
                     .listStyle(.plain)
-                    .navigationDestination(for: Group.self) { group in
+                    .navigationDestination(for: ChatGroup.self) { group in
                         GroupChatView(group: group)
                     }
                 }
@@ -240,7 +240,7 @@ struct GroupListView: View {
 }
 
 struct GroupRow: View {
-    let group: Group
+    let group: ChatGroup
 
     var body: some View {
         HStack(spacing: 14) {

@@ -5,12 +5,12 @@ import SwiftUI
 import PhotosUI
 
 struct GroupChatView: View {
-    let group: Group
+    let group: ChatGroup
     @StateObject private var viewModel: GroupChatViewModel
     @State private var selectedItem: PhotosPickerItem?
     @State private var previewImageURL: String?
 
-    init(group: Group) {
+    init(group: ChatGroup) {
         self.group = group
         _viewModel = StateObject(wrappedValue: GroupChatViewModel(group: group))
     }

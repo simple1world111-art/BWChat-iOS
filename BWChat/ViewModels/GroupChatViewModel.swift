@@ -13,10 +13,10 @@ class GroupChatViewModel: ObservableObject {
     @Published var hasMore = false
     @Published var errorMessage: String?
 
-    let group: Group
+    let group: ChatGroup
     private var cancellables = Set<AnyCancellable>()
 
-    init(group: Group) {
+    init(group: ChatGroup) {
         self.group = group
         setupWebSocketListener()
     }

@@ -203,9 +203,9 @@ class APIService {
 
     // MARK: - Groups
 
-    func getGroups() async throws -> [Group] {
+    func getGroups() async throws -> [ChatGroup] {
         struct GroupsData: Decodable {
-            let groups: [Group]
+            let groups: [ChatGroup]
         }
 
         let response: APIResponseWrapper<GroupsData> = try await get(path: "/groups/list")
