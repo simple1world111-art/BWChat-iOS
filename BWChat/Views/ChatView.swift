@@ -6,13 +6,15 @@ import PhotosUI
 
 struct ChatView: View {
     let contact: Contact
+    var onMarkRead: (() -> Void)?
     @StateObject private var viewModel: ChatViewModel
     @State private var showImagePicker = false
     @State private var selectedItem: PhotosPickerItem?
     @State private var previewImageURL: String?
 
-    init(contact: Contact) {
+    init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
+        self.onMarkRead = onMarkRead
         _viewModel = StateObject(wrappedValue: ChatViewModel(contact: contact))
     }
 
@@ -75,6 +77,7 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadMessages()
+            onMarkRead?()
         }
         .fullScreenCover(item: Binding(
             get: { previewImageURL.map { ImagePreviewItem(url: $0) } },

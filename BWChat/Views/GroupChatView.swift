@@ -6,12 +6,14 @@ import PhotosUI
 
 struct GroupChatView: View {
     let group: ChatGroup
+    var onMarkRead: (() -> Void)?
     @StateObject private var viewModel: GroupChatViewModel
     @State private var selectedItem: PhotosPickerItem?
     @State private var previewImageURL: String?
 
-    init(group: ChatGroup) {
+    init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
+        self.onMarkRead = onMarkRead
         _viewModel = StateObject(wrappedValue: GroupChatViewModel(group: group))
     }
 
@@ -68,6 +70,7 @@ struct GroupChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await viewModel.loadMessages()
+            onMarkRead?()
         }
         .fullScreenCover(item: Binding(
             get: { previewImageURL.map { ImagePreviewItem(url: $0) } },

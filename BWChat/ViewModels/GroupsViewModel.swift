@@ -39,6 +39,25 @@ class GroupsViewModel: ObservableObject {
         return false
     }
 
+    func markGroupAsRead(groupID: Int) {
+        // Clear unread count locally
+        if let index = groups.firstIndex(where: { $0.id == groupID }) {
+            let g = groups[index]
+            if g.unreadCount > 0 {
+                // Reload groups to get fresh data with unread=0
+                Task {
+                    try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
+                    await loadGroups()
+                }
+            }
+        } else {
+            // No local group found, just tell server
+            Task {
+                try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
+            }
+        }
+    }
+
     private func setupWebSocketListeners() {
         WebSocketService.shared.groupMessagePublisher
             .receive(on: DispatchQueue.main)

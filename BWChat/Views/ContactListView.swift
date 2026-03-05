@@ -60,7 +60,9 @@ struct ContactListView: View {
         }
         .listStyle(.plain)
         .navigationDestination(for: Contact.self) { contact in
-            ChatView(contact: contact)
+            ChatView(contact: contact) {
+                viewModel.markAsRead(contactID: contact.userID)
+            }
         }
     }
 

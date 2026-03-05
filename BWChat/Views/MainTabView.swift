@@ -212,7 +212,9 @@ struct GroupListView: View {
                     }
                     .listStyle(.plain)
                     .navigationDestination(for: ChatGroup.self) { group in
-                        GroupChatView(group: group)
+                        GroupChatView(group: group) {
+                            viewModel.markGroupAsRead(groupID: group.id)
+                        }
                     }
                 }
             }

@@ -43,6 +43,27 @@ class ContactsViewModel: ObservableObject {
         AuthManager.shared.logout()
     }
 
+    func markAsRead(contactID: String) {
+        // Clear unread count locally
+        if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
+            let c = contacts[index]
+            if c.unreadCount > 0 {
+                contacts[index] = Contact(
+                    userID: c.userID,
+                    nickname: c.nickname,
+                    avatarURL: c.avatarURL,
+                    lastMessage: c.lastMessage,
+                    lastMessageTime: c.lastMessageTime,
+                    unreadCount: 0
+                )
+            }
+        }
+        // Tell server
+        Task {
+            try? await APIService.shared.markMessagesAsRead(contactID: contactID)
+        }
+    }
+
     private func setupWebSocketListeners() {
         WebSocketService.shared.newMessagePublisher
             .receive(on: DispatchQueue.main)

@@ -122,6 +122,20 @@ class APIService {
         return (data?.messages ?? [], data?.hasMore ?? false)
     }
 
+    func markMessagesAsRead(contactID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/chat/messages/\(contactID)/read",
+            body: [:]
+        )
+    }
+
+    func markGroupMessagesAsRead(groupID: Int) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/messages/read",
+            body: [:]
+        )
+    }
+
     func sendTextMessage(receiverID: String, content: String) async throws -> Message {
         let body: [String: Any] = [
             "receiver_id": receiverID,
