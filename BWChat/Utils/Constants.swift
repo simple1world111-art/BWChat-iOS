@@ -5,11 +5,11 @@ import SwiftUI
 
 enum AppConfig {
     #if DEBUG
-    static let apiBaseURL = "http://192.168.1.100:8000/api/v1"
-    static let wsBaseURL  = "ws://192.168.1.100:8000/ws"
+    static let apiBaseURL = "http://52.69.26.53:8000/api/v1"
+    static let wsBaseURL  = "ws://52.69.26.53:8000/ws"
     #else
-    static let apiBaseURL = "https://your-server.com/api/v1"
-    static let wsBaseURL  = "wss://your-server.com/ws"
+    static let apiBaseURL = "http://52.69.26.53:8000/api/v1"
+    static let wsBaseURL  = "ws://52.69.26.53:8000/ws"
     #endif
 
     static let appName = "BWChat"
