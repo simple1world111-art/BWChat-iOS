@@ -1,5 +1,5 @@
 // BWChat/Views/ContactListView.swift
-// Contact list page - minimalist design
+// Messages page - premium redesign with cards
 
 import SwiftUI
 
@@ -17,6 +17,7 @@ struct ContactListView: View {
                     contactListView
                 }
             }
+            .background(AppColors.secondaryBackground)
             .navigationTitle("消息")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -24,6 +25,7 @@ struct ContactListView: View {
                         showLogoutAlert = true
                     } label: {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .font(.system(size: 15, weight: .medium))
                             .foregroundColor(AppColors.secondaryText)
                     }
                 }
@@ -50,7 +52,8 @@ struct ContactListView: View {
                     ContactRow(contact: contact)
                 }
                 .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
@@ -60,62 +63,78 @@ struct ContactListView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 48))
-                .foregroundColor(AppColors.secondaryText.opacity(0.5))
+            ZStack {
+                Circle()
+                    .fill(AppColors.accent.opacity(0.08))
+                    .frame(width: 90, height: 90)
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.system(size: 36))
+                    .foregroundColor(AppColors.accent.opacity(0.5))
+            }
             Text("暂无聊天记录")
-                .font(.body)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(AppColors.primaryText)
+            Text("添加好友后开始聊天")
+                .font(.system(size: 14))
                 .foregroundColor(AppColors.secondaryText)
-            Text("开始和朋友聊天吧")
-                .font(.body)
-                .foregroundColor(AppColors.secondaryText.opacity(0.7))
             Spacer()
         }
     }
 }
 
-// MARK: - Contact Row
+// MARK: - Contact Row (Premium)
 
 struct ContactRow: View {
     let contact: Contact
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Avatar
-            AvatarView(url: contact.avatarURL, size: 44)
+        HStack(spacing: 14) {
+            // Avatar with online indicator
+            ZStack(alignment: .bottomTrailing) {
+                AvatarView(url: contact.avatarURL, size: 52)
+            }
 
-            // Name and message preview
-            VStack(alignment: .leading, spacing: 4) {
+            // Name and message
+            VStack(alignment: .leading, spacing: 5) {
                 Text(contact.nickname)
-                    .font(.body.weight(.medium))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(AppColors.primaryText)
                     .lineLimit(1)
 
                 if let lastMessage = contact.lastMessage {
                     Text(lastMessage)
-                        .font(.subheadline)
+                        .font(.system(size: 14))
                         .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(1)
+                } else {
+                    Text("开始聊天吧~")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.tertiaryText)
                         .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            // Time and unread
-            VStack(alignment: .trailing, spacing: 6) {
+            // Time and unread badge
+            VStack(alignment: .trailing, spacing: 8) {
                 Text(contact.formattedTime)
-                    .font(.caption)
-                    .foregroundColor(AppColors.secondaryText)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppColors.tertiaryText)
 
                 if contact.unreadCount > 0 {
-                    Circle()
-                        .fill(AppColors.unreadDot)
-                        .frame(width: 8, height: 8)
+                    Text("\(min(contact.unreadCount, 99))\(contact.unreadCount > 99 ? "+" : "")")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(AppColors.unreadBadge)
+                        .cornerRadius(10)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
 }

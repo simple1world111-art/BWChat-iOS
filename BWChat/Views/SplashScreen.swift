@@ -1,18 +1,20 @@
 // BWChat/Views/SplashScreen.swift
-// Launch screen with auto-login check
+// Premium launch screen with gradient animation
 
 import SwiftUI
 
 struct SplashScreen: View {
     @StateObject private var authManager = AuthManager.shared
     @State private var isCheckingToken = true
+    @State private var logoScale: CGFloat = 0.6
+    @State private var logoOpacity: Double = 0
 
     var body: some View {
         Group {
             if isCheckingToken {
                 splashView
             } else if authManager.isLoggedIn {
-                ContactListView()
+                MainTabView()
             } else {
                 LoginView()
             }
@@ -23,19 +25,48 @@ struct SplashScreen: View {
     }
 
     private var splashView: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Text(AppConfig.appName)
-                .font(.system(size: 28, weight: .light))
-                .foregroundColor(AppColors.primaryText)
-            Spacer()
+        ZStack {
+            // Gradient background
+            LinearGradient(
+                colors: [Color(hex: "667EEA"), Color(hex: "764BA2")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                // App icon
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.15))
+                        .frame(width: 100, height: 100)
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.white)
+                }
+                .scaleEffect(logoScale)
+                .opacity(logoOpacity)
+
+                Text(AppConfig.appName)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .opacity(logoOpacity)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppColors.background)
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.6)) {
+                logoScale = 1.0
+                logoOpacity = 1.0
+            }
+        }
     }
 
     private func checkToken() async {
+        // Show splash for at least 0.8s
+        async let minDelay: Void = Task.sleep(nanoseconds: 800_000_000)
+
         guard authManager.token != nil else {
+            try? await minDelay
             isCheckingToken = false
             return
         }
@@ -44,16 +75,13 @@ struct SplashScreen: View {
             let user = try await APIService.shared.verifyToken()
             authManager.updateUser(user)
             authManager.isLoggedIn = true
-
-            // Connect WebSocket
             WebSocketService.shared.connect()
-
-            // Request push permission
             PushService.shared.requestPermission()
         } catch {
             authManager.logout()
         }
 
+        try? await minDelay
         isCheckingToken = false
     }
 }

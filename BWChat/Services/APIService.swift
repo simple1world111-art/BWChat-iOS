@@ -138,7 +138,126 @@ class APIService {
     func sendImageMessage(receiverID: String, imageData: Data, filename: String) async throws -> Message {
         let response: APIResponseWrapper<Message> = try await uploadImage(
             path: "/chat/messages/image",
-            receiverID: receiverID,
+            fieldName: "receiver_id",
+            fieldValue: receiverID,
+            imageData: imageData,
+            filename: filename
+        )
+        guard let msg = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return msg
+    }
+
+    // MARK: - Friends
+
+    func searchUsers(keyword: String) async throws -> [SearchUser] {
+        struct SearchData: Decodable {
+            let users: [SearchUser]
+        }
+
+        let response: APIResponseWrapper<SearchData> = try await get(
+            path: "/friends/search",
+            queryItems: [URLQueryItem(name: "keyword", value: keyword)]
+        )
+        return response.data?.users ?? []
+    }
+
+    func getFriendList() async throws -> [FriendInfo] {
+        struct FriendListData: Decodable {
+            let friends: [FriendInfo]
+        }
+
+        let response: APIResponseWrapper<FriendListData> = try await get(path: "/friends/list")
+        return response.data?.friends ?? []
+    }
+
+    func getFriendRequests() async throws -> [FriendRequest] {
+        struct RequestsData: Decodable {
+            let requests: [FriendRequest]
+        }
+
+        let response: APIResponseWrapper<RequestsData> = try await get(path: "/friends/requests")
+        return response.data?.requests ?? []
+    }
+
+    func sendFriendRequest(targetUserID: String) async throws -> String {
+        let body: [String: Any] = ["target_user_id": targetUserID]
+        let response: APIResponseWrapper<EmptyData> = try await postJSON(path: "/friends/request", body: body)
+        return response.message
+    }
+
+    func acceptFriendRequest(requestID: Int) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/friends/requests/\(requestID)/accept",
+            body: [:]
+        )
+    }
+
+    func rejectFriendRequest(requestID: Int) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/friends/requests/\(requestID)/reject",
+            body: [:]
+        )
+    }
+
+    // MARK: - Groups
+
+    func getGroups() async throws -> [Group] {
+        struct GroupsData: Decodable {
+            let groups: [Group]
+        }
+
+        let response: APIResponseWrapper<GroupsData> = try await get(path: "/groups/list")
+        return response.data?.groups ?? []
+    }
+
+    func createGroup(name: String, memberIDs: [String]) async throws {
+        let body: [String: Any] = ["name": name, "member_ids": memberIDs]
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/groups/create", body: body)
+    }
+
+    func getGroupMessages(groupID: Int, beforeID: Int? = nil) async throws -> ([GroupMessage], Bool) {
+        struct GroupMessagesData: Decodable {
+            let messages: [GroupMessage]
+            let hasMore: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case messages
+                case hasMore = "has_more"
+            }
+        }
+
+        var queryItems = [URLQueryItem]()
+        if let beforeID = beforeID {
+            queryItems.append(URLQueryItem(name: "before_id", value: "\(beforeID)"))
+        }
+
+        let response: APIResponseWrapper<GroupMessagesData> = try await get(
+            path: "/groups/\(groupID)/messages",
+            queryItems: queryItems
+        )
+        let data = response.data
+        return (data?.messages ?? [], data?.hasMore ?? false)
+    }
+
+    func sendGroupText(groupID: Int, content: String) async throws -> GroupMessage {
+        let body: [String: Any] = ["content": content]
+        let response: APIResponseWrapper<GroupMessage> = try await postJSON(
+            path: "/groups/\(groupID)/messages/text",
+            body: body
+        )
+        guard let msg = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return msg
+    }
+
+    func sendGroupImage(groupID: Int, imageData: Data, filename: String) async throws -> GroupMessage {
+        let response: APIResponseWrapper<GroupMessage> = try await uploadImage(
+            path: "/groups/\(groupID)/messages/image",
+            fieldName: nil,
+            fieldValue: nil,
             imageData: imageData,
             filename: filename
         )
@@ -229,7 +348,8 @@ class APIService {
 
     private func uploadImage<T: Decodable>(
         path: String,
-        receiverID: String,
+        fieldName: String?,
+        fieldValue: String?,
         imageData: Data,
         filename: String
     ) async throws -> T {
@@ -244,10 +364,12 @@ class APIService {
         addAuthHeader(&request)
 
         var body = Data()
-        // receiver_id field
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"receiver_id\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(receiverID)\r\n".data(using: .utf8)!)
+        // Optional extra field (e.g. receiver_id for DM images)
+        if let fieldName = fieldName, let fieldValue = fieldValue {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(fieldName)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(fieldValue)\r\n".data(using: .utf8)!)
+        }
         // image field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"image\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)

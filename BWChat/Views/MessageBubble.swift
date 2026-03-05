@@ -1,5 +1,5 @@
 // BWChat/Views/MessageBubble.swift
-// Chat message bubble component
+// Premium gradient message bubble
 
 import SwiftUI
 
@@ -13,17 +13,15 @@ struct MessageBubble: View {
             if isFromMe { Spacer(minLength: 60) }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
-                // Message content
                 if message.isImage {
                     imageBubble
                 } else {
                     textBubble
                 }
 
-                // Timestamp
                 Text(message.formattedTime)
-                    .font(.caption2)
-                    .foregroundColor(AppColors.secondaryText)
+                    .font(.system(size: 11))
+                    .foregroundColor(AppColors.tertiaryText)
                     .padding(.horizontal, 4)
             }
 
@@ -32,16 +30,28 @@ struct MessageBubble: View {
         .padding(.vertical, 2)
     }
 
-    // MARK: - Text Bubble
+    // MARK: - Gradient Text Bubble
 
     private var textBubble: some View {
         Text(message.content)
-            .font(.body)
-            .foregroundColor(isFromMe ? AppColors.sentBubbleText : AppColors.receivedBubbleText)
+            .font(.system(size: 16))
+            .foregroundColor(isFromMe ? .white : AppColors.primaryText)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(isFromMe ? AppColors.sentBubble : AppColors.receivedBubble)
-            .cornerRadius(18)
+            .background(
+                Group {
+                    if isFromMe {
+                        AppColors.sentBubbleGradient
+                    } else {
+                        LinearGradient(
+                            colors: [AppColors.receivedBubble, AppColors.receivedBubble],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                }
+            )
+            .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
     }
 
     // MARK: - Image Bubble
@@ -49,10 +59,33 @@ struct MessageBubble: View {
     private var imageBubble: some View {
         CachedAsyncImage(url: message.content)
             .frame(maxWidth: 200, maxHeight: 250)
-            .cornerRadius(12)
+            .cornerRadius(14)
+            .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
             .onTapGesture {
                 onImageTap?(message.content)
             }
+    }
+}
+
+// MARK: - Rounded Corner Extension
+
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
     }
 }
 
@@ -70,13 +103,15 @@ struct CachedAsyncImage: View {
                     .resizable()
                     .scaledToFit()
             } else if isLoading {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
                     .frame(width: 150, height: 150)
-                    .overlay(ProgressView())
+                    .overlay(
+                        ProgressView()
+                            .tint(AppColors.accent)
+                    )
             } else {
-                // Failed placeholder
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
                     .frame(width: 150, height: 150)
                     .overlay(

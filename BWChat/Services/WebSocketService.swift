@@ -1,5 +1,5 @@
 // BWChat/Services/WebSocketService.swift
-// WebSocket connection manager
+// WebSocket connection manager with group & friend support
 
 import Foundation
 import Combine
@@ -8,58 +8,11 @@ enum WSMessageType: String {
     case newMessage = "new_message"
     case userStatus = "user_status"
     case chatReset = "chat_reset"
+    case newGroupMessage = "new_group_message"
+    case groupCreated = "group_created"
+    case friendRequest = "friend_request"
+    case friendAccepted = "friend_accepted"
     case pong
-}
-
-struct WSMessage: Decodable {
-    let type: String
-    let data: WSMessageData?
-    let message: String?
-
-    enum CodingKeys: String, CodingKey {
-        case type, data, message
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        type = try container.decode(String.self, forKey: .type)
-        message = try container.decodeIfPresent(String.self, forKey: .message)
-        // data can be Message or UserStatusData
-        data = try? container.decodeIfPresent(WSMessageData.self, forKey: .data)
-    }
-}
-
-enum WSMessageData: Decodable {
-    case message(Message)
-    case userStatus(UserStatusData)
-
-    struct UserStatusData: Decodable {
-        let userID: String
-        let status: String
-
-        enum CodingKeys: String, CodingKey {
-            case userID = "user_id"
-            case status
-        }
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        // Try as Message first
-        if let msg = try? container.decode(Message.self) {
-            self = .message(msg)
-            return
-        }
-        // Try as UserStatus
-        if let status = try? container.decode(UserStatusData.self) {
-            self = .userStatus(status)
-            return
-        }
-        throw DecodingError.typeMismatch(
-            WSMessageData.self,
-            DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unknown data type")
-        )
-    }
 }
 
 @MainActor
@@ -72,6 +25,10 @@ class WebSocketService: ObservableObject {
     let newMessagePublisher = PassthroughSubject<Message, Never>()
     let userStatusPublisher = PassthroughSubject<(String, String), Never>()
     let chatResetPublisher = PassthroughSubject<Void, Never>()
+    let groupMessagePublisher = PassthroughSubject<GroupMessage, Never>()
+    let groupCreatedPublisher = PassthroughSubject<[String: Any], Never>()
+    let friendRequestPublisher = PassthroughSubject<[String: String], Never>()
+    let friendAcceptedPublisher = PassthroughSubject<[String: String], Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
@@ -117,7 +74,7 @@ class WebSocketService: ObservableObject {
                 switch result {
                 case .success(let message):
                     self.handleMessage(message)
-                    self.startListening() // Continue listening
+                    self.startListening()
                 case .failure:
                     self.handleDisconnect()
                 }
@@ -129,40 +86,74 @@ class WebSocketService: ObservableObject {
         switch message {
         case .string(let text):
             guard let data = text.data(using: .utf8) else { return }
-            do {
-                let wsMessage = try JSONDecoder().decode(WSMessage.self, from: data)
-                processWSMessage(wsMessage)
-            } catch {
-                print("[WS] Failed to decode message: \(error)")
-            }
+            processRawJSON(data)
         case .data(let data):
-            do {
-                let wsMessage = try JSONDecoder().decode(WSMessage.self, from: data)
-                processWSMessage(wsMessage)
-            } catch {
-                print("[WS] Failed to decode data message: \(error)")
-            }
+            processRawJSON(data)
         @unknown default:
             break
         }
     }
 
-    private func processWSMessage(_ wsMessage: WSMessage) {
-        switch wsMessage.type {
+    // Parse raw JSON and route to the correct publisher
+    private func processRawJSON(_ data: Data) {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else {
+            return
+        }
+
+        switch type {
         case "new_message":
-            if case .message(let msg) = wsMessage.data {
+            // DM message
+            if let msgData = json["data"],
+               let msgJSON = try? JSONSerialization.data(withJSONObject: msgData),
+               let msg = try? JSONDecoder().decode(Message.self, from: msgJSON) {
                 newMessagePublisher.send(msg)
             }
+
         case "user_status":
-            if case .userStatus(let status) = wsMessage.data {
-                userStatusPublisher.send((status.userID, status.status))
+            if let d = json["data"] as? [String: Any],
+               let uid = d["user_id"] as? String,
+               let status = d["status"] as? String {
+                userStatusPublisher.send((uid, status))
             }
+
         case "chat_reset":
             chatResetPublisher.send()
+
+        case "new_group_message":
+            if let msgData = json["data"],
+               let msgJSON = try? JSONSerialization.data(withJSONObject: msgData),
+               let msg = try? JSONDecoder().decode(GroupMessage.self, from: msgJSON) {
+                groupMessagePublisher.send(msg)
+            }
+
+        case "group_created":
+            if let d = json["data"] as? [String: Any] {
+                groupCreatedPublisher.send(d)
+            }
+
+        case "friend_request":
+            if let d = json["data"] as? [String: Any] {
+                var info: [String: String] = [:]
+                if let uid = d["user_id"] as? String { info["user_id"] = uid }
+                if let nick = d["nickname"] as? String { info["nickname"] = nick }
+                if let avatar = d["avatar_url"] as? String { info["avatar_url"] = avatar }
+                friendRequestPublisher.send(info)
+            }
+
+        case "friend_accepted":
+            if let d = json["data"] as? [String: Any] {
+                var info: [String: String] = [:]
+                if let uid = d["user_id"] as? String { info["user_id"] = uid }
+                if let nick = d["nickname"] as? String { info["nickname"] = nick }
+                friendAcceptedPublisher.send(info)
+            }
+
         case "pong":
-            break // Heartbeat response
+            break
+
         default:
-            print("[WS] Unknown message type: \(wsMessage.type)")
+            print("[WS] Unknown message type: \(type)")
         }
     }
 
@@ -195,7 +186,6 @@ class WebSocketService: ObservableObject {
 
         guard !isManuallyDisconnected else { return }
 
-        // Auto-reconnect with exponential backoff
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             guard let self = self else { return }

@@ -1,30 +1,27 @@
-// BWChat/Views/ChatView.swift
-// Premium chat conversation page
+// BWChat/Views/GroupChatView.swift
+// Group chat conversation page
 
 import SwiftUI
 import PhotosUI
 
-struct ChatView: View {
-    let contact: Contact
-    @StateObject private var viewModel: ChatViewModel
-    @State private var showImagePicker = false
+struct GroupChatView: View {
+    let group: Group
+    @StateObject private var viewModel: GroupChatViewModel
     @State private var selectedItem: PhotosPickerItem?
     @State private var previewImageURL: String?
 
-    init(contact: Contact) {
-        self.contact = contact
-        _viewModel = StateObject(wrappedValue: ChatViewModel(contact: contact))
+    init(group: Group) {
+        self.group = group
+        _viewModel = StateObject(wrappedValue: GroupChatViewModel(group: group))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages list
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         if viewModel.hasMore {
                             ProgressView()
-                                .tint(AppColors.accent)
                                 .padding()
                                 .onAppear {
                                     Task { await viewModel.loadMoreMessages() }
@@ -32,18 +29,12 @@ struct ChatView: View {
                         }
 
                         ForEach(viewModel.messages) { message in
-                            MessageBubble(
+                            GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
-                                onImageTap: { url in
-                                    previewImageURL = url
-                                }
+                                onImageTap: { url in previewImageURL = url }
                             )
                             .id(message.id)
-                        }
-
-                        ForEach(viewModel.pendingMessages) { pending in
-                            PendingMessageBubble(pending: pending)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -63,13 +54,11 @@ struct ChatView: View {
                 }
             }
 
-            // Premium Input Bar
-            inputBar
+            // Input bar
+            groupInputBar
         }
-        .background(AppColors.secondaryBackground)
-        .navigationTitle(contact.nickname)
+        .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(false)
         .task {
             await viewModel.loadMessages()
         }
@@ -82,18 +71,14 @@ struct ChatView: View {
         .onTapGesture { hideKeyboard() }
     }
 
-    // MARK: - Premium Input Bar
-
-    private var inputBar: some View {
+    private var groupInputBar: some View {
         VStack(spacing: 0) {
-            Divider().opacity(0.3)
-
-            HStack(spacing: 10) {
-                // Image picker
+            Divider()
+            HStack(spacing: 8) {
                 PhotosPicker(selection: $selectedItem, matching: .images) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(AppColors.accent)
+                    Image(systemName: "photo")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppColors.secondaryText)
                         .frame(width: 36, height: 36)
                 }
                 .onChange(of: selectedItem) { item in
@@ -106,31 +91,22 @@ struct ChatView: View {
                     }
                 }
 
-                // Text input with inset style
                 TextField("输入消息...", text: $viewModel.inputText)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22)
-                            .fill(AppColors.separator)
-                    )
+                    .background(AppColors.receivedBubble)
+                    .cornerRadius(20)
                     .onSubmit {
                         Task { await viewModel.sendText() }
                     }
 
-                // Gradient send button
                 Button {
                     Task { await viewModel.sendText() }
                 } label: {
-                    ZStack {
-                        Circle()
-                            .fill(viewModel.isSendEnabled ? AppColors.accentGradient : LinearGradient(colors: [AppColors.separator, AppColors.separator], startPoint: .top, endPoint: .bottom))
-                            .frame(width: 36, height: 36)
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(viewModel.isSendEnabled ? .white : AppColors.tertiaryText)
-                    }
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(viewModel.isSendEnabled ? AppColors.accentGradient : LinearGradient(colors: [AppColors.tertiaryText], startPoint: .top, endPoint: .bottom))
                 }
                 .disabled(!viewModel.isSendEnabled)
             }
@@ -141,40 +117,59 @@ struct ChatView: View {
     }
 }
 
-// MARK: - Pending Message Bubble
+// MARK: - Group Message Bubble
 
-struct PendingMessageBubble: View {
-    let pending: PendingMessage
+struct GroupMessageBubble: View {
+    let message: GroupMessage
+    let isFromMe: Bool
+    var onImageTap: ((String) -> Void)?
 
     var body: some View {
-        HStack {
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 200)
-                        .cornerRadius(14)
-                        .opacity(pending.status == .sending ? 0.6 : 1)
-                }
+        HStack(alignment: .top, spacing: 8) {
+            if isFromMe { Spacer(minLength: 50) }
 
-                if pending.status == .sending {
-                    ProgressView()
-                        .tint(AppColors.accent)
-                        .scaleEffect(0.7)
-                } else if pending.status == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(AppColors.errorColor)
-                        .font(.caption)
-                }
+            if !isFromMe {
+                AvatarView(url: message.senderAvatar, size: 32)
             }
-        }
-    }
-}
 
-// Helper for fullScreenCover binding
-struct ImagePreviewItem: Identifiable {
-    let id = UUID()
-    let url: String
+            VStack(alignment: isFromMe ? .trailing : .leading, spacing: 3) {
+                if !isFromMe {
+                    Text(message.senderNickname)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppColors.secondaryText)
+                }
+
+                if message.isImage {
+                    CachedAsyncImage(url: message.content)
+                        .frame(maxWidth: 200, maxHeight: 250)
+                        .cornerRadius(16)
+                        .onTapGesture { onImageTap?(message.content) }
+                } else {
+                    Text(message.content)
+                        .font(.system(size: 16))
+                        .foregroundColor(isFromMe ? AppColors.sentBubbleText : AppColors.receivedBubbleText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            Group {
+                                if isFromMe {
+                                    AppColors.sentBubbleGradient
+                                } else {
+                                    LinearGradient(colors: [AppColors.receivedBubble], startPoint: .top, endPoint: .bottom)
+                                }
+                            }
+                        )
+                        .cornerRadius(18)
+                }
+
+                Text(message.formattedTime)
+                    .font(.system(size: 10))
+                    .foregroundColor(AppColors.tertiaryText)
+                    .padding(.horizontal, 4)
+            }
+
+            if !isFromMe { Spacer(minLength: 50) }
+        }
+        .padding(.vertical, 2)
+    }
 }

@@ -1,5 +1,5 @@
 // BWChat/Components/AvatarView.swift
-// Circular avatar component
+// Premium avatar with gradient placeholder
 
 import SwiftUI
 
@@ -16,13 +16,13 @@ struct AvatarView: View {
                     .resizable()
                     .scaledToFill()
             } else {
-                // Placeholder
+                // Gradient placeholder
                 Circle()
-                    .fill(AppColors.separator)
+                    .fill(AppColors.accentGradient)
                     .overlay(
                         Image(systemName: "person.fill")
-                            .foregroundColor(AppColors.secondaryText)
-                            .font(.system(size: size * 0.4))
+                            .foregroundColor(.white.opacity(0.8))
+                            .font(.system(size: size * 0.38, weight: .medium))
                     )
             }
         }

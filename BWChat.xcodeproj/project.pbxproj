@@ -33,6 +33,16 @@
 		A10024 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10025 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10030 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
+		A10040 /* Group.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040; };
+		A10041 /* FriendRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041; };
+		A10042 /* FriendsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042; };
+		A10043 /* GroupsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043; };
+		A10044 /* GroupChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044; };
+		A10045 /* AddFriendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045; };
+		A10046 /* FriendRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10046; };
+		A10047 /* CreateGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047; };
+		A10048 /* GroupChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048; };
+		A10049 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +97,16 @@
 		B10026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10030 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		B10031 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B10040 /* Group.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Group.swift; sourceTree = "<group>"; };
+		B10041 /* FriendRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequest.swift; sourceTree = "<group>"; };
+		B10042 /* FriendsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsViewModel.swift; sourceTree = "<group>"; };
+		B10043 /* GroupsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsViewModel.swift; sourceTree = "<group>"; };
+		B10044 /* GroupChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatViewModel.swift; sourceTree = "<group>"; };
+		B10045 /* AddFriendView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFriendView.swift; sourceTree = "<group>"; };
+		B10046 /* FriendRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequestsView.swift; sourceTree = "<group>"; };
+		B10047 /* CreateGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateGroupView.swift; sourceTree = "<group>"; };
+		B10048 /* GroupChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; };
+		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -141,6 +161,8 @@
 				B10002 /* User.swift */,
 				B10003 /* Message.swift */,
 				B10004 /* Contact.swift */,
+				B10040 /* Group.swift */,
+				B10041 /* FriendRequest.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -151,6 +173,9 @@
 				B10005 /* AuthViewModel.swift */,
 				B10006 /* ChatViewModel.swift */,
 				B10007 /* ContactsViewModel.swift */,
+				B10042 /* FriendsViewModel.swift */,
+				B10043 /* GroupsViewModel.swift */,
+				B10044 /* GroupChatViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -164,6 +189,11 @@
 				B10011 /* ChatView.swift */,
 				B10012 /* MessageBubble.swift */,
 				B10013 /* ImagePreviewView.swift */,
+				B10045 /* AddFriendView.swift */,
+				B10046 /* FriendRequestsView.swift */,
+				B10047 /* CreateGroupView.swift */,
+				B10048 /* GroupChatView.swift */,
+				B10049 /* MainTabView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -341,6 +371,16 @@
 				A10022 /* Constants.swift in Sources */,
 				A10023 /* Extensions.swift in Sources */,
 				A10024 /* KeychainHelper.swift in Sources */,
+				A10040 /* Group.swift in Sources */,
+				A10041 /* FriendRequest.swift in Sources */,
+				A10042 /* FriendsViewModel.swift in Sources */,
+				A10043 /* GroupsViewModel.swift in Sources */,
+				A10044 /* GroupChatViewModel.swift in Sources */,
+				A10045 /* AddFriendView.swift in Sources */,
+				A10046 /* FriendRequestsView.swift in Sources */,
+				A10047 /* CreateGroupView.swift in Sources */,
+				A10048 /* GroupChatView.swift in Sources */,
+				A10049 /* MainTabView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
