@@ -17,11 +17,13 @@ struct GroupChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Messages - tap gesture only on scroll area
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         if viewModel.hasMore {
                             ProgressView()
+                                .tint(AppColors.accent)
                                 .padding()
                                 .onAppear {
                                     Task { await viewModel.loadMoreMessages() }
@@ -40,6 +42,8 @@ struct GroupChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.count) { _ in
                     if let last = viewModel.messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
@@ -48,15 +52,18 @@ struct GroupChatView: View {
                     }
                 }
                 .onAppear {
-                    if let last = viewModel.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let last = viewModel.messages.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
 
-            // Input bar
+            // Input bar - outside tap gesture
             groupInputBar
         }
+        .background(AppColors.secondaryBackground)
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -68,18 +75,22 @@ struct GroupChatView: View {
         )) { item in
             ImagePreviewView(imageURL: item.url)
         }
-        .onTapGesture { hideKeyboard() }
     }
+
+    // MARK: - Input Bar
 
     private var groupInputBar: some View {
         VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 8) {
+            Divider().opacity(0.3)
+
+            HStack(spacing: 10) {
+                // Image picker
                 PhotosPicker(selection: $selectedItem, matching: .images) {
-                    Image(systemName: "photo")
-                        .font(.system(size: 20))
-                        .foregroundColor(AppColors.secondaryText)
-                        .frame(width: 36, height: 36)
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
                 }
                 .onChange(of: selectedItem) { item in
                     guard let item = item else { return }
@@ -91,22 +102,32 @@ struct GroupChatView: View {
                     }
                 }
 
+                // Text input
                 TextField("输入消息...", text: $viewModel.inputText)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(AppColors.receivedBubble)
-                    .cornerRadius(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 22)
+                            .fill(AppColors.separator)
+                    )
                     .onSubmit {
                         Task { await viewModel.sendText() }
                     }
 
+                // Send button
                 Button {
                     Task { await viewModel.sendText() }
                 } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundStyle(viewModel.isSendEnabled ? AppColors.accentGradient : LinearGradient(colors: [AppColors.tertiaryText], startPoint: .top, endPoint: .bottom))
+                    ZStack {
+                        Circle()
+                            .fill(viewModel.isSendEnabled ? AppColors.accentGradient : LinearGradient(colors: [AppColors.separator, AppColors.separator], startPoint: .top, endPoint: .bottom))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(viewModel.isSendEnabled ? .white : AppColors.tertiaryText)
+                    }
+                    .contentShape(Circle())
                 }
                 .disabled(!viewModel.isSendEnabled)
             }
@@ -126,7 +147,7 @@ struct GroupMessageBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if isFromMe { Spacer(minLength: 50) }
+            if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
                 AvatarView(url: message.senderAvatar, size: 32)
@@ -147,7 +168,7 @@ struct GroupMessageBubble: View {
                 } else {
                     Text(message.content)
                         .font(.system(size: 16))
-                        .foregroundColor(isFromMe ? AppColors.sentBubbleText : AppColors.receivedBubbleText)
+                        .foregroundColor(isFromMe ? .white : AppColors.primaryText)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(
@@ -159,7 +180,7 @@ struct GroupMessageBubble: View {
                                 }
                             }
                         )
-                        .cornerRadius(18)
+                        .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
                 }
 
                 Text(message.formattedTime)
@@ -168,7 +189,7 @@ struct GroupMessageBubble: View {
                     .padding(.horizontal, 4)
             }
 
-            if !isFromMe { Spacer(minLength: 50) }
+            if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
     }

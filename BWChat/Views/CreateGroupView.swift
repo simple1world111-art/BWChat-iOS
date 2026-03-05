@@ -1,5 +1,5 @@
 // BWChat/Views/CreateGroupView.swift
-// Create group chat by selecting friends
+// Create group chat by selecting friends - adaptive layout
 
 import SwiftUI
 
@@ -40,51 +40,70 @@ struct CreateGroupView: View {
                         .textCase(.uppercase)
                         .padding(.horizontal, 16)
 
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(friendsVM.friends) { friend in
-                                let isSelected = selectedFriends.contains(friend.userID)
-                                Button {
-                                    if isSelected {
-                                        selectedFriends.remove(friend.userID)
-                                    } else {
-                                        selectedFriends.insert(friend.userID)
-                                    }
-                                } label: {
-                                    HStack(spacing: 14) {
-                                        // Selection indicator
-                                        ZStack {
-                                            Circle()
-                                                .strokeBorder(isSelected ? AppColors.accent : AppColors.tertiaryText, lineWidth: 2)
-                                                .frame(width: 24, height: 24)
-                                            if isSelected {
-                                                Circle()
-                                                    .fill(AppColors.accent)
-                                                    .frame(width: 24, height: 24)
-                                                Image(systemName: "checkmark")
-                                                    .font(.system(size: 11, weight: .bold))
-                                                    .foregroundColor(.white)
-                                            }
+                    if friendsVM.friends.isEmpty && !friendsVM.isLoading {
+                        VStack(spacing: 12) {
+                            Spacer()
+                            Image(systemName: "person.3")
+                                .font(.system(size: 36))
+                                .foregroundColor(AppColors.tertiaryText)
+                            Text("暂无好友，先添加好友吧")
+                                .font(.system(size: 14))
+                                .foregroundColor(AppColors.secondaryText)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 0) {
+                                ForEach(friendsVM.friends) { friend in
+                                    let isSelected = selectedFriends.contains(friend.userID)
+                                    Button {
+                                        if isSelected {
+                                            selectedFriends.remove(friend.userID)
+                                        } else {
+                                            selectedFriends.insert(friend.userID)
                                         }
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            // Selection indicator - bigger hit area
+                                            ZStack {
+                                                Circle()
+                                                    .strokeBorder(isSelected ? AppColors.accent : AppColors.tertiaryText, lineWidth: 2)
+                                                    .frame(width: 24, height: 24)
+                                                if isSelected {
+                                                    Circle()
+                                                        .fill(AppColors.accent)
+                                                        .frame(width: 24, height: 24)
+                                                    Image(systemName: "checkmark")
+                                                        .font(.system(size: 11, weight: .bold))
+                                                        .foregroundColor(.white)
+                                                }
+                                            }
+                                            .frame(width: 36, height: 36)
+                                            .contentShape(Circle())
 
-                                        AvatarView(url: friend.avatarURL, size: 42)
+                                            AvatarView(url: friend.avatarURL, size: 42)
 
-                                        Text(friend.nickname)
-                                            .font(.system(size: 16, weight: .medium))
-                                            .foregroundColor(AppColors.primaryText)
+                                            Text(friend.nickname)
+                                                .font(.system(size: 16, weight: .medium))
+                                                .foregroundColor(AppColors.primaryText)
+                                                .lineLimit(1)
 
-                                        Spacer()
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 8)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 10)
+                                    .buttonStyle(.plain)
+                                    Divider().padding(.leading, 76)
                                 }
-                                Divider().padding(.leading, 76)
                             }
                         }
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
             }
             .background(AppColors.background)
             .navigationTitle("创建群聊")
@@ -92,7 +111,10 @@ struct CreateGroupView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("取消") { dismiss() }
+                        .font(.system(size: 16))
                         .foregroundColor(AppColors.accent)
+                        .frame(height: 44)
+                        .contentShape(Rectangle())
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -108,6 +130,8 @@ struct CreateGroupView: View {
                         }
                     }
                     .disabled(!canCreate || isCreating)
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
                 }
             }
         }

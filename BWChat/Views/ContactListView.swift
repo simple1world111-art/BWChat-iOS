@@ -1,5 +1,5 @@
 // BWChat/Views/ContactListView.swift
-// Messages page - premium redesign with cards
+// Messages page - adaptive for all iPhone sizes
 
 import SwiftUI
 
@@ -25,8 +25,10 @@ struct ContactListView: View {
                         showLogoutAlert = true
                     } label: {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: 16, weight: .medium))
                             .foregroundColor(AppColors.secondaryText)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                 }
             }
@@ -63,14 +65,14 @@ struct ContactListView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
             ZStack {
                 Circle()
                     .fill(AppColors.accent.opacity(0.08))
-                    .frame(width: 90, height: 90)
+                    .frame(width: 80, height: 80)
                 Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 36))
+                    .font(.system(size: 32))
                     .foregroundColor(AppColors.accent.opacity(0.5))
             }
             Text("暂无聊天记录")
@@ -81,23 +83,20 @@ struct ContactListView: View {
                 .foregroundColor(AppColors.secondaryText)
             Spacer()
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
-// MARK: - Contact Row (Premium)
+// MARK: - Contact Row
 
 struct ContactRow: View {
     let contact: Contact
 
     var body: some View {
-        HStack(spacing: 14) {
-            // Avatar with online indicator
-            ZStack(alignment: .bottomTrailing) {
-                AvatarView(url: contact.avatarURL, size: 52)
-            }
+        HStack(spacing: 12) {
+            AvatarView(url: contact.avatarURL, size: 50)
 
-            // Name and message
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(contact.nickname)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(AppColors.primaryText)
@@ -116,10 +115,9 @@ struct ContactRow: View {
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            // Time and unread badge
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .trailing, spacing: 6) {
                 Text(contact.formattedTime)
                     .font(.system(size: 12))
                     .foregroundColor(AppColors.tertiaryText)

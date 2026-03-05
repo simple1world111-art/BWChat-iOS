@@ -1,5 +1,5 @@
 // BWChat/Views/MainTabView.swift
-// Main tab bar with Messages, Groups, Contacts
+// Main tab bar with Messages, Groups, Contacts - adaptive layout
 
 import SwiftUI
 
@@ -43,18 +43,18 @@ struct ContactsTabView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
-                    // Quick actions
+                    // Quick actions - friend requests link
                     VStack(spacing: 0) {
                         NavigationLink {
                             FriendRequestsView()
                         } label: {
-                            HStack(spacing: 14) {
+                            HStack(spacing: 12) {
                                 ZStack {
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(AppColors.warningColor.opacity(0.12))
-                                        .frame(width: 42, height: 42)
+                                        .frame(width: 40, height: 40)
                                     Image(systemName: "person.crop.circle.badge.clock")
-                                        .font(.system(size: 18))
+                                        .font(.system(size: 17))
                                         .foregroundColor(AppColors.warningColor)
                                 }
 
@@ -79,21 +79,20 @@ struct ContactsTabView: View {
                                     .foregroundColor(AppColors.tertiaryText)
                             }
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
                         }
-
-                        Divider().padding(.leading, 72)
                     }
                     .background(AppColors.cardBackground)
-                    .cornerRadius(16)
+                    .cornerRadius(14)
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
 
                     // Friends list
                     if viewModel.friends.isEmpty && !viewModel.isLoading {
-                        VStack(spacing: 16) {
+                        VStack(spacing: 14) {
                             Image(systemName: "person.2.slash")
-                                .font(.system(size: 40))
+                                .font(.system(size: 36))
                                 .foregroundColor(AppColors.tertiaryText)
                             Text("还没有好友")
                                 .font(.system(size: 15))
@@ -102,7 +101,8 @@ struct ContactsTabView: View {
                                 .font(.system(size: 13))
                                 .foregroundColor(AppColors.tertiaryText)
                         }
-                        .padding(.top, 80)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
                     } else {
                         VStack(alignment: .leading, spacing: 0) {
                             Text("好友 (\(viewModel.friends.count))")
@@ -110,13 +110,13 @@ struct ContactsTabView: View {
                                 .foregroundColor(AppColors.secondaryText)
                                 .textCase(.uppercase)
                                 .padding(.horizontal, 16)
-                                .padding(.top, 24)
+                                .padding(.top, 20)
                                 .padding(.bottom, 8)
 
                             VStack(spacing: 0) {
                                 ForEach(viewModel.friends) { friend in
-                                    HStack(spacing: 14) {
-                                        AvatarView(url: friend.avatarURL, size: 44)
+                                    HStack(spacing: 12) {
+                                        AvatarView(url: friend.avatarURL, size: 42)
 
                                         Text(friend.nickname)
                                             .font(.system(size: 16, weight: .medium))
@@ -128,12 +128,12 @@ struct ContactsTabView: View {
                                     .padding(.vertical, 10)
 
                                     if friend.id != viewModel.friends.last?.id {
-                                        Divider().padding(.leading, 74)
+                                        Divider().padding(.leading, 70)
                                     }
                                 }
                             }
                             .background(AppColors.cardBackground)
-                            .cornerRadius(16)
+                            .cornerRadius(14)
                             .padding(.horizontal, 16)
                         }
                     }
@@ -148,8 +148,10 @@ struct ContactsTabView: View {
                         showAddFriend = true
                     } label: {
                         Image(systemName: "person.badge.plus")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundColor(AppColors.accent)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                 }
             }
@@ -178,14 +180,14 @@ struct GroupListView: View {
         NavigationStack {
             Group {
                 if viewModel.groups.isEmpty && !viewModel.isLoading {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 14) {
                         Spacer()
                         ZStack {
                             Circle()
                                 .fill(AppColors.groupAccent.opacity(0.08))
-                                .frame(width: 80, height: 80)
+                                .frame(width: 70, height: 70)
                             Image(systemName: "person.3")
-                                .font(.system(size: 32))
+                                .font(.system(size: 28))
                                 .foregroundColor(AppColors.groupAccent.opacity(0.5))
                         }
                         Text("暂无群聊")
@@ -196,6 +198,7 @@ struct GroupListView: View {
                             .foregroundColor(AppColors.tertiaryText)
                         Spacer()
                     }
+                    .frame(maxWidth: .infinity)
                 } else {
                     List {
                         ForEach(viewModel.groups) { group in
@@ -204,6 +207,7 @@ struct GroupListView: View {
                             }
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.plain)
@@ -212,6 +216,7 @@ struct GroupListView: View {
                     }
                 }
             }
+            .background(AppColors.secondaryBackground)
             .navigationTitle("群聊")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -219,8 +224,10 @@ struct GroupListView: View {
                         showCreateGroup = true
                     } label: {
                         Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 18))
+                            .font(.system(size: 20))
                             .foregroundStyle(AppColors.accentGradient)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                 }
             }
@@ -239,14 +246,16 @@ struct GroupListView: View {
     }
 }
 
+// MARK: - Group Row
+
 struct GroupRow: View {
     let group: ChatGroup
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             // Group avatar
             ZStack {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(
                         LinearGradient(
                             colors: [Color(hex: "5856D6").opacity(0.8), Color(hex: "764BA2").opacity(0.6)],
@@ -254,14 +263,14 @@ struct GroupRow: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 50, height: 50)
+                    .frame(width: 48, height: 48)
                 Image(systemName: "person.3.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 16))
                     .foregroundColor(.white)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
+                HStack(spacing: 4) {
                     Text(group.name)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(AppColors.primaryText)
@@ -287,7 +296,7 @@ struct GroupRow: View {
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 4)
 
             VStack(alignment: .trailing, spacing: 6) {
                 Text(group.formattedTime)

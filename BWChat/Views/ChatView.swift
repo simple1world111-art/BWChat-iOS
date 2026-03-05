@@ -18,7 +18,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages list
+            // Messages list - tap to dismiss keyboard only on scroll area
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
@@ -49,6 +49,8 @@ struct ChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.count) { _ in
                     if let last = viewModel.messages.last {
                         withAnimation(.easeOut(duration: 0.2)) {
@@ -57,19 +59,20 @@ struct ChatView: View {
                     }
                 }
                 .onAppear {
-                    if let last = viewModel.messages.last {
-                        proxy.scrollTo(last.id, anchor: .bottom)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        if let last = viewModel.messages.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
 
-            // Premium Input Bar
+            // Input Bar - outside tap gesture so buttons work
             inputBar
         }
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(false)
         .task {
             await viewModel.loadMessages()
         }
@@ -79,10 +82,9 @@ struct ChatView: View {
         )) { item in
             ImagePreviewView(imageURL: item.url)
         }
-        .onTapGesture { hideKeyboard() }
     }
 
-    // MARK: - Premium Input Bar
+    // MARK: - Input Bar
 
     private var inputBar: some View {
         VStack(spacing: 0) {
@@ -94,7 +96,8 @@ struct ChatView: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 20, weight: .medium))
                         .foregroundColor(AppColors.accent)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
                 }
                 .onChange(of: selectedItem) { item in
                     guard let item = item else { return }
@@ -106,7 +109,7 @@ struct ChatView: View {
                     }
                 }
 
-                // Text input with inset style
+                // Text input
                 TextField("输入消息...", text: $viewModel.inputText)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
@@ -119,25 +122,33 @@ struct ChatView: View {
                         Task { await viewModel.sendText() }
                     }
 
-                // Gradient send button
+                // Send button
                 Button {
                     Task { await viewModel.sendText() }
                 } label: {
                     ZStack {
                         Circle()
                             .fill(viewModel.isSendEnabled ? AppColors.accentGradient : LinearGradient(colors: [AppColors.separator, AppColors.separator], startPoint: .top, endPoint: .bottom))
-                            .frame(width: 36, height: 36)
+                            .frame(width: 40, height: 40)
                         Image(systemName: "arrow.up")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(viewModel.isSendEnabled ? .white : AppColors.tertiaryText)
                     }
+                    .contentShape(Circle())
                 }
                 .disabled(!viewModel.isSendEnabled)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .padding(.bottom, safeAreaBottomPadding)
         }
         .background(.ultraThinMaterial)
+    }
+
+    private var safeAreaBottomPadding: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = scenes.first as? UIWindowScene
+        return windowScene?.windows.first?.safeAreaInsets.bottom ?? 0 > 0 ? 0 : 0
     }
 }
 

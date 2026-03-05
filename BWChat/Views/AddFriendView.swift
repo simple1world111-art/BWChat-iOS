@@ -1,5 +1,5 @@
 // BWChat/Views/AddFriendView.swift
-// Search and add friends
+// Search and add friends - adaptive layout
 
 import SwiftUI
 
@@ -11,7 +11,7 @@ struct AddFriendView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Search bar
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(AppColors.secondaryText)
                         .font(.system(size: 16))
@@ -20,6 +20,7 @@ struct AddFriendView: View {
                         .font(.system(size: 16))
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
+                        .submitLabel(.search)
                         .onChange(of: viewModel.searchText) { _ in
                             viewModel.debouncedSearch()
                         }
@@ -31,12 +32,14 @@ struct AddFriendView: View {
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(AppColors.tertiaryText)
-                                .font(.system(size: 16))
+                                .font(.system(size: 18))
+                                .frame(width: 36, height: 36)
+                                .contentShape(Circle())
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .background(AppColors.separator.opacity(0.8))
                 .cornerRadius(12)
                 .padding(.horizontal, 16)
@@ -45,15 +48,26 @@ struct AddFriendView: View {
                 if viewModel.isSearching {
                     Spacer()
                     ProgressView()
-                        .scaleEffect(1.2)
+                        .tint(AppColors.accent)
                     Spacer()
                 } else if viewModel.searchResults.isEmpty && !viewModel.searchText.isEmpty {
                     Spacer()
                     VStack(spacing: 12) {
                         Image(systemName: "person.slash")
-                            .font(.system(size: 40))
+                            .font(.system(size: 36))
                             .foregroundColor(AppColors.tertiaryText)
                         Text("未找到相关用户")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppColors.secondaryText)
+                    }
+                    Spacer()
+                } else if viewModel.searchText.isEmpty {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 36))
+                            .foregroundColor(AppColors.tertiaryText)
+                        Text("输入用户名或昵称搜索")
                             .font(.system(size: 15))
                             .foregroundColor(AppColors.secondaryText)
                     }
@@ -65,10 +79,10 @@ struct AddFriendView: View {
                                 SearchUserRow(user: user) {
                                     Task { await viewModel.sendFriendRequest(to: user.userID) }
                                 }
-                                Divider().padding(.leading, 76)
+                                Divider().padding(.leading, 72)
                             }
                         }
-                        .padding(.top, 12)
+                        .padding(.top, 8)
                     }
                 }
             }
@@ -77,8 +91,15 @@ struct AddFriendView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") { dismiss() }
-                        .foregroundColor(AppColors.accent)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("取消")
+                            .font(.system(size: 16))
+                            .foregroundColor(AppColors.accent)
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
+                    }
                 }
             }
             .toast(message: $viewModel.successMessage)
@@ -94,58 +115,62 @@ struct SearchUserRow: View {
     let onAdd: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            AvatarView(url: user.avatarURL, size: 48)
+        HStack(spacing: 12) {
+            AvatarView(url: user.avatarURL, size: 44)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(user.nickname)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppColors.primaryText)
-            }
+            Text(user.nickname)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(AppColors.primaryText)
+                .lineLimit(1)
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            switch user.relation {
-            case "friend":
-                Text("已是好友")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppColors.secondaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(AppColors.separator)
-                    .cornerRadius(16)
-
-            case "pending_sent":
-                Text("已发送")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppColors.secondaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(AppColors.separator)
-                    .cornerRadius(16)
-
-            case "pending_received":
-                Text("待接受")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppColors.warningColor)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(AppColors.warningColor.opacity(0.1))
-                    .cornerRadius(16)
-
-            default:
-                Button(action: onAdd) {
-                    Text("添加")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 7)
-                        .background(AppColors.accentGradient)
-                        .cornerRadius(16)
-                }
-            }
+            actionButton
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var actionButton: some View {
+        switch user.relation {
+        case "friend":
+            Text("已是好友")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(AppColors.secondaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(AppColors.separator)
+                .cornerRadius(16)
+
+        case "pending_sent":
+            Text("已发送")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(AppColors.secondaryText)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(AppColors.separator)
+                .cornerRadius(16)
+
+        case "pending_received":
+            Text("待接受")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(AppColors.warningColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(AppColors.warningColor.opacity(0.1))
+                .cornerRadius(16)
+
+        default:
+            Button(action: onAdd) {
+                Text("添加")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(AppColors.accentGradient)
+                    .cornerRadius(16)
+            }
+        }
     }
 }

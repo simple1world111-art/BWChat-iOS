@@ -1,5 +1,5 @@
 // BWChat/Views/MessageBubble.swift
-// Premium gradient message bubble
+// Premium gradient message bubble - adaptive spacing
 
 import SwiftUI
 
@@ -10,7 +10,7 @@ struct MessageBubble: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
-            if isFromMe { Spacer(minLength: 60) }
+            if isFromMe { Spacer(minLength: 40) }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
                 if message.isImage {
@@ -25,7 +25,7 @@ struct MessageBubble: View {
                     .padding(.horizontal, 4)
             }
 
-            if !isFromMe { Spacer(minLength: 60) }
+            if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
     }
