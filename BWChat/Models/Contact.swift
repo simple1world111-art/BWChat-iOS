@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct Contact: Codable, Identifiable, Equatable {
+struct Contact: Codable, Identifiable, Equatable, Hashable {
     let userID: String
     let nickname: String
     let avatarURL: String
