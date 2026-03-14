@@ -105,8 +105,10 @@ struct ChatView: View {
                 .onChange(of: selectedItem) { item in
                     guard let item = item else { return }
                     Task {
-                        if let data = try? await item.loadTransferable(type: Data.self) {
-                            await viewModel.sendImage(data: data)
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let uiImage = UIImage(data: data),
+                           let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
+                            await viewModel.sendImage(data: jpegData)
                         }
                         selectedItem = nil
                     }

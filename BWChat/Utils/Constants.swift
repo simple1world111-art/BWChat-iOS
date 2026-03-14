@@ -13,7 +13,6 @@ enum AppConfig {
     #endif
 
     static let appName = "BWChat"
-    static let maxImageSize = 10 * 1024 * 1024
     static let messagePageSize = 30
     static let wsHeartbeatInterval: TimeInterval = 30
 }
