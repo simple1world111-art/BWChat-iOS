@@ -72,5 +72,39 @@ class GroupsViewModel: ObservableObject {
                 Task { await self?.loadGroups() }
             }
             .store(in: &cancellables)
+
+        WebSocketService.shared.groupContactUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] data in
+                self?.handleGroupContactUpdate(data)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func handleGroupContactUpdate(_ data: [String: Any]) {
+        guard let groupID = data["group_id"] as? Int,
+              let lastMessage = data["last_message"] as? String,
+              let lastMessageTime = data["last_message_time"] as? String else { return }
+
+        let senderNickname = data["sender_nickname"] as? String
+        let senderID = data["sender_id"] as? String
+        let myID = AuthManager.shared.currentUser?.userID
+
+        if let index = groups.firstIndex(where: { $0.groupID == groupID }) {
+            let g = groups[index]
+            let updated = ChatGroup(
+                groupID: g.groupID,
+                name: g.name,
+                avatarURL: g.avatarURL,
+                creatorID: g.creatorID,
+                memberCount: g.memberCount,
+                lastMessage: lastMessage,
+                lastMessageTime: lastMessageTime,
+                lastMessageSender: senderNickname ?? g.lastMessageSender,
+                unreadCount: g.unreadCount + (senderID != myID ? 1 : 0)
+            )
+            groups[index] = updated
+            groups.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+        }
     }
 }

@@ -78,6 +78,13 @@ class ContactsViewModel: ObservableObject {
                 self?.handleChatReset()
             }
             .store(in: &cancellables)
+
+        WebSocketService.shared.contactUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] data in
+                self?.handleContactUpdate(data)
+            }
+            .store(in: &cancellables)
     }
 
     private func handleNewMessage(_ message: Message) {
@@ -119,5 +126,29 @@ class ContactsViewModel: ObservableObject {
             )
         }
         ImageCacheManager.shared.clearCache()
+    }
+
+    private func handleContactUpdate(_ data: [String: Any]) {
+        guard let senderID = data["sender_id"] as? String,
+              let receiverID = data["receiver_id"] as? String,
+              let lastMessage = data["last_message"] as? String,
+              let lastMessageTime = data["last_message_time"] as? String else { return }
+
+        let myID = AuthManager.shared.currentUser?.userID
+        let contactID = (senderID == myID) ? receiverID : senderID
+
+        if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
+            let existing = contacts[index]
+            let updated = Contact(
+                userID: existing.userID,
+                nickname: existing.nickname,
+                avatarURL: existing.avatarURL,
+                lastMessage: lastMessage,
+                lastMessageTime: lastMessageTime,
+                unreadCount: existing.unreadCount + (senderID != myID ? 1 : 0)
+            )
+            contacts[index] = updated
+            contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+        }
     }
 }

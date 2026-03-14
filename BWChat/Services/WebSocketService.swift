@@ -29,6 +29,8 @@ class WebSocketService: ObservableObject {
     let groupCreatedPublisher = PassthroughSubject<[String: Any], Never>()
     let friendRequestPublisher = PassthroughSubject<[String: String], Never>()
     let friendAcceptedPublisher = PassthroughSubject<[String: String], Never>()
+    let contactUpdatePublisher = PassthroughSubject<[String: Any], Never>()
+    let groupContactUpdatePublisher = PassthroughSubject<[String: Any], Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
@@ -151,6 +153,16 @@ class WebSocketService: ObservableObject {
 
         case "pong":
             break
+
+        case "contact_update":
+            if let d = json["data"] as? [String: Any] {
+                contactUpdatePublisher.send(d)
+            }
+
+        case "group_contact_update":
+            if let d = json["data"] as? [String: Any] {
+                groupContactUpdatePublisher.send(d)
+            }
 
         default:
             print("[WS] Unknown message type: \(type)")
