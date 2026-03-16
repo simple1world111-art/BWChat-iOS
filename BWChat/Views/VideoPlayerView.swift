@@ -57,13 +57,21 @@ struct VideoPlayerView: View {
     }
 
     private func loadVideo() async {
+        // Build the video URL, using the public (no-auth) endpoint.
+        // AVPlayer doesn't reliably send custom Authorization headers
+        // on all Range requests, so we must use the public endpoint.
+        var path = videoURL
+        if path.hasPrefix("/api/v1/images/") {
+            path = path.replacingOccurrences(of: "/api/v1/images/", with: "/api/v1/public/images/")
+        }
+
         let urlString: String
-        if videoURL.hasPrefix("http") {
-            urlString = videoURL
-        } else if videoURL.hasPrefix("/") {
-            urlString = AppConfig.apiBaseURL.replacingOccurrences(of: "/api/v1", with: "") + videoURL
+        if path.hasPrefix("http") {
+            urlString = path
+        } else if path.hasPrefix("/") {
+            urlString = AppConfig.apiBaseURL.replacingOccurrences(of: "/api/v1", with: "") + path
         } else {
-            urlString = AppConfig.apiBaseURL + "/" + videoURL
+            urlString = AppConfig.apiBaseURL + "/" + path
         }
 
         guard let url = URL(string: urlString) else {
@@ -72,15 +80,7 @@ struct VideoPlayerView: View {
             return
         }
 
-        // Build a request with auth header
-        if let token = AuthManager.shared.token {
-            let headers = ["Authorization": "Bearer \(token)"]
-            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-            let playerItem = AVPlayerItem(asset: asset)
-            player = AVPlayer(playerItem: playerItem)
-        } else {
-            player = AVPlayer(url: url)
-        }
+        player = AVPlayer(url: url)
         isLoading = false
     }
 }
