@@ -144,12 +144,17 @@ struct ChatView: View {
                 .onChange(of: selectedVideoItem) { item in
                     guard let item = item else { return }
                     Task {
-                        if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                            let data = try Data(contentsOf: movie.url)
-                            let ext = movie.url.pathExtension.lowercased()
-                            let filename = "video_\(Int(Date().timeIntervalSince1970)).\(ext.isEmpty ? "mp4" : ext)"
-                            await viewModel.sendVideo(data: data, filename: filename)
-                            try? FileManager.default.removeItem(at: movie.url)
+                        do {
+                            if let movie = try await item.loadTransferable(type: VideoTransferable.self) {
+                                let data = try Data(contentsOf: movie.url)
+                                let ext = movie.url.pathExtension.lowercased()
+                                let filename = "video_\(Int(Date().timeIntervalSince1970)).\(ext.isEmpty ? "mp4" : ext)"
+                                await viewModel.sendVideo(data: data, filename: filename)
+                                try? FileManager.default.removeItem(at: movie.url)
+                            }
+                        } catch {
+                            print("[Chat] Video pick failed: \(error)")
+                            viewModel.errorMessage = "视频读取失败"
                         }
                         selectedVideoItem = nil
                     }

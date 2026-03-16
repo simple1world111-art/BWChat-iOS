@@ -77,6 +77,8 @@ struct SplashScreen: View {
             authManager.isLoggedIn = true
             WebSocketService.shared.connect()
             PushService.shared.requestPermission()
+            // Re-upload device token (may have been cleared by previous logout)
+            PushService.shared.ensureTokenUploaded()
         } catch {
             authManager.logout()
         }

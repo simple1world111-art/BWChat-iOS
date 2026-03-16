@@ -42,7 +42,23 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        print("[Push] Failed to register: \(error.localizedDescription)")
+        print("[Push] Failed to register: \\(error.localizedDescription)")
+    }
+
+    // MARK: - Background Push (content-available)
+
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        // Background wake: update badge count on app icon
+        if let badge = (userInfo["aps"] as? [String: Any])?["badge"] as? Int {
+            Task { @MainActor in
+                UIApplication.shared.applicationIconBadgeNumber = badge
+            }
+        }
+        completionHandler(.newData)
     }
 
     // MARK: - Push Notification Handling
@@ -53,8 +69,25 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // Show notification even when app is in foreground
-        completionHandler([.banner, .sound])
+        let userInfo = notification.request.content.userInfo
+        let senderID = userInfo["sender_id"] as? String ?? ""
+
+        // If user is currently viewing this chat, suppress the notification banner
+        if let activeChatID = WebSocketService.shared.activeChatUserID, activeChatID == senderID {
+            completionHandler([])
+            return
+        }
+
+        // If group notification and user is viewing that group, suppress
+        if let groupID = userInfo["group_id"] as? Int,
+           let activeGroupID = WebSocketService.shared.activeGroupID,
+           activeGroupID == groupID {
+            completionHandler([])
+            return
+        }
+
+        // Show notification banner + sound
+        completionHandler([.banner, .sound, .badge])
     }
 
     /// Notification tap handling
@@ -64,14 +97,21 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        if let senderID = userInfo["sender_id"] as? String {
-            // Handle navigation to chat
+
+        if let groupID = userInfo["group_id"] as? Int {
+            NotificationCenter.default.post(
+                name: .init("openGroupChat"),
+                object: nil,
+                userInfo: ["group_id": groupID]
+            )
+        } else if let senderID = userInfo["sender_id"] as? String {
             NotificationCenter.default.post(
                 name: .init("openChat"),
                 object: nil,
                 userInfo: ["sender_id": senderID]
             )
         }
+
         Task { @MainActor in
             PushService.shared.clearBadge()
         }

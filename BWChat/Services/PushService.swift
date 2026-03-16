@@ -28,21 +28,28 @@ class PushService: ObservableObject {
         }
     }
 
-    /// Handle device token registration
+    /// Handle device token registration from APNs callback
     func didRegisterForRemoteNotifications(deviceToken: Data) {
         let tokenString = deviceToken.hexString
         print("[Push] Device token: \(tokenString)")
 
-        let previousToken = UserDefaults.standard.string(forKey: "device_token")
+        UserDefaults.standard.set(tokenString, forKey: "device_token")
+        cachedDeviceToken = tokenString
 
-        if tokenString != previousToken {
-            UserDefaults.standard.set(tokenString, forKey: "device_token")
-            cachedDeviceToken = tokenString
-
-            // Upload to server
+        // Always upload to server (token may have been cleared by logout)
+        if AuthManager.shared.token != nil {
             Task {
                 try? await APIService.shared.registerDeviceToken(tokenString)
             }
+        }
+    }
+
+    /// Ensure the device token is uploaded to the server.
+    /// Call this after every successful login (manual or auto-login).
+    func ensureTokenUploaded() {
+        guard let token = deviceToken else { return }
+        Task {
+            try? await APIService.shared.registerDeviceToken(token)
         }
     }
 

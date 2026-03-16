@@ -21,13 +21,14 @@ class NotificationService: UNNotificationServiceExtension {
 
         // Check for image URL in payload
         guard let imageURLString = request.content.userInfo["image_url"] as? String,
-              let imageURL = URL(string: imageURLString) else {
+              let imageURL = URL(string: imageURLString),
+              imageURL.scheme != nil else {
             contentHandler(bestAttemptContent)
             return
         }
 
-        // Download image attachment
-        downloadImage(from: imageURL) { attachment in
+        // Download image attachment (use public endpoint, no auth needed)
+        downloadMedia(from: imageURL, fileExtension: "jpg") { attachment in
             if let attachment = attachment {
                 bestAttemptContent.attachments = [attachment]
             }
@@ -41,20 +42,19 @@ class NotificationService: UNNotificationServiceExtension {
         }
     }
 
-    private func downloadImage(from url: URL, completion: @escaping (UNNotificationAttachment?) -> Void) {
+    private func downloadMedia(from url: URL, fileExtension: String, completion: @escaping (UNNotificationAttachment?) -> Void) {
         URLSession.shared.downloadTask(with: url) { localURL, response, error in
             guard let localURL = localURL, error == nil else {
                 completion(nil)
                 return
             }
 
-            // Move to temp file with proper extension
             let tmpDir = FileManager.default.temporaryDirectory
-            let tmpFile = tmpDir.appendingPathComponent(UUID().uuidString + ".jpg")
+            let tmpFile = tmpDir.appendingPathComponent(UUID().uuidString + "." + fileExtension)
 
             do {
                 try FileManager.default.moveItem(at: localURL, to: tmpFile)
-                let attachment = try UNNotificationAttachment(identifier: "image", url: tmpFile, options: nil)
+                let attachment = try UNNotificationAttachment(identifier: "media", url: tmpFile, options: nil)
                 completion(attachment)
             } catch {
                 completion(nil)

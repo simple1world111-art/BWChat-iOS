@@ -32,8 +32,9 @@ class AuthViewModel: ObservableObject {
             // Connect WebSocket
             WebSocketService.shared.connect()
 
-            // Request push permission
+            // Request push permission & ensure device token uploaded
             PushService.shared.requestPermission()
+            PushService.shared.ensureTokenUploaded()
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {

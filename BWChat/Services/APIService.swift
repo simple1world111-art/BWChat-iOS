@@ -40,7 +40,7 @@ class APIService {
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        config.timeoutIntervalForResource = 300
         self.session = URLSession(configuration: config)
         self.baseURL = AppConfig.apiBaseURL
     }
@@ -440,7 +440,7 @@ class APIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
+        request.timeoutInterval = 600
         addAuthHeader(&request)
 
         var body = Data()
