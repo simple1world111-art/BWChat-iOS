@@ -221,20 +221,14 @@ struct GroupMessageBubble: View {
                         .onTapGesture { onImageTap?(message.content) }
                 } else if message.isVideo {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(isFromMe ? Color.blue.opacity(0.15) : AppColors.separator)
-                            .frame(width: 200, height: 140)
+                        VideoThumbnailView(videoURL: message.content)
+                            .frame(maxWidth: 200, maxHeight: 250)
+                            .cornerRadius(16)
 
-                        VStack(spacing: 8) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 44))
-                                .foregroundColor(.white)
-                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-
-                            Text("视频")
-                                .font(.system(size: 13))
-                                .foregroundColor(AppColors.secondaryText)
-                        }
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                     }
                     .cornerRadius(16)
                     .onTapGesture { onVideoTap?(message.content) }

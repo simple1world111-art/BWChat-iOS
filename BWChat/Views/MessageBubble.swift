@@ -73,20 +73,14 @@ struct MessageBubble: View {
 
     private var videoBubble: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(isFromMe ? Color.blue.opacity(0.15) : AppColors.separator)
-                .frame(width: 200, height: 140)
+            VideoThumbnailView(videoURL: message.content)
+                .frame(maxWidth: 200, maxHeight: 250)
+                .cornerRadius(14)
 
-            VStack(spacing: 8) {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 44))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-
-                Text("视频")
-                    .font(.system(size: 13))
-                    .foregroundColor(AppColors.secondaryText)
-            }
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 44))
+                .foregroundColor(.white)
+                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
         }
         .cornerRadius(14)
         .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)

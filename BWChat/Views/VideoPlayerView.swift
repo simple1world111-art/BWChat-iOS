@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AVKit
+import AVFoundation
 
 struct VideoPlayerView: View {
     let videoURL: String
@@ -18,7 +19,12 @@ struct VideoPlayerView: View {
             if let player = player {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
-                    .onAppear { player.play() }
+                    .onAppear {
+                        // Ensure audio plays even in silent mode
+                        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                        player.play()
+                    }
             } else if isLoading {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
