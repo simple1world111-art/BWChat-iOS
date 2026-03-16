@@ -11,6 +11,8 @@ class PushService: ObservableObject {
 
     @Published var isAuthorized: Bool = false
     private var cachedDeviceToken: String?
+    /// Track whether we need to upload once we receive a token
+    private var pendingUpload: Bool = false
 
     private init() {}
 
@@ -36,20 +38,30 @@ class PushService: ObservableObject {
         UserDefaults.standard.set(tokenString, forKey: "device_token")
         cachedDeviceToken = tokenString
 
-        // Always upload to server (token may have been cleared by logout)
+        // Upload to server if we're logged in
         if AuthManager.shared.token != nil {
-            Task {
-                try? await APIService.shared.registerDeviceToken(tokenString)
-            }
+            uploadTokenToServer(tokenString)
+        }
+
+        // If ensureTokenUploaded() was called before we got the token,
+        // fulfill that pending request now
+        if pendingUpload {
+            pendingUpload = false
+            uploadTokenToServer(tokenString)
         }
     }
 
     /// Ensure the device token is uploaded to the server.
     /// Call this after every successful login (manual or auto-login).
     func ensureTokenUploaded() {
-        guard let token = deviceToken else { return }
-        Task {
-            try? await APIService.shared.registerDeviceToken(token)
+        if let token = deviceToken {
+            uploadTokenToServer(token)
+        } else {
+            // Token not yet received from APNs - mark as pending.
+            // When didRegisterForRemoteNotifications fires, it will upload.
+            pendingUpload = true
+            // Also re-register in case the system hasn't called back yet
+            UIApplication.shared.registerForRemoteNotifications()
         }
     }
 
@@ -77,5 +89,18 @@ class PushService: ObservableObject {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request)
+    }
+
+    // MARK: - Private
+
+    private func uploadTokenToServer(_ token: String) {
+        Task {
+            do {
+                try await APIService.shared.registerDeviceToken(token)
+                print("[Push] Device token uploaded successfully")
+            } catch {
+                print("[Push] Failed to upload device token: \(error)")
+            }
+        }
     }
 }
