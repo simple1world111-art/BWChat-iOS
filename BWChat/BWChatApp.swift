@@ -12,7 +12,7 @@ struct BWChatApp: App {
         WindowGroup {
             SplashScreen()
                 .preferredColorScheme(nil) // Support both light and dark
-                .onChange(of: scenePhase) { _, newPhase in
+                .onChange(of: scenePhase) { newPhase in
                     handleScenePhase(newPhase)
                 }
         }
