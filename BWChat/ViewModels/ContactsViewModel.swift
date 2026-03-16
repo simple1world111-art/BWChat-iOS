@@ -111,16 +111,6 @@ class ContactsViewModel: ObservableObject {
             contacts[index] = updated
             // Re-sort
             contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
-
-            // Show local notification if message is from someone else
-            // and user is NOT currently viewing that chat
-            if isFromOther && WebSocketService.shared.activeChatUserID != contactID {
-                PushService.shared.showLocalNotification(
-                    title: existing.nickname,
-                    body: lastMsg,
-                    userInfo: ["sender_id": contactID]
-                )
-            }
         }
     }
 
