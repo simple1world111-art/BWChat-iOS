@@ -24,6 +24,14 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+
+        // Register for remote notifications EARLY — iOS returns a device token
+        // regardless of whether the user has granted notification permission.
+        // This ensures we have a token ready when the user logs in.
+        Task { @MainActor in
+            PushService.shared.registerForRemoteNotifications()
+        }
+
         return true
     }
 
@@ -42,7 +50,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        print("[Push] Failed to register: \\(error.localizedDescription)")
+        Task { @MainActor in
+            PushService.shared.didFailToRegisterForRemoteNotifications(error: error)
+        }
     }
 
     // MARK: - Background Push (content-available)
