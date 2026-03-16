@@ -6,11 +6,35 @@ import SwiftUI
 @main
 struct BWChatApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             SplashScreen()
                 .preferredColorScheme(nil) // Support both light and dark
+                .onChange(of: scenePhase) { _, newPhase in
+                    handleScenePhase(newPhase)
+                }
+        }
+    }
+
+    private func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .active:
+            // App returned to foreground — ensure push & WebSocket are alive
+            Task { @MainActor in
+                PushService.shared.reregisterIfNeeded()
+                if AuthManager.shared.isLoggedIn && !WebSocketService.shared.isConnected {
+                    WebSocketService.shared.connect()
+                }
+            }
+        case .background:
+            // Nothing needed — APNs delivers while we're in background/killed
+            break
+        case .inactive:
+            break
+        @unknown default:
+            break
         }
     }
 }
@@ -62,8 +86,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        // Background wake: update badge count on app icon
-        if let badge = (userInfo["aps"] as? [String: Any])?["badge"] as? Int {
+        // Update badge count from the push payload
+        if let aps = userInfo["aps"] as? [String: Any],
+           let badge = aps["badge"] as? Int {
             Task { @MainActor in
                 UIApplication.shared.applicationIconBadgeNumber = badge
             }
@@ -80,15 +105,17 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let userInfo = notification.request.content.userInfo
-        let senderID = userInfo["sender_id"] as? String ?? ""
 
-        // If user is currently viewing this chat, suppress the notification banner
-        if let activeChatID = WebSocketService.shared.activeChatUserID, activeChatID == senderID {
+        // Suppress DM notification banner if viewing that chat
+        if let senderID = userInfo["sender_id"] as? String,
+           let activeChatID = WebSocketService.shared.activeChatUserID,
+           activeChatID == senderID,
+           userInfo["group_id"] == nil {
             completionHandler([])
             return
         }
 
-        // If group notification and user is viewing that group, suppress
+        // Suppress group notification banner if viewing that group
         if let groupID = userInfo["group_id"] as? Int,
            let activeGroupID = WebSocketService.shared.activeGroupID,
            activeGroupID == groupID {
@@ -96,7 +123,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
-        // Show notification banner + sound
+        // Show notification banner + sound + badge
         completionHandler([.banner, .sound, .badge])
     }
 

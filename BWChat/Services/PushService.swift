@@ -46,6 +46,21 @@ class PushService: ObservableObject {
         }
     }
 
+    /// Re-register for push notifications when app becomes active.
+    /// This ensures the device token stays fresh and is re-uploaded
+    /// after the app returns from background or after being killed.
+    func reregisterIfNeeded() {
+        // Always ask iOS for a fresh token when becoming active
+        UIApplication.shared.registerForRemoteNotifications()
+
+        // If we have a token and are logged in but haven't uploaded, upload now
+        if let token = deviceToken, AuthManager.shared.token != nil, !tokenUploaded {
+            print("[Push] Re-uploading token on foreground return")
+            uploadRetryCount = 0
+            uploadTokenToServer(token)
+        }
+    }
+
     /// Handle device token registration from APNs callback.
     /// Called by AppDelegate when APNs returns a device token.
     func didRegisterForRemoteNotifications(deviceToken: Data) {
@@ -111,23 +126,6 @@ class PushService: ObservableObject {
     /// Clear badge count
     func clearBadge() {
         UIApplication.shared.applicationIconBadgeNumber = 0
-    }
-
-    /// Show local notification for in-app messages received via WebSocket.
-    /// This is the fallback when APNs remote push is not available.
-    func showLocalNotification(title: String, body: String, userInfo: [String: Any] = [:]) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        content.userInfo = userInfo
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request)
     }
 
     // MARK: - Private
