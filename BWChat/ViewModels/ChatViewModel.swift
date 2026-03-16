@@ -87,7 +87,8 @@ class ChatViewModel: ObservableObject {
             receiverID: contact.userID,
             msgType: "image",
             content: "",
-            imageData: data
+            imageData: data,
+            videoData: nil
         )
         pendingMessages.append(pending)
 
@@ -106,6 +107,36 @@ class ChatViewModel: ObservableObject {
                 pendingMessages[index].status = .failed
             }
             errorMessage = "图片发送失败"
+        }
+
+        isSending = false
+    }
+
+    func sendVideo(data: Data, filename: String) async {
+        isSending = true
+
+        let pending = PendingMessage(
+            receiverID: contact.userID,
+            msgType: "video",
+            content: "",
+            imageData: nil,
+            videoData: data
+        )
+        pendingMessages.append(pending)
+
+        do {
+            let message = try await APIService.shared.sendVideoMessage(
+                receiverID: contact.userID,
+                videoData: data,
+                filename: filename
+            )
+            messages.append(message)
+            pendingMessages.removeAll { $0.id == pending.id }
+        } catch {
+            if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
+                pendingMessages[index].status = .failed
+            }
+            errorMessage = "视频发送失败"
         }
 
         isSending = false

@@ -84,6 +84,19 @@ class GroupChatViewModel: ObservableObject {
         isSending = false
     }
 
+    func sendVideo(data: Data, filename: String) async {
+        isSending = true
+        do {
+            let msg = try await APIService.shared.sendGroupVideo(groupID: group.groupID, videoData: data, filename: filename)
+            if !messages.contains(where: { $0.id == msg.id }) {
+                messages.append(msg)
+            }
+        } catch {
+            errorMessage = "视频发送失败"
+        }
+        isSending = false
+    }
+
     var isSendEnabled: Bool {
         !inputText.isBlank
     }

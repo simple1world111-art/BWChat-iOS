@@ -21,6 +21,11 @@ class WebSocketService: ObservableObject {
 
     @Published var isConnected: Bool = false
 
+    /// The user ID of the chat currently being viewed (nil if not in a chat)
+    var activeChatUserID: String?
+    /// The group ID of the group chat currently being viewed (nil if not in a group chat)
+    var activeGroupID: Int?
+
     // Publishers for different message types
     let newMessagePublisher = PassthroughSubject<Message, Never>()
     let userStatusPublisher = PassthroughSubject<(String, String), Never>()

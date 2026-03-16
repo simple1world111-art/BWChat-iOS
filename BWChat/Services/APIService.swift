@@ -163,6 +163,20 @@ class APIService {
         return msg
     }
 
+    func sendVideoMessage(receiverID: String, videoData: Data, filename: String) async throws -> Message {
+        let response: APIResponseWrapper<Message> = try await uploadVideo(
+            path: "/chat/messages/video",
+            fieldName: "receiver_id",
+            fieldValue: receiverID,
+            videoData: videoData,
+            filename: filename
+        )
+        guard let msg = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return msg
+    }
+
     // MARK: - Friends
 
     func searchUsers(keyword: String) async throws -> [SearchUser] {
@@ -281,6 +295,20 @@ class APIService {
         return msg
     }
 
+    func sendGroupVideo(groupID: Int, videoData: Data, filename: String) async throws -> GroupMessage {
+        let response: APIResponseWrapper<GroupMessage> = try await uploadVideo(
+            path: "/groups/\(groupID)/messages/video",
+            fieldName: nil,
+            fieldValue: nil,
+            videoData: videoData,
+            filename: filename
+        )
+        guard let msg = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return msg
+    }
+
     // MARK: - Push
 
     func registerDeviceToken(_ token: String) async throws {
@@ -389,6 +417,49 @@ class APIService {
         body.append("Content-Disposition: form-data; name=\"image\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
         body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+
+        return try await perform(request)
+    }
+
+    private func uploadVideo<T: Decodable>(
+        path: String,
+        fieldName: String?,
+        fieldValue: String?,
+        videoData: Data,
+        filename: String
+    ) async throws -> T {
+        guard let url = URL(string: baseURL + path) else {
+            throw APIError.invalidURL
+        }
+
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        addAuthHeader(&request)
+
+        var body = Data()
+        if let fieldName = fieldName, let fieldValue = fieldValue {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(fieldName)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(fieldValue)\r\n".data(using: .utf8)!)
+        }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        let mimeType: String
+        switch ext {
+        case "mov": mimeType = "video/quicktime"
+        case "m4v": mimeType = "video/x-m4v"
+        default: mimeType = "video/mp4"
+        }
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"video\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(videoData)
         body.append("\r\n".data(using: .utf8)!)
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 

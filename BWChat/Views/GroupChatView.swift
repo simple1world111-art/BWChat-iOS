@@ -3,18 +3,25 @@
 
 import SwiftUI
 import PhotosUI
+import AVKit
 
 struct GroupChatView: View {
     let group: ChatGroup
     var onMarkRead: (() -> Void)?
     @StateObject private var viewModel: GroupChatViewModel
     @State private var selectedItem: PhotosPickerItem?
+    @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
+    @State private var previewVideoURL: String?
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
         self.onMarkRead = onMarkRead
         _viewModel = StateObject(wrappedValue: GroupChatViewModel(group: group))
+    }
+
+    private func setActiveGroupChat(_ active: Bool) {
+        WebSocketService.shared.activeGroupID = active ? group.id : nil
     }
 
     var body: some View {
@@ -36,7 +43,8 @@ struct GroupChatView: View {
                             GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
-                                onImageTap: { url in previewImageURL = url }
+                                onImageTap: { url in previewImageURL = url },
+                                onVideoTap: { url in previewVideoURL = url }
                             )
                             .id(message.id)
                         }
@@ -73,6 +81,8 @@ struct GroupChatView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { setActiveGroupChat(true) }
+        .onDisappear { setActiveGroupChat(false) }
         .task {
             await viewModel.loadMessages()
             onMarkRead?()
@@ -82,6 +92,12 @@ struct GroupChatView: View {
             set: { previewImageURL = $0?.url }
         )) { item in
             ImagePreviewView(imageURL: item.url)
+        }
+        .fullScreenCover(item: Binding(
+            get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
+            set: { previewVideoURL = $0?.url }
+        )) { item in
+            VideoPlayerView(videoURL: item.url)
         }
     }
 
@@ -97,7 +113,7 @@ struct GroupChatView: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 20, weight: .medium))
                         .foregroundColor(AppColors.accent)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 36, height: 40)
                         .contentShape(Rectangle())
                 }
                 .onChange(of: selectedItem) { item in
@@ -109,6 +125,28 @@ struct GroupChatView: View {
                             await viewModel.sendImage(data: jpegData)
                         }
                         selectedItem = nil
+                    }
+                }
+
+                // Video picker
+                PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 36, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .onChange(of: selectedVideoItem) { item in
+                    guard let item = item else { return }
+                    Task {
+                        if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+                            let data = try Data(contentsOf: movie.url)
+                            let ext = movie.url.pathExtension.lowercased()
+                            let filename = "video_\(Int(Date().timeIntervalSince1970)).\(ext.isEmpty ? "mp4" : ext)"
+                            await viewModel.sendVideo(data: data, filename: filename)
+                            try? FileManager.default.removeItem(at: movie.url)
+                        }
+                        selectedVideoItem = nil
                     }
                 }
 
@@ -154,6 +192,7 @@ struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
     var onImageTap: ((String) -> Void)?
+    var onVideoTap: ((String) -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -175,6 +214,25 @@ struct GroupMessageBubble: View {
                         .frame(maxWidth: 200, maxHeight: 250)
                         .cornerRadius(16)
                         .onTapGesture { onImageTap?(message.content) }
+                } else if message.isVideo {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(isFromMe ? Color.blue.opacity(0.15) : AppColors.separator)
+                            .frame(width: 200, height: 140)
+
+                        VStack(spacing: 8) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 44))
+                                .foregroundColor(.white)
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+
+                            Text("视频")
+                                .font(.system(size: 13))
+                                .foregroundColor(AppColors.secondaryText)
+                        }
+                    }
+                    .cornerRadius(16)
+                    .onTapGesture { onVideoTap?(message.content) }
                 } else {
                     Text(message.content)
                         .font(.system(size: 16))

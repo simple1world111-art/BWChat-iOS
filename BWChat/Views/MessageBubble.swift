@@ -7,6 +7,7 @@ struct MessageBubble: View {
     let message: Message
     let isFromMe: Bool
     var onImageTap: ((String) -> Void)?
+    var onVideoTap: ((String) -> Void)?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
@@ -15,6 +16,8 @@ struct MessageBubble: View {
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
                 if message.isImage {
                     imageBubble
+                } else if message.isVideo {
+                    videoBubble
                 } else {
                     textBubble
                 }
@@ -64,6 +67,32 @@ struct MessageBubble: View {
             .onTapGesture {
                 onImageTap?(message.content)
             }
+    }
+
+    // MARK: - Video Bubble
+
+    private var videoBubble: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14)
+                .fill(isFromMe ? Color.blue.opacity(0.15) : AppColors.separator)
+                .frame(width: 200, height: 140)
+
+            VStack(spacing: 8) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 44))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+
+                Text("视频")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppColors.secondaryText)
+            }
+        }
+        .cornerRadius(14)
+        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .onTapGesture {
+            onVideoTap?(message.content)
+        }
     }
 }
 

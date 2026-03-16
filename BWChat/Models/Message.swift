@@ -24,6 +24,10 @@ struct Message: Codable, Identifiable, Equatable {
         msgType == "image"
     }
 
+    var isVideo: Bool {
+        msgType == "video"
+    }
+
     var formattedTime: String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -53,6 +57,7 @@ struct PendingMessage: Identifiable {
     let msgType: String
     let content: String
     let imageData: Data?
+    let videoData: Data?
     var status: SendStatus = .sending
 
     enum SendStatus {

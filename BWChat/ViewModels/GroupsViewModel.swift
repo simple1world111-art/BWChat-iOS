@@ -105,6 +105,18 @@ class GroupsViewModel: ObservableObject {
             )
             groups[index] = updated
             groups.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+
+            // Show local notification if message is from someone else
+            // and user is NOT currently viewing this group chat
+            if senderID != myID && WebSocketService.shared.activeGroupID != groupID {
+                let title = g.name
+                let body = "\(senderNickname ?? "")：\(lastMessage)"
+                PushService.shared.showLocalNotification(
+                    title: title,
+                    body: body,
+                    senderID: senderID ?? ""
+                )
+            }
         }
     }
 }

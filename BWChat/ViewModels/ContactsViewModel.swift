@@ -90,10 +90,11 @@ class ContactsViewModel: ObservableObject {
     private func handleNewMessage(_ message: Message) {
         // Update the contact list with the new message
         let contactID: String
-        if message.senderID == AuthManager.shared.currentUser?.userID {
-            contactID = message.receiverID
-        } else {
+        let isFromOther = message.senderID != AuthManager.shared.currentUser?.userID
+        if isFromOther {
             contactID = message.senderID
+        } else {
+            contactID = message.receiverID
         }
 
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
@@ -105,11 +106,21 @@ class ContactsViewModel: ObservableObject {
                 avatarURL: existing.avatarURL,
                 lastMessage: lastMsg,
                 lastMessageTime: message.timestamp,
-                unreadCount: existing.unreadCount + (message.senderID != AuthManager.shared.currentUser?.userID ? 1 : 0)
+                unreadCount: existing.unreadCount + (isFromOther ? 1 : 0)
             )
             contacts[index] = updated
             // Re-sort
             contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+
+            // Show local notification if message is from someone else
+            // and user is NOT currently viewing that chat
+            if isFromOther && WebSocketService.shared.activeChatUserID != contactID {
+                PushService.shared.showLocalNotification(
+                    title: existing.nickname,
+                    body: lastMsg,
+                    senderID: contactID
+                )
+            }
         }
     }
 

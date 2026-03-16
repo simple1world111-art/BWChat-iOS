@@ -3,6 +3,8 @@
 
 import SwiftUI
 import PhotosUI
+import AVKit
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     let contact: Contact
@@ -10,12 +12,18 @@ struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
     @State private var showImagePicker = false
     @State private var selectedItem: PhotosPickerItem?
+    @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
+    @State private var previewVideoURL: String?
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
         self.onMarkRead = onMarkRead
         _viewModel = StateObject(wrappedValue: ChatViewModel(contact: contact))
+    }
+
+    private func setActiveChat(_ active: Bool) {
+        WebSocketService.shared.activeChatUserID = active ? contact.userID : nil
     }
 
     var body: some View {
@@ -39,6 +47,9 @@ struct ChatView: View {
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
                                 onImageTap: { url in
                                     previewImageURL = url
+                                },
+                                onVideoTap: { url in
+                                    previewVideoURL = url
                                 }
                             )
                             .id(message.id)
@@ -75,6 +86,8 @@ struct ChatView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { setActiveChat(true) }
+        .onDisappear { setActiveChat(false) }
         .task {
             await viewModel.loadMessages()
             onMarkRead?()
@@ -84,6 +97,12 @@ struct ChatView: View {
             set: { previewImageURL = $0?.url }
         )) { item in
             ImagePreviewView(imageURL: item.url)
+        }
+        .fullScreenCover(item: Binding(
+            get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
+            set: { previewVideoURL = $0?.url }
+        )) { item in
+            VideoPlayerView(videoURL: item.url)
         }
     }
 
@@ -99,7 +118,7 @@ struct ChatView: View {
                     Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 20, weight: .medium))
                         .foregroundColor(AppColors.accent)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 36, height: 40)
                         .contentShape(Rectangle())
                 }
                 .onChange(of: selectedItem) { item in
@@ -111,6 +130,28 @@ struct ChatView: View {
                             await viewModel.sendImage(data: jpegData)
                         }
                         selectedItem = nil
+                    }
+                }
+
+                // Video picker
+                PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 36, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .onChange(of: selectedVideoItem) { item in
+                    guard let item = item else { return }
+                    Task {
+                        if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+                            let data = try Data(contentsOf: movie.url)
+                            let ext = movie.url.pathExtension.lowercased()
+                            let filename = "video_\(Int(Date().timeIntervalSince1970)).\(ext.isEmpty ? "mp4" : ext)"
+                            await viewModel.sendVideo(data: data, filename: filename)
+                            try? FileManager.default.removeItem(at: movie.url)
+                        }
+                        selectedVideoItem = nil
                     }
                 }
 
@@ -173,6 +214,22 @@ struct PendingMessageBubble: View {
                         .frame(maxWidth: 200)
                         .cornerRadius(14)
                         .opacity(pending.status == .sending ? 0.6 : 1)
+                } else if pending.videoData != nil {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.blue.opacity(0.1))
+                            .frame(width: 200, height: 140)
+                            .opacity(pending.status == .sending ? 0.6 : 1)
+
+                        VStack(spacing: 6) {
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(AppColors.secondaryText)
+                            Text("发送中...")
+                                .font(.system(size: 12))
+                                .foregroundColor(AppColors.secondaryText)
+                        }
+                    }
                 }
 
                 if pending.status == .sending {
@@ -193,4 +250,29 @@ struct PendingMessageBubble: View {
 struct ImagePreviewItem: Identifiable {
     let id = UUID()
     let url: String
+}
+
+struct VideoPreviewItem: Identifiable {
+    let id = UUID()
+    let url: String
+}
+
+// Transferable for picking videos from PhotosPicker
+struct VideoTransferable: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.url)
+        } importing: { received in
+            let tempDir = FileManager.default.temporaryDirectory
+            let filename = "video_\(UUID().uuidString).\(received.file.pathExtension)"
+            let copy = tempDir.appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: copy.path) {
+                try FileManager.default.removeItem(at: copy)
+            }
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return Self(url: copy)
+        }
+    }
 }

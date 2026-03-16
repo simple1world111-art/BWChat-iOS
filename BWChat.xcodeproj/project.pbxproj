@@ -43,6 +43,7 @@
 		A10047 /* CreateGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047; };
 		A10048 /* GroupChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048; };
 		A10049 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049; };
+		A10050 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -107,6 +108,7 @@
 		B10047 /* CreateGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateGroupView.swift; sourceTree = "<group>"; };
 		B10048 /* GroupChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; };
 		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -194,6 +196,7 @@
 				B10047 /* CreateGroupView.swift */,
 				B10048 /* GroupChatView.swift */,
 				B10049 /* MainTabView.swift */,
+				B10050 /* VideoPlayerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -381,6 +384,7 @@
 				A10047 /* CreateGroupView.swift in Sources */,
 				A10048 /* GroupChatView.swift in Sources */,
 				A10049 /* MainTabView.swift in Sources */,
+				A10050 /* VideoPlayerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
