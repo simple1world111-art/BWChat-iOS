@@ -3,6 +3,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 class ContactsViewModel: ObservableObject {
@@ -14,6 +15,18 @@ class ContactsViewModel: ObservableObject {
 
     init() {
         setupWebSocketListeners()
+        setupForegroundReload()
+    }
+
+    /// Reload contacts whenever app returns to foreground to pick up any
+    /// messages delivered while the WebSocket was disconnected.
+    private func setupForegroundReload() {
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.loadContacts() }
+            }
+            .store(in: &cancellables)
     }
 
     func loadContacts() async {
@@ -128,6 +141,9 @@ class ContactsViewModel: ObservableObject {
             contacts[index] = updated
             // Re-sort
             contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+        } else {
+            // New contact not yet in list — reload to pick it up
+            Task { await loadContacts() }
         }
     }
 
@@ -169,6 +185,9 @@ class ContactsViewModel: ObservableObject {
             )
             contacts[index] = updated
             contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+        } else {
+            // New contact not yet in list — reload to pick it up
+            Task { await loadContacts() }
         }
     }
 }

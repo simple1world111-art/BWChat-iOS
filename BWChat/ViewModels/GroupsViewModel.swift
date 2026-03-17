@@ -3,6 +3,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 class GroupsViewModel: ObservableObject {
@@ -14,6 +15,18 @@ class GroupsViewModel: ObservableObject {
 
     init() {
         setupWebSocketListeners()
+        setupForegroundReload()
+    }
+
+    /// Reload groups whenever app returns to foreground to pick up any
+    /// messages delivered while the WebSocket was disconnected.
+    private func setupForegroundReload() {
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.loadGroups() }
+            }
+            .store(in: &cancellables)
     }
 
     func loadGroups() async {
@@ -122,6 +135,9 @@ class GroupsViewModel: ObservableObject {
             )
             groups[index] = updated
             groups.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+        } else {
+            // New group not yet in list — reload to pick it up
+            Task { await loadGroups() }
         }
     }
 }
