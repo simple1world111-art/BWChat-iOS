@@ -13,6 +13,7 @@ struct GroupChatView: View {
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
+    @State private var showAddMembers = false
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
@@ -81,6 +82,20 @@ struct GroupChatView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showAddMembers = true
+                } label: {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.accent)
+                }
+            }
+        }
+        .sheet(isPresented: $showAddMembers) {
+            AddGroupMembersView(groupID: group.groupID)
+        }
         .onAppear { setActiveGroupChat(true) }
         .onDisappear { setActiveGroupChat(false) }
         .task {
@@ -200,6 +215,20 @@ struct GroupMessageBubble: View {
     var onVideoTap: ((String) -> Void)?
 
     var body: some View {
+        if message.isSystem {
+            HStack {
+                Spacer()
+                Text(message.content)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppColors.secondaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background(AppColors.separator.opacity(0.5))
+                    .cornerRadius(10)
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        } else {
         HStack(alignment: .top, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
@@ -259,6 +288,7 @@ struct GroupMessageBubble: View {
             if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
+        }
     }
 }
 

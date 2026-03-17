@@ -111,6 +111,7 @@ struct GroupMessage: Codable, Identifiable, Equatable {
 
     var isImage: Bool { msgType == "image" }
     var isVideo: Bool { msgType == "video" }
+    var isSystem: Bool { msgType == "system" }
 
     var formattedTime: String {
         let formatter = ISO8601DateFormatter()

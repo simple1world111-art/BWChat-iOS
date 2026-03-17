@@ -309,6 +309,22 @@ class APIService {
         return msg
     }
 
+    func getGroupDetail(groupID: Int) async throws -> GroupDetail {
+        let response: APIResponseWrapper<GroupDetail> = try await get(path: "/groups/\(groupID)")
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func addGroupMembers(groupID: Int, memberIDs: [String]) async throws {
+        let body: [String: Any] = ["user_ids": memberIDs]
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/members/add",
+            body: body
+        )
+    }
+
     // MARK: - Push
 
     func registerDeviceToken(_ token: String) async throws {
