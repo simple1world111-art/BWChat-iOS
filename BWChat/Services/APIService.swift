@@ -39,8 +39,9 @@ class APIService {
 
     private init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 300
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 120
+        config.waitsForConnectivity = true
         self.session = URLSession(configuration: config)
         self.baseURL = AppConfig.apiBaseURL
     }

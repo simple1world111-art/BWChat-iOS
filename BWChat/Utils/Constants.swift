@@ -14,7 +14,7 @@ enum AppConfig {
 
     static let appName = "BWChat"
     static let messagePageSize = 30
-    static let wsHeartbeatInterval: TimeInterval = 30
+    static let wsHeartbeatInterval: TimeInterval = 15
 }
 
 // MARK: - Premium Color Palette

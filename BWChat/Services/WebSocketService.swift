@@ -3,6 +3,7 @@
 
 import Foundation
 import Combine
+import Network
 
 enum WSMessageType: String {
     case newMessage = "new_message"
@@ -43,8 +44,54 @@ class WebSocketService: ObservableObject {
     private var reconnectDelay: TimeInterval = 1
     private let maxReconnectDelay: TimeInterval = 30
     private var isManuallyDisconnected = false
+    private let networkMonitor = NWPathMonitor()
+    private var lastPathStatus: NWPath.Status?
+    private var isNetworkSatisfied = true
 
-    private init() {}
+    private init() {
+        startNetworkMonitor()
+    }
+
+    /// Monitor network path changes (VPN on/off, WiFi/cellular switch).
+    /// When the path changes while connected, immediately reconnect.
+    private func startNetworkMonitor() {
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                let wasSatisfied = self.isNetworkSatisfied
+                self.isNetworkSatisfied = (path.status == .satisfied)
+
+                // Network path changed while we should be connected → fast reconnect
+                if !self.isManuallyDisconnected && self.isNetworkSatisfied {
+                    if self.lastPathStatus != nil && self.lastPathStatus != path.status {
+                        // Network restored after being down
+                        self.fastReconnect()
+                    } else if wasSatisfied && path.usesInterfaceType(.other) != self.usesVPN(path) {
+                        // Path type changed (e.g. VPN toggled) – force reconnect
+                        self.fastReconnect()
+                    }
+                }
+                self.lastPathStatus = path.status
+            }
+        }
+        networkMonitor.start(queue: DispatchQueue(label: "bwchat.netmon"))
+    }
+
+    private func usesVPN(_ path: NWPath) -> Bool {
+        path.usesInterfaceType(.other)
+    }
+
+    /// Immediately tear down and reconnect with no backoff delay.
+    private func fastReconnect() {
+        guard !isManuallyDisconnected, AuthManager.shared.token != nil else { return }
+        heartbeatTask?.cancel()
+        reconnectTask?.cancel()
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        isConnected = false
+        reconnectDelay = 1
+        connect()
+    }
 
     func connect() {
         guard let token = AuthManager.shared.token else { return }
@@ -54,7 +101,11 @@ class WebSocketService: ObservableObject {
         let urlString = AppConfig.wsBaseURL + "?token=\(token)"
         guard let url = URL(string: urlString) else { return }
 
-        let session = URLSession(configuration: .default)
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = true
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        let session = URLSession(configuration: config)
         webSocketTask = session.webSocketTask(with: url)
         webSocketTask?.resume()
 
