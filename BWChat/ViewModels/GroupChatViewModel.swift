@@ -113,6 +113,15 @@ class GroupChatViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Clear messages when chat is reset (e.g., logout)
+        WebSocketService.shared.chatResetPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.messages.removeAll()
+                self?.pendingTexts.removeAll()
+            }
+            .store(in: &cancellables)
     }
 }
 

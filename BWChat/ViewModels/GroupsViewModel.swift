@@ -40,21 +40,27 @@ class GroupsViewModel: ObservableObject {
     }
 
     func markGroupAsRead(groupID: Int) {
-        // Clear unread count locally
+        // Clear unread count locally first for instant UI update
         if let index = groups.firstIndex(where: { $0.id == groupID }) {
             let g = groups[index]
             if g.unreadCount > 0 {
-                // Reload groups to get fresh data with unread=0
-                Task {
-                    try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
-                    await loadGroups()
-                }
+                let updated = ChatGroup(
+                    groupID: g.groupID,
+                    name: g.name,
+                    avatarURL: g.avatarURL,
+                    creatorID: g.creatorID,
+                    memberCount: g.memberCount,
+                    lastMessage: g.lastMessage,
+                    lastMessageTime: g.lastMessageTime,
+                    lastMessageSender: g.lastMessageSender,
+                    unreadCount: 0
+                )
+                groups[index] = updated
             }
-        } else {
-            // No local group found, just tell server
-            Task {
-                try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
-            }
+        }
+        // Tell server in background
+        Task {
+            try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
         }
     }
 
@@ -62,7 +68,8 @@ class GroupsViewModel: ObservableObject {
         WebSocketService.shared.groupMessagePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                Task { await self?.loadGroups() }
+                // Contact update handler takes care of updating preview/unread.
+                // Only reload if we need fresh member counts etc.
             }
             .store(in: &cancellables)
 
@@ -90,6 +97,15 @@ class GroupsViewModel: ObservableObject {
         let senderID = data["sender_id"] as? String
         let myID = AuthManager.shared.currentUser?.userID
 
+        // Suppress unread increment if user is actively viewing this group chat
+        let isViewingThisGroup = senderID != myID && WebSocketService.shared.activeGroupID == groupID
+        let unreadDelta = (senderID != myID && !isViewingThisGroup) ? 1 : 0
+
+        // Auto-mark as read on server if viewing this group
+        if isViewingThisGroup {
+            Task { try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID) }
+        }
+
         if let index = groups.firstIndex(where: { $0.groupID == groupID }) {
             let g = groups[index]
             let updated = ChatGroup(
@@ -101,7 +117,7 @@ class GroupsViewModel: ObservableObject {
                 lastMessage: lastMessage,
                 lastMessageTime: lastMessageTime,
                 lastMessageSender: senderNickname ?? g.lastMessageSender,
-                unreadCount: g.unreadCount + (senderID != myID ? 1 : 0)
+                unreadCount: g.unreadCount + unreadDelta
             )
             groups[index] = updated
             groups.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }

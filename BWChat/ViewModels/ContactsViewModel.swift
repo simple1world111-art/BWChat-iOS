@@ -97,16 +97,32 @@ class ContactsViewModel: ObservableObject {
             contactID = message.receiverID
         }
 
+        // Suppress unread increment if user is actively viewing this chat
+        let isViewingThisChat = isFromOther && WebSocketService.shared.activeChatUserID == contactID
+        let unreadDelta = (isFromOther && !isViewingThisChat) ? 1 : 0
+
+        // Auto-mark as read on server if viewing this chat
+        if isViewingThisChat {
+            Task { try? await APIService.shared.markMessagesAsRead(contactID: contactID) }
+        }
+
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
             let existing = contacts[index]
-            let lastMsg = message.isImage ? "[图片]" : message.content
+            let lastMsg: String
+            if message.isImage {
+                lastMsg = "[图片]"
+            } else if message.isVideo {
+                lastMsg = "[视频]"
+            } else {
+                lastMsg = message.content
+            }
             let updated = Contact(
                 userID: existing.userID,
                 nickname: existing.nickname,
                 avatarURL: existing.avatarURL,
                 lastMessage: lastMsg,
                 lastMessageTime: message.timestamp,
-                unreadCount: existing.unreadCount + (isFromOther ? 1 : 0)
+                unreadCount: existing.unreadCount + unreadDelta
             )
             contacts[index] = updated
             // Re-sort
@@ -138,6 +154,8 @@ class ContactsViewModel: ObservableObject {
         let myID = AuthManager.shared.currentUser?.userID
         let contactID = (senderID == myID) ? receiverID : senderID
 
+        // Only update preview text and time here.
+        // Unread count is handled exclusively by handleNewMessage to avoid double-counting.
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
             let existing = contacts[index]
             let updated = Contact(
@@ -146,7 +164,7 @@ class ContactsViewModel: ObservableObject {
                 avatarURL: existing.avatarURL,
                 lastMessage: lastMessage,
                 lastMessageTime: lastMessageTime,
-                unreadCount: existing.unreadCount + (senderID != myID ? 1 : 0)
+                unreadCount: existing.unreadCount
             )
             contacts[index] = updated
             contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
