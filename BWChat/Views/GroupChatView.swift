@@ -18,6 +18,7 @@ struct GroupChatView: View {
     @State private var showGroupDetail = false
     @State private var memberCount: Int = 0
     @State private var shouldPopToRoot = false
+    @State private var hasInitiallyScrolled = false
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
@@ -64,17 +65,17 @@ struct GroupChatView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
-                .onChange(of: viewModel.messages.count) { _ in
+                .onChange(of: viewModel.messages.last?.id) { _ in
                     if let last = viewModel.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let last = viewModel.messages.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
+                        if !hasInitiallyScrolled {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                                hasInitiallyScrolled = true
+                            }
+                        } else {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
                         }
                     }
                 }

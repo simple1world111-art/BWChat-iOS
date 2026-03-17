@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
+    @State private var hasInitiallyScrolled = false
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -64,17 +65,17 @@ struct ChatView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
-                .onChange(of: viewModel.messages.count) { _ in
+                .onChange(of: viewModel.messages.last?.id) { _ in
                     if let last = viewModel.messages.last {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if let last = viewModel.messages.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
+                        if !hasInitiallyScrolled {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                                hasInitiallyScrolled = true
+                            }
+                        } else {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
                         }
                     }
                 }
