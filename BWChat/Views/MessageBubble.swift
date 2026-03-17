@@ -55,6 +55,13 @@ struct MessageBubble: View {
                 }
             )
             .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+            .contextMenu {
+                Button {
+                    UIPasteboard.general.string = message.content
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
+                }
+            }
     }
 
     // MARK: - Image Bubble

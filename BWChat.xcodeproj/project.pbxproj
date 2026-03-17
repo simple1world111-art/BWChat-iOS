@@ -46,6 +46,7 @@
 		A10050 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050; };
 		A10060 /* VideoThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060; };
 		A10061 /* AddGroupMembersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10061; };
+		A10062 /* GroupDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -113,6 +114,7 @@
 		B10047 /* CreateGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateGroupView.swift; sourceTree = "<group>"; };
 		B10048 /* GroupChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; };
 		B10061 /* AddGroupMembersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroupMembersView.swift; sourceTree = "<group>"; };
+		B10062 /* GroupDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupDetailView.swift; sourceTree = "<group>"; };
 		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -203,6 +205,7 @@
 				B10047 /* CreateGroupView.swift */,
 				B10048 /* GroupChatView.swift */,
 				B10061 /* AddGroupMembersView.swift */,
+				B10062 /* GroupDetailView.swift */,
 				B10049 /* MainTabView.swift */,
 				B10050 /* VideoPlayerView.swift */,
 			);
@@ -397,6 +400,7 @@
 				A10050 /* VideoPlayerView.swift in Sources */,
 				A10060 /* VideoThumbnailView.swift in Sources */,
 				A10061 /* AddGroupMembersView.swift in Sources */,
+				A10062 /* GroupDetailView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -326,6 +326,36 @@ class APIService {
         )
     }
 
+    func removeGroupMember(groupID: Int, userID: String) async throws {
+        let body: [String: Any] = ["user_id": userID]
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/members/remove",
+            body: body
+        )
+    }
+
+    func renameGroup(groupID: Int, name: String) async throws {
+        let body: [String: Any] = ["name": name]
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/rename",
+            body: body
+        )
+    }
+
+    func leaveGroup(groupID: Int) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/leave",
+            body: [:]
+        )
+    }
+
+    func dismissGroup(groupID: Int) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/dismiss",
+            body: [:]
+        )
+    }
+
     // MARK: - Push
 
     func registerDeviceToken(_ token: String) async throws {

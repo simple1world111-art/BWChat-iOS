@@ -8,12 +8,16 @@ import AVKit
 struct GroupChatView: View {
     let group: ChatGroup
     var onMarkRead: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: GroupChatViewModel
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
+    @State private var showGroupDetail = false
+    @State private var memberCount: Int = 0
+    @State private var shouldPopToRoot = false
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
@@ -80,14 +84,14 @@ struct GroupChatView: View {
             groupInputBar
         }
         .background(AppColors.secondaryBackground)
-        .navigationTitle(group.name)
+        .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    showAddMembers = true
+                    showGroupDetail = true
                 } label: {
-                    Image(systemName: "person.badge.plus")
+                    Image(systemName: "ellipsis")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(AppColors.accent)
                 }
@@ -96,11 +100,30 @@ struct GroupChatView: View {
         .sheet(isPresented: $showAddMembers) {
             AddGroupMembersView(groupID: group.groupID)
         }
+        .navigationDestination(isPresented: $showGroupDetail) {
+            GroupDetailView(groupID: group.groupID) {
+                shouldPopToRoot = true
+            }
+        }
         .onAppear { setActiveGroupChat(true) }
         .onDisappear { setActiveGroupChat(false) }
         .task {
             await viewModel.loadMessages()
+            // Load member count for title
+            if let detail = try? await APIService.shared.getGroupDetail(groupID: group.groupID) {
+                memberCount = detail.members.count
+            }
             onMarkRead?()
+        }
+        .onReceive(WebSocketService.shared.groupRemovedPublisher) { removedID in
+            if removedID == group.groupID {
+                shouldPopToRoot = true
+            }
+        }
+        .onChange(of: shouldPopToRoot) { pop in
+            if pop {
+                dismiss()
+            }
         }
         .fullScreenCover(item: Binding(
             get: { previewImageURL.map { ImagePreviewItem(url: $0) } },
@@ -277,6 +300,13 @@ struct GroupMessageBubble: View {
                             }
                         )
                         .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+                        .contextMenu {
+                            Button {
+                                UIPasteboard.general.string = message.content
+                            } label: {
+                                Label("复制", systemImage: "doc.on.doc")
+                            }
+                        }
                 }
 
                 Text(message.formattedTime)

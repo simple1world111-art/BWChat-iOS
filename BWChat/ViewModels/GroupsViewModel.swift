@@ -100,6 +100,34 @@ class GroupsViewModel: ObservableObject {
                 self?.handleGroupContactUpdate(data)
             }
             .store(in: &cancellables)
+
+        WebSocketService.shared.groupRemovedPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] groupID in
+                self?.groups.removeAll { $0.groupID == groupID }
+            }
+            .store(in: &cancellables)
+
+        WebSocketService.shared.groupRenamedPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] (groupID, newName) in
+                guard let self = self else { return }
+                if let index = self.groups.firstIndex(where: { $0.groupID == groupID }) {
+                    let g = self.groups[index]
+                    self.groups[index] = ChatGroup(
+                        groupID: g.groupID,
+                        name: newName,
+                        avatarURL: g.avatarURL,
+                        creatorID: g.creatorID,
+                        memberCount: g.memberCount,
+                        lastMessage: g.lastMessage,
+                        lastMessageTime: g.lastMessageTime,
+                        lastMessageSender: g.lastMessageSender,
+                        unreadCount: g.unreadCount
+                    )
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func handleGroupContactUpdate(_ data: [String: Any]) {

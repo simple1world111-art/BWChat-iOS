@@ -37,6 +37,8 @@ class WebSocketService: ObservableObject {
     let friendAcceptedPublisher = PassthroughSubject<[String: String], Never>()
     let contactUpdatePublisher = PassthroughSubject<[String: Any], Never>()
     let groupContactUpdatePublisher = PassthroughSubject<[String: Any], Never>()
+    let groupRemovedPublisher = PassthroughSubject<Int, Never>()
+    let groupRenamedPublisher = PassthroughSubject<(Int, String), Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
@@ -218,6 +220,19 @@ class WebSocketService: ObservableObject {
         case "group_contact_update":
             if let d = json["data"] as? [String: Any] {
                 groupContactUpdatePublisher.send(d)
+            }
+
+        case "group_removed":
+            if let d = json["data"] as? [String: Any],
+               let gid = d["group_id"] as? Int {
+                groupRemovedPublisher.send(gid)
+            }
+
+        case "group_renamed":
+            if let d = json["data"] as? [String: Any],
+               let gid = d["group_id"] as? Int,
+               let name = d["name"] as? String {
+                groupRenamedPublisher.send((gid, name))
             }
 
         default:
