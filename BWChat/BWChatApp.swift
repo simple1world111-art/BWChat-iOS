@@ -24,6 +24,7 @@ struct BWChatApp: App {
             // App returned to foreground — ensure push & WebSocket are alive
             Task { @MainActor in
                 PushService.shared.reregisterIfNeeded()
+                PushService.shared.clearBadge()
                 if AuthManager.shared.isLoggedIn && !WebSocketService.shared.isConnected {
                     WebSocketService.shared.connect()
                 }
@@ -123,8 +124,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
-        // Show notification banner + sound + badge
-        completionHandler([.banner, .sound, .badge])
+        // Show notification banner + sound (no badge — WebSocket handles unread state in foreground)
+        completionHandler([.banner, .sound])
     }
 
     /// Notification tap handling

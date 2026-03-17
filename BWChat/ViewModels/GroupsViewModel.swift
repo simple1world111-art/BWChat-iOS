@@ -58,9 +58,10 @@ class GroupsViewModel: ObservableObject {
                 groups[index] = updated
             }
         }
-        // Tell server in background
+        // Tell server in background + sync app icon badge
         Task {
             try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
+            await MainActor.run { PushService.shared.clearBadge() }
         }
     }
 

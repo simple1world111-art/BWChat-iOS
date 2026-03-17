@@ -58,9 +58,10 @@ class ContactsViewModel: ObservableObject {
                 )
             }
         }
-        // Tell server
+        // Tell server + sync app icon badge
         Task {
             try? await APIService.shared.markMessagesAsRead(contactID: contactID)
+            await MainActor.run { PushService.shared.clearBadge() }
         }
     }
 
