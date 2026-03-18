@@ -59,6 +59,11 @@ struct GroupChatView: View {
                         ForEach(viewModel.pendingTexts) { pending in
                             PendingGroupBubble(pending: pending)
                         }
+
+                        // Invisible anchor at the very bottom for reliable scrolling
+                        Color.clear
+                            .frame(height: 1)
+                            .id("groupBottomAnchor")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -66,16 +71,22 @@ struct GroupChatView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
-                    if let last = viewModel.messages.last {
-                        if !hasInitiallyScrolled {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
-                                hasInitiallyScrolled = true
-                            }
-                        } else {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo(last.id, anchor: .bottom)
-                            }
+                    if !hasInitiallyScrolled {
+                        // Initial scroll: use bottom anchor with staggered attempts
+                        // to handle varying LazyVStack layout times
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
+                            hasInitiallyScrolled = true
+                        }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
                         }
                     }
                 }
