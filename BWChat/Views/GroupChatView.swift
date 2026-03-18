@@ -72,17 +72,12 @@ struct GroupChatView: View {
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
                     if !hasInitiallyScrolled {
-                        // Initial scroll: use bottom anchor with staggered attempts
-                        // to handle varying LazyVStack layout times
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        hasInitiallyScrolled = true
+                        // Immediate scroll to approximate position
+                        proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
+                        // Single follow-up after layout pass to correct position
+                        DispatchQueue.main.async {
                             proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
-                            hasInitiallyScrolled = true
                         }
                     } else {
                         withAnimation(.easeOut(duration: 0.2)) {
