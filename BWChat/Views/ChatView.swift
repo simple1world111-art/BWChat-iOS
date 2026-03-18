@@ -29,20 +29,18 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages list - tap to dismiss keyboard only on scroll area
+            // Messages list - flipped ScrollView for reliable bottom-first display
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        // Pending messages (content top = visual bottom after flip)
+                        ForEach(viewModel.pendingMessages.reversed()) { pending in
+                            PendingMessageBubble(pending: pending)
+                                .scaleEffect(x: 1, y: -1, anchor: .center)
                         }
 
-                        ForEach(viewModel.messages) { message in
+                        // Messages newest-first (visual: newest at bottom after flip)
+                        ForEach(viewModel.messages.reversed()) { message in
                             MessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -54,34 +52,35 @@ struct ChatView: View {
                                 }
                             )
                             .id(message.id)
+                            .scaleEffect(x: 1, y: -1, anchor: .center)
                         }
 
-                        ForEach(viewModel.pendingMessages) { pending in
-                            PendingMessageBubble(pending: pending)
+                        // Load more (content bottom = visual top after flip)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .scaleEffect(x: 1, y: -1, anchor: .center)
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
-
-                        // Invisible anchor at the very bottom for reliable scrolling
-                        Color.clear
-                            .frame(height: 1)
-                            .id("chatBottomAnchor")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .scaleEffect(x: 1, y: -1, anchor: .center)
+                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
+                    guard let newest = viewModel.messages.last else { return }
                     if !hasInitiallyScrolled {
+                        proxy.scrollTo(newest.id, anchor: .top)
                         hasInitiallyScrolled = true
-                        // Immediate scroll to approximate position
-                        proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-                        // Single follow-up after layout pass to correct position
-                        DispatchQueue.main.async {
-                            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
-                        }
                     } else {
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("chatBottomAnchor", anchor: .bottom)
+                            proxy.scrollTo(newest.id, anchor: .top)
                         }
                     }
                 }

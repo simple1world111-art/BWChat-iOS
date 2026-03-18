@@ -32,20 +32,18 @@ struct GroupChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages - tap gesture only on scroll area
+            // Messages - flipped ScrollView for reliable bottom-first display
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        // Pending messages (content top = visual bottom after flip)
+                        ForEach(viewModel.pendingTexts.reversed()) { pending in
+                            PendingGroupBubble(pending: pending)
+                                .scaleEffect(x: 1, y: -1, anchor: .center)
                         }
 
-                        ForEach(viewModel.messages) { message in
+                        // Messages newest-first (visual: newest at bottom after flip)
+                        ForEach(viewModel.messages.reversed()) { message in
                             GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -53,35 +51,35 @@ struct GroupChatView: View {
                                 onVideoTap: { url in previewVideoURL = url }
                             )
                             .id(message.id)
+                            .scaleEffect(x: 1, y: -1, anchor: .center)
                         }
 
-                        // Pending messages (optimistic)
-                        ForEach(viewModel.pendingTexts) { pending in
-                            PendingGroupBubble(pending: pending)
+                        // Load more (content bottom = visual top after flip)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .scaleEffect(x: 1, y: -1, anchor: .center)
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
-
-                        // Invisible anchor at the very bottom for reliable scrolling
-                        Color.clear
-                            .frame(height: 1)
-                            .id("groupBottomAnchor")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .scaleEffect(x: 1, y: -1, anchor: .center)
+                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
+                    guard let newest = viewModel.messages.last else { return }
                     if !hasInitiallyScrolled {
+                        proxy.scrollTo(newest.id, anchor: .top)
                         hasInitiallyScrolled = true
-                        // Immediate scroll to approximate position
-                        proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
-                        // Single follow-up after layout pass to correct position
-                        DispatchQueue.main.async {
-                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
-                        }
                     } else {
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("groupBottomAnchor", anchor: .bottom)
+                            proxy.scrollTo(newest.id, anchor: .top)
                         }
                     }
                 }
