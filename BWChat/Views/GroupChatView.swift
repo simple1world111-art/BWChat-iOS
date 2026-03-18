@@ -32,18 +32,20 @@ struct GroupChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages - flipped ScrollView for reliable bottom-first display
+            // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        // Pending messages (content top = visual bottom after flip)
-                        ForEach(viewModel.pendingTexts.reversed()) { pending in
-                            PendingGroupBubble(pending: pending)
-                                .scaleEffect(x: 1, y: -1, anchor: .center)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
 
-                        // Messages newest-first (visual: newest at bottom after flip)
-                        ForEach(viewModel.messages.reversed()) { message in
+                        ForEach(viewModel.messages) { message in
                             GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -51,37 +53,39 @@ struct GroupChatView: View {
                                 onVideoTap: { url in previewVideoURL = url }
                             )
                             .id(message.id)
-                            .scaleEffect(x: 1, y: -1, anchor: .center)
                         }
 
-                        // Load more (content bottom = visual top after flip)
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .scaleEffect(x: 1, y: -1, anchor: .center)
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        ForEach(viewModel.pendingTexts) { pending in
+                            PendingGroupBubble(pending: pending)
                         }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("groupBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .scaleEffect(x: 1, y: -1, anchor: .center)
-                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
-                    guard let newest = viewModel.messages.last else { return }
-                    if !hasInitiallyScrolled {
-                        proxy.scrollTo(newest.id, anchor: .top)
-                        hasInitiallyScrolled = true
-                    } else {
+                    if hasInitiallyScrolled {
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(newest.id, anchor: .top)
+                            proxy.scrollTo("groupBottom", anchor: .bottom)
                         }
                     }
+                }
+                .task {
+                    await viewModel.loadMessages()
+                    if let detail = try? await APIService.shared.getGroupDetail(groupID: group.groupID) {
+                        memberCount = detail.members.count
+                    }
+                    onMarkRead?()
+                    // Wait for LazyVStack layout then scroll — crash-safe: .task auto-cancels on disappear
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo("groupBottom", anchor: .bottom)
+                    hasInitiallyScrolled = true
                 }
             }
 
@@ -112,14 +116,6 @@ struct GroupChatView: View {
         }
         .onAppear { setActiveGroupChat(true) }
         .onDisappear { setActiveGroupChat(false) }
-        .task {
-            await viewModel.loadMessages()
-            // Load member count for title
-            if let detail = try? await APIService.shared.getGroupDetail(groupID: group.groupID) {
-                memberCount = detail.members.count
-            }
-            onMarkRead?()
-        }
         .onReceive(WebSocketService.shared.groupRemovedPublisher) { removedID in
             if removedID == group.groupID {
                 shouldPopToRoot = true

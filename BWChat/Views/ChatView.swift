@@ -29,18 +29,20 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Messages list - flipped ScrollView for reliable bottom-first display
+            // Messages list
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        // Pending messages (content top = visual bottom after flip)
-                        ForEach(viewModel.pendingMessages.reversed()) { pending in
-                            PendingMessageBubble(pending: pending)
-                                .scaleEffect(x: 1, y: -1, anchor: .center)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
 
-                        // Messages newest-first (visual: newest at bottom after flip)
-                        ForEach(viewModel.messages.reversed()) { message in
+                        ForEach(viewModel.messages) { message in
                             MessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -52,37 +54,36 @@ struct ChatView: View {
                                 }
                             )
                             .id(message.id)
-                            .scaleEffect(x: 1, y: -1, anchor: .center)
                         }
 
-                        // Load more (content bottom = visual top after flip)
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .scaleEffect(x: 1, y: -1, anchor: .center)
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        ForEach(viewModel.pendingMessages) { pending in
+                            PendingMessageBubble(pending: pending)
                         }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("chatBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .scaleEffect(x: 1, y: -1, anchor: .center)
-                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
-                    guard let newest = viewModel.messages.last else { return }
-                    if !hasInitiallyScrolled {
-                        proxy.scrollTo(newest.id, anchor: .top)
-                        hasInitiallyScrolled = true
-                    } else {
+                    if hasInitiallyScrolled {
                         withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(newest.id, anchor: .top)
+                            proxy.scrollTo("chatBottom", anchor: .bottom)
                         }
                     }
+                }
+                .task {
+                    await viewModel.loadMessages()
+                    onMarkRead?()
+                    // Wait for LazyVStack layout then scroll — crash-safe: .task auto-cancels on disappear
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !Task.isCancelled else { return }
+                    proxy.scrollTo("chatBottom", anchor: .bottom)
+                    hasInitiallyScrolled = true
                 }
             }
 
@@ -94,10 +95,6 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
-        .task {
-            await viewModel.loadMessages()
-            onMarkRead?()
-        }
         .fullScreenCover(item: Binding(
             get: { previewImageURL.map { ImagePreviewItem(url: $0) } },
             set: { previewImageURL = $0?.url }
