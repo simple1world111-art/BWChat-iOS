@@ -36,6 +36,8 @@ class APIService {
     static let shared = APIService()
     private let session: URLSession
     private let baseURL: String
+    private var isRefreshing = false
+    private var refreshContinuations: [CheckedContinuation<Void, Error>] = []
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -48,7 +50,7 @@ class APIService {
 
     // MARK: - Auth
 
-    func login(username: String, password: String, deviceToken: String? = nil) async throws -> (String, User) {
+    func login(username: String, password: String, deviceToken: String? = nil) async throws -> (String, String, User) {
         var body: [String: Any] = [
             "username": username,
             "password": password,
@@ -59,14 +61,21 @@ class APIService {
 
         struct LoginData: Decodable {
             let token: String
+            let refreshToken: String
             let user: User
+
+            enum CodingKeys: String, CodingKey {
+                case token
+                case refreshToken = "refresh_token"
+                case user
+            }
         }
 
         let response: APIResponseWrapper<LoginData> = try await postJSON(path: "/auth/login", body: body, auth: false)
         guard let data = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
         }
-        return (data.token, data.user)
+        return (data.token, data.refreshToken, data.user)
     }
 
     func verifyToken() async throws -> User {
@@ -83,6 +92,70 @@ class APIService {
 
     func logout() async throws {
         let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/auth/logout", body: [:])
+    }
+
+    /// Refresh access token using the stored refresh token.
+    /// Returns the new (accessToken, refreshToken, user).
+    func refreshTokens() async throws -> (String, String, User) {
+        guard let rt = AuthManager.shared.refreshToken else {
+            throw APIError.unauthorized
+        }
+
+        struct RefreshData: Decodable {
+            let token: String
+            let refreshToken: String
+            let user: User
+
+            enum CodingKeys: String, CodingKey {
+                case token
+                case refreshToken = "refresh_token"
+                case user
+            }
+        }
+
+        let body: [String: Any] = ["refresh_token": rt]
+        let response: APIResponseWrapper<RefreshData> = try await postJSON(
+            path: "/auth/refresh",
+            body: body,
+            auth: false
+        )
+        guard let data = response.data else {
+            throw APIError.unauthorized
+        }
+        return (data.token, data.refreshToken, data.user)
+    }
+
+    /// Attempt to refresh the token, coalescing concurrent requests.
+    private func attemptTokenRefresh() async throws {
+        if isRefreshing {
+            // Wait for the in-flight refresh to finish
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                refreshContinuations.append(cont)
+            }
+            return
+        }
+
+        isRefreshing = true
+        do {
+            let (newToken, newRefreshToken, user) = try await refreshTokens()
+            AuthManager.shared.token = newToken
+            AuthManager.shared.refreshToken = newRefreshToken
+            AuthManager.shared.updateUser(user)
+            isRefreshing = false
+            let continuations = refreshContinuations
+            refreshContinuations.removeAll()
+            for cont in continuations {
+                cont.resume()
+            }
+        } catch {
+            isRefreshing = false
+            let continuations = refreshContinuations
+            refreshContinuations.removeAll()
+            for cont in continuations {
+                cont.resume(throwing: error)
+            }
+            throw error
+        }
     }
 
     // MARK: - Contacts
@@ -521,7 +594,7 @@ class APIService {
         }
     }
 
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
+    private func perform<T: Decodable>(_ request: URLRequest, allowRetry: Bool = true) async throws -> T {
         let data: Data
         let response: URLResponse
         do {
@@ -534,7 +607,25 @@ class APIService {
             throw APIError.invalidResponse
         }
 
+        if httpResponse.statusCode == 401 && allowRetry {
+            // Try to refresh the token and retry the request once
+            do {
+                try await attemptTokenRefresh()
+            } catch {
+                // Refresh failed — force logout
+                AuthManager.shared.logout()
+                throw APIError.unauthorized
+            }
+            // Rebuild request with new token
+            var retryRequest = request
+            if let newToken = AuthManager.shared.token {
+                retryRequest.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+            }
+            return try await perform(retryRequest, allowRetry: false)
+        }
+
         if httpResponse.statusCode == 401 {
+            AuthManager.shared.logout()
             throw APIError.unauthorized
         }
 

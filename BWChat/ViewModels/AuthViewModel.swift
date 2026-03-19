@@ -22,12 +22,12 @@ class AuthViewModel: ObservableObject {
 
         do {
             let deviceToken = PushService.shared.deviceToken
-            let (token, user) = try await APIService.shared.login(
+            let (token, refreshToken, user) = try await APIService.shared.login(
                 username: username,
                 password: password,
                 deviceToken: deviceToken
             )
-            AuthManager.shared.login(token: token, user: user)
+            AuthManager.shared.login(token: token, refreshToken: refreshToken, user: user)
 
             // Connect WebSocket
             WebSocketService.shared.connect()

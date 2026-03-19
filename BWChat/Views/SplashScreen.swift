@@ -80,7 +80,19 @@ struct SplashScreen: View {
             // Re-upload device token (may have been cleared by previous logout)
             PushService.shared.ensureTokenUploaded()
         } catch {
-            authManager.logout()
+            // Access token expired — attempt refresh
+            do {
+                let (newToken, newRefreshToken, user) = try await APIService.shared.refreshTokens()
+                authManager.token = newToken
+                authManager.refreshToken = newRefreshToken
+                authManager.updateUser(user)
+                authManager.isLoggedIn = true
+                WebSocketService.shared.connect()
+                PushService.shared.requestPermission()
+                PushService.shared.ensureTokenUploaded()
+            } catch {
+                authManager.logout()
+            }
         }
 
         try? await minDelay
