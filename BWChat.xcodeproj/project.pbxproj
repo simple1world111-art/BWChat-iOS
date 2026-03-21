@@ -51,6 +51,7 @@
 		A10071 /* EditProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071; };
 		A10072 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072; };
 		A10073 /* UserCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073; };
+		A10080 /* MediaPickerPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10080; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -123,6 +124,7 @@
 		B10071 /* EditProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditProfileView.swift; sourceTree = "<group>"; };
 		B10072 /* ProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewModel.swift; sourceTree = "<group>"; };
 		B10073 /* UserCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserCacheManager.swift; sourceTree = "<group>"; };
+		B10080 /* MediaPickerPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPickerPreview.swift; sourceTree = "<group>"; };
 		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -250,6 +252,7 @@
 				B10020 /* LoadingView.swift */,
 				B10021 /* ToastView.swift */,
 				B10060 /* VideoThumbnailView.swift */,
+				B10080 /* MediaPickerPreview.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -412,6 +415,7 @@
 				A10049 /* MainTabView.swift in Sources */,
 				A10050 /* VideoPlayerView.swift in Sources */,
 				A10060 /* VideoThumbnailView.swift in Sources */,
+				A10080 /* MediaPickerPreview.swift in Sources */,
 				A10061 /* AddGroupMembersView.swift in Sources */,
 				A10062 /* GroupDetailView.swift in Sources */,
 				A10070 /* ProfileView.swift in Sources */,

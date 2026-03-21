@@ -122,17 +122,33 @@ struct ContactsTabView: View {
 
                             VStack(spacing: 0) {
                                 ForEach(viewModel.friends) { friend in
-                                    HStack(spacing: 12) {
-                                        AvatarView(url: friend.avatarURL, size: 42)
+                                    NavigationLink {
+                                        ChatView(contact: Contact(
+                                            userID: friend.userID,
+                                            nickname: friend.nickname,
+                                            avatarURL: friend.avatarURL,
+                                            lastMessage: nil,
+                                            lastMessageTime: nil,
+                                            unreadCount: 0
+                                        ))
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            AvatarView(url: friend.avatarURL, size: 42)
 
-                                        Text(friend.nickname)
-                                            .font(.system(size: 16, weight: .medium))
-                                            .foregroundColor(AppColors.primaryText)
+                                            Text(friend.nickname)
+                                                .font(.system(size: 16, weight: .medium))
+                                                .foregroundColor(AppColors.primaryText)
 
-                                        Spacer()
+                                            Spacer()
+
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundColor(AppColors.tertiaryText)
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 10)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 10)
 
                                     if friend.id != viewModel.friends.last?.id {
                                         Divider().padding(.leading, 70)
