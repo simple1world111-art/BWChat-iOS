@@ -59,4 +59,9 @@ class ImageCacheManager {
         loadingTasks.values.forEach { $0.cancel() }
         loadingTasks.removeAll()
     }
+
+    func removeImage(for urlPath: String) {
+        cache.removeObject(forKey: urlPath as NSString)
+        loadingTasks.removeValue(forKey: urlPath)
+    }
 }

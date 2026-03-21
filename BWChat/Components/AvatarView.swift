@@ -28,7 +28,8 @@ struct AvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .task {
+        .task(id: url) {
+            image = nil
             let urlPath: String
             if url.hasPrefix("/") || url.hasPrefix("http") {
                 urlPath = url
