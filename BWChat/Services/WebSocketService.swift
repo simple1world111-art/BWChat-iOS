@@ -39,6 +39,7 @@ class WebSocketService: ObservableObject {
     let groupContactUpdatePublisher = PassthroughSubject<[String: Any], Never>()
     let groupRemovedPublisher = PassthroughSubject<Int, Never>()
     let groupRenamedPublisher = PassthroughSubject<(Int, String), Never>()
+    let cacheCleanupPublisher = PassthroughSubject<[String], Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
@@ -233,6 +234,12 @@ class WebSocketService: ObservableObject {
                let gid = d["group_id"] as? Int,
                let name = d["name"] as? String {
                 groupRenamedPublisher.send((gid, name))
+            }
+
+        case "cache_cleanup":
+            if let d = json["data"] as? [String: Any],
+               let urls = d["deleted_urls"] as? [String] {
+                cacheCleanupPublisher.send(urls)
             }
 
         default:

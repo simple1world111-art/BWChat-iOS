@@ -83,6 +83,21 @@ class ImageCacheManager {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
+    /// Batch-remove cached media for a list of server URL paths.
+    /// Also removes derived video thumbnail caches.
+    func removeImages(for urlPaths: [String]) {
+        for urlPath in urlPaths {
+            removeImage(for: urlPath)
+            // Also remove the video thumbnail derived from this URL
+            if let dotIndex = urlPath.lastIndex(of: ".") {
+                let thumbPath = urlPath
+                    .replacingOccurrences(of: "/api/v1/images/", with: "/api/v1/public/images/")
+                let thumbURL = String(thumbPath[thumbPath.startIndex..<dotIndex]) + "_thumb.jpg"
+                removeImage(for: thumbURL)
+            }
+        }
+    }
+
     // MARK: - Disk Helpers
 
     private func diskFileURL(for urlPath: String) -> URL {

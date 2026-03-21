@@ -100,6 +100,13 @@ class ContactsViewModel: ObservableObject {
                 self?.handleContactUpdate(data)
             }
             .store(in: &cancellables)
+
+        WebSocketService.shared.cacheCleanupPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { urls in
+                ImageCacheManager.shared.removeImages(for: urls)
+            }
+            .store(in: &cancellables)
     }
 
     private func handleNewMessage(_ message: Message) {
