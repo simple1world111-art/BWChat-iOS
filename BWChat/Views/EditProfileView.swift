@@ -78,7 +78,7 @@ struct EditProfileView: View {
                     .animation(.easeInOut, value: showToast)
                 }
             }
-            .onChange(of: viewModel.errorMessage) { _, msg in
+            .onChange(of: viewModel.errorMessage) { msg in
                 if let msg = msg {
                     showToastMessage(msg)
                 }
@@ -106,7 +106,7 @@ struct EditProfileView: View {
                     .offset(x: -2, y: -2)
                 }
             }
-            .onChange(of: selectedPhoto) { _, newValue in
+            .onChange(of: selectedPhoto) { newValue in
                 guard let item = newValue else { return }
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self) {
@@ -211,7 +211,7 @@ struct EditProfileView: View {
             .datePickerStyle(.wheel)
             .labelsHidden()
             .environment(\.locale, Locale(identifier: "zh_CN"))
-            .onChange(of: viewModel.editBirthdayDate) { _, _ in
+            .onChange(of: viewModel.editBirthdayDate) { _ in
                 viewModel.updateBirthdayFromDate()
             }
 
