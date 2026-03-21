@@ -35,6 +35,7 @@ class ContactsViewModel: ObservableObject {
 
         do {
             contacts = try await APIService.shared.getContacts()
+            UserCacheManager.shared.cacheContacts(contacts)
         } catch let error as APIError {
             if case .unauthorized = error {
                 AuthManager.shared.logout()

@@ -53,6 +53,7 @@ class FriendsViewModel: ObservableObject {
         isLoading = true
         do {
             friends = try await APIService.shared.getFriendList()
+            UserCacheManager.shared.cacheFriends(friends)
         } catch {
             errorMessage = "加载好友列表失败"
         }

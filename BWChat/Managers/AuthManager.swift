@@ -36,9 +36,16 @@ class AuthManager: ObservableObject {
         }
     }
 
+    private let currentUserKey = "cached_current_user"
+
     private init() {
         // Check if token exists on init
         isLoggedIn = token != nil
+        // Restore cached user info
+        if isLoggedIn, let data = UserDefaults.standard.data(forKey: currentUserKey),
+           let user = try? JSONDecoder().decode(User.self, from: data) {
+            currentUser = user
+        }
     }
 
     func login(token: String, refreshToken: String, user: User) {
@@ -46,6 +53,7 @@ class AuthManager: ObservableObject {
         self.refreshToken = refreshToken
         self.currentUser = user
         self.isLoggedIn = true
+        persistUser(user)
     }
 
     func logout() {
@@ -53,10 +61,21 @@ class AuthManager: ObservableObject {
         self.refreshToken = nil
         self.currentUser = nil
         self.isLoggedIn = false
+        UserDefaults.standard.removeObject(forKey: currentUserKey)
+        UserCacheManager.shared.clearCache()
+        ImageCacheManager.shared.clearCache()
         WebSocketService.shared.disconnect()
     }
 
     func updateUser(_ user: User) {
         self.currentUser = user
+        persistUser(user)
+    }
+
+    private func persistUser(_ user: User) {
+        if let data = try? JSONEncoder().encode(user) {
+            UserDefaults.standard.set(data, forKey: currentUserKey)
+        }
+        UserCacheManager.shared.cacheUser(user)
     }
 }

@@ -50,6 +50,7 @@
 		A10070 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070; };
 		A10071 /* EditProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071; };
 		A10072 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072; };
+		A10073 /* UserCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -121,6 +122,7 @@
 		B10070 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		B10071 /* EditProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditProfileView.swift; sourceTree = "<group>"; };
 		B10072 /* ProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewModel.swift; sourceTree = "<group>"; };
+		B10073 /* UserCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserCacheManager.swift; sourceTree = "<group>"; };
 		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -236,6 +238,7 @@
 			children = (
 				B10017 /* AuthManager.swift */,
 				B10018 /* ImageCacheManager.swift */,
+				B10073 /* UserCacheManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -390,6 +393,7 @@
 				A10016 /* PushService.swift in Sources */,
 				A10017 /* AuthManager.swift in Sources */,
 				A10018 /* ImageCacheManager.swift in Sources */,
+				A10073 /* UserCacheManager.swift in Sources */,
 				A10019 /* AvatarView.swift in Sources */,
 				A10020 /* LoadingView.swift in Sources */,
 				A10021 /* ToastView.swift in Sources */,
