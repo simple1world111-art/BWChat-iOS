@@ -54,39 +54,10 @@ struct VideoThumbnailView: View {
     }
 
     private func loadThumbnail() async {
-        // Check ImageCacheManager first (reuse same cache)
-        let cacheKey = "thumb:" + videoURL
-        if let cached = ImageCacheManager.shared.image(for: cacheKey) {
-            image = cached
-            isLoading = false
-            return
-        }
-
-        // Build full URL
-        let urlString: String
-        if thumbnailPath.hasPrefix("http") {
-            urlString = thumbnailPath
-        } else if thumbnailPath.hasPrefix("/") {
-            urlString = AppConfig.apiBaseURL.replacingOccurrences(of: "/api/v1", with: "") + thumbnailPath
-        } else {
-            urlString = AppConfig.apiBaseURL + "/" + thumbnailPath
-        }
-
-        guard let url = URL(string: urlString) else {
-            isLoading = false
-            return
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200,
-               let uiImage = UIImage(data: data) {
-                ImageCacheManager.shared.setImage(uiImage, for: cacheKey)
-                image = uiImage
-            }
-        } catch {
-            print("[VideoThumbnail] Failed to load: \(error)")
+        // Use ImageCacheManager's full two-tier cache (memory + disk)
+        let path = thumbnailPath
+        if let loaded = await ImageCacheManager.shared.loadImage(from: path) {
+            image = loaded
         }
         isLoading = false
     }
