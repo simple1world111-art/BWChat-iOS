@@ -131,7 +131,9 @@ struct CachedAsyncImage: View {
             if let image = image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
+                    .scaledToFill()
+                    .frame(width: 200, height: 150)
+                    .clipped()
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
@@ -150,6 +152,7 @@ struct CachedAsyncImage: View {
                     )
             }
         }
+        .cornerRadius(14)
         .task(id: url) {
             image = await ImageCacheManager.shared.loadImage(from: url)
             isLoading = false

@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
+    @State private var scrollAnchor: Int = 0
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -32,17 +33,16 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        // Flipped scroll view: content order is reversed so newest is at visual bottom
-                        Color.clear
-                            .frame(height: 1)
-                            .id("chatBottom")
-
-                        ForEach(viewModel.pendingMessages.reversed()) { pending in
-                            PendingMessageBubble(pending: pending)
-                                .scaleEffect(x: 1, y: -1)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
 
-                        ForEach(viewModel.messages.reversed()) { message in
+                        ForEach(viewModel.messages) { message in
                             MessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -53,40 +53,42 @@ struct ChatView: View {
                                     previewVideoURL = url
                                 }
                             )
-                            .scaleEffect(x: 1, y: -1)
                             .id(message.id)
                         }
 
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .scaleEffect(x: 1, y: -1)
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        ForEach(viewModel.pendingMessages) { pending in
+                            PendingMessageBubble(pending: pending)
                         }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("chatBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .scaleEffect(x: 1, y: -1)
-                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
                     withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("chatBottom")
+                        proxy.scrollTo("chatBottom", anchor: .bottom)
                     }
                 }
                 .onChange(of: viewModel.pendingMessages.count) { _ in
                     withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("chatBottom")
+                        proxy.scrollTo("chatBottom", anchor: .bottom)
                     }
+                }
+                .onChange(of: scrollAnchor) { _ in
+                    proxy.scrollTo("chatBottom", anchor: .bottom)
                 }
                 .task {
                     await viewModel.loadMessages()
                     onMarkRead?()
+                    scrollAnchor += 1
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard !Task.isCancelled else { return }
+                    scrollAnchor += 1
                 }
             }
 

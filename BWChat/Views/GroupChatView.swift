@@ -18,6 +18,7 @@ struct GroupChatView: View {
     @State private var showGroupDetail = false
     @State private var memberCount: Int = 0
     @State private var shouldPopToRoot = false
+    @State private var scrollAnchor: Int = 0
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
@@ -35,53 +36,50 @@ struct GroupChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        // Flipped scroll view: content order is reversed so newest is at visual bottom
-                        Color.clear
-                            .frame(height: 1)
-                            .id("groupBottom")
-
-                        ForEach(viewModel.pendingTexts.reversed()) { pending in
-                            PendingGroupBubble(pending: pending)
-                                .scaleEffect(x: 1, y: -1)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
 
-                        ForEach(viewModel.messages.reversed()) { message in
+                        ForEach(viewModel.messages) { message in
                             GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
                                 onImageTap: { url in previewImageURL = url },
                                 onVideoTap: { url in previewVideoURL = url }
                             )
-                            .scaleEffect(x: 1, y: -1)
                             .id(message.id)
                         }
 
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .scaleEffect(x: 1, y: -1)
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        ForEach(viewModel.pendingTexts) { pending in
+                            PendingGroupBubble(pending: pending)
                         }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id("groupBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .scaleEffect(x: 1, y: -1)
-                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
                     withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("groupBottom")
+                        proxy.scrollTo("groupBottom", anchor: .bottom)
                     }
                 }
                 .onChange(of: viewModel.pendingTexts.count) { _ in
                     withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("groupBottom")
+                        proxy.scrollTo("groupBottom", anchor: .bottom)
                     }
+                }
+                .onChange(of: scrollAnchor) { _ in
+                    proxy.scrollTo("groupBottom", anchor: .bottom)
                 }
                 .task {
                     await viewModel.loadMessages()
@@ -89,6 +87,10 @@ struct GroupChatView: View {
                         memberCount = detail.members.count
                     }
                     onMarkRead?()
+                    scrollAnchor += 1
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard !Task.isCancelled else { return }
+                    scrollAnchor += 1
                 }
             }
 
