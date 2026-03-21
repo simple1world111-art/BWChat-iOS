@@ -9,6 +9,12 @@ struct AvatarView: View {
 
     @State private var image: UIImage?
 
+    private var resolvedPath: String {
+        if url.isEmpty { return "" }
+        if url.hasPrefix("/") || url.hasPrefix("http") { return url }
+        return "/api/v1/" + url
+    }
+
     var body: some View {
         Group {
             if let image = image {
@@ -28,15 +34,27 @@ struct AvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .task(id: url) {
-            image = nil
-            let urlPath: String
-            if url.hasPrefix("/") || url.hasPrefix("http") {
-                urlPath = url
-            } else {
-                urlPath = "/api/v1/" + url
+        .onAppear {
+            // Try synchronous memory cache first for instant display
+            let path = resolvedPath
+            guard !path.isEmpty else { return }
+            if let cached = ImageCacheManager.shared.image(for: path) {
+                image = cached
             }
-            image = await ImageCacheManager.shared.loadImage(from: urlPath)
+        }
+        .task(id: url) {
+            let path = resolvedPath
+            guard !path.isEmpty else {
+                image = nil
+                return
+            }
+            // Only clear image if URL actually changed to a different one
+            if let current = image, ImageCacheManager.shared.image(for: path) == nil {
+                image = nil
+            }
+            if let loaded = await ImageCacheManager.shared.loadImage(from: path) {
+                image = loaded
+            }
         }
     }
 }

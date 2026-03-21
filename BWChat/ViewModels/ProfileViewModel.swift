@@ -20,6 +20,14 @@ class ProfileViewModel: ObservableObject {
     @Published var editLocation = ""
     @Published var editBirthdayDate = Date()
 
+    init() {
+        // Use cached user immediately so avatar shows without waiting for network
+        if let cached = AuthManager.shared.currentUser {
+            profile = cached
+            populateEditFields(from: cached)
+        }
+    }
+
     func loadProfile() async {
         isLoading = true
         errorMessage = nil
