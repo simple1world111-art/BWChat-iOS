@@ -135,7 +135,7 @@ struct CachedAsyncImage: View {
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
-                    .frame(width: 150, height: 150)
+                    .frame(width: 200, height: 150)
                     .overlay(
                         ProgressView()
                             .tint(AppColors.accent)
@@ -143,14 +143,14 @@ struct CachedAsyncImage: View {
             } else {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
-                    .frame(width: 150, height: 150)
+                    .frame(width: 200, height: 150)
                     .overlay(
                         Image(systemName: "photo")
                             .foregroundColor(AppColors.secondaryText)
                     )
             }
         }
-        .task {
+        .task(id: url) {
             image = await ImageCacheManager.shared.loadImage(from: url)
             isLoading = false
         }

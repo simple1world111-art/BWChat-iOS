@@ -15,7 +15,6 @@ struct ChatView: View {
     @State private var selectedVideoItem: PhotosPickerItem?
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
-    @State private var hasInitiallyScrolled = false
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -33,16 +32,17 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        // Flipped scroll view: content order is reversed so newest is at visual bottom
+                        Color.clear
+                            .frame(height: 1)
+                            .id("chatBottom")
+
+                        ForEach(viewModel.pendingMessages.reversed()) { pending in
+                            PendingMessageBubble(pending: pending)
+                                .scaleEffect(x: 1, y: -1)
                         }
 
-                        ForEach(viewModel.messages) { message in
+                        ForEach(viewModel.messages.reversed()) { message in
                             MessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -53,37 +53,40 @@ struct ChatView: View {
                                     previewVideoURL = url
                                 }
                             )
+                            .scaleEffect(x: 1, y: -1)
                             .id(message.id)
                         }
 
-                        ForEach(viewModel.pendingMessages) { pending in
-                            PendingMessageBubble(pending: pending)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .scaleEffect(x: 1, y: -1)
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
-
-                        Color.clear
-                            .frame(height: 1)
-                            .id("chatBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .scaleEffect(x: 1, y: -1)
+                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
-                    if hasInitiallyScrolled {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("chatBottom", anchor: .bottom)
-                        }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("chatBottom")
+                    }
+                }
+                .onChange(of: viewModel.pendingMessages.count) { _ in
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("chatBottom")
                     }
                 }
                 .task {
                     await viewModel.loadMessages()
                     onMarkRead?()
-                    // Wait for LazyVStack layout then scroll — crash-safe: .task auto-cancels on disappear
-                    try? await Task.sleep(nanoseconds: 150_000_000)
-                    guard !Task.isCancelled else { return }
-                    proxy.scrollTo("chatBottom", anchor: .bottom)
-                    hasInitiallyScrolled = true
                 }
             }
 
