@@ -1,5 +1,5 @@
 // BWChat/Views/MainTabView.swift
-// Main tab bar with Messages, Groups, Contacts - adaptive layout
+// Main tab bar with Messages, Groups, Contacts, Profile - adaptive layout
 
 import SwiftUI
 
@@ -28,6 +28,13 @@ struct MainTabView: View {
                     Text("通讯录")
                 }
                 .tag(2)
+
+            ProfileView()
+                .tabItem {
+                    Image(systemName: selectedTab == 3 ? "gearshape.fill" : "gearshape")
+                    Text("我")
+                }
+                .tag(3)
         }
         .tint(AppColors.accent)
     }

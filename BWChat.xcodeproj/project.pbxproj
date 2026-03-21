@@ -47,6 +47,9 @@
 		A10060 /* VideoThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060; };
 		A10061 /* AddGroupMembersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10061; };
 		A10062 /* GroupDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062; };
+		A10070 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070; };
+		A10071 /* EditProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071; };
+		A10072 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -115,6 +118,9 @@
 		B10048 /* GroupChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; };
 		B10061 /* AddGroupMembersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroupMembersView.swift; sourceTree = "<group>"; };
 		B10062 /* GroupDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupDetailView.swift; sourceTree = "<group>"; };
+		B10070 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		B10071 /* EditProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditProfileView.swift; sourceTree = "<group>"; };
+		B10072 /* ProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewModel.swift; sourceTree = "<group>"; };
 		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -187,6 +193,7 @@
 				B10042 /* FriendsViewModel.swift */,
 				B10043 /* GroupsViewModel.swift */,
 				B10044 /* GroupChatViewModel.swift */,
+				B10072 /* ProfileViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -208,6 +215,8 @@
 				B10062 /* GroupDetailView.swift */,
 				B10049 /* MainTabView.swift */,
 				B10050 /* VideoPlayerView.swift */,
+				B10070 /* ProfileView.swift */,
+				B10071 /* EditProfileView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -401,6 +410,9 @@
 				A10060 /* VideoThumbnailView.swift in Sources */,
 				A10061 /* AddGroupMembersView.swift in Sources */,
 				A10062 /* GroupDetailView.swift in Sources */,
+				A10070 /* ProfileView.swift in Sources */,
+				A10071 /* EditProfileView.swift in Sources */,
+				A10072 /* ProfileViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

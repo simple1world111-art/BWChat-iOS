@@ -436,6 +436,57 @@ class APIService {
         let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/push/device-token", body: body)
     }
 
+    // MARK: - Profile
+
+    func getMyProfile() async throws -> User {
+        struct ProfileData: Decodable {
+            let profile: User
+        }
+        let response: APIResponseWrapper<ProfileData> = try await get(path: "/profile/me")
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data.profile
+    }
+
+    func updateProfile(nickname: String? = nil, bio: String? = nil, gender: String? = nil, birthday: String? = nil, location: String? = nil) async throws -> User {
+        struct ProfileData: Decodable {
+            let profile: User
+        }
+        var body: [String: Any] = [:]
+        if let nickname = nickname { body["nickname"] = nickname }
+        if let bio = bio { body["bio"] = bio }
+        if let gender = gender { body["gender"] = gender }
+        if let birthday = birthday { body["birthday"] = birthday }
+        if let location = location { body["location"] = location }
+
+        let response: APIResponseWrapper<ProfileData> = try await putJSON(path: "/profile/me", body: body)
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data.profile
+    }
+
+    func uploadAvatar(imageData: Data, filename: String) async throws -> String {
+        struct AvatarData: Decodable {
+            let avatarUrl: String
+            enum CodingKeys: String, CodingKey {
+                case avatarUrl = "avatar_url"
+            }
+        }
+        let response: APIResponseWrapper<AvatarData> = try await uploadImage(
+            path: "/profile/avatar",
+            fieldName: nil,
+            fieldValue: nil,
+            imageData: imageData,
+            filename: filename
+        )
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data.avatarUrl
+    }
+
     // MARK: - Image Loading
 
     func loadImage(path: String) async throws -> Data {
@@ -498,6 +549,27 @@ class APIService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        if auth {
+            addAuthHeader(&request)
+        }
+
+        return try await perform(request)
+    }
+
+    private func putJSON<T: Decodable>(
+        path: String,
+        body: [String: Any],
+        auth: Bool = true
+    ) async throws -> T {
+        guard let url = URL(string: baseURL + path) else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
