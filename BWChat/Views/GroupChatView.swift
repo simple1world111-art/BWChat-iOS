@@ -229,7 +229,7 @@ struct GroupChatView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background(.ultraThinMaterial)
+        .background(AppColors.secondaryBackground)
     }
 }
 

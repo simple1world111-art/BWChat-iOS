@@ -199,7 +199,7 @@ struct ChatView: View {
             .padding(.vertical, 8)
             .padding(.bottom, safeAreaBottomPadding)
         }
-        .background(.ultraThinMaterial)
+        .background(AppColors.secondaryBackground)
     }
 
     private var safeAreaBottomPadding: CGFloat {
