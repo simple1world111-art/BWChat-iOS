@@ -13,6 +13,9 @@ class GroupChatViewModel: ObservableObject {
     @Published var hasMore = false
     @Published var errorMessage: String?
     @Published var pendingTexts: [PendingGroupText] = []
+    @Published var replyingTo: GroupMessage?
+    @Published var mentionedUserIDs: [String] = []
+    @Published var showMentionPicker = false
 
     let group: ChatGroup
     private var cancellables = Set<AnyCancellable>()
@@ -48,27 +51,50 @@ class GroupChatViewModel: ObservableObject {
     func sendText() async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        inputText = ""
 
-        // Optimistic: add a pending placeholder immediately
+        let replyID = replyingTo?.id
+        let mentions = mentionedUserIDs
+        inputText = ""
+        replyingTo = nil
+        mentionedUserIDs = []
+
         let pendingID = UUID().uuidString
         let pending = PendingGroupText(id: pendingID, content: text, status: .sending)
         pendingTexts.append(pending)
 
         do {
-            let msg = try await APIService.shared.sendGroupText(groupID: group.groupID, content: text)
-            // Remove pending, add real message
+            let msg = try await APIService.shared.sendGroupText(
+                groupID: group.groupID,
+                content: text,
+                replyToID: replyID,
+                mentions: mentions
+            )
             pendingTexts.removeAll { $0.id == pendingID }
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
             }
         } catch {
-            // Mark pending as failed
             if let idx = pendingTexts.firstIndex(where: { $0.id == pendingID }) {
                 pendingTexts[idx].status = .failed
             }
             errorMessage = "发送失败"
         }
+    }
+
+    func setReply(to message: GroupMessage) {
+        replyingTo = message
+    }
+
+    func cancelReply() {
+        replyingTo = nil
+    }
+
+    func addMention(userID: String, nickname: String) {
+        if !mentionedUserIDs.contains(userID) {
+            mentionedUserIDs.append(userID)
+        }
+        inputText += "@\(nickname) "
+        showMentionPicker = false
     }
 
     func sendImage(data: Data) async {

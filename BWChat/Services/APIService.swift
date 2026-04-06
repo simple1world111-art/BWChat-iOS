@@ -210,11 +210,14 @@ class APIService {
         )
     }
 
-    func sendTextMessage(receiverID: String, content: String) async throws -> Message {
-        let body: [String: Any] = [
+    func sendTextMessage(receiverID: String, content: String, replyToID: Int? = nil) async throws -> Message {
+        var body: [String: Any] = [
             "receiver_id": receiverID,
             "content": content,
         ]
+        if let replyID = replyToID {
+            body["reply_to_id"] = replyID
+        }
 
         let response: APIResponseWrapper<Message> = try await postJSON(path: "/chat/messages/text", body: body)
         guard let msg = response.data else {
@@ -343,8 +346,15 @@ class APIService {
         return (data?.messages ?? [], data?.hasMore ?? false)
     }
 
-    func sendGroupText(groupID: Int, content: String) async throws -> GroupMessage {
-        let body: [String: Any] = ["content": content]
+    func sendGroupText(groupID: Int, content: String, replyToID: Int? = nil, mentions: [String] = []) async throws -> GroupMessage {
+        var body: [String: Any] = ["content": content]
+        if let replyID = replyToID {
+            body["reply_to_id"] = replyID
+        }
+        if !mentions.isEmpty {
+            body["mentions"] = mentions
+        }
+
         let response: APIResponseWrapper<GroupMessage> = try await postJSON(
             path: "/groups/\(groupID)/messages/text",
             body: body

@@ -17,6 +17,8 @@ struct ChatView: View {
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
     @State private var scrollAnchor: Int = 0
+    @State private var showCallView = false
+    @ObservedObject private var callManager = CallManager.shared
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -47,12 +49,9 @@ struct ChatView: View {
                             MessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
-                                onImageTap: { url in
-                                    previewImageURL = url
-                                },
-                                onVideoTap: { url in
-                                    previewVideoURL = url
-                                }
+                                onImageTap: { url in previewImageURL = url },
+                                onVideoTap: { url in previewVideoURL = url },
+                                onReply: { msg in viewModel.setReply(to: msg) }
                             )
                             .id(message.id)
                         }
@@ -93,12 +92,61 @@ struct ChatView: View {
                 }
             }
 
-            // Input Bar - outside tap gesture so buttons work
+            // Reply preview bar
+            if let replyMsg = viewModel.replyingTo {
+                let senderName = replyMsg.senderID == AuthManager.shared.currentUser?.userID ? "我" : contact.nickname
+                ReplyPreviewBar(
+                    senderName: senderName,
+                    content: replyMsg.content,
+                    msgType: replyMsg.msgType,
+                    onCancel: { viewModel.cancelReply() }
+                )
+            }
+
+            // Input Bar
             inputBar
         }
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 4) {
+                    Button {
+                        CallManager.shared.startCall(
+                            to: contact.userID,
+                            nickname: contact.nickname,
+                            avatarURL: contact.avatarURL,
+                            type: .voice
+                        )
+                        showCallView = true
+                    } label: {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppColors.accent)
+                    }
+                    Button {
+                        CallManager.shared.startCall(
+                            to: contact.userID,
+                            nickname: contact.nickname,
+                            avatarURL: contact.avatarURL,
+                            type: .video
+                        )
+                        showCallView = true
+                    } label: {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppColors.accent)
+                    }
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $showCallView) {
+            CallView()
+        }
+        .onReceive(callManager.$currentCall) { call in
+            if call != nil && !showCallView { showCallView = true }
+        }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
         .fullScreenCover(item: Binding(

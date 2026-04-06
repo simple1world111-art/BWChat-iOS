@@ -8,12 +8,26 @@ struct MessageBubble: View {
     let isFromMe: Bool
     var onImageTap: ((String) -> Void)?
     var onVideoTap: ((String) -> Void)?
+    var onReply: ((Message) -> Void)?
+
+    @State private var swipeOffset: CGFloat = 0
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 4) {
             if isFromMe { Spacer(minLength: 40) }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
+                // Quoted message preview
+                if let reply = message.replyTo {
+                    let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : UserCacheManager.shared.getUser(userID: reply.senderID)?.nickname ?? reply.senderID
+                    QuotedMessageView(
+                        senderName: senderName,
+                        content: reply.content,
+                        msgType: reply.msgType,
+                        isFromMe: isFromMe
+                    )
+                }
+
                 if message.isImage {
                     imageBubble
                 } else if message.isVideo {
@@ -31,6 +45,31 @@ struct MessageBubble: View {
             if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
+        .offset(x: swipeOffset)
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onChanged { value in
+                    let horizontal = value.translation.width
+                    if (isFromMe && horizontal < 0) || (!isFromMe && horizontal > 0) {
+                        swipeOffset = horizontal * 0.4
+                    }
+                }
+                .onEnded { value in
+                    let threshold: CGFloat = 50
+                    if abs(value.translation.width) > threshold {
+                        onReply?(message)
+                    }
+                    withAnimation(.spring(response: 0.3)) { swipeOffset = 0 }
+                }
+        )
+        .overlay(alignment: isFromMe ? .leading : .trailing) {
+            if abs(swipeOffset) > 20 {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppColors.accent)
+                    .opacity(min(abs(swipeOffset) / 50, 1))
+            }
+        }
     }
 
     // MARK: - Gradient Text Bubble
@@ -60,6 +99,11 @@ struct MessageBubble: View {
                     UIPasteboard.general.string = message.content
                 } label: {
                     Label("复制", systemImage: "doc.on.doc")
+                }
+                Button {
+                    onReply?(message)
+                } label: {
+                    Label("回复", systemImage: "arrowshape.turn.up.left")
                 }
             }
     }

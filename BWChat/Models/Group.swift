@@ -88,6 +88,20 @@ struct GroupMember: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
+struct GroupReplyPreview: Codable, Equatable {
+    let id: Int
+    let senderID: String
+    let msgType: String
+    let content: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case senderID = "sender_id"
+        case msgType = "msg_type"
+        case content
+    }
+}
+
 struct GroupMessage: Codable, Identifiable, Equatable {
     let id: Int
     let groupID: Int
@@ -97,6 +111,9 @@ struct GroupMessage: Codable, Identifiable, Equatable {
     let timestamp: String
     let senderNickname: String
     let senderAvatar: String
+    let replyToID: Int?
+    let replyTo: GroupReplyPreview?
+    let mentions: [String]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -107,6 +124,9 @@ struct GroupMessage: Codable, Identifiable, Equatable {
         case timestamp
         case senderNickname = "sender_nickname"
         case senderAvatar = "sender_avatar"
+        case replyToID = "reply_to_id"
+        case replyTo = "reply_to"
+        case mentions
     }
 
     var isImage: Bool { msgType == "image" }

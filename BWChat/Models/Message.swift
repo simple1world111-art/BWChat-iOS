@@ -3,6 +3,20 @@
 
 import Foundation
 
+struct ReplyPreview: Codable, Equatable {
+    let id: Int
+    let senderID: String
+    let msgType: String
+    let content: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case senderID = "sender_id"
+        case msgType = "msg_type"
+        case content
+    }
+}
+
 struct Message: Codable, Identifiable, Equatable {
     let id: Int
     let senderID: String
@@ -10,6 +24,8 @@ struct Message: Codable, Identifiable, Equatable {
     let msgType: String
     let content: String
     let timestamp: String
+    let replyToID: Int?
+    let replyTo: ReplyPreview?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -18,6 +34,8 @@ struct Message: Codable, Identifiable, Equatable {
         case msgType = "msg_type"
         case content
         case timestamp
+        case replyToID = "reply_to_id"
+        case replyTo = "reply_to"
     }
 
     var isImage: Bool {

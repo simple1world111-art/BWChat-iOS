@@ -53,7 +53,8 @@ struct GroupChatView: View {
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
                                 onImageTap: { url in previewImageURL = url },
-                                onVideoTap: { url in previewVideoURL = url }
+                                onVideoTap: { url in previewVideoURL = url },
+                                onReply: { msg in viewModel.setReply(to: msg) }
                             )
                             .id(message.id)
                         }
@@ -97,8 +98,23 @@ struct GroupChatView: View {
                 }
             }
 
-            // Input bar - outside tap gesture
+            // Reply preview bar
+            if let replyMsg = viewModel.replyingTo {
+                ReplyPreviewBar(
+                    senderName: replyMsg.senderNickname,
+                    content: replyMsg.content,
+                    msgType: replyMsg.msgType,
+                    onCancel: { viewModel.cancelReply() }
+                )
+            }
+
+            // Input bar
             groupInputBar
+        }
+        .sheet(isPresented: $viewModel.showMentionPicker) {
+            MentionPickerView(groupID: group.groupID) { userID, nickname in
+                viewModel.addMention(userID: userID, nickname: nickname)
+            }
         }
         .background(AppColors.secondaryBackground)
         .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
@@ -234,6 +250,17 @@ struct GroupChatView: View {
                     }
                 }
 
+                // @ mention
+                Button {
+                    viewModel.showMentionPicker = true
+                } label: {
+                    Text("@")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 30, height: 40)
+                        .contentShape(Rectangle())
+                }
+
                 // Text input
                 TextField("输入消息...", text: $viewModel.inputText)
                     .font(.system(size: 16))
@@ -277,6 +304,9 @@ struct GroupMessageBubble: View {
     let isFromMe: Bool
     var onImageTap: ((String) -> Void)?
     var onVideoTap: ((String) -> Void)?
+    var onReply: ((GroupMessage) -> Void)?
+
+    @State private var swipeOffset: CGFloat = 0
 
     var body: some View {
         if message.isSystem {
@@ -305,6 +335,16 @@ struct GroupMessageBubble: View {
                     Text(message.senderNickname)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppColors.secondaryText)
+                }
+
+                // Quoted message
+                if let reply = message.replyTo {
+                    QuotedMessageView(
+                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : (UserCacheManager.shared.getUser(userID: reply.senderID)?.nickname ?? reply.senderID),
+                        content: reply.content,
+                        msgType: reply.msgType,
+                        isFromMe: isFromMe
+                    )
                 }
 
                 if message.isImage {
@@ -347,6 +387,11 @@ struct GroupMessageBubble: View {
                             } label: {
                                 Label("复制", systemImage: "doc.on.doc")
                             }
+                            Button {
+                                onReply?(message)
+                            } label: {
+                                Label("回复", systemImage: "arrowshape.turn.up.left")
+                            }
                         }
                 }
 
@@ -359,6 +404,22 @@ struct GroupMessageBubble: View {
             if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
+        .offset(x: swipeOffset)
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onChanged { value in
+                    let h = value.translation.width
+                    if (isFromMe && h < 0) || (!isFromMe && h > 0) {
+                        swipeOffset = h * 0.4
+                    }
+                }
+                .onEnded { value in
+                    if abs(value.translation.width) > 50 {
+                        onReply?(message)
+                    }
+                    withAnimation(.spring(response: 0.3)) { swipeOffset = 0 }
+                }
+        )
         }
     }
 }

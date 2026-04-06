@@ -41,6 +41,14 @@ class WebSocketService: ObservableObject {
     let groupRenamedPublisher = PassthroughSubject<(Int, String), Never>()
     let cacheCleanupPublisher = PassthroughSubject<[String], Never>()
 
+    // Call signaling
+    let callOfferPublisher = PassthroughSubject<[String: Any], Never>()
+    let callAnswerPublisher = PassthroughSubject<[String: Any], Never>()
+    let iceCandidatePublisher = PassthroughSubject<[String: Any], Never>()
+    let callEndPublisher = PassthroughSubject<String, Never>()
+    let callRejectPublisher = PassthroughSubject<[String: Any], Never>()
+    let callBusyPublisher = PassthroughSubject<String, Never>()
+
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
@@ -242,10 +250,105 @@ class WebSocketService: ObservableObject {
                 cacheCleanupPublisher.send(urls)
             }
 
+        case "call_offer":
+            if let d = json["data"] as? [String: Any] {
+                callOfferPublisher.send(d)
+            }
+
+        case "call_answer":
+            if let d = json["data"] as? [String: Any] {
+                callAnswerPublisher.send(d)
+            }
+
+        case "ice_candidate":
+            if let d = json["data"] as? [String: Any] {
+                iceCandidatePublisher.send(d)
+            }
+
+        case "call_end":
+            if let d = json["data"] as? [String: Any],
+               let fromUser = d["from_user_id"] as? String {
+                callEndPublisher.send(fromUser)
+            }
+
+        case "call_reject":
+            if let d = json["data"] as? [String: Any] {
+                callRejectPublisher.send(d)
+            }
+
+        case "call_busy":
+            if let d = json["data"] as? [String: Any],
+               let fromUser = d["from_user_id"] as? String {
+                callBusyPublisher.send(fromUser)
+            }
+
         default:
             print("[WS] Unknown message type: \(type)")
         }
     }
+
+    // MARK: - Call Signaling Helpers
+
+    func sendCallOffer(targetID: String, callType: CallType, sdp: String) {
+        let msg: [String: Any] = [
+            "type": "call_offer",
+            "data": [
+                "target_id": targetID,
+                "call_type": callType.rawValue,
+                "sdp": sdp
+            ]
+        ]
+        sendJSON(msg)
+    }
+
+    func sendCallAnswer(targetID: String, sdp: String) {
+        let msg: [String: Any] = [
+            "type": "call_answer",
+            "data": ["target_id": targetID, "sdp": sdp]
+        ]
+        sendJSON(msg)
+    }
+
+    func sendICECandidate(targetID: String, candidate: [String: Any]) {
+        let msg: [String: Any] = [
+            "type": "ice_candidate",
+            "data": [
+                "target_id": targetID,
+                "candidate": candidate
+            ]
+        ]
+        sendJSON(msg)
+    }
+
+    func sendCallEnd(targetID: String) {
+        let msg: [String: Any] = [
+            "type": "call_end",
+            "data": ["target_id": targetID]
+        ]
+        sendJSON(msg)
+    }
+
+    func sendCallReject(targetID: String, reason: String = "declined") {
+        let msg: [String: Any] = [
+            "type": "call_reject",
+            "data": ["target_id": targetID, "reason": reason]
+        ]
+        sendJSON(msg)
+    }
+
+    func sendCallBusy(targetID: String) {
+        let msg: [String: Any] = [
+            "type": "call_busy",
+            "data": ["target_id": targetID]
+        ]
+        sendJSON(msg)
+    }
+
+    private func sendJSON(_ dict: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let text = String(data: data, encoding: .utf8) else { return }
+        let message = URLSessionWebSocketTask.Message.string(text)
+        webSocketTask?.send(message) { _ in }
 
     private func startHeartbeat() {
         heartbeatTask?.cancel()

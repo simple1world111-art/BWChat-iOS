@@ -52,6 +52,11 @@
 		A10072 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072; };
 		A10073 /* UserCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073; };
 		A10080 /* MediaPickerPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10080; };
+		A10090 /* Call.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090; };
+		A10091 /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10091; };
+		A10092 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10092; };
+		A10093 /* MentionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10093; };
+		A10094 /* ReplyPreviewBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10094; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -127,6 +132,11 @@
 		B10080 /* MediaPickerPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPickerPreview.swift; sourceTree = "<group>"; };
 		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
+		B10090 /* Call.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Call.swift; sourceTree = "<group>"; };
+		B10091 /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
+		B10092 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
+		B10093 /* MentionPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MentionPickerView.swift; sourceTree = "<group>"; };
+		B10094 /* ReplyPreviewBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyPreviewBar.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -184,6 +194,7 @@
 				B10004 /* Contact.swift */,
 				B10040 /* Group.swift */,
 				B10041 /* FriendRequest.swift */,
+				B10090 /* Call.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -221,6 +232,7 @@
 				B10050 /* VideoPlayerView.swift */,
 				B10070 /* ProfileView.swift */,
 				B10071 /* EditProfileView.swift */,
+				B10092 /* CallView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -241,6 +253,7 @@
 				B10017 /* AuthManager.swift */,
 				B10018 /* ImageCacheManager.swift */,
 				B10073 /* UserCacheManager.swift */,
+				B10091 /* CallManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -253,6 +266,8 @@
 				B10021 /* ToastView.swift */,
 				B10060 /* VideoThumbnailView.swift */,
 				B10080 /* MediaPickerPreview.swift */,
+				B10093 /* MentionPickerView.swift */,
+				B10094 /* ReplyPreviewBar.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -421,6 +436,11 @@
 				A10070 /* ProfileView.swift in Sources */,
 				A10071 /* EditProfileView.swift in Sources */,
 				A10072 /* ProfileViewModel.swift in Sources */,
+				A10090 /* Call.swift in Sources */,
+				A10091 /* CallManager.swift in Sources */,
+				A10092 /* CallView.swift in Sources */,
+				A10093 /* MentionPickerView.swift in Sources */,
+				A10094 /* ReplyPreviewBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

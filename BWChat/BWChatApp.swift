@@ -8,12 +8,25 @@ struct BWChatApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    @StateObject private var callManager = CallManager.shared
+    @State private var showIncomingCall = false
+
     var body: some Scene {
         WindowGroup {
             SplashScreen()
-                .preferredColorScheme(nil) // Support both light and dark
+                .preferredColorScheme(nil)
                 .onChange(of: scenePhase) { newPhase in
                     handleScenePhase(newPhase)
+                }
+                .onReceive(callManager.$currentCall) { call in
+                    if let call = call, call.state == .incoming && !showIncomingCall {
+                        showIncomingCall = true
+                    } else if call == nil {
+                        showIncomingCall = false
+                    }
+                }
+                .fullScreenCover(isPresented: $showIncomingCall) {
+                    CallView()
                 }
         }
     }

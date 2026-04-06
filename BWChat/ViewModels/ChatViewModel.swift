@@ -16,6 +16,7 @@ class ChatViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var pendingMessages: [PendingMessage] = []
     @Published var selectedImageData: Data?
+    @Published var replyingTo: Message?
 
     let contact: Contact
     private var cancellables = Set<AnyCancellable>()
@@ -64,12 +65,15 @@ class ChatViewModel: ObservableObject {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
+        let replyID = replyingTo?.id
         inputText = ""
+        replyingTo = nil
 
         do {
             let message = try await APIService.shared.sendTextMessage(
                 receiverID: contact.userID,
-                content: text
+                content: text,
+                replyToID: replyID
             )
             if !messages.contains(where: { $0.id == message.id }) {
                 messages.append(message)
@@ -77,6 +81,14 @@ class ChatViewModel: ObservableObject {
         } catch {
             errorMessage = "发送失败，请重试"
         }
+    }
+
+    func setReply(to message: Message) {
+        replyingTo = message
+    }
+
+    func cancelReply() {
+        replyingTo = nil
     }
 
     func sendImage(data: Data) async {
