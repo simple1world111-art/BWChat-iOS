@@ -20,18 +20,24 @@ struct BWChatApp: App {
                     }
 
                 if callManager.currentCall != nil {
-                    if callManager.currentCall?.groupID != nil {
-                        GroupCallView()
-                            .transition(.move(edge: .bottom))
-                            .zIndex(100)
-                    } else {
-                        CallView()
-                            .transition(.move(edge: .bottom))
-                            .zIndex(100)
+                    ZStack {
+                        Color.black.ignoresSafeArea()
+                        VStack(spacing: 20) {
+                            Text("通话中")
+                                .font(.largeTitle)
+                                .foregroundColor(.white)
+                            Text(callManager.currentCall?.remoteNickname ?? "")
+                                .foregroundColor(.white.opacity(0.7))
+                            Button("挂断") {
+                                callManager.endCall()
+                            }
+                            .foregroundColor(.red)
+                            .font(.title2)
+                        }
                     }
+                    .zIndex(100)
                 }
             }
-            .animation(.easeInOut(duration: 0.3), value: callManager.currentCall != nil)
         }
     }
 
