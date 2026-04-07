@@ -17,8 +17,6 @@ struct ChatView: View {
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
     @State private var scrollAnchor: Int = 0
-    @State private var showCallView = false
-    @ObservedObject private var callManager = CallManager.shared
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -117,9 +115,8 @@ struct ChatView: View {
                             to: contact.userID,
                             nickname: contact.nickname,
                             avatarURL: contact.avatarURL,
-                            type: .voice
-                        )
-                        showCallView = true
+                        type: .voice
+                    )
                     } label: {
                         Image(systemName: "phone.fill")
                             .font(.system(size: 15))
@@ -132,7 +129,6 @@ struct ChatView: View {
                             avatarURL: contact.avatarURL,
                             type: .video
                         )
-                        showCallView = true
                     } label: {
                         Image(systemName: "video.fill")
                             .font(.system(size: 15))
@@ -140,12 +136,6 @@ struct ChatView: View {
                     }
                 }
             }
-        }
-        .fullScreenCover(isPresented: $showCallView) {
-            CallView()
-        }
-        .onReceive(callManager.$currentCall) { call in
-            if call != nil && !showCallView { showCallView = true }
         }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
