@@ -59,18 +59,18 @@ struct QuotedMessageView: View {
     var body: some View {
         HStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 1.5)
-                .fill(isFromMe ? Color.white.opacity(0.5) : AppColors.accent.opacity(0.6))
+                .fill(isFromMe ? Color.white : AppColors.accent)
                 .frame(width: 2.5)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(senderName)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(isFromMe ? .white.opacity(0.8) : AppColors.accent)
+                    .foregroundColor(isFromMe ? .white : AppColors.accent)
                     .lineLimit(1)
 
                 Text(previewText)
                     .font(.system(size: 12))
-                    .foregroundColor(isFromMe ? .white.opacity(0.7) : AppColors.secondaryText)
+                    .foregroundColor(isFromMe ? .white.opacity(0.9) : AppColors.primaryText)
                     .lineLimit(2)
             }
         }
@@ -78,7 +78,7 @@ struct QuotedMessageView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isFromMe ? Color.white.opacity(0.15) : AppColors.separator)
+                .fill(isFromMe ? Color.white.opacity(0.25) : Color(hex: "E8E8F0"))
         )
     }
 

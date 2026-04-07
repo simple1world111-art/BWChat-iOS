@@ -3,6 +3,8 @@
 
 import Foundation
 import Combine
+import AudioToolbox
+import UIKit
 
 @MainActor
 class GroupChatViewModel: ObservableObject {
@@ -127,6 +129,16 @@ class GroupChatViewModel: ObservableObject {
         !inputText.isBlank
     }
 
+    private func triggerMentionAlertIfNeeded(_ msg: GroupMessage) {
+        guard let myID = AuthManager.shared.currentUser?.userID,
+              let mentions = msg.mentions,
+              mentions.contains(myID),
+              msg.senderID != myID else { return }
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.warning)
+        AudioServicesPlaySystemSound(1315)
+    }
+
     private func setupWebSocketListener() {
         WebSocketService.shared.groupMessagePublisher
             .receive(on: DispatchQueue.main)
@@ -136,6 +148,7 @@ class GroupChatViewModel: ObservableObject {
                     if !self.messages.contains(where: { $0.id == msg.id }) {
                         self.messages.append(msg)
                     }
+                    self.triggerMentionAlertIfNeeded(msg)
                 }
             }
             .store(in: &cancellables)

@@ -129,8 +129,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
-        // Suppress group notification banner if viewing that group
-        if let groupID = userInfo["group_id"] as? Int,
+        // Suppress group notification banner if viewing that group,
+        // UNLESS the user was @mentioned — always show those
+        let isMention = userInfo["is_mention"] as? Bool ?? false
+        if !isMention,
+           let groupID = userInfo["group_id"] as? Int,
            let activeGroupID = WebSocketService.shared.activeGroupID,
            activeGroupID == groupID {
             completionHandler([])
