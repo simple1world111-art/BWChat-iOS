@@ -1,29 +1,10 @@
 // BWChat/Views/GroupCallView.swift
-// Multi-person group call UI with grid layout for video participants
+// Multi-person group call UI
 
 import SwiftUI
-import LiveKit
 
 struct GroupCallView: View {
     @ObservedObject var callManager = CallManager.shared
-
-    private var participantIdentities: [String] {
-        guard let room = callManager.room else { return [] }
-        var ids = [room.localParticipant.identity?.stringValue ?? "local"]
-        for rp in room.remoteParticipants.values {
-            ids.append(rp.identity?.stringValue ?? rp.sid?.stringValue ?? UUID().uuidString)
-        }
-        return ids
-    }
-
-    private var localParticipant: LocalParticipant? {
-        callManager.room?.localParticipant
-    }
-
-    private var allRemoteParticipants: [RemoteParticipant] {
-        guard let room = callManager.room else { return [] }
-        return Array(room.remoteParticipants.values)
-    }
 
     var body: some View {
         ZStack {
@@ -36,7 +17,7 @@ struct GroupCallView: View {
                         Text(callManager.currentCall?.groupName ?? "群通话")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
-                        Text("\(participantIdentities.count) 人通话中 · \(formatDuration(callManager.callDuration))")
+                        Text("\(callManager.remoteParticipantCount + 1) 人通话中 · \(formatDuration(callManager.callDuration))")
                             .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.6))
                     }
@@ -46,7 +27,7 @@ struct GroupCallView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 8)
 
-                // Video grid
+                // Participant grid
                 if callManager.currentCall?.callType == .video {
                     videoGrid
                 } else {
@@ -63,97 +44,52 @@ struct GroupCallView: View {
         .statusBarHidden(true)
     }
 
-    // MARK: - Video Grid
+    // MARK: - Video Grid (placeholder — real video rendered after LiveKit connects)
 
     @ViewBuilder
     private var videoGrid: some View {
-        let totalCount = 1 + allRemoteParticipants.count
-        let cols = gridColumns(for: totalCount)
+        let names = ["我"] + callManager.remoteParticipantNames
         ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: cols), spacing: 4) {
-                // Local participant
-                if let local = localParticipant {
-                    localVideoCell(local)
-                        .aspectRatio(3/4, contentMode: .fill)
-                        .cornerRadius(8)
-                }
-                // Remote participants
-                ForEach(allRemoteParticipants, id: \.sid) { remote in
-                    remoteVideoCell(remote)
-                        .aspectRatio(3/4, contentMode: .fill)
-                        .cornerRadius(8)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
+                ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                    videoCellPlaceholder(name: name)
                 }
             }
             .padding(.horizontal, 4)
         }
     }
 
-    @ViewBuilder
-    private func localVideoCell(_ participant: LocalParticipant) -> some View {
+    private func videoCellPlaceholder(name: String) -> some View {
         ZStack(alignment: .bottomLeading) {
-            if let pub = participant.localVideoTracks.first, let track = pub.track as? VideoTrack {
-                SwiftUIVideoView(track, layoutMode: .fill)
-            } else {
-                Color(hex: "2A2A3E")
-                    .overlay(
-                        Text(String(participant.name?.prefix(1) ?? "我"))
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(.white.opacity(0.5))
-                    )
-            }
-            participantLabel(name: participant.name ?? "我", micEnabled: participant.isMicrophoneEnabled())
-        }
-    }
+            Color(hex: "2A2A3E")
+                .aspectRatio(3/4, contentMode: .fill)
+                .overlay(
+                    Text(String(name.prefix(1)))
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(.white.opacity(0.5))
+                )
+                .cornerRadius(8)
 
-    @ViewBuilder
-    private func remoteVideoCell(_ participant: RemoteParticipant) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            if let pub = participant.videoTracks.first, let track = pub.track as? VideoTrack {
-                SwiftUIVideoView(track, layoutMode: .fill)
-            } else {
-                Color(hex: "2A2A3E")
-                    .overlay(
-                        Text(String(participant.name?.prefix(1) ?? "?"))
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(.white.opacity(0.5))
-                    )
-            }
-            participantLabel(name: participant.name ?? participant.identity?.stringValue ?? "", micEnabled: participant.isMicrophoneEnabled())
-        }
-    }
-
-    private func participantLabel(name: String, micEnabled: Bool) -> some View {
-        HStack(spacing: 4) {
-            if !micEnabled {
-                Image(systemName: "mic.slash.fill")
-                    .font(.system(size: 10))
-                    .foregroundColor(.red)
-            }
             Text(name)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.white)
-                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.black.opacity(0.5))
+                .cornerRadius(4)
+                .padding(4)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(Color.black.opacity(0.5))
-        .cornerRadius(4)
-        .padding(4)
     }
 
-    // MARK: - Voice Grid (audio-only)
+    // MARK: - Voice Grid
 
     @ViewBuilder
     private var voiceGrid: some View {
-        let totalCount = 1 + allRemoteParticipants.count
-        let cols = gridColumns(for: totalCount)
+        let names = ["我"] + callManager.remoteParticipantNames
         ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols), spacing: 12) {
-                if let local = localParticipant {
-                    voiceCell(name: local.name ?? "我", micEnabled: local.isMicrophoneEnabled())
-                }
-                ForEach(allRemoteParticipants, id: \.sid) { remote in
-                    voiceCell(name: remote.name ?? remote.identity?.stringValue ?? "", micEnabled: remote.isMicrophoneEnabled())
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                    voiceCell(name: name)
                 }
             }
             .padding(.horizontal, 16)
@@ -161,30 +97,16 @@ struct GroupCallView: View {
         }
     }
 
-    @ViewBuilder
-    private func voiceCell(name: String, micEnabled: Bool) -> some View {
+    private func voiceCell(name: String) -> some View {
         VStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .fill(Color(hex: "2A2A3E"))
-                    .frame(width: 64, height: 64)
-
-                Text(String(name.prefix(1)))
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(.white.opacity(0.7))
-
-                if !micEnabled {
-                    Circle()
-                        .fill(Color.red.opacity(0.8))
-                        .frame(width: 20, height: 20)
-                        .overlay(
-                            Image(systemName: "mic.slash.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.white)
-                        )
-                        .offset(x: 22, y: 22)
-                }
-            }
+            Circle()
+                .fill(Color(hex: "2A2A3E"))
+                .frame(width: 64, height: 64)
+                .overlay(
+                    Text(String(name.prefix(1)))
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white.opacity(0.7))
+                )
 
             Text(name)
                 .font(.system(size: 12))
@@ -200,29 +122,21 @@ struct GroupCallView: View {
             controlButton(
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
                 isActive: callManager.isMuted
-            ) {
-                callManager.toggleMute()
-            }
+            ) { callManager.toggleMute() }
 
             if callManager.currentCall?.callType == .video {
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
                     isActive: !callManager.isLocalVideoEnabled
-                ) {
-                    callManager.toggleLocalVideo()
-                }
+                ) { callManager.toggleLocalVideo() }
             }
 
             controlButton(
                 icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill",
                 isActive: callManager.isSpeakerOn
-            ) {
-                callManager.toggleSpeaker()
-            }
+            ) { callManager.toggleSpeaker() }
 
-            Button {
-                callManager.endCall()
-            } label: {
+            Button { callManager.endCall() } label: {
                 Image(systemName: "phone.down.fill")
                     .font(.system(size: 22))
                     .foregroundColor(.white)
@@ -244,17 +158,8 @@ struct GroupCallView: View {
         }
     }
 
-    private func gridColumns(for count: Int) -> Int {
-        switch count {
-        case 1: return 1
-        case 2: return 2
-        case 3...4: return 2
-        default: return 3
-        }
-    }
-
     private func formatDuration(_ interval: TimeInterval) -> String {
-        let total = Int(interval)
-        return String(format: "%02d:%02d", total / 60, total % 60)
+        let s = Int(interval)
+        return String(format: "%02d:%02d", s / 60, s % 60)
     }
 }

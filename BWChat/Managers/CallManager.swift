@@ -245,6 +245,24 @@ class CallManager: ObservableObject {
         }
     }
 
+    // MARK: - View Helpers (no LiveKit types exposed)
+
+    var remoteParticipantCount: Int {
+        remoteParticipants.count
+    }
+
+    var remoteParticipantNames: [String] {
+        remoteParticipants.map { $0.name ?? $0.identity?.stringValue ?? "" }
+    }
+
+    var hasRemoteVideo: Bool {
+        remoteVideoTrack != nil
+    }
+
+    var hasLocalVideo: Bool {
+        localVideoTrack != nil
+    }
+
     // MARK: - Internal: Participant Updates
 
     func updateRemoteParticipants() {

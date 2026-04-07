@@ -1,8 +1,7 @@
 // BWChat/Views/CallView.swift
-// Voice and video call UI backed by LiveKit
+// Voice and video call UI
 
 import SwiftUI
-import LiveKit
 
 struct CallView: View {
     @ObservedObject var callManager = CallManager.shared
@@ -35,33 +34,11 @@ struct CallView: View {
                             .padding(.top, 20)
                     }
 
-                    Group {
-                        switch call.state {
-                        case .outgoing:
-                            Text("正在呼叫...")
-                                .font(.system(size: 16))
-                                .foregroundColor(.white.opacity(0.7))
-                        case .incoming:
-                            Text(call.callType == .voice ? "语音来电" : "视频来电")
-                                .font(.system(size: 16))
-                                .foregroundColor(.white.opacity(0.7))
-                        case .connecting:
-                            Text("连接中...")
-                                .font(.system(size: 16))
-                                .foregroundColor(.white.opacity(0.7))
-                        case .connected:
-                            Text(formatDuration(callManager.callDuration))
-                                .font(.system(size: 18, weight: .medium, design: .monospaced))
-                                .foregroundColor(.green)
-                        default:
-                            EmptyView()
-                        }
-                    }
-                    .padding(.top, 8)
+                    statusText(call)
+                        .padding(.top, 8)
 
-                    // Group call: participant count
                     if call.groupID != nil && call.state == .connected {
-                        Text("\(callManager.remoteParticipants.count + 1) 人通话中")
+                        Text("\(callManager.remoteParticipantCount + 1) 人通话中")
                             .font(.system(size: 14))
                             .foregroundColor(.white.opacity(0.6))
                             .padding(.top, 4)
@@ -84,17 +61,37 @@ struct CallView: View {
         .statusBarHidden(true)
     }
 
-    // MARK: - Video Layer
+    @ViewBuilder
+    private func statusText(_ call: CallSession) -> some View {
+        switch call.state {
+        case .outgoing:
+            Text("正在呼叫...")
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.7))
+        case .incoming:
+            Text(call.callType == .voice ? "语音来电" : "视频来电")
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.7))
+        case .connecting:
+            Text("连接中...")
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.7))
+        case .connected:
+            Text(formatDuration(callManager.callDuration))
+                .font(.system(size: 18, weight: .medium, design: .monospaced))
+                .foregroundColor(.green)
+        default:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Video Layer (pure SwiftUI, no LiveKit views)
 
     @ViewBuilder
     private var videoLayer: some View {
         ZStack {
-            // Remote video (full screen)
-            if let remoteTrack = callManager.remoteVideoTrack {
-                SwiftUIVideoView(remoteTrack, layoutMode: .fill)
-                    .ignoresSafeArea()
-            } else {
-                Color.black.ignoresSafeArea()
+            Color.black.ignoresSafeArea()
+            if !callManager.hasRemoteVideo {
                 VStack {
                     Spacer()
                     Image(systemName: "video.slash.fill")
@@ -107,22 +104,6 @@ struct CallView: View {
                     Spacer()
                 }
             }
-
-            // Local video (PiP in top-right)
-            if let localTrack = callManager.localVideoTrack {
-                VStack {
-                    HStack {
-                        Spacer()
-                        SwiftUIVideoView(localTrack, layoutMode: .fill)
-                            .frame(width: 120, height: 160)
-                            .cornerRadius(12)
-                            .shadow(color: .black.opacity(0.4), radius: 8)
-                            .padding(.trailing, 16)
-                            .padding(.top, 60)
-                    }
-                    Spacer()
-                }
-            }
         }
     }
 
@@ -131,9 +112,7 @@ struct CallView: View {
     private var incomingCallButtons: some View {
         HStack(spacing: 60) {
             VStack(spacing: 8) {
-                Button {
-                    callManager.rejectCall()
-                } label: {
+                Button { callManager.rejectCall() } label: {
                     Image(systemName: "phone.down.fill")
                         .font(.system(size: 28))
                         .foregroundColor(.white)
@@ -147,9 +126,7 @@ struct CallView: View {
             }
 
             VStack(spacing: 8) {
-                Button {
-                    callManager.acceptCall()
-                } label: {
+                Button { callManager.acceptCall() } label: {
                     Image(systemName: "phone.fill")
                         .font(.system(size: 28))
                         .foregroundColor(.white)
@@ -172,32 +149,24 @@ struct CallView: View {
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
                 label: callManager.isMuted ? "取消静音" : "静音",
                 isActive: callManager.isMuted
-            ) {
-                callManager.toggleMute()
-            }
+            ) { callManager.toggleMute() }
 
             if call.callType == .video {
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
                     label: callManager.isLocalVideoEnabled ? "关闭摄像头" : "开启摄像头",
                     isActive: !callManager.isLocalVideoEnabled
-                ) {
-                    callManager.toggleLocalVideo()
-                }
+                ) { callManager.toggleLocalVideo() }
             }
 
             controlButton(
                 icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill",
                 label: callManager.isSpeakerOn ? "关闭扬声器" : "扬声器",
                 isActive: callManager.isSpeakerOn
-            ) {
-                callManager.toggleSpeaker()
-            }
+            ) { callManager.toggleSpeaker() }
 
             VStack(spacing: 8) {
-                Button {
-                    callManager.endCall()
-                } label: {
+                Button { callManager.endCall() } label: {
                     Image(systemName: "phone.down.fill")
                         .font(.system(size: 24))
                         .foregroundColor(.white)
@@ -230,9 +199,7 @@ struct CallView: View {
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {
-        let totalSeconds = Int(interval)
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        let s = Int(interval)
+        return String(format: "%02d:%02d", s / 60, s % 60)
     }
 }
