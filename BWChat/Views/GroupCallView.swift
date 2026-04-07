@@ -2,6 +2,7 @@
 // Multi-person group call UI
 
 import SwiftUI
+import LiveKit
 
 struct GroupCallView: View {
     @ObservedObject var callManager = CallManager.shared
@@ -44,31 +45,49 @@ struct GroupCallView: View {
         .statusBarHidden(true)
     }
 
-    // MARK: - Video Grid (placeholder — real video rendered after LiveKit connects)
+    // MARK: - Video Grid
 
     @ViewBuilder
     private var videoGrid: some View {
-        let names = ["我"] + callManager.remoteParticipantNames
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
-                ForEach(Array(names.enumerated()), id: \.offset) { _, name in
-                    videoCellPlaceholder(name: name)
+                // Local participant
+                if let localParticipant = callManager.room?.localParticipant {
+                    videoCell(
+                        name: "我",
+                        videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack
+                    )
+                }
+
+                // Remote participants
+                ForEach(Array(callManager.remoteParticipants.enumerated()), id: \.element.sid) { _, participant in
+                    videoCell(
+                        name: participant.name ?? participant.identity?.stringValue ?? "",
+                        videoTrack: participant.videoTracks.first?.track as? VideoTrack
+                    )
                 }
             }
             .padding(.horizontal, 4)
         }
     }
 
-    private func videoCellPlaceholder(name: String) -> some View {
+    private func videoCell(name: String, videoTrack: VideoTrack?) -> some View {
         ZStack(alignment: .bottomLeading) {
-            Color(hex: "2A2A3E")
-                .aspectRatio(3/4, contentMode: .fill)
-                .overlay(
-                    Text(String(name.prefix(1)))
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.white.opacity(0.5))
-                )
-                .cornerRadius(8)
+            if let track = videoTrack {
+                SwiftUIVideoView(track, layoutMode: .fill)
+                    .aspectRatio(3/4, contentMode: .fill)
+                    .clipped()
+                    .cornerRadius(8)
+            } else {
+                Color(hex: "2A2A3E")
+                    .aspectRatio(3/4, contentMode: .fill)
+                    .overlay(
+                        Text(String(name.prefix(1)))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(.white.opacity(0.5))
+                    )
+                    .cornerRadius(8)
+            }
 
             Text(name)
                 .font(.system(size: 11, weight: .medium))

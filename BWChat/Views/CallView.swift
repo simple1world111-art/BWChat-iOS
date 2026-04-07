@@ -2,6 +2,7 @@
 // Voice and video call UI
 
 import SwiftUI
+import LiveKit
 
 struct CallView: View {
     @ObservedObject var callManager = CallManager.shared
@@ -85,13 +86,17 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Video Layer (pure SwiftUI, no LiveKit views)
+    // MARK: - Video Layer
 
     @ViewBuilder
     private var videoLayer: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if !callManager.hasRemoteVideo {
+        ZStack(alignment: .topTrailing) {
+            // Remote video (full screen)
+            if let remoteTrack = callManager.remoteVideoTrack {
+                SwiftUIVideoView(remoteTrack, layoutMode: .fill)
+                    .ignoresSafeArea()
+            } else {
+                Color.black.ignoresSafeArea()
                 VStack {
                     Spacer()
                     Image(systemName: "video.slash.fill")
@@ -103,6 +108,16 @@ struct CallView: View {
                         .padding(.top, 8)
                     Spacer()
                 }
+            }
+
+            // Local video (PiP)
+            if let localTrack = callManager.localVideoTrack {
+                SwiftUIVideoView(localTrack, layoutMode: .fill)
+                    .frame(width: 120, height: 160)
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.4), radius: 8)
+                    .padding(.top, 60)
+                    .padding(.trailing, 16)
             }
         }
     }
