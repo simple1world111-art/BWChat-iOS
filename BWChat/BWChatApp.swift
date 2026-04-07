@@ -8,37 +8,30 @@ struct BWChatApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
-    @StateObject private var callManager = CallManager.shared
-    @State private var showCall = false
-    @State private var presentedCallIsGroup = false
+    @ObservedObject private var callManager = CallManager.shared
 
     var body: some Scene {
         WindowGroup {
-            SplashScreen()
-                .preferredColorScheme(nil)
-                .onChange(of: scenePhase) { newPhase in
-                    handleScenePhase(newPhase)
-                }
-                .onChange(of: callManager.currentCall == nil) { isNil in
-                    if isNil {
-                        showCall = false
+            ZStack {
+                SplashScreen()
+                    .preferredColorScheme(nil)
+                    .onChange(of: scenePhase) { newPhase in
+                        handleScenePhase(newPhase)
                     }
-                }
-                .onChange(of: callManager.currentCall?.id) { newID in
-                    if newID != nil, !showCall {
-                        presentedCallIsGroup = callManager.currentCall?.groupID != nil
-                        showCall = true
-                    }
-                }
-                .fullScreenCover(isPresented: $showCall) {
-                    callManager.endCallLocally()
-                } content: {
-                    if presentedCallIsGroup {
+
+                if callManager.currentCall != nil {
+                    if callManager.currentCall?.groupID != nil {
                         GroupCallView()
+                            .transition(.move(edge: .bottom))
+                            .zIndex(100)
                     } else {
                         CallView()
+                            .transition(.move(edge: .bottom))
+                            .zIndex(100)
                     }
                 }
+            }
+            .animation(.easeInOut(duration: 0.3), value: callManager.currentCall != nil)
         }
     }
 
