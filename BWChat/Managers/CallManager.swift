@@ -48,13 +48,16 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.startCall(targetID: userID, callType: type.rawValue)
-                currentCall?.roomName = resp.roomName
-                currentCall?.livekitToken = resp.token
-                currentCall?.livekitURL = resp.livekitUrl
+                if var call = currentCall {
+                    call.roomName = resp.roomName
+                    call.livekitToken = resp.token
+                    call.livekitURL = resp.livekitUrl
+                    currentCall = call
+                }
                 await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: type == .video)
             } catch {
                 print("[CallManager] Failed to start call: \(error)")
-                endCallLocally()
+                await safeEndCall()
             }
         }
     }
@@ -69,12 +72,15 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.joinCall(roomName: call.roomName)
-                currentCall?.livekitToken = resp.token
-                currentCall?.livekitURL = resp.livekitUrl
+                if var c = currentCall {
+                    c.livekitToken = resp.token
+                    c.livekitURL = resp.livekitUrl
+                    currentCall = c
+                }
                 await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: call.callType == .video)
             } catch {
                 print("[CallManager] Failed to join call: \(error)")
-                endCallLocally()
+                await safeEndCall()
             }
         }
     }
@@ -99,13 +105,16 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.startGroupCall(groupID: groupID, callType: type.rawValue)
-                currentCall?.roomName = resp.roomName
-                currentCall?.livekitToken = resp.token
-                currentCall?.livekitURL = resp.livekitUrl
+                if var call = currentCall {
+                    call.roomName = resp.roomName
+                    call.livekitToken = resp.token
+                    call.livekitURL = resp.livekitUrl
+                    currentCall = call
+                }
                 await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: type == .video)
             } catch {
                 print("[CallManager] Failed to start group call: \(error)")
-                endCallLocally()
+                await safeEndCall()
             }
         }
     }
@@ -129,12 +138,15 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.joinCall(roomName: roomName)
-                currentCall?.livekitToken = resp.token
-                currentCall?.livekitURL = resp.livekitUrl
+                if var call = currentCall {
+                    call.livekitToken = resp.token
+                    call.livekitURL = resp.livekitUrl
+                    currentCall = call
+                }
                 await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: callType == .video)
             } catch {
                 print("[CallManager] Failed to join group call: \(error)")
-                endCallLocally()
+                await safeEndCall()
             }
         }
     }
@@ -164,13 +176,21 @@ class CallManager: ObservableObject {
                 }
             }
 
-            currentCall?.state = .connected
+            if var call = currentCall {
+                call.state = .connected
+                currentCall = call
+            }
             startDurationTimer()
             updateRemoteParticipants()
         } catch {
             print("[CallManager] Room connect failed: \(error)")
-            endCallLocally()
+            await safeEndCall()
         }
+    }
+
+    private func safeEndCall() async {
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        endCallLocally()
     }
 
     // MARK: - Controls

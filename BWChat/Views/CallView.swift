@@ -6,7 +6,6 @@ import LiveKit
 
 struct CallView: View {
     @ObservedObject var callManager = CallManager.shared
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
@@ -81,9 +80,6 @@ struct CallView: View {
 
                 Spacer().frame(height: 50)
             }
-        }
-        .onChange(of: callManager.currentCall == nil) { isNil in
-            if isNil { dismiss() }
         }
         .statusBarHidden(true)
     }

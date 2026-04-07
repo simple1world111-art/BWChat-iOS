@@ -6,7 +6,6 @@ import LiveKit
 
 struct GroupCallView: View {
     @ObservedObject var callManager = CallManager.shared
-    @Environment(\.dismiss) private var dismiss
 
     private var participantIdentities: [String] {
         guard let room = callManager.room else { return [] }
@@ -60,9 +59,6 @@ struct GroupCallView: View {
                 controlBar
                     .padding(.bottom, 40)
             }
-        }
-        .onChange(of: callManager.currentCall == nil) { isNil in
-            if isNil { dismiss() }
         }
         .statusBarHidden(true)
     }
