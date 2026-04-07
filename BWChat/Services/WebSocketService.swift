@@ -113,6 +113,11 @@ class WebSocketService: ObservableObject {
         isManuallyDisconnected = false
         reconnectDelay = 1
 
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+
         let urlString = AppConfig.wsBaseURL + "?token=\(token)"
         guard let url = URL(string: urlString) else { return }
 
@@ -124,9 +129,7 @@ class WebSocketService: ObservableObject {
         webSocketTask = session.webSocketTask(with: url)
         webSocketTask?.resume()
 
-        isConnected = true
         startListening()
-        startHeartbeat()
     }
 
     func disconnect() {
@@ -141,11 +144,17 @@ class WebSocketService: ObservableObject {
     }
 
     private func startListening() {
-        webSocketTask?.receive { [weak self] result in
+        guard let task = webSocketTask else { return }
+        task.receive { [weak self] result in
             Task { @MainActor in
                 guard let self = self else { return }
+                guard self.webSocketTask === task else { return }
                 switch result {
                 case .success(let message):
+                    if !self.isConnected {
+                        self.isConnected = true
+                        self.startHeartbeat()
+                    }
                     self.handleMessage(message)
                     self.startListening()
                 case .failure:
@@ -365,10 +374,12 @@ class WebSocketService: ObservableObject {
     }
 
     private func sendJSON(_ dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+        guard isConnected,
+              let task = webSocketTask,
+              let data = try? JSONSerialization.data(withJSONObject: dict),
               let text = String(data: data, encoding: .utf8) else { return }
         let message = URLSessionWebSocketTask.Message.string(text)
-        webSocketTask?.send(message) { _ in }
+        task.send(message) { _ in }
     }
 
     private func startHeartbeat() {
@@ -383,11 +394,12 @@ class WebSocketService: ObservableObject {
     }
 
     private func sendPing() {
+        guard isConnected, let task = webSocketTask else { return }
         let pingMessage = URLSessionWebSocketTask.Message.string("{\"type\": \"ping\"}")
-        webSocketTask?.send(pingMessage) { error in
+        task.send(pingMessage) { [weak self] error in
             if error != nil {
                 Task { @MainActor in
-                    self.handleDisconnect()
+                    self?.handleDisconnect()
                 }
             }
         }
@@ -396,7 +408,11 @@ class WebSocketService: ObservableObject {
     private func handleDisconnect() {
         isConnected = false
         heartbeatTask?.cancel()
+        heartbeatTask = nil
+
+        let staleTask = webSocketTask
         webSocketTask = nil
+        staleTask?.cancel(with: .goingAway, reason: nil)
 
         guard !isManuallyDisconnected else { return }
 

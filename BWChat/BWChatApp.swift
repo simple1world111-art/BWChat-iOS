@@ -20,21 +20,14 @@ struct BWChatApp: App {
                     }
 
                 if callManager.currentCall != nil {
-                    ZStack {
-                        Color.black.ignoresSafeArea()
-                        VStack(spacing: 20) {
-                            Text("通话中")
-                                .font(.largeTitle)
-                                .foregroundColor(.white)
-                            Text(callManager.currentCall?.remoteNickname ?? "")
-                                .foregroundColor(.white.opacity(0.7))
-                            Button("挂断") {
-                                callManager.endCall()
-                            }
-                            .foregroundColor(.red)
-                            .font(.title2)
+                    Group {
+                        if callManager.currentCall?.groupID != nil {
+                            GroupCallView()
+                        } else {
+                            CallView()
                         }
                     }
+                    .transition(.move(edge: .bottom))
                     .zIndex(100)
                 }
             }
