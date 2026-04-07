@@ -48,8 +48,8 @@ struct AvatarView: View {
                 image = nil
                 return
             }
-            // Only clear image if URL actually changed to a different one
-            if let current = image, ImageCacheManager.shared.image(for: path) == nil {
+            // Only clear image if we had one but sync cache no longer has this path
+            if image != nil, ImageCacheManager.shared.image(for: path) == nil {
                 image = nil
             }
             if let loaded = await ImageCacheManager.shared.loadImage(from: path) {

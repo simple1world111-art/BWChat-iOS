@@ -4,6 +4,7 @@
 import SwiftUI
 import PhotosUI
 
+@MainActor
 struct EditProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
     @Environment(\.dismiss) private var dismiss

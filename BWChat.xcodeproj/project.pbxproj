@@ -57,6 +57,7 @@
 		A10092 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10092; };
 		A10093 /* MentionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10093; };
 		A10094 /* ReplyPreviewBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10094; };
+		A10095 /* BWChatNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = PR10002; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +77,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				A10095 /* BWChatNotificationService.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;

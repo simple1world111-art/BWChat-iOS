@@ -81,7 +81,7 @@ class GroupsViewModel: ObservableObject {
     private func setupWebSocketListeners() {
         WebSocketService.shared.groupMessagePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { _ in
                 // Contact update handler takes care of updating preview/unread.
                 // Only reload if we need fresh member counts etc.
             }

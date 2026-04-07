@@ -349,6 +349,7 @@ class WebSocketService: ObservableObject {
               let text = String(data: data, encoding: .utf8) else { return }
         let message = URLSessionWebSocketTask.Message.string(text)
         webSocketTask?.send(message) { _ in }
+    }
 
     private func startHeartbeat() {
         heartbeatTask?.cancel()
