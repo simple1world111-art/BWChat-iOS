@@ -70,7 +70,7 @@ struct QuotedMessageView: View {
 
                 Text(previewText)
                     .font(.system(size: 12))
-                    .foregroundColor(isFromMe ? .white.opacity(0.9) : Color(hex: "3A3A50"))
+                    .foregroundColor(isFromMe ? .white : Color(hex: "3A3A50"))
                     .lineLimit(2)
             }
         }
@@ -78,7 +78,7 @@ struct QuotedMessageView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isFromMe ? Color.white.opacity(0.2) : Color(hex: "DDDDE8"))
+                .fill(isFromMe ? Color.black.opacity(0.25) : Color(hex: "DDDDE8"))
         )
     }
 
