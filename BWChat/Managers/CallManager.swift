@@ -213,7 +213,7 @@ class CallManager: ObservableObject {
     func toggleLocalVideo() {
         isLocalVideoEnabled.toggle()
         Task {
-            try? await room?.localParticipant.setCamera(enabled: isLocalVideoEnabled)
+            _ = try? await room?.localParticipant.setCamera(enabled: isLocalVideoEnabled)
             if isLocalVideoEnabled {
                 if let pub = room?.localParticipant.localVideoTracks.first,
                    let track = pub.track as? VideoTrack {
@@ -340,7 +340,7 @@ class CallManager: ObservableObject {
 
 // MARK: - LiveKit Room Delegate
 
-class RoomDelegateHandler: RoomDelegate {
+final class RoomDelegateHandler: RoomDelegate, @unchecked Sendable {
     weak var manager: CallManager?
 
     init(manager: CallManager) {
