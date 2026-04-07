@@ -340,7 +340,7 @@ struct GroupMessageBubble: View {
                 // Quoted message
                 if let reply = message.replyTo {
                     QuotedMessageView(
-                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : (UserCacheManager.shared.getUser(userID: reply.senderID)?.nickname ?? reply.senderID),
+                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
                         content: reply.content,
                         msgType: reply.msgType,
                         isFromMe: isFromMe

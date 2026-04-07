@@ -18,8 +18,8 @@ struct EditProfileView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Avatar section
-                    avatarSection
+                    // Avatar section (URL from body so PhotosPicker closure stays Sendable)
+                    avatarSection(avatarURL: viewModel.profile?.avatarURL ?? "")
 
                     // Form fields
                     formSection
@@ -89,11 +89,11 @@ struct EditProfileView: View {
 
     // MARK: - Avatar Section
 
-    private var avatarSection: some View {
+    private func avatarSection(avatarURL: String) -> some View {
         VStack(spacing: 12) {
             PhotosPicker(selection: $selectedPhoto, matching: .images) {
                 ZStack(alignment: .bottomTrailing) {
-                    AvatarView(url: viewModel.profile?.avatarURL ?? "", size: 88)
+                    AvatarView(url: avatarURL, size: 88)
                         .shadow(color: AppColors.accent.opacity(0.2), radius: 6, x: 0, y: 3)
 
                     ZStack {

@@ -56,7 +56,7 @@ class CallManager: ObservableObject {
             return
         }
 
-        let user = UserCacheManager.shared.getUser(userID: userID)
+        let user = UserCacheManager.shared.getUser(userID)
         currentCall = CallSession(
             remoteUserID: userID,
             remoteNickname: user?.nickname ?? userID,
@@ -103,7 +103,8 @@ class CallManager: ObservableObject {
     func toggleSpeaker() {
         isSpeakerOn.toggle()
         let session = AVAudioSession.sharedInstance()
-        try? session.overrideOutputAudioRoute(isSpeakerOn ? .speaker : .none)
+        let port: AVAudioSession.PortOverride = isSpeakerOn ? .speaker : .none
+        try? session.overrideOutputAudioPort(port)
     }
 
     func toggleLocalVideo() {
@@ -125,7 +126,7 @@ class CallManager: ObservableObject {
 
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth])
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
         try? session.setActive(true)
     }
 

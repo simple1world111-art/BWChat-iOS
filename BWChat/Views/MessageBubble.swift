@@ -19,7 +19,7 @@ struct MessageBubble: View {
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
                 // Quoted message preview
                 if let reply = message.replyTo {
-                    let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : UserCacheManager.shared.getUser(userID: reply.senderID)?.nickname ?? reply.senderID
+                    let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID
                     QuotedMessageView(
                         senderName: senderName,
                         content: reply.content,
