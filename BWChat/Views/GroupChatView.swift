@@ -22,6 +22,7 @@ struct GroupChatView: View {
     @State private var memberCount: Int = 0
     @State private var shouldPopToRoot = false
     @State private var scrollAnchor: Int = 0
+    @State private var highlightedMessageID: Int?
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
@@ -31,6 +32,20 @@ struct GroupChatView: View {
 
     private func setActiveGroupChat(_ active: Bool) {
         WebSocketService.shared.activeGroupID = active ? group.id : nil
+    }
+
+    private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(messageID, anchor: .center)
+        }
+        highlightedMessageID = messageID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                if highlightedMessageID == messageID {
+                    highlightedMessageID = nil
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -54,9 +69,16 @@ struct GroupChatView: View {
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
                                 onImageTap: { url in previewImageURL = url },
                                 onVideoTap: { url in previewVideoURL = url },
-                                onReply: { msg in viewModel.setReply(to: msg) }
+                                onReply: { msg in viewModel.setReply(to: msg) },
+                                onQuoteTap: { targetID in
+                                    scrollToMessage(targetID, proxy: proxy)
+                                }
                             )
                             .id(message.id)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
+                            )
                         }
 
                         ForEach(viewModel.pendingTexts) { pending in
@@ -321,6 +343,7 @@ struct GroupMessageBubble: View {
     var onImageTap: ((String) -> Void)?
     var onVideoTap: ((String) -> Void)?
     var onReply: ((GroupMessage) -> Void)?
+    var onQuoteTap: ((Int) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
 
@@ -359,7 +382,8 @@ struct GroupMessageBubble: View {
                         senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
                         content: reply.content,
                         msgType: reply.msgType,
-                        isFromMe: isFromMe
+                        isFromMe: isFromMe,
+                        onTap: { onQuoteTap?(reply.id) }
                     )
                 }
 

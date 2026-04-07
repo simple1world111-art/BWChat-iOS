@@ -17,6 +17,7 @@ struct ChatView: View {
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
     @State private var scrollAnchor: Int = 0
+    @State private var highlightedMessageID: Int?
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -26,6 +27,20 @@ struct ChatView: View {
 
     private func setActiveChat(_ active: Bool) {
         WebSocketService.shared.activeChatUserID = active ? contact.userID : nil
+    }
+
+    private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(messageID, anchor: .center)
+        }
+        highlightedMessageID = messageID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                if highlightedMessageID == messageID {
+                    highlightedMessageID = nil
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -49,9 +64,16 @@ struct ChatView: View {
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
                                 onImageTap: { url in previewImageURL = url },
                                 onVideoTap: { url in previewVideoURL = url },
-                                onReply: { msg in viewModel.setReply(to: msg) }
+                                onReply: { msg in viewModel.setReply(to: msg) },
+                                onQuoteTap: { targetID in
+                                    scrollToMessage(targetID, proxy: proxy)
+                                }
                             )
                             .id(message.id)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
+                            )
                         }
 
                         ForEach(viewModel.pendingMessages) { pending in

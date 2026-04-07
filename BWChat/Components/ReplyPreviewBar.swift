@@ -55,6 +55,7 @@ struct QuotedMessageView: View {
     let content: String
     let msgType: String
     let isFromMe: Bool
+    var onTap: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -80,6 +81,8 @@ struct QuotedMessageView: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(isFromMe ? Color.black.opacity(0.25) : Color(hex: "DDDDE8"))
         )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap?() }
     }
 
     private var previewText: String {

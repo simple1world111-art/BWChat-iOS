@@ -9,6 +9,7 @@ struct MessageBubble: View {
     var onImageTap: ((String) -> Void)?
     var onVideoTap: ((String) -> Void)?
     var onReply: ((Message) -> Void)?
+    var onQuoteTap: ((Int) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
 
@@ -24,7 +25,8 @@ struct MessageBubble: View {
                         senderName: senderName,
                         content: reply.content,
                         msgType: reply.msgType,
-                        isFromMe: isFromMe
+                        isFromMe: isFromMe,
+                        onTap: { onQuoteTap?(reply.id) }
                     )
                 }
 
