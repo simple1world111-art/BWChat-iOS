@@ -121,12 +121,28 @@ struct GroupChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showGroupDetail = true
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppColors.accent)
+                HStack(spacing: 8) {
+                    Button {
+                        CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .voice)
+                    } label: {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(AppColors.accent)
+                    }
+                    Button {
+                        CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .video)
+                    } label: {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(AppColors.accent)
+                    }
+                    Button {
+                        showGroupDetail = true
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(AppColors.accent)
+                    }
                 }
             }
         }

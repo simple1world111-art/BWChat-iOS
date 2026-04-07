@@ -12,6 +12,7 @@ enum AppConfig {
     static let wsBaseURL  = "ws://52.69.26.53:8000/ws"
     #endif
 
+    static let livekitURL = "ws://52.69.26.53:7880"
     static let appName = "BWChat"
     static let messagePageSize = 30
     static let wsHeartbeatInterval: TimeInterval = 15

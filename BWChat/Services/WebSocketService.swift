@@ -49,6 +49,10 @@ class WebSocketService: ObservableObject {
     let callRejectPublisher = PassthroughSubject<[String: Any], Never>()
     let callBusyPublisher = PassthroughSubject<String, Never>()
 
+    // Group call signaling
+    let groupCallInvitePublisher = PassthroughSubject<[String: Any], Never>()
+    let groupCallEndedPublisher = PassthroughSubject<Int, Never>()
+
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
@@ -250,6 +254,11 @@ class WebSocketService: ObservableObject {
                 cacheCleanupPublisher.send(urls)
             }
 
+        case "call_invite":
+            if let d = json["data"] as? [String: Any] {
+                callOfferPublisher.send(d)
+            }
+
         case "call_offer":
             if let d = json["data"] as? [String: Any] {
                 callOfferPublisher.send(d)
@@ -280,6 +289,17 @@ class WebSocketService: ObservableObject {
             if let d = json["data"] as? [String: Any],
                let fromUser = d["from_user_id"] as? String {
                 callBusyPublisher.send(fromUser)
+            }
+
+        case "group_call_invite":
+            if let d = json["data"] as? [String: Any] {
+                groupCallInvitePublisher.send(d)
+            }
+
+        case "group_call_ended":
+            if let d = json["data"] as? [String: Any],
+               let gid = d["group_id"] as? Int {
+                groupCallEndedPublisher.send(gid)
             }
 
         default:

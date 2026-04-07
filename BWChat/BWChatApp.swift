@@ -9,7 +9,8 @@ struct BWChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var callManager = CallManager.shared
-    @State private var showIncomingCall = false
+    @State private var showCall = false
+    @State private var isGroupCall = false
 
     var body: some Scene {
         WindowGroup {
@@ -19,14 +20,19 @@ struct BWChatApp: App {
                     handleScenePhase(newPhase)
                 }
                 .onReceive(callManager.$currentCall) { call in
-                    if let call = call, call.state == .incoming && !showIncomingCall {
-                        showIncomingCall = true
+                    if let call = call, !showCall {
+                        isGroupCall = call.groupID != nil
+                        showCall = true
                     } else if call == nil {
-                        showIncomingCall = false
+                        showCall = false
                     }
                 }
-                .fullScreenCover(isPresented: $showIncomingCall) {
-                    CallView()
+                .fullScreenCover(isPresented: $showCall) {
+                    if isGroupCall {
+                        GroupCallView()
+                    } else {
+                        CallView()
+                    }
                 }
         }
     }

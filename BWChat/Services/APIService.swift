@@ -439,6 +439,47 @@ class APIService {
         )
     }
 
+    // MARK: - Calls (LiveKit)
+
+    func startCall(targetID: String, callType: String) async throws -> CallStartResponse {
+        let body: [String: Any] = ["target_id": targetID, "call_type": callType]
+        let response: APIResponseWrapper<CallStartResponse> = try await postJSON(path: "/call/start", body: body)
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func joinCall(roomName: String) async throws -> CallJoinResponse {
+        let body: [String: Any] = ["room_name": roomName]
+        let response: APIResponseWrapper<CallJoinResponse> = try await postJSON(path: "/call/join", body: body)
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func startGroupCall(groupID: Int, callType: String) async throws -> CallStartResponse {
+        let body: [String: Any] = ["call_type": callType]
+        let response: APIResponseWrapper<CallStartResponse> = try await postJSON(path: "/call/group/\(groupID)/start", body: body)
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func leaveGroupCall(groupID: Int) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/call/group/\(groupID)/leave", body: [:])
+    }
+
+    func getGroupCallStatus(groupID: Int) async throws -> GroupCallStatusResponse {
+        let response: APIResponseWrapper<GroupCallStatusResponse> = try await get(path: "/call/group/\(groupID)/status")
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
     // MARK: - Push
 
     func registerDeviceToken(_ token: String) async throws {

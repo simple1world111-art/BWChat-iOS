@@ -34,6 +34,9 @@ struct GroupDetailView: View {
                     // Group name section
                     groupHeaderSection(detail)
 
+                    // Call buttons
+                    callSection(detail)
+
                     // Members section
                     membersSection(detail)
 
@@ -239,6 +242,54 @@ struct GroupDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    // MARK: - Call Section
+
+    private func callSection(_ detail: GroupDetail) -> some View {
+        HStack(spacing: 20) {
+            Button {
+                CallManager.shared.startGroupCall(
+                    groupID: groupID,
+                    groupName: detail.name,
+                    type: .voice
+                )
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 16))
+                    Text("语音通话")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(AppColors.accent)
+                .cornerRadius(12)
+            }
+
+            Button {
+                CallManager.shared.startGroupCall(
+                    groupID: groupID,
+                    groupName: detail.name,
+                    type: .video
+                )
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 16))
+                    Text("视频通话")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(AppColors.groupAccent)
+                .cornerRadius(12)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
     }
 
     // MARK: - Actions Section

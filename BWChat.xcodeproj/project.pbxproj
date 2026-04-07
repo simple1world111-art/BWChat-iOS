@@ -58,6 +58,8 @@
 		A10093 /* MentionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10093; };
 		A10094 /* ReplyPreviewBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10094; };
 		A10095 /* BWChatNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = PR10002; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10096 /* GroupCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096; };
+		A10097 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -137,6 +139,7 @@
 		B10090 /* Call.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Call.swift; sourceTree = "<group>"; };
 		B10091 /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
 		B10092 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
+		B10096 /* GroupCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCallView.swift; sourceTree = "<group>"; };
 		B10093 /* MentionPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MentionPickerView.swift; sourceTree = "<group>"; };
 		B10094 /* ReplyPreviewBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyPreviewBar.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -148,6 +151,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10097 /* LiveKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -235,6 +239,7 @@
 				B10070 /* ProfileView.swift */,
 				B10071 /* EditProfileView.swift */,
 				B10092 /* CallView.swift */,
+				B10096 /* GroupCallView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -321,6 +326,9 @@
 				D10001,
 			);
 			name = BWChat;
+			packageProductDependencies = (
+				PKG10001 /* LiveKit */,
+			);
 			productName = BWChat;
 			productReference = PR10001;
 			productType = "com.apple.product-type.application";
@@ -372,6 +380,9 @@
 			productRefGroup = G10010;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				SPKG10001 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
+			);
 			targets = (
 				T10001 /* BWChat */,
 				T10002 /* BWChatNotificationService */,
@@ -443,6 +454,7 @@
 				A10092 /* CallView.swift in Sources */,
 				A10093 /* MentionPickerView.swift in Sources */,
 				A10094 /* ReplyPreviewBar.swift in Sources */,
+				A10096 /* GroupCallView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -661,6 +673,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		SPKG10001 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		PKG10001 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPKG10001;
+			productName = LiveKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 	};
 	rootObject = P10001 /* Project object */;
