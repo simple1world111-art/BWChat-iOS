@@ -59,6 +59,7 @@ class WebSocketService: ObservableObject {
     private var reconnectDelay: TimeInterval = 1
     private let maxReconnectDelay: TimeInterval = 30
     private var isManuallyDisconnected = false
+    private var isConnecting = false
     private let networkMonitor = NWPathMonitor()
     private var lastPathStatus: NWPath.Status?
     private var isNetworkSatisfied = true
@@ -104,22 +105,26 @@ class WebSocketService: ObservableObject {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false
+        isConnecting = false
         reconnectDelay = 1
         connect()
     }
 
     func connect() {
         guard let token = AuthManager.shared.token else { return }
+        guard !isConnecting && webSocketTask == nil else { return }
         isManuallyDisconnected = false
+        isConnecting = true
         reconnectDelay = 1
 
         heartbeatTask?.cancel()
         heartbeatTask = nil
-        webSocketTask?.cancel(with: .goingAway, reason: nil)
-        webSocketTask = nil
 
         let urlString = AppConfig.wsBaseURL + "?token=\(token)"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else {
+            isConnecting = false
+            return
+        }
 
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
@@ -134,6 +139,7 @@ class WebSocketService: ObservableObject {
 
     func disconnect() {
         isManuallyDisconnected = true
+        isConnecting = false
         heartbeatTask?.cancel()
         heartbeatTask = nil
         reconnectTask?.cancel()
@@ -153,6 +159,7 @@ class WebSocketService: ObservableObject {
                 case .success(let message):
                     if !self.isConnected {
                         self.isConnected = true
+                        self.isConnecting = false
                         self.startHeartbeat()
                     }
                     self.handleMessage(message)
@@ -407,6 +414,7 @@ class WebSocketService: ObservableObject {
 
     private func handleDisconnect() {
         isConnected = false
+        isConnecting = false
         heartbeatTask?.cancel()
         heartbeatTask = nil
 

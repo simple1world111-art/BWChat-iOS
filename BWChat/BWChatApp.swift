@@ -123,6 +123,31 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     ) {
         let userInfo = notification.request.content.userInfo
 
+        // Incoming call push while app is in foreground — show call UI directly
+        if let pushType = userInfo["push_type"] as? String, pushType == "call",
+           let callerID = userInfo["caller_id"] as? String,
+           let callerName = userInfo["caller_name"] as? String,
+           let roomName = userInfo["room_name"] as? String,
+           let callTypeStr = userInfo["call_type"] as? String,
+           let callType = CallType(rawValue: callTypeStr) {
+            let callerAvatar = userInfo["caller_avatar"] as? String ?? ""
+            Task { @MainActor in
+                guard CallManager.shared.currentCall == nil else { return }
+                CallManager.shared.currentCall = CallSession(
+                    remoteUserID: callerID,
+                    remoteNickname: callerName,
+                    remoteAvatarURL: callerAvatar,
+                    callType: callType,
+                    isOutgoing: false,
+                    state: .incoming,
+                    startedAt: Date(),
+                    roomName: roomName
+                )
+            }
+            completionHandler([.sound])
+            return
+        }
+
         // Suppress DM notification banner if viewing that chat
         if let senderID = userInfo["sender_id"] as? String,
            let activeChatID = WebSocketService.shared.activeChatUserID,
@@ -143,7 +168,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
-        // Show notification banner + sound (no badge — WebSocket handles unread state in foreground)
+        // Show notification banner + sound
         completionHandler([.banner, .sound])
     }
 
@@ -154,6 +179,31 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
+
+        // Handle incoming call push
+        if let pushType = userInfo["push_type"] as? String, pushType == "call",
+           let callerID = userInfo["caller_id"] as? String,
+           let callerName = userInfo["caller_name"] as? String,
+           let roomName = userInfo["room_name"] as? String,
+           let callTypeStr = userInfo["call_type"] as? String,
+           let callType = CallType(rawValue: callTypeStr) {
+            let callerAvatar = userInfo["caller_avatar"] as? String ?? ""
+            Task { @MainActor in
+                guard CallManager.shared.currentCall == nil else { return }
+                CallManager.shared.currentCall = CallSession(
+                    remoteUserID: callerID,
+                    remoteNickname: callerName,
+                    remoteAvatarURL: callerAvatar,
+                    callType: callType,
+                    isOutgoing: false,
+                    state: .incoming,
+                    startedAt: Date(),
+                    roomName: roomName
+                )
+            }
+            completionHandler()
+            return
+        }
 
         if let groupID = userInfo["group_id"] as? Int {
             NotificationCenter.default.post(
