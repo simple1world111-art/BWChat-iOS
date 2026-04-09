@@ -31,6 +31,7 @@ struct ImageGalleryOverlay: View {
     @State private var lastOffset: CGSize = .zero
     @State private var verticalDrag: CGFloat = 0
     @State private var appeared = false
+    @State private var layoutReady = false
 
     var body: some View {
         if state.isPresented {
@@ -55,7 +56,7 @@ struct ImageGalleryOverlay: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .offset(y: verticalDrag)
-                .scaleEffect(dismissScale)
+                .scaleEffect(dragDismissScale)
                 .opacity(appeared ? 1.0 : 0.0)
                 .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
                 .onChange(of: currentIndex) { _ in
@@ -80,12 +81,17 @@ struct ImageGalleryOverlay: View {
             .ignoresSafeArea()
             .onAppear {
                 currentIndex = state.initialIndex
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                    appeared = true
+                // Let TabView finish its initial layout pass before animating in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
+                    layoutReady = true
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        appeared = true
+                    }
                 }
             }
             .onDisappear {
                 appeared = false
+                layoutReady = false
                 verticalDrag = 0
                 resetZoom()
             }
@@ -97,8 +103,7 @@ struct ImageGalleryOverlay: View {
         return 1.0 - min(abs(verticalDrag) / 250, 0.7)
     }
 
-    private var dismissScale: CGFloat {
-        guard appeared else { return 0.3 }
+    private var dragDismissScale: CGFloat {
         let drag = abs(verticalDrag)
         if drag < 10 { return 1.0 }
         return max(1.0 - drag / 800, 0.6)
