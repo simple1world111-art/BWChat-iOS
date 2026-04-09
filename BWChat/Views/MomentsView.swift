@@ -61,10 +61,9 @@ struct MomentsView: View {
         }
         .sheet(isPresented: $showCreateMoment) {
             CreateMomentView { content, images in
-                Task {
-                    let success = await viewModel.createMoment(content: content, images: images)
-                    if success { showCreateMoment = false }
-                }
+                let success = await viewModel.createMoment(content: content, images: images)
+                if success { await MainActor.run { showCreateMoment = false } }
+                return success
             }
         }
         .overlay(alignment: .bottom) {

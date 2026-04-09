@@ -8,7 +8,7 @@ struct CreateMomentView: View {
     @State private var selectedImages: [UIImage] = []
     @State private var isPublishing = false
 
-    var onPublish: (String, [UIImage]) -> Void
+    var onPublish: (String, [UIImage]) async -> Bool
 
     var body: some View {
         NavigationStack {
@@ -25,27 +25,29 @@ struct CreateMomentView: View {
                             imagePreviewGrid
                         }
 
-                        PhotosPicker(selection: $selectedItems, maxSelectionCount: 9 - selectedImages.count, matching: .images) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "photo.badge.plus")
-                                    .font(.system(size: 20))
-                                Text(selectedImages.isEmpty ? "添加图片" : "继续添加")
-                                    .font(.system(size: 15))
+                        if selectedImages.count < 9 {
+                            PhotosPicker(selection: $selectedItems, maxSelectionCount: max(1, 9 - selectedImages.count), matching: .images) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.system(size: 20))
+                                    Text(selectedImages.isEmpty ? "添加图片" : "继续添加")
+                                        .font(.system(size: 15))
+                                }
+                                .foregroundColor(AppColors.accent)
+                                .padding(.vertical, 8)
                             }
-                            .foregroundColor(AppColors.accent)
-                            .padding(.vertical, 8)
-                        }
-                        .onChange(of: selectedItems) { items in
-                            Task {
-                                for item in items {
-                                    if let data = try? await item.loadTransferable(type: Data.self),
-                                       let uiImage = UIImage(data: data) {
-                                        if selectedImages.count < 9 {
-                                            selectedImages.append(uiImage)
+                            .onChange(of: selectedItems) { items in
+                                Task {
+                                    for item in items {
+                                        if let data = try? await item.loadTransferable(type: Data.self),
+                                           let uiImage = UIImage(data: data) {
+                                            if selectedImages.count < 9 {
+                                                selectedImages.append(uiImage)
+                                            }
                                         }
                                     }
+                                    selectedItems = []
                                 }
-                                selectedItems = []
                             }
                         }
                     }
@@ -65,7 +67,10 @@ struct CreateMomentView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         isPublishing = true
-                        onPublish(content, selectedImages)
+                        Task {
+                            let success = await onPublish(content, selectedImages)
+                            if !success { isPublishing = false }
+                        }
                     } label: {
                         Text("发表")
                             .font(.system(size: 15, weight: .semibold))
