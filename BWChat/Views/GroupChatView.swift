@@ -21,6 +21,7 @@ struct GroupChatView: View {
     @State private var showGroupDetail = false
     @State private var memberCount: Int = 0
     @State private var shouldPopToRoot = false
+    @State private var showPlusMenu = false
     @State private var highlightedMessageID: Int?
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
@@ -129,28 +130,10 @@ struct GroupChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 8) {
-                    Button {
-                        CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .voice)
-                    } label: {
-                        Image(systemName: "phone.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppColors.accent)
-                    }
-                    Button {
-                        CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .video)
-                    } label: {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppColors.accent)
-                    }
-                    Button {
-                        showGroupDetail = true
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(AppColors.accent)
-                    }
+                Button { showGroupDetail = true } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.accent)
                 }
             }
         }
@@ -223,55 +206,13 @@ struct GroupChatView: View {
             Divider().opacity(0.3)
 
             HStack(spacing: 10) {
-                // Media picker (images + videos, multi-select)
-                PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 9, matching: .any(of: [.images, .videos])) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 20, weight: .medium))
+                // "+" button - opens action menu
+                Button { showPlusMenu.toggle() } label: {
+                    Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
+                        .font(.system(size: 24))
                         .foregroundColor(AppColors.accent)
                         .frame(width: 36, height: 40)
                         .contentShape(Rectangle())
-                }
-                .onChange(of: selectedMediaItems) { items in
-                    guard !items.isEmpty else { return }
-                    isLoadingMedia = true
-                    Task {
-                        var prepared: [PreparedMediaItem] = []
-                        for (index, item) in items.enumerated() {
-                            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                                if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                                    let thumbnail = generateVideoThumbnail(from: movie.url)
-                                    let data = try? Data(contentsOf: movie.url)
-                                    let ext = movie.url.pathExtension.lowercased()
-                                    try? FileManager.default.removeItem(at: movie.url)
-                                    if let data = data {
-                                        prepared.append(PreparedMediaItem(
-                                            type: .video,
-                                            data: data,
-                                            thumbnail: thumbnail,
-                                            filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)"
-                                        ))
-                                    }
-                                }
-                            } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
-                                if let data = try? await item.loadTransferable(type: Data.self),
-                                   let uiImage = UIImage(data: data),
-                                   let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
-                                    prepared.append(PreparedMediaItem(
-                                        type: .image,
-                                        data: jpegData,
-                                        thumbnail: uiImage,
-                                        filename: "image_\(Int(Date().timeIntervalSince1970))_\(index).jpg"
-                                    ))
-                                }
-                            }
-                        }
-                        selectedMediaItems = []
-                        isLoadingMedia = false
-                        if !prepared.isEmpty {
-                            preparedMedia = prepared
-                            showMediaPreview = true
-                        }
-                    }
                 }
 
                 // @ mention
@@ -316,8 +257,89 @@ struct GroupChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+
+            // Expandable action menu
+            if showPlusMenu {
+                groupPlusMenu
+            }
         }
         .background(AppColors.secondaryBackground)
+    }
+
+    private var groupPlusMenu: some View {
+        HStack(spacing: 24) {
+            PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 9, matching: .any(of: [.images, .videos])) {
+                VStack(spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                        Image(systemName: "photo").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                    }
+                    Text("相册").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                }
+            }
+            .onChange(of: selectedMediaItems) { items in
+                guard !items.isEmpty else { return }
+                showPlusMenu = false
+                isLoadingMedia = true
+                Task {
+                    var prepared: [PreparedMediaItem] = []
+                    for (index, item) in items.enumerated() {
+                        if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                            if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+                                let thumbnail = generateVideoThumbnail(from: movie.url)
+                                let data = try? Data(contentsOf: movie.url)
+                                let ext = movie.url.pathExtension.lowercased()
+                                try? FileManager.default.removeItem(at: movie.url)
+                                if let data = data {
+                                    prepared.append(PreparedMediaItem(type: .video, data: data, thumbnail: thumbnail, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)"))
+                                }
+                            }
+                        } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
+                            if let data = try? await item.loadTransferable(type: Data.self),
+                               let uiImage = UIImage(data: data),
+                               let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
+                                prepared.append(PreparedMediaItem(type: .image, data: jpegData, thumbnail: uiImage, filename: "image_\(Int(Date().timeIntervalSince1970))_\(index).jpg"))
+                            }
+                        }
+                    }
+                    selectedMediaItems = []
+                    isLoadingMedia = false
+                    if !prepared.isEmpty {
+                        preparedMedia = prepared
+                        showMediaPreview = true
+                    }
+                }
+            }
+
+            Button {
+                showPlusMenu = false
+                CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .voice)
+            } label: {
+                VStack(spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                        Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                    }
+                    Text("语音通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                }
+            }
+
+            Button {
+                showPlusMenu = false
+                CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .video)
+            } label: {
+                VStack(spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                        Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                    }
+                    Text("视频通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                }
+            }
+        }
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
 
@@ -375,8 +397,6 @@ struct GroupMessageBubble: View {
 
                 if message.isImage {
                     CachedAsyncImage(url: message.content)
-                        .frame(maxWidth: 200, maxHeight: 250)
-                        .cornerRadius(16)
                         .onTapGesture { onImageTap?(message.content) }
                 } else if message.isVideo {
                     ZStack {

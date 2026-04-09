@@ -114,8 +114,6 @@ struct MessageBubble: View {
 
     private var imageBubble: some View {
         CachedAsyncImage(url: message.content)
-            .frame(maxWidth: 200, maxHeight: 250)
-            .cornerRadius(14)
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
             .onTapGesture {
                 onImageTap?(message.content)
@@ -169,6 +167,7 @@ struct RoundedCorner: Shape {
 
 struct CachedAsyncImage: View {
     let url: String
+    var maxWidth: CGFloat = 220
     @State private var image: UIImage?
     @State private var isLoading = true
 
@@ -177,13 +176,13 @@ struct CachedAsyncImage: View {
             if let image = image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
-                    .frame(width: 200, height: 150)
-                    .clipped()
+                    .scaledToFit()
+                    .frame(maxWidth: maxWidth)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
-                    .frame(width: 200, height: 150)
+                    .frame(width: 160, height: 120)
                     .overlay(
                         ProgressView()
                             .tint(AppColors.accent)
@@ -191,14 +190,13 @@ struct CachedAsyncImage: View {
             } else {
                 RoundedRectangle(cornerRadius: 14)
                     .fill(AppColors.separator)
-                    .frame(width: 200, height: 150)
+                    .frame(width: 160, height: 120)
                     .overlay(
                         Image(systemName: "photo")
                             .foregroundColor(AppColors.secondaryText)
                     )
             }
         }
-        .cornerRadius(14)
         .task(id: url) {
             image = await ImageCacheManager.shared.loadImage(from: url)
             isLoading = false

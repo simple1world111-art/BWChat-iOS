@@ -169,6 +169,15 @@ class APIService {
         return response.data?.contacts ?? []
     }
 
+    func getConversations() async throws -> [Conversation] {
+        struct ConversationsData: Decodable {
+            let conversations: [Conversation]
+        }
+
+        let response: APIResponseWrapper<ConversationsData> = try await get(path: "/chat/conversations")
+        return response.data?.conversations ?? []
+    }
+
     // MARK: - Messages
 
     func getMessages(contactID: String, beforeID: Int? = nil, limit: Int = 30) async throws -> ([Message], Bool) {
@@ -710,6 +719,104 @@ class APIService {
 
         return try await perform(request)
     }
+
+    // MARK: - Moments
+
+    func getMomentsFeed(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool) {
+        struct FeedData: Decodable {
+            let moments: [Moment]
+            let hasMore: Bool
+            enum CodingKeys: String, CodingKey {
+                case moments
+                case hasMore = "has_more"
+            }
+        }
+
+        var path = "/moments/feed?limit=\(limit)"
+        if let bid = beforeID { path += "&before_id=\(bid)" }
+        let response: APIResponseWrapper<FeedData> = try await get(path: path)
+        return (response.data?.moments ?? [], response.data?.hasMore ?? false)
+    }
+
+    func createMoment(content: String, imageDataList: [(Data, String)]) async throws -> Moment {
+        guard let url = URL(string: baseURL + "/moments/create") else {
+            throw APIError.invalidURL
+        }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        addAuthHeader(&request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"content\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(content)\r\n".data(using: .utf8)!)
+
+        for (data, filename) in imageDataList {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"images\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+            body.append(data)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let response: APIResponseWrapper<Moment> = try await perform(request)
+        guard let moment = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return moment
+    }
+
+    func toggleMomentLike(momentID: Int) async throws -> Bool {
+        struct LikeData: Decodable { let liked: Bool }
+        let response: APIResponseWrapper<LikeData> = try await postJSON(path: "/moments/\(momentID)/like", body: [:] as [String: String])
+        return response.data?.liked ?? false
+    }
+
+    func addMomentComment(momentID: Int, content: String, replyToUserID: String? = nil) async throws -> MomentComment {
+        guard let url = URL(string: baseURL + "/moments/\(momentID)/comment") else {
+            throw APIError.invalidURL
+        }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        addAuthHeader(&request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"content\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(content)\r\n".data(using: .utf8)!)
+
+        if let rid = replyToUserID {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"reply_to_user_id\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(rid)\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let response: APIResponseWrapper<MomentComment> = try await perform(request)
+        guard let comment = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return comment
+    }
+
+    func deleteMoment(momentID: Int) async throws {
+        guard let url = URL(string: baseURL + "/moments/\(momentID)") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        addAuthHeader(&request)
+        let _: APIResponseWrapper<EmptyData> = try await perform(request)
+    }
+
+    private struct EmptyData: Decodable {}
 
     private func addAuthHeader(_ request: inout URLRequest) {
         if let token = AuthManager.shared.token {

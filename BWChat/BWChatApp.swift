@@ -123,7 +123,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     ) {
         let userInfo = notification.request.content.userInfo
 
-        // Incoming call push while app is in foreground — show call UI directly
+        // Incoming 1v1 call push — show call UI directly
         if let pushType = userInfo["push_type"] as? String, pushType == "call",
            let callerID = userInfo["caller_id"] as? String,
            let callerName = userInfo["caller_name"] as? String,
@@ -142,6 +142,32 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                     state: .incoming,
                     startedAt: Date(),
                     roomName: roomName
+                )
+            }
+            completionHandler([.sound])
+            return
+        }
+
+        // Incoming group call push — show group call UI directly
+        if let pushType = userInfo["push_type"] as? String, pushType == "group_call",
+           let groupID = userInfo["group_id"] as? Int,
+           let groupName = userInfo["group_name"] as? String,
+           let roomName = userInfo["room_name"] as? String,
+           let callTypeStr = userInfo["call_type"] as? String,
+           let callType = CallType(rawValue: callTypeStr) {
+            Task { @MainActor in
+                guard CallManager.shared.currentCall == nil else { return }
+                CallManager.shared.currentCall = CallSession(
+                    remoteUserID: userInfo["caller_id"] as? String ?? "",
+                    remoteNickname: groupName,
+                    remoteAvatarURL: "",
+                    callType: callType,
+                    isOutgoing: false,
+                    state: .incoming,
+                    startedAt: Date(),
+                    roomName: roomName,
+                    groupID: groupID,
+                    groupName: groupName
                 )
             }
             completionHandler([.sound])
@@ -180,7 +206,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     ) {
         let userInfo = response.notification.request.content.userInfo
 
-        // Handle incoming call push
+        // Handle incoming 1v1 call push
         if let pushType = userInfo["push_type"] as? String, pushType == "call",
            let callerID = userInfo["caller_id"] as? String,
            let callerName = userInfo["caller_name"] as? String,
@@ -199,6 +225,32 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                     state: .incoming,
                     startedAt: Date(),
                     roomName: roomName
+                )
+            }
+            completionHandler()
+            return
+        }
+
+        // Handle incoming group call push
+        if let pushType = userInfo["push_type"] as? String, pushType == "group_call",
+           let groupID = userInfo["group_id"] as? Int,
+           let groupName = userInfo["group_name"] as? String,
+           let roomName = userInfo["room_name"] as? String,
+           let callTypeStr = userInfo["call_type"] as? String,
+           let callType = CallType(rawValue: callTypeStr) {
+            Task { @MainActor in
+                guard CallManager.shared.currentCall == nil else { return }
+                CallManager.shared.currentCall = CallSession(
+                    remoteUserID: userInfo["caller_id"] as? String ?? "",
+                    remoteNickname: groupName,
+                    remoteAvatarURL: "",
+                    callType: callType,
+                    isOutgoing: false,
+                    state: .incoming,
+                    startedAt: Date(),
+                    roomName: roomName,
+                    groupID: groupID,
+                    groupName: groupName
                 )
             }
             completionHandler()

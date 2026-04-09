@@ -1,39 +1,48 @@
-// BWChat/Views/ContactListView.swift
-// Messages page - adaptive for all iPhone sizes
-
 import SwiftUI
 
 struct ContactListView: View {
-    @StateObject private var viewModel = ContactsViewModel()
+    @StateObject private var viewModel = ConversationListViewModel()
     @StateObject private var authManager = AuthManager.shared
     @State private var showLogoutAlert = false
+    @State private var showCreateGroup = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.contacts.isEmpty && !viewModel.isLoading {
+                if viewModel.conversations.isEmpty && !viewModel.isLoading {
                     emptyStateView
                 } else {
-                    contactListView
+                    conversationListView
                 }
             }
             .background(AppColors.secondaryBackground)
             .navigationTitle("消息")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showLogoutAlert = true
-                    } label: {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(AppColors.secondaryText)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                    HStack(spacing: 4) {
+                        Button {
+                            showCreateGroup = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(AppColors.accentGradient)
+                                .frame(width: 36, height: 36)
+                                .contentShape(Rectangle())
+                        }
+                        Button {
+                            showLogoutAlert = true
+                        } label: {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(AppColors.secondaryText)
+                                .frame(width: 36, height: 36)
+                                .contentShape(Rectangle())
+                        }
                     }
                 }
             }
             .refreshable {
-                await viewModel.loadContacts()
+                await viewModel.loadConversations()
             }
             .alert("确定要退出登录吗？", isPresented: $showLogoutAlert) {
                 Button("取消", role: .cancel) {}
@@ -41,27 +50,64 @@ struct ContactListView: View {
                     Task { await viewModel.logout() }
                 }
             }
+            .sheet(isPresented: $showCreateGroup) {
+                CreateGroupView {
+                    Task { await viewModel.loadConversations() }
+                }
+            }
         }
         .task {
-            await viewModel.loadContacts()
+            await viewModel.loadConversations()
         }
     }
 
-    private var contactListView: some View {
+    private var conversationListView: some View {
         List {
-            ForEach(viewModel.contacts) { contact in
-                NavigationLink(value: contact) {
-                    ContactRow(contact: contact)
+            ForEach(viewModel.conversations) { conv in
+                if conv.isDM {
+                    NavigationLink(value: conv) {
+                        ConversationRow(conversation: conv)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
+                } else {
+                    NavigationLink(value: conv) {
+                        ConversationRow(conversation: conv)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
                 }
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
-        .navigationDestination(for: Contact.self) { contact in
-            ChatView(contact: contact) {
-                viewModel.markAsRead(contactID: contact.userID)
+        .navigationDestination(for: Conversation.self) { conv in
+            if conv.isDM {
+                ChatView(contact: Contact(
+                    userID: conv.id,
+                    nickname: conv.name,
+                    avatarURL: conv.avatarURL,
+                    lastMessage: conv.lastMessage,
+                    lastMessageTime: conv.lastMessageTime,
+                    unreadCount: conv.unreadCount
+                )) {
+                    viewModel.markAsRead(conversationID: conv.id)
+                }
+            } else if let gid = conv.groupID {
+                GroupChatView(group: ChatGroup(
+                    groupID: gid,
+                    name: conv.name,
+                    avatarURL: conv.avatarURL,
+                    creatorID: "",
+                    memberCount: conv.memberCount ?? 0,
+                    lastMessage: conv.lastMessage,
+                    lastMessageTime: conv.lastMessageTime,
+                    lastMessageSender: conv.subtitle,
+                    unreadCount: conv.unreadCount
+                )) {
+                    viewModel.markGroupAsRead(groupID: gid)
+                }
             }
         }
     }
@@ -80,7 +126,7 @@ struct ContactListView: View {
             Text("暂无聊天记录")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(AppColors.primaryText)
-            Text("添加好友后开始聊天")
+            Text("添加好友或创建群聊后开始聊天")
                 .font(.system(size: 14))
                 .foregroundColor(AppColors.secondaryText)
             Spacer()
@@ -89,28 +135,60 @@ struct ContactListView: View {
     }
 }
 
-// MARK: - Contact Row
+// MARK: - Conversation Row
 
-struct ContactRow: View {
-    let contact: Contact
+struct ConversationRow: View {
+    let conversation: Conversation
 
     var body: some View {
         HStack(spacing: 12) {
-            AvatarView(url: contact.avatarURL, size: 50)
+            if conversation.isGroup {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "5856D6").opacity(0.8), Color(hex: "764BA2").opacity(0.6)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 50, height: 50)
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                }
+            } else {
+                AvatarView(url: conversation.avatarURL, size: 50)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(contact.nickname)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppColors.primaryText)
-                    .lineLimit(1)
-
-                if let lastMessage = contact.lastMessage {
-                    Text(lastMessage)
-                        .font(.system(size: 14))
-                        .foregroundColor(AppColors.secondaryText)
+                HStack(spacing: 4) {
+                    Text(conversation.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppColors.primaryText)
                         .lineLimit(1)
+
+                    if conversation.isGroup, let count = conversation.memberCount {
+                        Text("(\(count))")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.tertiaryText)
+                    }
+                }
+
+                if let lastMsg = conversation.lastMessage {
+                    HStack(spacing: 0) {
+                        if let sender = conversation.subtitle {
+                            Text("\(sender): ")
+                                .font(.system(size: 14))
+                                .foregroundColor(AppColors.secondaryText)
+                        }
+                        Text(lastMsg)
+                            .font(.system(size: 14))
+                            .foregroundColor(AppColors.secondaryText)
+                    }
+                    .lineLimit(1)
                 } else {
-                    Text("开始聊天吧~")
+                    Text(conversation.isGroup ? "开始群聊吧~" : "开始聊天吧~")
                         .font(.system(size: 14))
                         .foregroundColor(AppColors.tertiaryText)
                         .lineLimit(1)
@@ -120,12 +198,12 @@ struct ContactRow: View {
             Spacer(minLength: 4)
 
             VStack(alignment: .trailing, spacing: 6) {
-                Text(contact.formattedTime)
+                Text(conversation.formattedTime)
                     .font(.system(size: 12))
                     .foregroundColor(AppColors.tertiaryText)
 
-                if contact.unreadCount > 0 {
-                    Text("\(min(contact.unreadCount, 99))\(contact.unreadCount > 99 ? "+" : "")")
+                if conversation.unreadCount > 0 {
+                    Text("\(min(conversation.unreadCount, 99))\(conversation.unreadCount > 99 ? "+" : "")")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 7)

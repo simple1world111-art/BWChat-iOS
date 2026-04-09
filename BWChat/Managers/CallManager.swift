@@ -373,6 +373,45 @@ class CallManager: ObservableObject {
                 self?.endCallLocally()
             }
             .store(in: &cancellables)
+
+        // Group call invite from WebSocket
+        WebSocketService.shared.groupCallInvitePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] data in
+                guard let self = self else { return }
+                guard let groupID = data["group_id"] as? Int,
+                      let groupName = data["group_name"] as? String,
+                      let roomName = data["room_name"] as? String,
+                      let typeStr = data["call_type"] as? String,
+                      let callType = CallType(rawValue: typeStr) else { return }
+
+                if self.currentCall != nil { return }
+
+                self.currentCall = CallSession(
+                    remoteUserID: data["caller_id"] as? String ?? "",
+                    remoteNickname: groupName,
+                    remoteAvatarURL: "",
+                    callType: callType,
+                    isOutgoing: false,
+                    state: .incoming,
+                    startedAt: Date(),
+                    roomName: roomName,
+                    groupID: groupID,
+                    groupName: groupName
+                )
+            }
+            .store(in: &cancellables)
+
+        // Group call ended
+        WebSocketService.shared.groupCallEndedPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] groupID in
+                guard let self = self else { return }
+                if self.currentCall?.groupID == groupID {
+                    self.endCallLocally()
+                }
+            }
+            .store(in: &cancellables)
     }
 }
 

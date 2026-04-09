@@ -17,6 +17,7 @@ struct ChatView: View {
     @State private var previewImageURL: String?
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
+    @State private var showPlusMenu = false
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -115,32 +116,7 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 4) {
-                    Button {
-                        CallManager.shared.startCall(
-                            to: contact.userID,
-                            nickname: contact.nickname,
-                            avatarURL: contact.avatarURL,
-                        type: .voice
-                    )
-                    } label: {
-                        Image(systemName: "phone.fill")
-                            .font(.system(size: 15))
-                            .foregroundColor(AppColors.accent)
-                    }
-                    Button {
-                        CallManager.shared.startCall(
-                            to: contact.userID,
-                            nickname: contact.nickname,
-                            avatarURL: contact.avatarURL,
-                            type: .video
-                        )
-                    } label: {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 15))
-                            .foregroundColor(AppColors.accent)
-                    }
-                }
+                EmptyView()
             }
         }
         .onAppear { setActiveChat(true) }
@@ -194,55 +170,13 @@ struct ChatView: View {
             Divider().opacity(0.3)
 
             HStack(spacing: 10) {
-                // Media picker (images + videos, multi-select)
-                PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 9, matching: .any(of: [.images, .videos])) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 20, weight: .medium))
+                // "+" button - opens action menu
+                Button { showPlusMenu.toggle() } label: {
+                    Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
+                        .font(.system(size: 24))
                         .foregroundColor(AppColors.accent)
                         .frame(width: 36, height: 40)
                         .contentShape(Rectangle())
-                }
-                .onChange(of: selectedMediaItems) { items in
-                    guard !items.isEmpty else { return }
-                    isLoadingMedia = true
-                    Task {
-                        var prepared: [PreparedMediaItem] = []
-                        for (index, item) in items.enumerated() {
-                            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                                if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                                    let thumbnail = generateVideoThumbnail(from: movie.url)
-                                    let data = try? Data(contentsOf: movie.url)
-                                    let ext = movie.url.pathExtension.lowercased()
-                                    try? FileManager.default.removeItem(at: movie.url)
-                                    if let data = data {
-                                        prepared.append(PreparedMediaItem(
-                                            type: .video,
-                                            data: data,
-                                            thumbnail: thumbnail,
-                                            filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)"
-                                        ))
-                                    }
-                                }
-                            } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
-                                if let data = try? await item.loadTransferable(type: Data.self),
-                                   let uiImage = UIImage(data: data),
-                                   let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
-                                    prepared.append(PreparedMediaItem(
-                                        type: .image,
-                                        data: jpegData,
-                                        thumbnail: uiImage,
-                                        filename: "image_\(Int(Date().timeIntervalSince1970))_\(index).jpg"
-                                    ))
-                                }
-                            }
-                        }
-                        selectedMediaItems = []
-                        isLoadingMedia = false
-                        if !prepared.isEmpty {
-                            preparedMedia = prepared
-                            showMediaPreview = true
-                        }
-                    }
                 }
 
                 // Text input
@@ -276,15 +210,95 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .padding(.bottom, safeAreaBottomPadding)
+
+            // Expandable action menu
+            if showPlusMenu {
+                chatPlusMenu
+            }
         }
         .background(AppColors.secondaryBackground)
     }
 
-    private var safeAreaBottomPadding: CGFloat {
-        let scenes = UIApplication.shared.connectedScenes
-        let windowScene = scenes.first as? UIWindowScene
-        return windowScene?.windows.first?.safeAreaInsets.bottom ?? 0 > 0 ? 0 : 0
+    private var chatPlusMenu: some View {
+        HStack(spacing: 24) {
+            PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 9, matching: .any(of: [.images, .videos])) {
+                VStack(spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(AppColors.separator)
+                            .frame(width: 56, height: 56)
+                        Image(systemName: "photo")
+                            .font(.system(size: 22))
+                            .foregroundColor(AppColors.primaryText)
+                    }
+                    Text("相册")
+                        .font(.system(size: 11))
+                        .foregroundColor(AppColors.secondaryText)
+                }
+            }
+            .onChange(of: selectedMediaItems) { items in
+                guard !items.isEmpty else { return }
+                showPlusMenu = false
+                isLoadingMedia = true
+                Task {
+                    var prepared: [PreparedMediaItem] = []
+                    for (index, item) in items.enumerated() {
+                        if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                            if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+                                let thumbnail = generateVideoThumbnail(from: movie.url)
+                                let data = try? Data(contentsOf: movie.url)
+                                let ext = movie.url.pathExtension.lowercased()
+                                try? FileManager.default.removeItem(at: movie.url)
+                                if let data = data {
+                                    prepared.append(PreparedMediaItem(type: .video, data: data, thumbnail: thumbnail, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)"))
+                                }
+                            }
+                        } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
+                            if let data = try? await item.loadTransferable(type: Data.self),
+                               let uiImage = UIImage(data: data),
+                               let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
+                                prepared.append(PreparedMediaItem(type: .image, data: jpegData, thumbnail: uiImage, filename: "image_\(Int(Date().timeIntervalSince1970))_\(index).jpg"))
+                            }
+                        }
+                    }
+                    selectedMediaItems = []
+                    isLoadingMedia = false
+                    if !prepared.isEmpty {
+                        preparedMedia = prepared
+                        showMediaPreview = true
+                    }
+                }
+            }
+
+            Button {
+                showPlusMenu = false
+                CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .voice)
+            } label: {
+                VStack(spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                        Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                    }
+                    Text("语音通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                }
+            }
+
+            Button {
+                showPlusMenu = false
+                CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .video)
+            } label: {
+                VStack(spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                        Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                    }
+                    Text("视频通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                }
+            }
+        }
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }
 
