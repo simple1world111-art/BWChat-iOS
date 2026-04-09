@@ -53,16 +53,12 @@ struct GroupChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        ForEach(viewModel.pendingTexts.reversed()) { pending in
+                            PendingGroupBubble(pending: pending)
+                                .flippedRow()
                         }
 
-                        ForEach(viewModel.messages) { message in
+                        ForEach(viewModel.messages.reversed()) { message in
                             GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -78,32 +74,25 @@ struct GroupChatView: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
                             )
+                            .flippedRow()
                         }
 
-                        ForEach(viewModel.pendingTexts) { pending in
-                            PendingGroupBubble(pending: pending)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .flippedRow()
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
-
-                        Color.clear
-                            .frame(height: 1)
-                            .id("groupBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .scrollAnchorBottom()
+                .flippedScroll()
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
-                .onChange(of: viewModel.messages.last?.id) { _ in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("groupBottom", anchor: .bottom)
-                    }
-                }
-                .onChange(of: viewModel.pendingTexts.count) { _ in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("groupBottom", anchor: .bottom)
-                    }
-                }
                 .task {
                     async let messagesTask: () = viewModel.loadMessages()
                     async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
@@ -112,7 +101,6 @@ struct GroupChatView: View {
                         memberCount = detail.members.count
                     }
                     onMarkRead?()
-                    proxy.scrollTo("groupBottom", anchor: .bottom)
                 }
             }
 

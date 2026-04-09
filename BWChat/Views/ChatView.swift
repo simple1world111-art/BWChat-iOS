@@ -48,16 +48,12 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
-                                }
+                        ForEach(viewModel.pendingMessages.reversed()) { pending in
+                            PendingMessageBubble(pending: pending)
+                                .flippedRow()
                         }
 
-                        ForEach(viewModel.messages) { message in
+                        ForEach(viewModel.messages.reversed()) { message in
                             MessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
@@ -73,36 +69,28 @@ struct ChatView: View {
                                 RoundedRectangle(cornerRadius: 12)
                                     .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
                             )
+                            .flippedRow()
                         }
 
-                        ForEach(viewModel.pendingMessages) { pending in
-                            PendingMessageBubble(pending: pending)
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding()
+                                .flippedRow()
+                                .onAppear {
+                                    Task { await viewModel.loadMoreMessages() }
+                                }
                         }
-
-                        Color.clear
-                            .frame(height: 1)
-                            .id("chatBottom")
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .scrollAnchorBottom()
+                .flippedScroll()
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
-                .onChange(of: viewModel.messages.last?.id) { _ in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("chatBottom", anchor: .bottom)
-                    }
-                }
-                .onChange(of: viewModel.pendingMessages.count) { _ in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo("chatBottom", anchor: .bottom)
-                    }
-                }
                 .task {
                     await viewModel.loadMessages()
                     onMarkRead?()
-                    proxy.scrollTo("chatBottom", anchor: .bottom)
                 }
             }
 
