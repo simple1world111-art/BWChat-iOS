@@ -773,6 +773,15 @@ class APIService {
     }
 
     func getUserMoments(userID: String, limit: Int = 20, beforeID: Int? = nil) async throws -> ([Moment], Bool) {
+        struct FeedData: Decodable {
+            let moments: [Moment]
+            let hasMore: Bool
+            enum CodingKeys: String, CodingKey {
+                case moments
+                case hasMore = "has_more"
+            }
+        }
+
         var path = "/moments/user/\(userID)?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
         let response: APIResponseWrapper<FeedData> = try await get(path: path)

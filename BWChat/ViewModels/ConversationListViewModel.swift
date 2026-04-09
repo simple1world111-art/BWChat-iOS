@@ -51,7 +51,7 @@ class ConversationListViewModel: ObservableObject {
 
     func markAsRead(conversationID: String) {
         if let index = conversations.firstIndex(where: { $0.id == conversationID && $0.isDM }) {
-            var c = conversations[index]
+            let c = conversations[index]
             if c.unreadCount > 0 {
                 conversations[index] = Conversation(
                     type: c.type, id: c.id, name: c.name, avatarURL: c.avatarURL,
