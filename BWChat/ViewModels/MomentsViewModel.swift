@@ -8,6 +8,9 @@ class MomentsViewModel: ObservableObject {
     @Published var hasMore = true
     @Published var errorMessage: String?
 
+    /// nil = public feed (friends+self); non-nil = single user's moments
+    var filterUserID: String?
+
     func loadFeed(refresh: Bool = false) async {
         if refresh {
             moments = []
@@ -18,7 +21,12 @@ class MomentsViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let (items, more) = try await APIService.shared.getMomentsFeed()
+            let (items, more): ([Moment], Bool)
+            if let uid = filterUserID {
+                (items, more) = try await APIService.shared.getUserMoments(userID: uid)
+            } else {
+                (items, more) = try await APIService.shared.getMomentsFeed()
+            }
             moments = items
             hasMore = more
         } catch {
@@ -33,7 +41,12 @@ class MomentsViewModel: ObservableObject {
         isLoading = true
 
         do {
-            let (items, more) = try await APIService.shared.getMomentsFeed(beforeID: lastID)
+            let (items, more): ([Moment], Bool)
+            if let uid = filterUserID {
+                (items, more) = try await APIService.shared.getUserMoments(userID: uid, beforeID: lastID)
+            } else {
+                (items, more) = try await APIService.shared.getMomentsFeed(beforeID: lastID)
+            }
             moments.append(contentsOf: items)
             hasMore = more
         } catch { }
@@ -45,7 +58,7 @@ class MomentsViewModel: ObservableObject {
         do {
             let liked = try await APIService.shared.toggleMomentLike(momentID: momentID)
             if let index = moments.firstIndex(where: { $0.id == momentID }) {
-                var m = moments[index]
+                let m = moments[index]
                 let myID = AuthManager.shared.currentUser?.userID ?? ""
                 let myNick = AuthManager.shared.currentUser?.nickname ?? ""
                 let myAvatar = AuthManager.shared.currentUser?.avatarURL ?? ""

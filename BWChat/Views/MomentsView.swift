@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct MomentsView: View {
+    var filterUserID: String? = nil
+    var pageTitle: String = "朋友圈"
+
     @StateObject private var viewModel = MomentsViewModel()
     @State private var showCreateMoment = false
     @State private var commentText = ""
@@ -48,7 +51,7 @@ struct MomentsView: View {
             }
         }
         .background(AppColors.secondaryBackground)
-        .navigationTitle("朋友圈")
+        .navigationTitle(pageTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -78,6 +81,7 @@ struct MomentsView: View {
             ImagePreviewView(imageURL: item.url)
         }
         .task {
+            viewModel.filterUserID = filterUserID
             await viewModel.loadFeed()
         }
         .refreshable {
@@ -190,7 +194,6 @@ struct MomentRow: View {
                     momentImageGrid
                 }
 
-                // Likes + comments section
                 if !moment.likes.isEmpty || !moment.comments.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         if !moment.likes.isEmpty {
@@ -221,7 +224,6 @@ struct MomentRow: View {
                     .cornerRadius(6)
                 }
 
-                // Time + action
                 HStack {
                     Text(moment.formattedTime)
                         .font(.system(size: 12))

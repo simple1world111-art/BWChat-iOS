@@ -18,6 +18,9 @@ struct ProfileView: View {
                     // Info sections
                     profileInfoSection
 
+                    // My moments
+                    myMomentsSection
+
                     // Actions
                     actionSection
                 }
@@ -203,11 +206,64 @@ struct ProfileView: View {
         .padding(.vertical, 13)
     }
 
+    // MARK: - My Moments Section
+
+    private var myMomentsSection: some View {
+        VStack(spacing: 0) {
+            Text("我的动态")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(AppColors.secondaryText)
+                .textCase(.uppercase)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.top, 24)
+                .padding(.bottom, 8)
+
+            NavigationLink {
+                MomentsView(
+                    filterUserID: AuthManager.shared.currentUser?.userID,
+                    pageTitle: "我的朋友圈"
+                )
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color(hex: "667eea"), Color(hex: "764ba2")],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 17))
+                            .foregroundColor(.white)
+                    }
+
+                    Text("我的朋友圈")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.primaryText)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppColors.tertiaryText)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+            }
+            .background(AppColors.cardBackground)
+            .cornerRadius(14)
+            .padding(.horizontal, 16)
+        }
+    }
+
     // MARK: - Action Section
 
     private var actionSection: some View {
         VStack(spacing: 12) {
-            // Logout button
             Button {
                 showLogoutAlert = true
             } label: {

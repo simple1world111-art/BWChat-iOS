@@ -107,6 +107,26 @@ struct MessageBubble: View {
                 } label: {
                     Label("回复", systemImage: "arrowshape.turn.up.left")
                 }
+            } preview: {
+                Text(message.content)
+                    .font(.system(size: 16))
+                    .foregroundColor(isFromMe ? .white : AppColors.primaryText)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        Group {
+                            if isFromMe {
+                                AppColors.sentBubbleGradient
+                            } else {
+                                LinearGradient(
+                                    colors: [AppColors.receivedBubble, AppColors.receivedBubble],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            }
+                        }
+                    )
+                    .cornerRadius(18)
             }
     }
 

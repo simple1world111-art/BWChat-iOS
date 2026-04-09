@@ -553,8 +553,10 @@ class APIService {
         let urlString: String
         if path.hasPrefix("http") {
             urlString = path
-        } else if path.hasPrefix("/") {
+        } else if path.hasPrefix("/api/v1/") {
             urlString = baseURL.replacingOccurrences(of: "/api/v1", with: "") + path
+        } else if path.hasPrefix("/") {
+            urlString = baseURL + path
         } else {
             urlString = baseURL + "/" + path
         }
@@ -768,6 +770,13 @@ class APIService {
             throw APIError.serverError(code: response.code, message: response.message)
         }
         return moment
+    }
+
+    func getUserMoments(userID: String, limit: Int = 20, beforeID: Int? = nil) async throws -> ([Moment], Bool) {
+        var path = "/moments/user/\(userID)?limit=\(limit)"
+        if let bid = beforeID { path += "&before_id=\(bid)" }
+        let response: APIResponseWrapper<FeedData> = try await get(path: path)
+        return (response.data?.moments ?? [], response.data?.hasMore ?? false)
     }
 
     func toggleMomentLike(momentID: Int) async throws -> Bool {
