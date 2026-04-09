@@ -62,7 +62,7 @@ class CallManager: ObservableObject {
         }
     }
 
-    // MARK: - 1v1 Call: Accept (Incoming)
+    // MARK: - Accept (Incoming — works for both 1v1 and group)
 
     func acceptCall() {
         guard var call = currentCall, call.state == .incoming else { return }
@@ -71,13 +71,24 @@ class CallManager: ObservableObject {
 
         Task {
             do {
-                let resp = try await APIService.shared.joinCall(roomName: call.roomName)
-                if var c = currentCall {
-                    c.livekitToken = resp.token
-                    c.livekitURL = resp.livekitUrl
-                    currentCall = c
+                if let groupID = call.groupID {
+                    let resp = try await APIService.shared.startGroupCall(groupID: groupID, callType: call.callType.rawValue)
+                    if var c = currentCall {
+                        c.roomName = resp.roomName
+                        c.livekitToken = resp.token
+                        c.livekitURL = resp.livekitUrl
+                        currentCall = c
+                    }
+                    await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: call.callType == .video)
+                } else {
+                    let resp = try await APIService.shared.joinCall(roomName: call.roomName)
+                    if var c = currentCall {
+                        c.livekitToken = resp.token
+                        c.livekitURL = resp.livekitUrl
+                        currentCall = c
+                    }
+                    await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: call.callType == .video)
                 }
-                await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: call.callType == .video)
             } catch {
                 print("[CallManager] Failed to join call: \(error)")
                 await safeEndCall()
@@ -166,10 +177,23 @@ class CallManager: ObservableObject {
 
             configureAudioSession()
 
-            // Publish local tracks
+            // Publish local audio
             try await newRoom.localParticipant.setMicrophone(enabled: true)
+
+            // Publish local video with higher quality
             if isVideo {
-                try await newRoom.localParticipant.setCamera(enabled: true)
+                let videoCaptureOptions = CameraCaptureOptions(
+                    dimensions: .h720_169,
+                    fps: 30
+                )
+                let videoPublishOptions = VideoPublishOptions(
+                    encoding: VideoEncoding(maxBitrate: 1_500_000, maxFps: 30)
+                )
+                try await newRoom.localParticipant.setCamera(
+                    enabled: true,
+                    captureOptions: videoCaptureOptions,
+                    publishOptions: videoPublishOptions
+                )
                 if let pub = newRoom.localParticipant.localVideoTracks.first,
                    let track = pub.track as? VideoTrack {
                     localVideoTrack = track
@@ -233,13 +257,18 @@ class CallManager: ObservableObject {
     func toggleLocalVideo() {
         isLocalVideoEnabled.toggle()
         Task {
-            _ = try? await room?.localParticipant.setCamera(enabled: isLocalVideoEnabled)
             if isLocalVideoEnabled {
+                let captureOpts = CameraCaptureOptions(dimensions: .h720_169, fps: 30)
+                let publishOpts = VideoPublishOptions(encoding: VideoEncoding(maxBitrate: 1_500_000, maxFps: 30))
+                _ = try? await room?.localParticipant.setCamera(
+                    enabled: true, captureOptions: captureOpts, publishOptions: publishOpts
+                )
                 if let pub = room?.localParticipant.localVideoTracks.first,
                    let track = pub.track as? VideoTrack {
                     localVideoTrack = track
                 }
             } else {
+                _ = try? await room?.localParticipant.setCamera(enabled: false)
                 localVideoTrack = nil
             }
         }
