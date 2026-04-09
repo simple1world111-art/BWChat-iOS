@@ -60,6 +60,13 @@
 		A10095 /* BWChatNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = PR10002; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10096 /* GroupCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096; };
 		A10097 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10001; };
+		A10100 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100; };
+		A10101 /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101; };
+		A10102 /* ConversationListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102; };
+		A10103 /* MomentsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103; };
+		A10104 /* MomentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104; };
+		A10105 /* CreateMomentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105; };
+		A10106 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -142,6 +149,13 @@
 		B10096 /* GroupCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCallView.swift; sourceTree = "<group>"; };
 		B10093 /* MentionPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MentionPickerView.swift; sourceTree = "<group>"; };
 		B10094 /* ReplyPreviewBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyPreviewBar.swift; sourceTree = "<group>"; };
+		B10100 /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversation.swift; sourceTree = "<group>"; };
+		B10101 /* Moment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Moment.swift; sourceTree = "<group>"; };
+		B10102 /* ConversationListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListViewModel.swift; sourceTree = "<group>"; };
+		B10103 /* MomentsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentsViewModel.swift; sourceTree = "<group>"; };
+		B10104 /* MomentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentsView.swift; sourceTree = "<group>"; };
+		B10105 /* CreateMomentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateMomentView.swift; sourceTree = "<group>"; };
+		B10106 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -201,6 +215,8 @@
 				B10040 /* Group.swift */,
 				B10041 /* FriendRequest.swift */,
 				B10090 /* Call.swift */,
+				B10100 /* Conversation.swift */,
+				B10101 /* Moment.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -215,6 +231,8 @@
 				B10043 /* GroupsViewModel.swift */,
 				B10044 /* GroupChatViewModel.swift */,
 				B10072 /* ProfileViewModel.swift */,
+				B10102 /* ConversationListViewModel.swift */,
+				B10103 /* MomentsViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -240,6 +258,9 @@
 				B10071 /* EditProfileView.swift */,
 				B10092 /* CallView.swift */,
 				B10096 /* GroupCallView.swift */,
+				B10104 /* MomentsView.swift */,
+				B10105 /* CreateMomentView.swift */,
+				B10106 /* DiscoverView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -455,6 +476,13 @@
 				A10093 /* MentionPickerView.swift in Sources */,
 				A10094 /* ReplyPreviewBar.swift in Sources */,
 				A10096 /* GroupCallView.swift in Sources */,
+				A10100 /* Conversation.swift in Sources */,
+				A10101 /* Moment.swift in Sources */,
+				A10102 /* ConversationListViewModel.swift in Sources */,
+				A10103 /* MomentsViewModel.swift in Sources */,
+				A10104 /* MomentsView.swift in Sources */,
+				A10105 /* CreateMomentView.swift in Sources */,
+				A10106 /* DiscoverView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
