@@ -91,7 +91,7 @@ struct GroupChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .defaultScrollAnchor(.bottom)
+                .scrollAnchorBottom()
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
@@ -112,6 +112,7 @@ struct GroupChatView: View {
                         memberCount = detail.members.count
                     }
                     onMarkRead?()
+                    proxy.scrollTo("groupBottom", anchor: .bottom)
                 }
             }
 

@@ -86,3 +86,16 @@ extension Color {
         )
     }
 }
+
+// MARK: - iOS 16 / 17 Scroll Compatibility
+
+extension View {
+    @ViewBuilder
+    func scrollAnchorBottom() -> some View {
+        if #available(iOS 17.0, *) {
+            self.defaultScrollAnchor(.bottom)
+        } else {
+            self
+        }
+    }
+}
