@@ -4,6 +4,7 @@
 import Foundation
 import Combine
 import AVFoundation
+import AudioToolbox
 import LiveKit
 
 @MainActor
@@ -25,6 +26,8 @@ class CallManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var durationTimer: Task<Void, Never>?
     private var roomDelegate: RoomDelegateHandler?
+    private var ringtonePlayer: AVAudioPlayer?
+    private var ringtoneTimer: Task<Void, Never>?
 
     private init() {
         setupSignalingListeners()
@@ -44,6 +47,8 @@ class CallManager: ObservableObject {
             state: .outgoing,
             startedAt: Date()
         )
+
+        playRingtone(isOutgoing: true)
 
         Task {
             do {
@@ -68,6 +73,7 @@ class CallManager: ObservableObject {
         guard var call = currentCall, call.state == .incoming else { return }
         call.state = .connecting
         currentCall = call
+        stopRingtone()
 
         Task {
             do {
@@ -200,6 +206,7 @@ class CallManager: ObservableObject {
                 }
             }
 
+            stopRingtone()
             if var call = currentCall {
                 call.state = .connected
                 currentCall = call
@@ -308,6 +315,11 @@ class CallManager: ObservableObject {
     // MARK: - Private
 
     func endCallLocally() {
+        stopRingtone()
+
+        let endedCall = currentCall
+        let duration = callDuration
+
         durationTimer?.cancel()
         durationTimer = nil
         callDuration = 0
@@ -326,6 +338,10 @@ class CallManager: ObservableObject {
         currentCall = nil
 
         deactivateAudioSession()
+
+        if let call = endedCall, call.groupID == nil, !call.remoteUserID.isEmpty {
+            Task { await sendCallRecord(call: call, duration: duration) }
+        }
     }
 
     private func configureAudioSession() {
@@ -378,6 +394,7 @@ class CallManager: ObservableObject {
                     startedAt: Date(),
                     roomName: roomName
                 )
+                self.playRingtone(isOutgoing: false)
             }
             .store(in: &cancellables)
 
@@ -428,6 +445,7 @@ class CallManager: ObservableObject {
                     groupID: groupID,
                     groupName: groupName
                 )
+                self.playRingtone(isOutgoing: false)
             }
             .store(in: &cancellables)
 
@@ -441,6 +459,54 @@ class CallManager: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+    // MARK: - Ringtone
+
+    private func playRingtone(isOutgoing: Bool) {
+        stopRingtone()
+        ringtoneTimer = Task {
+            while !Task.isCancelled {
+                if isOutgoing {
+                    AudioServicesPlaySystemSound(1151)
+                } else {
+                    AudioServicesPlaySystemSound(1005)
+                    AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                }
+                try? await Task.sleep(nanoseconds: isOutgoing ? 3_000_000_000 : 2_000_000_000)
+            }
+        }
+    }
+
+    private func stopRingtone() {
+        ringtoneTimer?.cancel()
+        ringtoneTimer = nil
+        ringtonePlayer?.stop()
+        ringtonePlayer = nil
+    }
+
+    // MARK: - Call Record Message
+
+    private func sendCallRecord(call: CallSession, duration: TimeInterval) async {
+        let typeLabel = call.callType == .video ? "视频通话" : "语音通话"
+        let content: String
+        if call.state == .connected || duration > 0 {
+            let mins = Int(duration) / 60
+            let secs = Int(duration) % 60
+            content = "[\(typeLabel)] \(String(format: "%02d:%02d", mins, secs))"
+        } else if call.isOutgoing {
+            content = "[\(typeLabel)] 对方未接听"
+        } else {
+            content = "[\(typeLabel)] 未接听"
+        }
+
+        do {
+            _ = try await APIService.shared.sendTextMessage(
+                receiverID: call.remoteUserID,
+                content: content
+            )
+        } catch {
+            print("[CallManager] Failed to send call record: \(error)")
+        }
     }
 }
 

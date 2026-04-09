@@ -8,7 +8,9 @@ struct MomentsView: View {
     @State private var showCreateMoment = false
     @State private var commentText = ""
     @State private var commentTarget: (momentID: Int, replyToUserID: String?, replyToName: String?)? = nil
-    @State private var previewImageURL: String?
+    @State private var previewImageURLs: [String] = []
+    @State private var previewImageIndex: Int = 0
+    @State private var showImageGallery = false
 
     var body: some View {
         ScrollView {
@@ -37,7 +39,11 @@ struct MomentsView: View {
                             commentTarget = (moment.id, replyUserID, replyName)
                         },
                         onDelete: { Task { await viewModel.deleteMoment(momentID: moment.id) } },
-                        onImageTap: { url in previewImageURL = url }
+                        onImageTap: { url in
+                            previewImageURLs = moment.images
+                            previewImageIndex = moment.images.firstIndex(of: url) ?? 0
+                            showImageGallery = true
+                        }
                     )
 
                     Divider().padding(.leading, 62)
@@ -74,11 +80,8 @@ struct MomentsView: View {
                 commentInputBar
             }
         }
-        .fullScreenCover(item: Binding(
-            get: { previewImageURL.map { ImagePreviewItem(url: $0) } },
-            set: { previewImageURL = $0?.url }
-        )) { item in
-            ImagePreviewView(imageURL: item.url)
+        .fullScreenCover(isPresented: $showImageGallery) {
+            ImageGalleryPreview(imageURLs: previewImageURLs, initialIndex: previewImageIndex)
         }
         .task {
             viewModel.filterUserID = filterUserID

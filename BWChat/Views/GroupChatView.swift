@@ -15,7 +15,9 @@ struct GroupChatView: View {
     @State private var preparedMedia: [PreparedMediaItem] = []
     @State private var showMediaPreview = false
     @State private var isLoadingMedia = false
-    @State private var previewImageURL: String?
+    @State private var previewImageURLs: [String] = []
+    @State private var previewImageIndex: Int = 0
+    @State private var showImageGallery = false
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
     @State private var showGroupDetail = false
@@ -63,11 +65,19 @@ struct GroupChatView: View {
                             GroupMessageBubble(
                                 message: message,
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
-                                onImageTap: { url in previewImageURL = url },
+                                onImageTap: { url in
+                                    let allImages = viewModel.messages.filter(\.isImage).map(\.content)
+                                    previewImageURLs = allImages
+                                    previewImageIndex = allImages.firstIndex(of: url) ?? 0
+                                    showImageGallery = true
+                                },
                                 onVideoTap: { url in previewVideoURL = url },
                                 onReply: { msg in viewModel.setReply(to: msg) },
                                 onQuoteTap: { targetID in
                                     scrollToMessage(targetID, proxy: proxy)
+                                },
+                                onMention: { userID, nickname in
+                                    viewModel.addMention(userID: userID, nickname: nickname)
                                 }
                             )
                             .id(message.id)
@@ -157,11 +167,8 @@ struct GroupChatView: View {
                 dismiss()
             }
         }
-        .fullScreenCover(item: Binding(
-            get: { previewImageURL.map { ImagePreviewItem(url: $0) } },
-            set: { previewImageURL = $0?.url }
-        )) { item in
-            ImagePreviewView(imageURL: item.url)
+        .fullScreenCover(isPresented: $showImageGallery) {
+            ImageGalleryPreview(imageURLs: previewImageURLs, initialIndex: previewImageIndex)
         }
         .fullScreenCover(item: Binding(
             get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
@@ -206,27 +213,6 @@ struct GroupChatView: View {
             Divider().opacity(0.3)
 
             HStack(spacing: 10) {
-                // "+" button - opens action menu
-                Button { showPlusMenu.toggle() } label: {
-                    Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(AppColors.accent)
-                        .frame(width: 36, height: 40)
-                        .contentShape(Rectangle())
-                }
-
-                // @ mention
-                Button {
-                    viewModel.showMentionPicker = true
-                } label: {
-                    Text("@")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(AppColors.accent)
-                        .frame(width: 30, height: 40)
-                        .contentShape(Rectangle())
-                }
-
-                // Text input
                 TextField("输入消息...", text: $viewModel.inputText)
                     .font(.system(size: 16))
                     .padding(.horizontal, 16)
@@ -239,26 +225,33 @@ struct GroupChatView: View {
                         Task { await viewModel.sendText() }
                     }
 
-                // Send button
-                Button {
-                    Task { await viewModel.sendText() }
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(viewModel.isSendEnabled ? AppColors.accentGradient : LinearGradient(colors: [AppColors.separator, AppColors.separator], startPoint: .top, endPoint: .bottom))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(viewModel.isSendEnabled ? .white : AppColors.tertiaryText)
+                if viewModel.isSendEnabled {
+                    Button {
+                        Task { await viewModel.sendText() }
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(AppColors.accentGradient)
+                                .frame(width: 40, height: 40)
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                        .contentShape(Circle())
                     }
-                    .contentShape(Circle())
+                } else {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
+                        Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(AppColors.accent)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
+                    }
                 }
-                .disabled(!viewModel.isSendEnabled)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            // Expandable action menu
             if showPlusMenu {
                 groupPlusMenu
             }
@@ -352,6 +345,7 @@ struct GroupMessageBubble: View {
     var onVideoTap: ((String) -> Void)?
     var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
+    var onMention: ((String, String) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
 
@@ -437,6 +431,13 @@ struct GroupMessageBubble: View {
                                 onReply?(message)
                             } label: {
                                 Label("回复", systemImage: "arrowshape.turn.up.left")
+                            }
+                            if !isFromMe {
+                                Button {
+                                    onMention?(message.senderID, message.senderNickname)
+                                } label: {
+                                    Label("@\(message.senderNickname)", systemImage: "at")
+                                }
                             }
                         } preview: {
                             Text(message.content)

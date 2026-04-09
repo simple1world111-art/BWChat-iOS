@@ -2,8 +2,6 @@ import SwiftUI
 
 struct ContactListView: View {
     @StateObject private var viewModel = ConversationListViewModel()
-    @StateObject private var authManager = AuthManager.shared
-    @State private var showLogoutAlert = false
     @State private var showCreateGroup = false
 
     var body: some View {
@@ -19,36 +17,19 @@ struct ContactListView: View {
             .navigationTitle("消息")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 4) {
-                        Button {
-                            showCreateGroup = true
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(AppColors.accentGradient)
-                                .frame(width: 36, height: 36)
-                                .contentShape(Rectangle())
-                        }
-                        Button {
-                            showLogoutAlert = true
-                        } label: {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(AppColors.secondaryText)
-                                .frame(width: 36, height: 36)
-                                .contentShape(Rectangle())
-                        }
+                    Button {
+                        showCreateGroup = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(AppColors.accentGradient)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
                     }
                 }
             }
             .refreshable {
                 await viewModel.loadConversations()
-            }
-            .alert("确定要退出登录吗？", isPresented: $showLogoutAlert) {
-                Button("取消", role: .cancel) {}
-                Button("退出", role: .destructive) {
-                    Task { await viewModel.logout() }
-                }
             }
             .sheet(isPresented: $showCreateGroup) {
                 CreateGroupView {
