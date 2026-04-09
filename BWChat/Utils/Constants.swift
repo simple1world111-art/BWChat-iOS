@@ -90,11 +90,8 @@ extension Color {
 // MARK: - Flipped ScrollView (reliable bottom-anchored chat)
 
 extension View {
-    func flippedScroll() -> some View {
-        self.scaleEffect(x: 1, y: -1, anchor: .center)
-    }
-
     func flippedRow() -> some View {
-        self.scaleEffect(x: 1, y: -1, anchor: .center)
+        self.rotationEffect(.degrees(180))
+            .scaleEffect(x: -1, y: 1, anchor: .center)
     }
 }

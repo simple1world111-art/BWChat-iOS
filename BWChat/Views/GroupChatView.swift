@@ -90,7 +90,9 @@ struct GroupChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .flippedScroll()
+                .rotationEffect(.degrees(180))
+                .scaleEffect(x: -1, y: 1, anchor: .center)
+                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .task {
