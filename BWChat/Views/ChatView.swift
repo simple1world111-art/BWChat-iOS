@@ -14,9 +14,6 @@ struct ChatView: View {
     @State private var preparedMedia: [PreparedMediaItem] = []
     @State private var showMediaPreview = false
     @State private var isLoadingMedia = false
-    @State private var previewImageURLs: [String] = []
-    @State private var previewImageIndex: Int = 0
-    @State private var showImageGallery = false
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
     @State private var showPlusMenu = false
@@ -62,9 +59,7 @@ struct ChatView: View {
                                 isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
                                 onImageTap: { url in
                                     let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                    previewImageURLs = allImages
-                                    previewImageIndex = allImages.firstIndex(of: url) ?? 0
-                                    showImageGallery = true
+                                    ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
                                 },
                                 onVideoTap: { url in previewVideoURL = url },
                                 onReply: { msg in viewModel.setReply(to: msg) },
@@ -128,7 +123,6 @@ struct ChatView: View {
         }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
-        .imageGalleryOverlay(isPresented: $showImageGallery, imageURLs: previewImageURLs, initialIndex: previewImageIndex)
         .fullScreenCover(item: Binding(
             get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
             set: { previewVideoURL = $0?.url }

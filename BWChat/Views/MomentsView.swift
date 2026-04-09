@@ -8,9 +8,7 @@ struct MomentsView: View {
     @State private var showCreateMoment = false
     @State private var commentText = ""
     @State private var commentTarget: (momentID: Int, replyToUserID: String?, replyToName: String?)? = nil
-    @State private var previewImageURLs: [String] = []
-    @State private var previewImageIndex: Int = 0
-    @State private var showImageGallery = false
+    
 
     var body: some View {
         ScrollView {
@@ -40,9 +38,7 @@ struct MomentsView: View {
                         },
                         onDelete: { Task { await viewModel.deleteMoment(momentID: moment.id) } },
                         onImageTap: { url in
-                            previewImageURLs = moment.images
-                            previewImageIndex = moment.images.firstIndex(of: url) ?? 0
-                            showImageGallery = true
+                            ImageGalleryState.shared.show(urls: moment.images, index: moment.images.firstIndex(of: url) ?? 0)
                         }
                     )
 
@@ -80,7 +76,7 @@ struct MomentsView: View {
                 commentInputBar
             }
         }
-        .imageGalleryOverlay(isPresented: $showImageGallery, imageURLs: previewImageURLs, initialIndex: previewImageIndex)
+        
         .task {
             viewModel.filterUserID = filterUserID
             await viewModel.loadFeed()

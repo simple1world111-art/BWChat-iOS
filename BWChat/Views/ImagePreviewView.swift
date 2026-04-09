@@ -1,12 +1,28 @@
 // BWChat/Views/ImagePreviewView.swift
-// Full-screen image gallery with center-zoom transition and horizontal swipe
+// Full-screen image gallery with center-zoom, swipe/tap to dismiss
 
 import SwiftUI
 
+// MARK: - Shared state so overlay can live at root level (above tab bar)
+
+@MainActor
+class ImageGalleryState: ObservableObject {
+    static let shared = ImageGalleryState()
+    @Published var isPresented = false
+    @Published var imageURLs: [String] = []
+    @Published var initialIndex: Int = 0
+
+    func show(urls: [String], index: Int) {
+        imageURLs = urls
+        initialIndex = index
+        isPresented = true
+    }
+}
+
+// MARK: - Gallery Overlay (attach at root to cover tab bar)
+
 struct ImageGalleryOverlay: View {
-    let imageURLs: [String]
-    let initialIndex: Int
-    @Binding var isPresented: Bool
+    @ObservedObject var state = ImageGalleryState.shared
 
     @State private var currentIndex: Int = 0
     @State private var scale: CGFloat = 1.0
@@ -17,97 +33,88 @@ struct ImageGalleryOverlay: View {
     @State private var appeared = false
 
     var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
-                .opacity(backgroundOpacity)
+        if state.isPresented {
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
+                    .opacity(backgroundOpacity)
 
-            TabView(selection: $currentIndex) {
-                ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
-                    ZoomableImagePage(
-                        imageURL: url,
-                        scale: index == currentIndex ? $scale : .constant(1),
-                        lastScale: index == currentIndex ? $lastScale : .constant(1),
-                        offset: index == currentIndex ? $offset : .constant(.zero),
-                        lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                        onSingleTap: { dismissGallery() },
-                        onDoubleTap: { doubleTap() }
-                    )
-                    .tag(index)
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                        ZoomableImagePage(
+                            imageURL: url,
+                            scale: index == currentIndex ? $scale : .constant(1),
+                            lastScale: index == currentIndex ? $lastScale : .constant(1),
+                            offset: index == currentIndex ? $offset : .constant(.zero),
+                            lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                            onSingleTap: { dismissGallery() },
+                            onDoubleTap: { doubleTap() }
+                        )
+                        .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .offset(y: verticalDrag)
+                .scaleEffect(dismissScale)
+                .opacity(appeared ? 1.0 : 0.0)
+                .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
+                .onChange(of: currentIndex) { _ in
+                    resetZoom()
+                }
+
+                if state.imageURLs.count > 1 {
+                    VStack {
+                        Text("\(currentIndex + 1) / \(state.imageURLs.count)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.4))
+                            .cornerRadius(14)
+                            .padding(.top, 54)
+                        Spacer()
+                    }
+                    .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .offset(y: verticalDrag)
-            .scaleEffect(appeared ? 1.0 : 0.3)
-            .opacity(appeared ? 1.0 : 0.0)
-            .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
-            .onChange(of: currentIndex) { _ in
+            .ignoresSafeArea()
+            .onAppear {
+                currentIndex = state.initialIndex
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    appeared = true
+                }
+            }
+            .onDisappear {
+                appeared = false
+                verticalDrag = 0
                 resetZoom()
-            }
-
-            // Top bar
-            VStack {
-                HStack {
-                    if imageURLs.count > 1 {
-                        Text("\(currentIndex + 1) / \(imageURLs.count)")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 6)
-                            .background(.black.opacity(0.5))
-                            .cornerRadius(16)
-                    }
-                    Spacer()
-                    Button { dismissGallery() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 54)
-
-                Spacer()
-
-                HStack {
-                    Spacer()
-                    Button { saveCurrentImage() } label: {
-                        Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 18))
-                            .foregroundColor(.white)
-                            .padding(11)
-                            .background(.black.opacity(0.5))
-                            .cornerRadius(10)
-                    }
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 40)
-                }
-            }
-            .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
-        }
-        .onAppear {
-            currentIndex = initialIndex
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                appeared = true
             }
         }
     }
 
     private var backgroundOpacity: Double {
         guard appeared else { return 0 }
-        let dragFade = 1.0 - min(abs(verticalDrag) / 300, 0.6)
-        return dragFade
+        return 1.0 - min(abs(verticalDrag) / 250, 0.7)
+    }
+
+    private var dismissScale: CGFloat {
+        guard appeared else { return 0.3 }
+        let drag = abs(verticalDrag)
+        if drag < 10 { return 1.0 }
+        return max(1.0 - drag / 800, 0.6)
     }
 
     private var verticalDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 20)
+        DragGesture(minimumDistance: 8)
             .onChanged { value in
-                if abs(value.translation.height) > abs(value.translation.width) {
-                    verticalDrag = value.translation.height
+                let h = value.translation.height
+                let w = value.translation.width
+                if abs(h) > abs(w) * 0.5 {
+                    verticalDrag = h
                 }
             }
             .onEnded { value in
-                if abs(value.translation.height) > 120 {
+                if abs(value.translation.height) > 60 || abs(value.predictedEndTranslation.height) > 300 {
                     dismissGallery()
                 } else {
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -118,11 +125,12 @@ struct ImageGalleryOverlay: View {
     }
 
     private func dismissGallery() {
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(.easeOut(duration: 0.2)) {
             appeared = false
+            verticalDrag = verticalDrag > 0 ? 400 : (verticalDrag < 0 ? -400 : 300)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            isPresented = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            state.isPresented = false
         }
     }
 
@@ -139,19 +147,10 @@ struct ImageGalleryOverlay: View {
     private func resetZoom() {
         scale = 1; lastScale = 1
         offset = .zero; lastOffset = .zero
-        verticalDrag = 0
-    }
-
-    private func saveCurrentImage() {
-        Task {
-            if let image = await ImageCacheManager.shared.loadImage(from: imageURLs[currentIndex]) {
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-            }
-        }
     }
 }
 
-// MARK: - Zoomable Image Page (no DragGesture — lets TabView handle horizontal swipes)
+// MARK: - Zoomable Image Page
 
 private struct ZoomableImagePage: View {
     let imageURL: String
@@ -221,22 +220,5 @@ private struct ZoomableImagePage: View {
             .onEnded { _ in
                 lastOffset = offset
             }
-    }
-}
-
-// MARK: - View extension for easy usage
-
-extension View {
-    func imageGalleryOverlay(isPresented: Binding<Bool>, imageURLs: [String], initialIndex: Int) -> some View {
-        self.overlay {
-            if isPresented.wrappedValue {
-                ImageGalleryOverlay(
-                    imageURLs: imageURLs,
-                    initialIndex: initialIndex,
-                    isPresented: isPresented
-                )
-                .transition(.identity)
-            }
-        }
     }
 }

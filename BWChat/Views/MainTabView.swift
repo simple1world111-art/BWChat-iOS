@@ -7,36 +7,40 @@ struct MainTabView: View {
     @State private var selectedTab = 0
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            ContactListView()
-                .tabItem {
-                    Image(systemName: selectedTab == 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-                    Text("消息")
-                }
-                .tag(0)
+        ZStack {
+            TabView(selection: $selectedTab) {
+                ContactListView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                        Text("消息")
+                    }
+                    .tag(0)
 
-            ContactsTabView()
-                .tabItem {
-                    Image(systemName: selectedTab == 1 ? "person.crop.circle.fill" : "person.crop.circle")
-                    Text("通讯录")
-                }
-                .tag(1)
+                ContactsTabView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 1 ? "person.crop.circle.fill" : "person.crop.circle")
+                        Text("通讯录")
+                    }
+                    .tag(1)
 
-            DiscoverView()
-                .tabItem {
-                    Image(systemName: selectedTab == 2 ? "safari.fill" : "safari")
-                    Text("发现")
-                }
-                .tag(2)
+                DiscoverView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 2 ? "safari.fill" : "safari")
+                        Text("发现")
+                    }
+                    .tag(2)
 
-            ProfileView()
-                .tabItem {
-                    Image(systemName: selectedTab == 3 ? "gearshape.fill" : "gearshape")
-                    Text("我")
-                }
-                .tag(3)
+                ProfileView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 3 ? "gearshape.fill" : "gearshape")
+                        Text("我")
+                    }
+                    .tag(3)
+            }
+            .tint(AppColors.accent)
+
+            ImageGalleryOverlay()
         }
-        .tint(AppColors.accent)
     }
 }
 
