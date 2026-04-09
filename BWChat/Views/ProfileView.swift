@@ -7,21 +7,18 @@ struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
     @State private var showEditProfile = false
     @State private var showLogoutAlert = false
+    @State private var showPersonalInfo = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 0) {
-                    // Header card with avatar + basic info
                     profileHeaderCard
 
-                    // Info sections
-                    profileInfoSection
-
-                    // My moments
                     myMomentsSection
 
-                    // Actions
+                    profileInfoSection
+
                     actionSection
                 }
                 .padding(.bottom, 30)
@@ -69,7 +66,6 @@ struct ProfileView: View {
 
     private var profileHeaderCard: some View {
         VStack(spacing: 16) {
-            // Avatar
             ZStack(alignment: .bottomTrailing) {
                 AvatarView(url: viewModel.profile?.avatarURL ?? "", size: 88)
                     .shadow(color: AppColors.accent.opacity(0.3), radius: 8, x: 0, y: 4)
@@ -77,14 +73,10 @@ struct ProfileView: View {
                 Circle()
                     .fill(AppColors.online)
                     .frame(width: 16, height: 16)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white, lineWidth: 2)
-                    )
+                    .overlay(Circle().stroke(Color.white, lineWidth: 2))
                     .offset(x: -2, y: -2)
             }
 
-            // Name & username
             VStack(spacing: 4) {
                 Text(viewModel.profile?.nickname ?? "")
                     .font(.system(size: 22, weight: .bold))
@@ -95,7 +87,6 @@ struct ProfileView: View {
                     .foregroundColor(AppColors.secondaryText)
             }
 
-            // Bio
             if let bio = viewModel.profile?.bio, !bio.isEmpty {
                 Text(bio)
                     .font(.system(size: 14))
@@ -105,7 +96,6 @@ struct ProfileView: View {
                     .padding(.horizontal, 20)
             }
 
-            // ID badge
             HStack(spacing: 4) {
                 Image(systemName: "number")
                     .font(.system(size: 11, weight: .semibold))
@@ -126,50 +116,118 @@ struct ProfileView: View {
         .padding(.top, 12)
     }
 
-    // MARK: - Info Section
+    // MARK: - My Moments (right after header)
+
+    private var myMomentsSection: some View {
+        NavigationLink {
+            MomentsView(
+                filterUserID: AuthManager.shared.currentUser?.userID,
+                pageTitle: "我的朋友圈"
+            )
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "667eea"), Color(hex: "764ba2")],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 17))
+                        .foregroundColor(.white)
+                }
+
+                Text("我的朋友圈")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(AppColors.primaryText)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+        }
+        .background(AppColors.cardBackground)
+        .cornerRadius(14)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+    }
+
+    // MARK: - Info Section (collapsible)
 
     private var profileInfoSection: some View {
         VStack(spacing: 0) {
-            Text("个人信息")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppColors.secondaryText)
-                .textCase(.uppercase)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showPersonalInfo.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.text.rectangle")
+                        .font(.system(size: 15))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 28, height: 28)
+
+                    Text("个人信息")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.primaryText)
+
+                    Spacer()
+
+                    Image(systemName: showPersonalInfo ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppColors.tertiaryText)
+                }
                 .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 8)
-
-            VStack(spacing: 0) {
-                profileRow(icon: "person.fill", title: "昵称", value: viewModel.profile?.nickname ?? "未设置")
-                Divider().padding(.leading, 52)
-
-                profileRow(icon: "at", title: "用户名", value: viewModel.profile?.username ?? "")
-                Divider().padding(.leading, 52)
-
-                profileRow(
-                    icon: "person.crop.circle",
-                    title: "性别",
-                    value: viewModel.profile?.genderDisplay.isEmpty == false ? viewModel.profile!.genderDisplay : "未设置"
-                )
-                Divider().padding(.leading, 52)
-
-                profileRow(
-                    icon: "gift.fill",
-                    title: "生日",
-                    value: formattedBirthday
-                )
-                Divider().padding(.leading, 52)
-
-                profileRow(
-                    icon: "location.fill",
-                    title: "地区",
-                    value: viewModel.profile?.location.isEmpty == false ? viewModel.profile!.location : "未设置"
-                )
+                .padding(.vertical, 13)
             }
             .background(AppColors.cardBackground)
-            .cornerRadius(14)
-            .padding(.horizontal, 16)
+
+            if showPersonalInfo {
+                Divider().padding(.leading, 52)
+
+                VStack(spacing: 0) {
+                    profileRow(icon: "person.fill", title: "昵称", value: viewModel.profile?.nickname ?? "未设置")
+                    Divider().padding(.leading, 52)
+
+                    profileRow(icon: "at", title: "用户名", value: viewModel.profile?.username ?? "")
+                    Divider().padding(.leading, 52)
+
+                    profileRow(
+                        icon: "person.crop.circle",
+                        title: "性别",
+                        value: viewModel.profile?.genderDisplay.isEmpty == false ? viewModel.profile!.genderDisplay : "未设置"
+                    )
+                    Divider().padding(.leading, 52)
+
+                    profileRow(
+                        icon: "gift.fill",
+                        title: "生日",
+                        value: formattedBirthday
+                    )
+                    Divider().padding(.leading, 52)
+
+                    profileRow(
+                        icon: "location.fill",
+                        title: "地区",
+                        value: viewModel.profile?.location.isEmpty == false ? viewModel.profile!.location : "未设置"
+                    )
+                }
+                .background(AppColors.cardBackground)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+        .background(AppColors.cardBackground)
+        .cornerRadius(14)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
     }
 
     private var formattedBirthday: String {
@@ -204,60 +262,6 @@ struct ProfileView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 13)
-    }
-
-    // MARK: - My Moments Section
-
-    private var myMomentsSection: some View {
-        VStack(spacing: 0) {
-            Text("我的动态")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppColors.secondaryText)
-                .textCase(.uppercase)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 8)
-
-            NavigationLink {
-                MomentsView(
-                    filterUserID: AuthManager.shared.currentUser?.userID,
-                    pageTitle: "我的朋友圈"
-                )
-            } label: {
-                HStack(spacing: 12) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color(hex: "667eea"), Color(hex: "764ba2")],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 17))
-                            .foregroundColor(.white)
-                    }
-
-                    Text("我的朋友圈")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppColors.primaryText)
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(AppColors.tertiaryText)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-            }
-            .background(AppColors.cardBackground)
-            .cornerRadius(14)
-            .padding(.horizontal, 16)
-        }
     }
 
     // MARK: - Action Section

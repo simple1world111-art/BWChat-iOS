@@ -128,9 +128,7 @@ struct ChatView: View {
         }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
-        .fullScreenCover(isPresented: $showImageGallery) {
-            ImageGalleryPreview(imageURLs: previewImageURLs, initialIndex: previewImageIndex)
-        }
+        .imageGalleryOverlay(isPresented: $showImageGallery, imageURLs: previewImageURLs, initialIndex: previewImageIndex)
         .fullScreenCover(item: Binding(
             get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
             set: { previewVideoURL = $0?.url }

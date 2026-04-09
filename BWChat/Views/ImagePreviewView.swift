@@ -1,121 +1,148 @@
 // BWChat/Views/ImagePreviewView.swift
-// Full-screen image gallery with center-zoom transition, pinch zoom and swipe
+// Full-screen image gallery with center-zoom transition and horizontal swipe
 
 import SwiftUI
 
-struct ImageGalleryPreview: View {
+struct ImageGalleryOverlay: View {
     let imageURLs: [String]
     let initialIndex: Int
-    @Environment(\.dismiss) private var dismiss
-    @State private var currentIndex: Int
+    @Binding var isPresented: Bool
+
+    @State private var currentIndex: Int = 0
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    @State private var dragOffset: CGSize = .zero
-    @State private var appearScale: CGFloat = 0.5
-    @State private var appearOpacity: Double = 0
-
-    init(imageURLs: [String], initialIndex: Int) {
-        self.imageURLs = imageURLs
-        self.initialIndex = initialIndex
-        _currentIndex = State(initialValue: initialIndex)
-    }
+    @State private var verticalDrag: CGFloat = 0
+    @State private var appeared = false
 
     var body: some View {
         ZStack {
             Color.black
                 .ignoresSafeArea()
-                .opacity(dismissOpacity * appearOpacity)
+                .opacity(backgroundOpacity)
 
             TabView(selection: $currentIndex) {
                 ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
-                    SingleImagePage(
+                    ZoomableImagePage(
                         imageURL: url,
-                        isActive: index == currentIndex,
                         scale: index == currentIndex ? $scale : .constant(1),
                         lastScale: index == currentIndex ? $lastScale : .constant(1),
                         offset: index == currentIndex ? $offset : .constant(.zero),
                         lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                        dragOffset: index == currentIndex ? $dragOffset : .constant(.zero),
-                        onDismiss: { dismissWithAnimation() },
-                        onSingleTap: { dismissWithAnimation() }
+                        onSingleTap: { dismissGallery() },
+                        onDoubleTap: { doubleTap() }
                     )
                     .tag(index)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: imageURLs.count > 1 ? .automatic : .never))
-            .scaleEffect(appearScale)
-            .opacity(appearOpacity)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .offset(y: verticalDrag)
+            .scaleEffect(appeared ? 1.0 : 0.3)
+            .opacity(appeared ? 1.0 : 0.0)
+            .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
             .onChange(of: currentIndex) { _ in
-                scale = 1; lastScale = 1
-                offset = .zero; lastOffset = .zero
-                dragOffset = .zero
+                resetZoom()
             }
 
+            // Top bar
             VStack {
                 HStack {
                     if imageURLs.count > 1 {
-                        Text("\(currentIndex + 1)/\(imageURLs.count)")
-                            .font(.system(size: 15, weight: .medium))
+                        Text("\(currentIndex + 1) / \(imageURLs.count)")
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.white)
-                            .padding(.horizontal, 12)
+                            .padding(.horizontal, 14)
                             .padding(.vertical, 6)
-                            .background(.ultraThinMaterial)
+                            .background(.black.opacity(0.5))
                             .cornerRadius(16)
                     }
                     Spacer()
-                    Button { dismissWithAnimation() } label: {
+                    Button { dismissGallery() } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 28))
-                            .foregroundColor(.white.opacity(0.8))
+                            .foregroundStyle(.white.opacity(0.85))
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.top, 54)
 
                 Spacer()
 
                 HStack {
                     Spacer()
-                    Button { saveToPhotoLibrary() } label: {
+                    Button { saveCurrentImage() } label: {
                         Image(systemName: "square.and.arrow.down")
-                            .font(.system(size: 20))
+                            .font(.system(size: 18))
                             .foregroundColor(.white)
-                            .padding(12)
-                            .background(.ultraThinMaterial)
+                            .padding(11)
+                            .background(.black.opacity(0.5))
                             .cornerRadius(10)
                     }
-                    .padding(16)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 40)
                 }
             }
-            .opacity(scale <= 1.05 && dragOffset.height == 0 ? appearOpacity : 0)
+            .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
         }
-        .statusBarHidden(true)
         .onAppear {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                appearScale = 1.0
-                appearOpacity = 1.0
+            currentIndex = initialIndex
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                appeared = true
             }
         }
     }
 
-    private var dismissOpacity: Double {
-        let progress = min(abs(dragOffset.height) / 300, 1)
-        return 1 - progress * 0.5
+    private var backgroundOpacity: Double {
+        guard appeared else { return 0 }
+        let dragFade = 1.0 - min(abs(verticalDrag) / 300, 0.6)
+        return dragFade
     }
 
-    private func dismissWithAnimation() {
-        withAnimation(.easeOut(duration: 0.25)) {
-            appearScale = 0.5
-            appearOpacity = 0
+    private var verticalDismissGesture: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onChanged { value in
+                if abs(value.translation.height) > abs(value.translation.width) {
+                    verticalDrag = value.translation.height
+                }
+            }
+            .onEnded { value in
+                if abs(value.translation.height) > 120 {
+                    dismissGallery()
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        verticalDrag = 0
+                    }
+                }
+            }
+    }
+
+    private func dismissGallery() {
+        withAnimation(.easeOut(duration: 0.22)) {
+            appeared = false
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            isPresented = false
         }
     }
 
-    private func saveToPhotoLibrary() {
+    private func doubleTap() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if scale > 1 {
+                resetZoom()
+            } else {
+                scale = 2.5; lastScale = 2.5
+            }
+        }
+    }
+
+    private func resetZoom() {
+        scale = 1; lastScale = 1
+        offset = .zero; lastOffset = .zero
+        verticalDrag = 0
+    }
+
+    private func saveCurrentImage() {
         Task {
             if let image = await ImageCacheManager.shared.loadImage(from: imageURLs[currentIndex]) {
                 UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
@@ -124,18 +151,16 @@ struct ImageGalleryPreview: View {
     }
 }
 
-// MARK: - Single Image Page
+// MARK: - Zoomable Image Page (no DragGesture — lets TabView handle horizontal swipes)
 
-private struct SingleImagePage: View {
+private struct ZoomableImagePage: View {
     let imageURL: String
-    let isActive: Bool
     @Binding var scale: CGFloat
     @Binding var lastScale: CGFloat
     @Binding var offset: CGSize
     @Binding var lastOffset: CGSize
-    @Binding var dragOffset: CGSize
-    var onDismiss: () -> Void
     var onSingleTap: () -> Void
+    var onDoubleTap: () -> Void
 
     @State private var image: UIImage?
     @State private var isLoading = true
@@ -151,11 +176,10 @@ private struct SingleImagePage: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .scaleEffect(scale)
-                        .offset(x: offset.width, y: offset.height + dragOffset.height)
+                        .offset(x: offset.width, y: offset.height)
                         .gesture(pinchGesture)
-                        .gesture(scale <= 1.05 ? dismissDragGesture : nil)
                         .simultaneousGesture(scale > 1.05 ? panGesture : nil)
-                        .onTapGesture(count: 2) { doubleTap() }
+                        .onTapGesture(count: 2) { onDoubleTap() }
                         .onTapGesture { onSingleTap() }
                 } else if isLoading {
                     ProgressView()
@@ -173,22 +197,6 @@ private struct SingleImagePage: View {
         }
     }
 
-    private var dismissDragGesture: some Gesture {
-        DragGesture()
-            .onChanged { value in
-                dragOffset = value.translation
-            }
-            .onEnded { value in
-                if abs(value.translation.height) > 120 {
-                    onDismiss()
-                } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        dragOffset = .zero
-                    }
-                }
-            }
-    }
-
     private var pinchGesture: some Gesture {
         MagnificationGesture()
             .onChanged { value in
@@ -196,9 +204,7 @@ private struct SingleImagePage: View {
             }
             .onEnded { _ in
                 withAnimation(.easeOut(duration: 0.2)) {
-                    if scale < 1 {
-                        scale = 1; offset = .zero; lastOffset = .zero
-                    }
+                    if scale < 1 { scale = 1; offset = .zero; lastOffset = .zero }
                 }
                 lastScale = scale
             }
@@ -216,23 +222,21 @@ private struct SingleImagePage: View {
                 lastOffset = offset
             }
     }
-
-    private func doubleTap() {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            if scale > 1 {
-                scale = 1; lastScale = 1; offset = .zero; lastOffset = .zero
-            } else {
-                scale = 2.5; lastScale = 2.5
-            }
-        }
-    }
 }
 
-// Keep backward-compatible single-image preview
-struct ImagePreviewView: View {
-    let imageURL: String
+// MARK: - View extension for easy usage
 
-    var body: some View {
-        ImageGalleryPreview(imageURLs: [imageURL], initialIndex: 0)
+extension View {
+    func imageGalleryOverlay(isPresented: Binding<Bool>, imageURLs: [String], initialIndex: Int) -> some View {
+        self.overlay {
+            if isPresented.wrappedValue {
+                ImageGalleryOverlay(
+                    imageURLs: imageURLs,
+                    initialIndex: initialIndex,
+                    isPresented: isPresented
+                )
+                .transition(.identity)
+            }
+        }
     }
 }

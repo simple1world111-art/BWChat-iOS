@@ -187,7 +187,7 @@ struct RoundedCorner: Shape {
 
 struct CachedAsyncImage: View {
     let url: String
-    var maxWidth: CGFloat = 220
+    var maxWidth: CGFloat = 160
     @State private var image: UIImage?
     @State private var isLoading = true
 
@@ -200,17 +200,17 @@ struct CachedAsyncImage: View {
                     .frame(maxWidth: maxWidth)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             } else if isLoading {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(AppColors.separator)
-                    .frame(width: 160, height: 120)
+                    .frame(width: 120, height: 90)
                     .overlay(
                         ProgressView()
                             .tint(AppColors.accent)
                     )
             } else {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(AppColors.separator)
-                    .frame(width: 160, height: 120)
+                    .frame(width: 120, height: 90)
                     .overlay(
                         Image(systemName: "photo")
                             .foregroundColor(AppColors.secondaryText)

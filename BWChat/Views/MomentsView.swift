@@ -80,9 +80,7 @@ struct MomentsView: View {
                 commentInputBar
             }
         }
-        .fullScreenCover(isPresented: $showImageGallery) {
-            ImageGalleryPreview(imageURLs: previewImageURLs, initialIndex: previewImageIndex)
-        }
+        .imageGalleryOverlay(isPresented: $showImageGallery, imageURLs: previewImageURLs, initialIndex: previewImageIndex)
         .task {
             viewModel.filterUserID = filterUserID
             await viewModel.loadFeed()
@@ -333,10 +331,10 @@ struct MomentRow: View {
 
         return LazyVGrid(columns: gridColumns, spacing: 4) {
             ForEach(moment.images, id: \.self) { imageURL in
-                CachedAsyncImage(url: imageURL, maxWidth: imageCount == 1 ? 220 : 120)
+                CachedAsyncImage(url: imageURL, maxWidth: imageCount == 1 ? 180 : 90)
                     .onTapGesture { onImageTap(imageURL) }
             }
         }
-        .frame(maxWidth: imageCount == 1 ? 220 : .infinity, alignment: .leading)
+        .frame(maxWidth: imageCount == 1 ? 180 : .infinity, alignment: .leading)
     }
 }
