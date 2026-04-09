@@ -23,6 +23,7 @@ struct GroupChatView: View {
     @State private var shouldPopToRoot = false
     @State private var scrollAnchor: Int = 0
     @State private var highlightedMessageID: Int?
+    @State private var initialScrollDone = false
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
@@ -92,9 +93,11 @@ struct GroupChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .opacity(initialScrollDone ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
+                    guard initialScrollDone else { return }
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("groupBottom", anchor: .bottom)
                     }
@@ -113,10 +116,13 @@ struct GroupChatView: View {
                         memberCount = detail.members.count
                     }
                     onMarkRead?()
-                    scrollAnchor += 1
-                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    proxy.scrollTo("groupBottom", anchor: .bottom)
+                    try? await Task.sleep(nanoseconds: 150_000_000)
                     guard !Task.isCancelled else { return }
-                    scrollAnchor += 1
+                    proxy.scrollTo("groupBottom", anchor: .bottom)
+                    withAnimation(.easeIn(duration: 0.15)) {
+                        initialScrollDone = true
+                    }
                 }
             }
 

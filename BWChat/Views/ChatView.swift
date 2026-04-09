@@ -18,6 +18,7 @@ struct ChatView: View {
     @State private var previewVideoURL: String?
     @State private var scrollAnchor: Int = 0
     @State private var highlightedMessageID: Int?
+    @State private var initialScrollDone = false
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -87,9 +88,11 @@ struct ChatView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
+                .opacity(initialScrollDone ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
                 .onChange(of: viewModel.messages.last?.id) { _ in
+                    guard initialScrollDone else { return }
                     withAnimation(.easeOut(duration: 0.2)) {
                         proxy.scrollTo("chatBottom", anchor: .bottom)
                     }
@@ -105,10 +108,13 @@ struct ChatView: View {
                 .task {
                     await viewModel.loadMessages()
                     onMarkRead?()
-                    scrollAnchor += 1
-                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    proxy.scrollTo("chatBottom", anchor: .bottom)
+                    try? await Task.sleep(nanoseconds: 150_000_000)
                     guard !Task.isCancelled else { return }
-                    scrollAnchor += 1
+                    proxy.scrollTo("chatBottom", anchor: .bottom)
+                    withAnimation(.easeIn(duration: 0.15)) {
+                        initialScrollDone = true
+                    }
                 }
             }
 
