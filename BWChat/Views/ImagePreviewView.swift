@@ -110,20 +110,20 @@ struct ImageGalleryOverlay: View {
     }
 
     private var verticalDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
+        DragGesture(minimumDistance: 6)
             .onChanged { value in
                 let h = value.translation.height
                 let w = value.translation.width
-                // Allow dismiss drag as long as vertical component isn't negligible
-                // compared to horizontal — enables diagonal swipe-down to dismiss
-                if abs(h) > abs(w) * 0.25 || abs(verticalDrag) > 0 {
+                // Very permissive: any drag with even a small vertical component
+                // triggers dismiss (roughly >6° from pure horizontal)
+                if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
                     verticalDrag = h
                 }
             }
             .onEnded { value in
                 let h = abs(value.translation.height)
                 let predictedH = abs(value.predictedEndTranslation.height)
-                if h > 50 || predictedH > 250 {
+                if h > 40 || predictedH > 200 {
                     dismissGallery()
                 } else {
                     withAnimation(.easeOut(duration: 0.2)) {
