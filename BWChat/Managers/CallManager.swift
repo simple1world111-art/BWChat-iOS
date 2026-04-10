@@ -2,6 +2,7 @@
 // Manages call state and LiveKit room connections for 1v1 and group calls
 
 import Foundation
+import UIKit
 import Combine
 import AVFoundation
 import AudioToolbox
@@ -320,11 +321,11 @@ class CallManager: ObservableObject {
         guard let room = room else { return }
         remoteParticipants = Array(room.remoteParticipants.values)
 
-        // Find the first subscribed remote video track
+        // Find the first available remote video track
         remoteVideoTrack = nil
         for participant in remoteParticipants {
             for pub in participant.videoTracks {
-                if let track = pub.track as? VideoTrack, pub.subscribed {
+                if let track = pub.track as? VideoTrack {
                     remoteVideoTrack = track
                     return
                 }
