@@ -26,8 +26,26 @@ struct CallView: View {
 
                 if let call = callManager.currentCall {
                     if call.callType != .video || call.state != .connected {
-                        AvatarView(url: call.remoteAvatarURL, size: 100)
+                        if call.groupID != nil {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 24)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color(hex: "5856D6").opacity(0.8), Color(hex: "764BA2").opacity(0.6)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 100, height: 100)
+                                Image(systemName: "person.3.fill")
+                                    .font(.system(size: 36))
+                                    .foregroundColor(.white)
+                            }
                             .shadow(color: .white.opacity(0.2), radius: 20)
+                        } else {
+                            AvatarView(url: call.remoteAvatarURL, size: 100)
+                                .shadow(color: .white.opacity(0.2), radius: 20)
+                        }
 
                         Text(call.groupName ?? call.remoteNickname)
                             .font(.system(size: 28, weight: .semibold))
@@ -70,7 +88,9 @@ struct CallView: View {
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
         case .incoming:
-            Text(call.callType == .voice ? "语音来电" : "视频来电")
+            Text(call.groupID != nil
+                 ? (call.callType == .voice ? "群语音通话邀请" : "群视频通话邀请")
+                 : (call.callType == .voice ? "语音来电" : "视频来电"))
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
         case .connecting:

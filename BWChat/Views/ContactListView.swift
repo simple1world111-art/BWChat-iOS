@@ -3,9 +3,10 @@ import SwiftUI
 struct ContactListView: View {
     @StateObject private var viewModel = ConversationListViewModel()
     @State private var showCreateGroup = false
+    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             Group {
                 if viewModel.conversations.isEmpty && !viewModel.isLoading {
                     emptyStateView
@@ -39,6 +40,42 @@ struct ContactListView: View {
         }
         .task {
             await viewModel.loadConversations()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { notif in
+            guard let senderID = notif.userInfo?["sender_id"] as? String else { return }
+            navigationPath = NavigationPath()
+            if let conv = viewModel.conversations.first(where: { $0.isDM && $0.id == senderID }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    navigationPath.append(conv)
+                }
+            } else {
+                let user = UserCacheManager.shared.getUser(senderID)
+                let conv = Conversation(
+                    id: senderID,
+                    name: user?.nickname ?? senderID,
+                    avatarURL: user?.avatarURL ?? "",
+                    lastMessage: nil,
+                    lastMessageTime: nil,
+                    unreadCount: 0,
+                    isDM: true,
+                    isGroup: false,
+                    groupID: nil,
+                    memberCount: nil,
+                    subtitle: nil
+                )
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    navigationPath.append(conv)
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openGroupChat"))) { notif in
+            guard let groupID = notif.userInfo?["group_id"] as? Int else { return }
+            navigationPath = NavigationPath()
+            if let conv = viewModel.conversations.first(where: { $0.groupID == groupID }) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    navigationPath.append(conv)
+                }
+            }
         }
     }
 

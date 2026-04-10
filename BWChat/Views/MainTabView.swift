@@ -9,6 +9,7 @@ struct MainTabView: View {
     var body: some View {
         ZStack {
             TabView(selection: $selectedTab) {
+
                 ContactListView()
                     .tabItem {
                         Image(systemName: selectedTab == 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
@@ -40,6 +41,12 @@ struct MainTabView: View {
             .tint(AppColors.accent)
 
             ImageGalleryOverlay()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { _ in
+            selectedTab = 0
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openGroupChat"))) { _ in
+            selectedTab = 0
         }
     }
 }

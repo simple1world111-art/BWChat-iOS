@@ -7,7 +7,7 @@ struct ProfileView: View {
     @StateObject private var viewModel = ProfileViewModel()
     @State private var showEditProfile = false
     @State private var showLogoutAlert = false
-    @State private var showPersonalInfo = false
+    
 
     var body: some View {
         NavigationStack {
@@ -25,20 +25,6 @@ struct ProfileView: View {
             }
             .background(AppColors.secondaryBackground)
             .navigationTitle("我")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        if let user = viewModel.profile {
-                            viewModel.populateEditFields(from: user)
-                        }
-                        showEditProfile = true
-                    } label: {
-                        Text("编辑")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(AppColors.accent)
-                    }
-                }
-            }
             .sheet(isPresented: $showEditProfile) {
                 EditProfileView(viewModel: viewModel)
             }
@@ -160,108 +146,42 @@ struct ProfileView: View {
         .padding(.top, 16)
     }
 
-    // MARK: - Info Section (collapsible)
+    // MARK: - Info Section (tap to open edit page)
 
     private var profileInfoSection: some View {
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    showPersonalInfo.toggle()
-                }
-            } label: {
-                HStack(spacing: 12) {
+        Button {
+            if let user = viewModel.profile {
+                viewModel.populateEditFields(from: user)
+            }
+            showEditProfile = true
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(AppColors.accent.opacity(0.12))
+                        .frame(width: 40, height: 40)
                     Image(systemName: "person.text.rectangle")
-                        .font(.system(size: 15))
+                        .font(.system(size: 17))
                         .foregroundColor(AppColors.accent)
-                        .frame(width: 28, height: 28)
-
-                    Text("个人信息")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppColors.primaryText)
-
-                    Spacer()
-
-                    Image(systemName: showPersonalInfo ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(AppColors.tertiaryText)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
+
+                Text("个人信息")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(AppColors.primaryText)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
             }
-            .background(AppColors.cardBackground)
-
-            if showPersonalInfo {
-                Divider().padding(.leading, 52)
-
-                VStack(spacing: 0) {
-                    profileRow(icon: "person.fill", title: "昵称", value: viewModel.profile?.nickname ?? "未设置")
-                    Divider().padding(.leading, 52)
-
-                    profileRow(icon: "at", title: "用户名", value: viewModel.profile?.username ?? "")
-                    Divider().padding(.leading, 52)
-
-                    profileRow(
-                        icon: "person.crop.circle",
-                        title: "性别",
-                        value: viewModel.profile?.genderDisplay.isEmpty == false ? viewModel.profile!.genderDisplay : "未设置"
-                    )
-                    Divider().padding(.leading, 52)
-
-                    profileRow(
-                        icon: "gift.fill",
-                        title: "生日",
-                        value: formattedBirthday
-                    )
-                    Divider().padding(.leading, 52)
-
-                    profileRow(
-                        icon: "location.fill",
-                        title: "地区",
-                        value: viewModel.profile?.location.isEmpty == false ? viewModel.profile!.location : "未设置"
-                    )
-                }
-                .background(AppColors.cardBackground)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
         }
         .background(AppColors.cardBackground)
         .cornerRadius(14)
         .padding(.horizontal, 16)
         .padding(.top, 16)
-    }
-
-    private var formattedBirthday: String {
-        guard let birthday = viewModel.profile?.birthday, !birthday.isEmpty else {
-            return "未设置"
-        }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: birthday) else { return birthday }
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "yyyy年M月d日"
-        return displayFormatter.string(from: date)
-    }
-
-    private func profileRow(icon: String, title: String, value: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 15))
-                .foregroundColor(AppColors.accent)
-                .frame(width: 28, height: 28)
-
-            Text(title)
-                .font(.system(size: 15))
-                .foregroundColor(AppColors.secondaryText)
-
-            Spacer()
-
-            Text(value)
-                .font(.system(size: 15))
-                .foregroundColor(value == "未设置" ? AppColors.tertiaryText : AppColors.primaryText)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
     }
 
     // MARK: - Action Section

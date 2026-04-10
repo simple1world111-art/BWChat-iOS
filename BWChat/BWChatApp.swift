@@ -21,7 +21,7 @@ struct BWChatApp: App {
 
                 if callManager.currentCall != nil {
                     Group {
-                        if callManager.currentCall?.groupID != nil {
+                        if callManager.currentCall?.groupID != nil && callManager.currentCall?.state == .connected {
                             GroupCallView()
                         } else {
                             CallView()
@@ -171,6 +171,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                 )
             }
             completionHandler([.sound])
+            return
+        }
+
+        // Moments interaction push — increment badge
+        if let pushType = userInfo["push_type"] as? String, pushType == "moments_update" {
+            Task { @MainActor in
+                MomentsNotificationManager.shared.incrementBadge()
+            }
+            completionHandler([.banner, .sound])
             return
         }
 

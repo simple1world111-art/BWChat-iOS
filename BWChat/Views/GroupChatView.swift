@@ -342,6 +342,7 @@ struct GroupMessageBubble: View {
     var onMention: ((String, String) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
+    @State private var showMenu = false
 
     var body: some View {
         if message.isSystem {
@@ -363,6 +364,9 @@ struct GroupMessageBubble: View {
 
             if !isFromMe {
                 AvatarView(url: message.senderAvatar, size: 32)
+                    .onTapGesture {
+                        onMention?(message.senderID, message.senderNickname)
+                    }
             }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 3) {
@@ -415,40 +419,20 @@ struct GroupMessageBubble: View {
                             }
                         )
                         .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
-                        .contextMenu {
-                            Button {
-                                UIPasteboard.general.string = message.content
-                            } label: {
-                                Label("复制", systemImage: "doc.on.doc")
-                            }
-                            Button {
-                                onReply?(message)
-                            } label: {
-                                Label("回复", systemImage: "arrowshape.turn.up.left")
-                            }
+                        .onLongPressGesture(minimumDuration: 0.5) {
+                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                            impactFeedback.impactOccurred()
+                            showMenu = true
+                        }
+                        .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                            Button("复制") { UIPasteboard.general.string = message.content }
+                            Button("回复") { onReply?(message) }
                             if !isFromMe {
-                                Button {
+                                Button("@\(message.senderNickname)") {
                                     onMention?(message.senderID, message.senderNickname)
-                                } label: {
-                                    Label("@\(message.senderNickname)", systemImage: "at")
                                 }
                             }
-                        } preview: {
-                            Text(message.content)
-                                .font(.system(size: 16))
-                                .foregroundColor(isFromMe ? .white : AppColors.primaryText)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
-                                .background(
-                                    Group {
-                                        if isFromMe {
-                                            AppColors.sentBubbleGradient
-                                        } else {
-                                            LinearGradient(colors: [AppColors.receivedBubble], startPoint: .top, endPoint: .bottom)
-                                        }
-                                    }
-                                )
-                                .cornerRadius(18)
+                            Button("取消", role: .cancel) {}
                         }
                 }
 

@@ -51,10 +51,15 @@ struct Moment: Codable, Identifiable, Equatable {
     }
 
     var formattedTime: String {
+        Self.relativeTime(from: createdAt)
+    }
+
+    static func relativeTime(from dateStr: String) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        guard let date = formatter.date(from: createdAt) else { return createdAt }
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        guard let date = formatter.date(from: dateStr) else { return dateStr }
 
         let now = Date()
         let interval = now.timeIntervalSince(date)

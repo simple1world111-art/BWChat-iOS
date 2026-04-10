@@ -8,7 +8,7 @@ struct MomentsView: View {
     @State private var showCreateMoment = false
     @State private var commentText = ""
     @State private var commentTarget: (momentID: Int, replyToUserID: String?, replyToName: String?)? = nil
-    
+    @FocusState private var commentFieldFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -122,42 +122,66 @@ struct MomentsView: View {
                     commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
                     text: $commentText
                 )
+                .focused($commentFieldFocused)
                 .font(.system(size: 16))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 20).fill(AppColors.separator))
+                .submitLabel(.send)
+                .onSubmit {
+                    sendComment()
+                }
 
                 Button {
-                    guard let target = commentTarget, !commentText.isEmpty else { return }
-                    let text = commentText
-                    commentText = ""
-                    commentTarget = nil
-                    Task {
-                        await viewModel.addComment(
-                            momentID: target.momentID,
-                            content: text,
-                            replyToUserID: target.replyToUserID
-                        )
-                    }
+                    sendComment()
                 } label: {
                     Text("发送")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(commentText.isEmpty ? AppColors.tertiaryText : AppColors.accent)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(commentText.isEmpty ? AppColors.tertiaryText : AppColors.accent)
+                        .cornerRadius(20)
                 }
                 .disabled(commentText.isEmpty)
 
                 Button {
                     commentTarget = nil
                     commentText = ""
+                    commentFieldFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
                         .foregroundColor(AppColors.tertiaryText)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .background(AppColors.secondaryBackground)
+        .background(AppColors.cardBackground)
+        .shadow(color: .black.opacity(0.08), radius: 8, y: -2)
+        .onChange(of: commentTarget?.momentID) { _ in
+            if commentTarget != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    commentFieldFocused = true
+                }
+            }
+        }
+    }
+
+    private func sendComment() {
+        guard let target = commentTarget, !commentText.isEmpty else { return }
+        let text = commentText
+        commentText = ""
+        commentTarget = nil
+        commentFieldFocused = false
+        Task {
+            await viewModel.addComment(
+                momentID: target.momentID,
+                content: text,
+                replyToUserID: target.replyToUserID
+            )
+        }
     }
 }
 
@@ -300,37 +324,93 @@ struct MomentRow: View {
 
     @ViewBuilder
     private func commentView(_ comment: MomentComment) -> some View {
-        HStack(spacing: 0) {
-            Text(comment.nickname)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color(hex: "576B95"))
-
-            if let replyTo = comment.replyTo {
-                Text(" 回复 ")
-                    .font(.system(size: 13))
-                    .foregroundColor(AppColors.secondaryText)
-                Text(replyTo.nickname)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 0) {
+                Text(comment.nickname)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(Color(hex: "576B95"))
+
+                if let replyTo = comment.replyTo {
+                    Text(" 回复 ")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.secondaryText)
+                    Text(replyTo.nickname)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(hex: "576B95"))
+                }
+
+                Text(": \(comment.content)")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppColors.primaryText)
             }
 
-            Text(": \(comment.content)")
-                .font(.system(size: 13))
-                .foregroundColor(AppColors.primaryText)
+            if let createdAt = comment.createdAt {
+                Text(Moment.relativeTime(from: createdAt))
+                    .font(.system(size: 11))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
         }
     }
 
     private var momentImageGrid: some View {
-        let imageCount = moment.images.count
-        let columns = imageCount == 1 ? 1 : (imageCount <= 4 ? 2 : 3)
-        let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 4), count: columns)
+        let count = moment.images.count
+        let cols = count == 1 ? 1 : (count <= 4 ? 2 : 3)
+        let spacing: CGFloat = 3
+        let maxGridWidth: CGFloat = cols == 1 ? 180 : CGFloat(cols) * 80 + spacing * CGFloat(cols - 1)
+        let cellSize: CGFloat = cols == 1 ? 180 : 80
 
-        return LazyVGrid(columns: gridColumns, spacing: 4) {
-            ForEach(moment.images, id: \.self) { imageURL in
-                CachedAsyncImage(url: imageURL, maxWidth: imageCount == 1 ? 180 : 90)
-                    .onTapGesture { onImageTap(imageURL) }
+        return VStack(alignment: .leading, spacing: spacing) {
+            ForEach(0..<((count + cols - 1) / cols), id: \.self) { row in
+                HStack(spacing: spacing) {
+                    ForEach(0..<cols, id: \.self) { col in
+                        let idx = row * cols + col
+                        if idx < count {
+                            MomentImageCell(url: moment.images[idx], size: cellSize)
+                                .onTapGesture { onImageTap(moment.images[idx]) }
+                        }
+                    }
+                }
             }
         }
-        .frame(maxWidth: imageCount == 1 ? 180 : .infinity, alignment: .leading)
+        .frame(maxWidth: maxGridWidth, alignment: .leading)
+    }
+}
+
+// MARK: - Square-cropped Moment Image Cell
+
+struct MomentImageCell: View {
+    let url: String
+    let size: CGFloat
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipped()
+                    .cornerRadius(4)
+            } else if isLoading {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppColors.separator)
+                    .frame(width: size, height: size)
+                    .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.6))
+            } else {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppColors.separator)
+                    .frame(width: size, height: size)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(AppColors.secondaryText)
+                    )
+            }
+        }
+        .task(id: url) {
+            image = await ImageCacheManager.shared.loadImage(from: url)
+            isLoading = false
+        }
     }
 }

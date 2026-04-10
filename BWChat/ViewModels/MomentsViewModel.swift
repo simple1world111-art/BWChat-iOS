@@ -12,10 +12,7 @@ class MomentsViewModel: ObservableObject {
     var filterUserID: String?
 
     func loadFeed(refresh: Bool = false) async {
-        if refresh {
-            moments = []
-            hasMore = true
-        }
+        if refresh { hasMore = true }
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
@@ -30,7 +27,7 @@ class MomentsViewModel: ObservableObject {
             moments = items
             hasMore = more
         } catch {
-            errorMessage = "加载失败"
+            if moments.isEmpty { errorMessage = "加载失败" }
         }
 
         isLoading = false

@@ -76,6 +76,8 @@ struct MessageBubble: View {
 
     // MARK: - Gradient Text Bubble
 
+    @State private var showMenu = false
+
     private var textBubble: some View {
         Text(message.content)
             .font(.system(size: 16))
@@ -96,37 +98,15 @@ struct MessageBubble: View {
                 }
             )
             .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
-            .contextMenu {
-                Button {
-                    UIPasteboard.general.string = message.content
-                } label: {
-                    Label("复制", systemImage: "doc.on.doc")
-                }
-                Button {
-                    onReply?(message)
-                } label: {
-                    Label("回复", systemImage: "arrowshape.turn.up.left")
-                }
-            } preview: {
-                Text(message.content)
-                    .font(.system(size: 16))
-                    .foregroundColor(isFromMe ? .white : AppColors.primaryText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        Group {
-                            if isFromMe {
-                                AppColors.sentBubbleGradient
-                            } else {
-                                LinearGradient(
-                                    colors: [AppColors.receivedBubble, AppColors.receivedBubble],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            }
-                        }
-                    )
-                    .cornerRadius(18)
+            .onLongPressGesture(minimumDuration: 0.5) {
+                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                impactFeedback.impactOccurred()
+                showMenu = true
+            }
+            .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                Button("复制") { UIPasteboard.general.string = message.content }
+                Button("回复") { onReply?(message) }
+                Button("取消", role: .cancel) {}
             }
     }
 
