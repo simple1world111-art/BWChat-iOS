@@ -74,3 +74,30 @@ struct Moment: Codable, Identifiable, Equatable {
         return display.string(from: date)
     }
 }
+
+struct MomentsNotification: Codable, Identifiable {
+    let type: String
+    let id: String
+    let momentID: Int
+    let userID: String
+    let content: String?
+    let momentContent: String?
+    let momentImages: [String]?
+    let createdAt: String
+    let user: MomentAuthor
+
+    enum CodingKeys: String, CodingKey {
+        case type, id
+        case momentID = "moment_id"
+        case userID = "user_id"
+        case content
+        case momentContent = "moment_content"
+        case momentImages = "moment_images"
+        case createdAt = "created_at"
+        case user
+    }
+
+    var formattedTime: String {
+        Moment.relativeTime(from: createdAt)
+    }
+}

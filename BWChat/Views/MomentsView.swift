@@ -5,9 +5,12 @@ struct MomentsView: View {
     var pageTitle: String = "朋友圈"
 
     @StateObject private var viewModel = MomentsViewModel()
+    @StateObject private var momentsNotif = MomentsNotificationManager.shared
     @State private var showCreateMoment = false
+    @State private var showNotificationList = false
     @State private var commentText = ""
-    @State private var commentTarget: (momentID: Int, replyToUserID: String?, replyToName: String?)? = nil
+    @State private var commentTarget: (momentID: Int, replyToUserID: String?, replyToName: String?, replyContent: String?)? = nil
+    @State private var commentTriggerID = UUID()
     @FocusState private var commentFieldFocused: Bool
 
     var body: some View {
@@ -15,6 +18,12 @@ struct MomentsView: View {
             LazyVStack(spacing: 0) {
                 momentsHeader
                     .padding(.bottom, 8)
+
+                if momentsNotif.unreadCount > 0 && filterUserID == nil {
+                    notificationBanner
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                }
 
                 if viewModel.moments.isEmpty && !viewModel.isLoading {
                     VStack(spacing: 14) {
@@ -33,8 +42,9 @@ struct MomentsView: View {
                     MomentRow(
                         moment: moment,
                         onLike: { Task { await viewModel.toggleLike(momentID: moment.id) } },
-                        onComment: { replyUserID, replyName in
-                            commentTarget = (moment.id, replyUserID, replyName)
+                        onComment: { replyUserID, replyName, replyContent in
+                            commentTarget = (moment.id, replyUserID, replyName, replyContent)
+                            commentTriggerID = UUID()
                         },
                         onDelete: { Task { await viewModel.deleteMoment(momentID: moment.id) } },
                         onImageTap: { url in
@@ -76,13 +86,56 @@ struct MomentsView: View {
                 commentInputBar
             }
         }
-        
+        .navigationDestination(isPresented: $showNotificationList) {
+            MomentsNotificationListView()
+        }
         .task {
             viewModel.filterUserID = filterUserID
             await viewModel.loadFeed()
         }
         .refreshable {
             await viewModel.loadFeed(refresh: true)
+            await momentsNotif.fetchFromServer()
+        }
+    }
+
+    private var notificationBanner: some View {
+        Button {
+            showNotificationList = true
+            momentsNotif.clearInteractionBadge()
+        } label: {
+            HStack(spacing: 10) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "heart.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(Color(hex: "576B95"))
+
+                    Text("\(momentsNotif.unreadCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.red)
+                        .cornerRadius(8)
+                        .offset(x: 6, y: -4)
+                }
+
+                Text("\(momentsNotif.unreadCount)条新消息")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color(hex: "576B95"))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(hex: "576B95").opacity(0.08))
+            )
         }
     }
 
@@ -117,6 +170,28 @@ struct MomentsView: View {
     private var commentInputBar: some View {
         VStack(spacing: 0) {
             Divider()
+
+            if let target = commentTarget, let name = target.replyToName {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppColors.tertiaryText)
+                    Text("回复 \(name)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color(hex: "576B95"))
+                    if let content = target.replyContent {
+                        Text(": \(content)")
+                            .font(.system(size: 12))
+                            .foregroundColor(AppColors.secondaryText)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+            }
+
             HStack(spacing: 10) {
                 TextField(
                     commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
@@ -160,7 +235,7 @@ struct MomentsView: View {
         }
         .background(AppColors.cardBackground)
         .shadow(color: .black.opacity(0.08), radius: 8, y: -2)
-        .onChange(of: commentTarget?.momentID) { _ in
+        .onChange(of: commentTriggerID) { _ in
             if commentTarget != nil {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     commentFieldFocused = true
@@ -190,7 +265,7 @@ struct MomentsView: View {
 struct MomentRow: View {
     let moment: Moment
     var onLike: () -> Void
-    var onComment: (_ replyToUserID: String?, _ replyToName: String?) -> Void
+    var onComment: (_ replyToUserID: String?, _ replyToName: String?, _ replyContent: String?) -> Void
     var onDelete: () -> Void
     var onImageTap: (String) -> Void
     @State private var showActions = false
@@ -236,7 +311,7 @@ struct MomentRow: View {
                         ForEach(moment.comments) { comment in
                             commentView(comment)
                                 .onTapGesture {
-                                    onComment(comment.userID, comment.nickname)
+                                    onComment(comment.userID, comment.nickname, comment.content)
                                 }
                         }
                     }
@@ -280,7 +355,7 @@ struct MomentRow: View {
 
                         Button {
                             showActions = false
-                            onComment(nil, nil)
+                            onComment(nil, nil, nil)
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "bubble.left")
@@ -454,6 +529,287 @@ struct MomentImageCell: View {
         .task(id: url) {
             image = await ImageCacheManager.shared.loadImage(from: url)
             isLoading = false
+        }
+    }
+}
+
+// MARK: - Moments Notification List
+
+struct MomentsNotificationListView: View {
+    @State private var notifications: [MomentsNotification] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if notifications.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "bell.slash")
+                        .font(.system(size: 36))
+                        .foregroundColor(AppColors.tertiaryText)
+                    Text("暂无消息")
+                        .font(.system(size: 15))
+                        .foregroundColor(AppColors.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(notifications) { notif in
+                    NavigationLink(value: notif.momentID) {
+                        MomentsNotificationRow(notification: notif)
+                    }
+                    .listRowSeparator(.visible)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("消息")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: Int.self) { momentID in
+            MomentDetailView(momentID: momentID)
+        }
+        .task {
+            do {
+                notifications = try await APIService.shared.getMomentsNotifications()
+            } catch { }
+            isLoading = false
+        }
+    }
+}
+
+struct MomentsNotificationRow: View {
+    let notification: MomentsNotification
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            AvatarView(url: notification.user.avatarURL, size: 40)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 0) {
+                    Text(notification.user.nickname)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color(hex: "576B95"))
+
+                    Text(notification.type == "like" ? " 赞了你的动态" : " 评论了你的动态")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.primaryText)
+                }
+
+                if let content = notification.content, notification.type == "comment" {
+                    Text(content)
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(2)
+                }
+
+                Text(notification.formattedTime)
+                    .font(.system(size: 11))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
+
+            Spacer()
+
+            notifMomentPreview
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var notifMomentPreview: some View {
+        if let images = notification.momentImages, let first = images.first, !first.isEmpty {
+            MomentImageCell(url: first, size: 44)
+        } else if let text = notification.momentContent, !text.isEmpty {
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundColor(AppColors.secondaryText)
+                .lineLimit(2)
+                .frame(width: 44, height: 44)
+                .background(AppColors.separator.opacity(0.5))
+                .cornerRadius(4)
+        }
+    }
+}
+
+// MARK: - Moment Detail View
+
+struct MomentDetailView: View {
+    let momentID: Int
+    @State private var moment: Moment?
+    @State private var isLoading = true
+    @State private var commentText = ""
+    @State private var commentTarget: (replyToUserID: String?, replyToName: String?, replyContent: String?)?
+    @State private var commentTriggerID = UUID()
+    @FocusState private var commentFieldFocused: Bool
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let moment = moment {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        MomentRow(
+                            moment: moment,
+                            onLike: { toggleLike() },
+                            onComment: { replyUserID, replyName, replyContent in
+                                commentTarget = (replyUserID, replyName, replyContent)
+                                commentTriggerID = UUID()
+                            },
+                            onDelete: { },
+                            onImageTap: { url in
+                                ImageGalleryState.shared.show(
+                                    urls: moment.images,
+                                    index: moment.images.firstIndex(of: url) ?? 0
+                                )
+                            }
+                        )
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if commentTarget != nil {
+                        detailCommentInput
+                    }
+                }
+            } else {
+                VStack(spacing: 14) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 36))
+                        .foregroundColor(AppColors.tertiaryText)
+                    Text("动态不存在或已删除")
+                        .font(.system(size: 15))
+                        .foregroundColor(AppColors.secondaryText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("动态详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await loadMoment() }
+    }
+
+    private func loadMoment() async {
+        do {
+            moment = try await APIService.shared.getMomentDetail(momentID: momentID)
+        } catch { }
+        isLoading = false
+    }
+
+    private func toggleLike() {
+        Task {
+            guard let m = moment else { return }
+            do {
+                let liked = try await APIService.shared.toggleMomentLike(momentID: m.id)
+                let myID = AuthManager.shared.currentUser?.userID ?? ""
+                let myNick = AuthManager.shared.currentUser?.nickname ?? ""
+                let myAvatar = AuthManager.shared.currentUser?.avatarURL ?? ""
+                let me = MomentAuthor(userID: myID, nickname: myNick, avatarURL: myAvatar)
+                var newLikes = m.likes.filter { $0.userID != myID }
+                if liked { newLikes.append(me) }
+                moment = Moment(
+                    id: m.id, author: m.author, content: m.content,
+                    images: m.images, createdAt: m.createdAt,
+                    likes: newLikes, comments: m.comments, likedByMe: liked
+                )
+            } catch { }
+        }
+    }
+
+    private func sendComment() {
+        guard let target = commentTarget, !commentText.isEmpty, let m = moment else { return }
+        let text = commentText
+        commentText = ""
+        commentTarget = nil
+        commentFieldFocused = false
+        Task {
+            do {
+                let comment = try await APIService.shared.addMomentComment(
+                    momentID: m.id, content: text, replyToUserID: target.replyToUserID
+                )
+                var newComments = m.comments
+                newComments.append(comment)
+                moment = Moment(
+                    id: m.id, author: m.author, content: m.content,
+                    images: m.images, createdAt: m.createdAt,
+                    likes: m.likes, comments: newComments, likedByMe: m.likedByMe
+                )
+            } catch { }
+        }
+    }
+
+    private var detailCommentInput: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            if let target = commentTarget, let name = target.replyToName {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppColors.tertiaryText)
+                    Text("回复 \(name)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color(hex: "576B95"))
+                    if let content = target.replyContent {
+                        Text(": \(content)")
+                            .font(.system(size: 12))
+                            .foregroundColor(AppColors.secondaryText)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+            }
+
+            HStack(spacing: 10) {
+                TextField(
+                    commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
+                    text: $commentText
+                )
+                .focused($commentFieldFocused)
+                .font(.system(size: 16))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 20).fill(AppColors.separator))
+                .submitLabel(.send)
+                .onSubmit { sendComment() }
+
+                Button { sendComment() } label: {
+                    Text("发送")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(commentText.isEmpty ? AppColors.tertiaryText : AppColors.accent)
+                        .cornerRadius(20)
+                }
+                .disabled(commentText.isEmpty)
+
+                Button {
+                    commentTarget = nil
+                    commentText = ""
+                    commentFieldFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(AppColors.tertiaryText)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .background(AppColors.cardBackground)
+        .shadow(color: .black.opacity(0.08), radius: 8, y: -2)
+        .onChange(of: commentTriggerID) { _ in
+            if commentTarget != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    commentFieldFocused = true
+                }
+            }
         }
     }
 }

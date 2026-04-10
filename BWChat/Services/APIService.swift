@@ -834,6 +834,40 @@ class APIService {
         let _: APIResponseWrapper<EmptyData> = try await perform(request)
     }
 
+    func getMomentsUnreadInfo() async throws -> (unreadCount: Int, hasNewMoments: Bool) {
+        struct UnreadData: Decodable {
+            let unreadCount: Int
+            let hasNewMoments: Bool
+            enum CodingKeys: String, CodingKey {
+                case unreadCount = "unread_count"
+                case hasNewMoments = "has_new_moments"
+            }
+        }
+        let response: APIResponseWrapper<UnreadData> = try await get(path: "/moments/notifications/unread")
+        let data = response.data
+        return (data?.unreadCount ?? 0, data?.hasNewMoments ?? false)
+    }
+
+    func getMomentsNotifications(limit: Int = 50) async throws -> [MomentsNotification] {
+        struct NotifData: Decodable {
+            let notifications: [MomentsNotification]
+        }
+        let response: APIResponseWrapper<NotifData> = try await get(path: "/moments/notifications/list?limit=\(limit)")
+        return response.data?.notifications ?? []
+    }
+
+    func markMomentsNotificationsRead() async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/moments/notifications/read", body: [:] as [String: String])
+    }
+
+    func getMomentDetail(momentID: Int) async throws -> Moment {
+        let response: APIResponseWrapper<Moment> = try await get(path: "/moments/detail/\(momentID)")
+        guard let moment = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return moment
+    }
+
     private struct EmptyData: Decodable {}
 
     private func addAuthHeader(_ request: inout URLRequest) {
