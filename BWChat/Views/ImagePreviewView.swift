@@ -114,12 +114,16 @@ struct ImageGalleryOverlay: View {
             .onChanged { value in
                 let h = value.translation.height
                 let w = value.translation.width
-                if abs(h) > abs(w) * 0.5 {
+                // Allow dismiss drag as long as vertical component isn't negligible
+                // compared to horizontal — enables diagonal swipe-down to dismiss
+                if abs(h) > abs(w) * 0.25 || abs(verticalDrag) > 0 {
                     verticalDrag = h
                 }
             }
             .onEnded { value in
-                if abs(value.translation.height) > 60 || abs(value.predictedEndTranslation.height) > 300 {
+                let h = abs(value.translation.height)
+                let predictedH = abs(value.predictedEndTranslation.height)
+                if h > 50 || predictedH > 250 {
                     dismissGallery()
                 } else {
                     withAnimation(.easeOut(duration: 0.2)) {
