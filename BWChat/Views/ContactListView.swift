@@ -51,17 +51,16 @@ struct ContactListView: View {
             } else {
                 let user = UserCacheManager.shared.getUser(senderID)
                 let conv = Conversation(
+                    type: "dm",
                     id: senderID,
                     name: user?.nickname ?? senderID,
                     avatarURL: user?.avatarURL ?? "",
                     lastMessage: nil,
                     lastMessageTime: nil,
                     unreadCount: 0,
-                    isDM: true,
-                    isGroup: false,
+                    subtitle: nil,
                     groupID: nil,
-                    memberCount: nil,
-                    subtitle: nil
+                    memberCount: nil
                 )
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     navigationPath.append(conv)
