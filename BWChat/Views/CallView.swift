@@ -22,7 +22,25 @@ struct CallView: View {
             }
 
             VStack(spacing: 0) {
-                Spacer().frame(height: 80)
+                HStack {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            callManager.minimizeCall()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.15))
+                            .clipShape(Circle())
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 54)
+
+                Spacer().frame(height: 20)
 
                 if let call = callManager.currentCall {
                     if call.callType != .video || call.state != .connected {
@@ -130,9 +148,9 @@ struct CallView: View {
                 }
             }
 
-            // Local video (PiP)
+            // Local video (PiP) — mirror for front camera
             if let localTrack = callManager.localVideoTrack {
-                SwiftUIVideoView(localTrack, layoutMode: .fill)
+                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: .mirror)
                     .frame(width: 120, height: 160)
                     .cornerRadius(12)
                     .shadow(color: .black.opacity(0.4), radius: 8)
@@ -236,5 +254,86 @@ struct CallView: View {
     private func formatDuration(_ interval: TimeInterval) -> String {
         let s = Int(interval)
         return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+}
+
+// MARK: - Floating PiP Bubble
+
+struct CallPipBubble: View {
+    @ObservedObject private var callManager = CallManager.shared
+    @State private var dragOffset: CGSize = .zero
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                callManager.restoreCall()
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: callManager.currentCall?.callType == .video
+                                ? [Color(hex: "5856D6"), Color(hex: "764BA2")]
+                                : [Color(hex: "34C759"), Color(hex: "30B350")],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 60, height: 60)
+                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+
+                VStack(spacing: 2) {
+                    Image(systemName: callManager.currentCall?.callType == .video ? "video.fill" : "phone.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    if callManager.currentCall?.state == .connected {
+                        Text(pipDuration)
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.9))
+                    } else {
+                        Circle()
+                            .fill(.white.opacity(0.8))
+                            .frame(width: 4, height: 4)
+                            .modifier(PulseAnimation())
+                    }
+                }
+            }
+        }
+        .offset(dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    dragOffset = value.translation
+                }
+                .onEnded { _ in
+                    withAnimation(.spring(response: 0.3)) {
+                        dragOffset = .zero
+                    }
+                }
+        )
+        .padding(.top, 100)
+        .padding(.trailing, 16)
+        .transition(.scale.combined(with: .opacity))
+    }
+
+    private var pipDuration: String {
+        let s = Int(callManager.callDuration)
+        return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+}
+
+private struct PulseAnimation: ViewModifier {
+    @State private var isPulsing = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isPulsing ? 0.3 : 1.0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    isPulsing = true
+                }
+            }
     }
 }

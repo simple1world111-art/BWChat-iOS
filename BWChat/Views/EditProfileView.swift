@@ -18,18 +18,19 @@ struct EditProfileView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Avatar section (URL from body so PhotosPicker closure stays Sendable)
                     avatarSection(avatarURL: viewModel.profile?.avatarURL ?? "")
 
-                    // Form fields
                     formSection
 
-                    // Birthday picker (inline)
                     if showBirthdayPicker {
                         birthdayPickerSection
                     }
                 }
                 .padding(.bottom, 30)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .onTapGesture {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
             .background(AppColors.secondaryBackground)
             .navigationTitle("编辑资料")
@@ -161,6 +162,7 @@ struct EditProfileView: View {
 
             // Birthday
             Button {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 withAnimation(.easeInOut(duration: 0.25)) {
                     showBirthdayPicker.toggle()
                 }

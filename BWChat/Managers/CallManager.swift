@@ -16,6 +16,7 @@ class CallManager: ObservableObject {
     @Published var isSpeakerOn = false
     @Published var isLocalVideoEnabled = true
     @Published var callDuration: TimeInterval = 0
+    @Published var isMinimized = false
 
     // LiveKit room & participants
     @Published var room: Room?
@@ -35,8 +36,21 @@ class CallManager: ObservableObject {
 
     // MARK: - 1v1 Call: Start (Outgoing)
 
+    func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    func minimizeCall() {
+        isMinimized = true
+    }
+
+    func restoreCall() {
+        isMinimized = false
+    }
+
     func startCall(to userID: String, nickname: String, avatarURL: String, type: CallType) {
         guard currentCall == nil else { return }
+        dismissKeyboard()
 
         currentCall = CallSession(
             remoteUserID: userID,
@@ -106,6 +120,7 @@ class CallManager: ObservableObject {
 
     func startGroupCall(groupID: Int, groupName: String, type: CallType) {
         guard currentCall == nil else { return }
+        dismissKeyboard()
 
         currentCall = CallSession(
             remoteUserID: "",
@@ -305,10 +320,15 @@ class CallManager: ObservableObject {
         guard let room = room else { return }
         remoteParticipants = Array(room.remoteParticipants.values)
 
-        if let firstRemote = remoteParticipants.first,
-           let pub = firstRemote.videoTracks.first,
-           let track = pub.track as? VideoTrack {
-            remoteVideoTrack = track
+        // Find the first subscribed remote video track
+        remoteVideoTrack = nil
+        for participant in remoteParticipants {
+            for pub in participant.videoTracks {
+                if let track = pub.track as? VideoTrack, pub.subscribed {
+                    remoteVideoTrack = track
+                    return
+                }
+            }
         }
     }
 
@@ -326,6 +346,7 @@ class CallManager: ObservableObject {
         isMuted = false
         isSpeakerOn = false
         isLocalVideoEnabled = true
+        isMinimized = false
         localVideoTrack = nil
         remoteVideoTrack = nil
         remoteParticipants = []

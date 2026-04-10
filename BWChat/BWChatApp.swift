@@ -19,7 +19,7 @@ struct BWChatApp: App {
                         handleScenePhase(newPhase)
                     }
 
-                if callManager.currentCall != nil {
+                if callManager.currentCall != nil && !callManager.isMinimized {
                     Group {
                         if callManager.currentCall?.groupID != nil && callManager.currentCall?.state == .connected {
                             GroupCallView()
@@ -29,6 +29,12 @@ struct BWChatApp: App {
                     }
                     .transition(.move(edge: .bottom))
                     .zIndex(100)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if callManager.currentCall != nil && callManager.isMinimized {
+                    CallPipBubble()
+                        .zIndex(200)
                 }
             }
         }

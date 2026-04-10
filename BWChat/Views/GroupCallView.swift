@@ -12,7 +12,6 @@ struct GroupCallView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Header
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(callManager.currentCall?.groupName ?? "群通话")
@@ -23,6 +22,18 @@ struct GroupCallView: View {
                             .foregroundColor(.white.opacity(0.6))
                     }
                     Spacer()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            callManager.minimizeCall()
+                        }
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 36, height: 36)
+                            .background(.white.opacity(0.15))
+                            .clipShape(Circle())
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
@@ -51,19 +62,19 @@ struct GroupCallView: View {
     private var videoGrid: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
-                // Local participant
                 if let localParticipant = callManager.room?.localParticipant {
                     videoCell(
                         name: "我",
-                        videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack
+                        videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack,
+                        isLocal: true
                     )
                 }
 
-                // Remote participants
                 ForEach(Array(callManager.remoteParticipants.enumerated()), id: \.element.sid) { _, participant in
                     videoCell(
                         name: participant.name ?? participant.identity?.stringValue ?? "",
-                        videoTrack: participant.videoTracks.first?.track as? VideoTrack
+                        videoTrack: participant.videoTracks.first?.track as? VideoTrack,
+                        isLocal: false
                     )
                 }
             }
@@ -71,10 +82,10 @@ struct GroupCallView: View {
         }
     }
 
-    private func videoCell(name: String, videoTrack: VideoTrack?) -> some View {
+    private func videoCell(name: String, videoTrack: VideoTrack?, isLocal: Bool = false) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let track = videoTrack {
-                SwiftUIVideoView(track, layoutMode: .fill)
+                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: isLocal ? .mirror : .off)
                     .aspectRatio(3/4, contentMode: .fill)
                     .clipped()
                     .cornerRadius(8)
