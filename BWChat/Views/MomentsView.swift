@@ -352,27 +352,70 @@ struct MomentRow: View {
         }
     }
 
+    @ViewBuilder
     private var momentImageGrid: some View {
         let count = moment.images.count
-        let cols = count == 1 ? 1 : (count <= 4 ? 2 : 3)
-        let spacing: CGFloat = 3
-        let maxGridWidth: CGFloat = cols == 1 ? 180 : CGFloat(cols) * 80 + spacing * CGFloat(cols - 1)
-        let cellSize: CGFloat = cols == 1 ? 180 : 80
 
-        return VStack(alignment: .leading, spacing: spacing) {
-            ForEach(0..<((count + cols - 1) / cols), id: \.self) { row in
-                HStack(spacing: spacing) {
-                    ForEach(0..<cols, id: \.self) { col in
-                        let idx = row * cols + col
-                        if idx < count {
-                            MomentImageCell(url: moment.images[idx], size: cellSize)
-                                .onTapGesture { onImageTap(moment.images[idx]) }
+        if count == 1 {
+            MomentSingleImage(url: moment.images[0])
+                .onTapGesture { onImageTap(moment.images[0]) }
+        } else {
+            let cols = count <= 4 ? 2 : 3
+            let spacing: CGFloat = 3
+            let maxGridWidth: CGFloat = CGFloat(cols) * 80 + spacing * CGFloat(cols - 1)
+
+            VStack(alignment: .leading, spacing: spacing) {
+                ForEach(0..<((count + cols - 1) / cols), id: \.self) { row in
+                    HStack(spacing: spacing) {
+                        ForEach(0..<cols, id: \.self) { col in
+                            let idx = row * cols + col
+                            if idx < count {
+                                MomentImageCell(url: moment.images[idx], size: 80)
+                                    .onTapGesture { onImageTap(moment.images[idx]) }
+                            }
                         }
                     }
                 }
             }
+            .frame(maxWidth: maxGridWidth, alignment: .leading)
         }
-        .frame(maxWidth: maxGridWidth, alignment: .leading)
+    }
+}
+
+// MARK: - Single image (keeps original aspect ratio)
+
+struct MomentSingleImage: View {
+    let url: String
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 200, maxHeight: 260)
+                    .cornerRadius(6)
+            } else if isLoading {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(AppColors.separator)
+                    .frame(width: 140, height: 140)
+                    .overlay(ProgressView().tint(AppColors.accent))
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(AppColors.separator)
+                    .frame(width: 140, height: 140)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .foregroundColor(AppColors.secondaryText)
+                    )
+            }
+        }
+        .task(id: url) {
+            image = await ImageCacheManager.shared.loadImage(from: url)
+            isLoading = false
+        }
     }
 }
 
