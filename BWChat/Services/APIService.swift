@@ -236,11 +236,12 @@ class APIService {
     }
 
     func sendImageMessage(receiverID: String, imageData: Data, filename: String) async throws -> Message {
+        let compressed = Self.compressImageForUpload(imageData)
         let response: APIResponseWrapper<Message> = try await uploadImage(
             path: "/chat/messages/image",
             fieldName: "receiver_id",
             fieldValue: receiverID,
-            imageData: imageData,
+            imageData: compressed,
             filename: filename
         )
         guard let msg = response.data else {
@@ -375,11 +376,12 @@ class APIService {
     }
 
     func sendGroupImage(groupID: Int, imageData: Data, filename: String) async throws -> GroupMessage {
+        let compressed = Self.compressImageForUpload(imageData)
         let response: APIResponseWrapper<GroupMessage> = try await uploadImage(
             path: "/groups/\(groupID)/messages/image",
             fieldName: nil,
             fieldValue: nil,
-            imageData: imageData,
+            imageData: compressed,
             filename: filename
         )
         guard let msg = response.data else {
@@ -577,6 +579,24 @@ class APIService {
         return data
     }
 
+    // MARK: - Image Compression
+
+    static func compressImageForUpload(_ data: Data, maxDimension: CGFloat = 1200, quality: CGFloat = 0.7) -> Data {
+        guard let image = UIImage(data: data) else { return data }
+        var img = image
+        let w = img.size.width
+        let h = img.size.height
+        if max(w, h) > maxDimension {
+            let ratio = maxDimension / max(w, h)
+            let newSize = CGSize(width: w * ratio, height: h * ratio)
+            let renderer = UIGraphicsImageRenderer(size: newSize)
+            img = renderer.image { _ in img.draw(in: CGRect(origin: .zero, size: newSize)) }
+        }
+        guard let compressed = img.jpegData(compressionQuality: quality) else { return data }
+        print("[APIService] Image compressed: \(data.count / 1024)KB -> \(compressed.count / 1024)KB")
+        return compressed
+    }
+
     // MARK: - Private Helpers
 
     private func get<T: Decodable>(
@@ -756,10 +776,11 @@ class APIService {
         body.append("\(content)\r\n".data(using: .utf8)!)
 
         for (data, filename) in imageDataList {
+            let compressed = Self.compressImageForUpload(data)
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"images\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
             body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
-            body.append(data)
+            body.append(compressed)
             body.append("\r\n".data(using: .utf8)!)
         }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)

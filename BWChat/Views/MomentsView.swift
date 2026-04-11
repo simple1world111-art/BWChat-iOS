@@ -493,7 +493,7 @@ struct MomentSingleImage: View {
             }
         }
         .task(id: url) {
-            image = await ImageCacheManager.shared.loadImage(from: url)
+            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
             isLoading = false
         }
     }
@@ -532,7 +532,7 @@ struct MomentImageCell: View {
             }
         }
         .task(id: url) {
-            image = await ImageCacheManager.shared.loadImage(from: url)
+            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
             isLoading = false
         }
     }

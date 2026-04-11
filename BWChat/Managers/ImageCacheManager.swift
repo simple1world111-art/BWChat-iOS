@@ -30,30 +30,33 @@ class ImageCacheManager {
         memoryCache.setObject(image, forKey: url as NSString)
     }
 
-    func loadImage(from urlPath: String) async -> UIImage? {
+    func loadImage(from urlPath: String, thumbnail: Bool = false) async -> UIImage? {
+        let cacheKey = thumbnail ? urlPath + "?thumb=1" : urlPath
+        let loadPath = thumbnail ? urlPath + (urlPath.contains("?") ? "&thumb=1" : "?thumb=1") : urlPath
+
         // 1. Memory cache
-        if let cached = memoryCache.object(forKey: urlPath as NSString) {
+        if let cached = memoryCache.object(forKey: cacheKey as NSString) {
             return cached
         }
 
         // 2. Disk cache
-        if let diskImage = loadFromDisk(urlPath: urlPath) {
-            memoryCache.setObject(diskImage, forKey: urlPath as NSString)
+        if let diskImage = loadFromDisk(urlPath: cacheKey) {
+            memoryCache.setObject(diskImage, forKey: cacheKey as NSString)
             return diskImage
         }
 
         // 3. Deduplicate in-flight loads
-        if let existingTask = loadingTasks[urlPath] {
+        if let existingTask = loadingTasks[cacheKey] {
             return await existingTask.value
         }
 
         // 4. Network load
         let task = Task<UIImage?, Never> {
             do {
-                let data = try await APIService.shared.loadImage(path: urlPath)
+                let data = try await APIService.shared.loadImage(path: loadPath)
                 if let image = UIImage(data: data) {
-                    self.memoryCache.setObject(image, forKey: urlPath as NSString)
-                    self.saveToDisk(data: data, urlPath: urlPath)
+                    self.memoryCache.setObject(image, forKey: cacheKey as NSString)
+                    self.saveToDisk(data: data, urlPath: cacheKey)
                     return image
                 }
             } catch {
@@ -62,9 +65,9 @@ class ImageCacheManager {
             return nil
         }
 
-        loadingTasks[urlPath] = task
+        loadingTasks[cacheKey] = task
         let result = await task.value
-        loadingTasks.removeValue(forKey: urlPath)
+        loadingTasks.removeValue(forKey: cacheKey)
         return result
     }
 
