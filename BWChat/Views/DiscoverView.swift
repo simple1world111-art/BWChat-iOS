@@ -88,6 +88,9 @@ class MomentsNotificationManager: ObservableObject {
 
     func markFeedViewed() {
         hasNewMoments = false
+        Task {
+            try? await APIService.shared.markMomentsFeedViewed()
+        }
     }
 
     func clearInteractionBadge() {

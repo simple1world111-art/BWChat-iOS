@@ -56,6 +56,7 @@ class WebSocketService: ObservableObject {
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
+    private var healthCheckTask: Task<Void, Never>?
     private var reconnectDelay: TimeInterval = 1
     private let maxReconnectDelay: TimeInterval = 30
     private var isManuallyDisconnected = false
@@ -63,6 +64,7 @@ class WebSocketService: ObservableObject {
     private let networkMonitor = NWPathMonitor()
     private var lastPathStatus: NWPath.Status?
     private var isNetworkSatisfied = true
+    private var lastMessageReceivedAt = Date()
 
     private init() {
         startNetworkMonitor()
@@ -142,6 +144,8 @@ class WebSocketService: ObservableObject {
         isConnecting = false
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
@@ -161,7 +165,9 @@ class WebSocketService: ObservableObject {
                         self.isConnected = true
                         self.isConnecting = false
                         self.startHeartbeat()
+                        self.startHealthCheck()
                     }
+                    self.lastMessageReceivedAt = Date()
                     self.handleMessage(message)
                     self.startListening()
                 case .failure:
@@ -383,10 +389,16 @@ class WebSocketService: ObservableObject {
     private func sendJSON(_ dict: [String: Any]) {
         guard isConnected,
               let task = webSocketTask,
+              task.state == .running,
               let data = try? JSONSerialization.data(withJSONObject: dict),
               let text = String(data: data, encoding: .utf8) else { return }
         let message = URLSessionWebSocketTask.Message.string(text)
-        task.send(message) { _ in }
+        task.send(message) { [weak self] error in
+            if let error = error {
+                print("[WS] sendJSON error: \(error)")
+                Task { @MainActor in self?.handleDisconnect() }
+            }
+        }
     }
 
     private func startHeartbeat() {
@@ -401,7 +413,7 @@ class WebSocketService: ObservableObject {
     }
 
     private func sendPing() {
-        guard isConnected, let task = webSocketTask else { return }
+        guard isConnected, let task = webSocketTask, task.state == .running else { return }
         let pingMessage = URLSessionWebSocketTask.Message.string("{\"type\": \"ping\"}")
         task.send(pingMessage) { [weak self] error in
             if error != nil {
@@ -412,11 +424,29 @@ class WebSocketService: ObservableObject {
         }
     }
 
+    private func startHealthCheck() {
+        healthCheckTask?.cancel()
+        healthCheckTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(AppConfig.wsHeartbeatInterval * 3 * 1_000_000_000))
+                guard !Task.isCancelled, let self = self else { break }
+                let elapsed = Date().timeIntervalSince(self.lastMessageReceivedAt)
+                if elapsed > AppConfig.wsHeartbeatInterval * 3 {
+                    print("[WS] Health check: no data for \(Int(elapsed))s, reconnecting")
+                    self.fastReconnect()
+                    break
+                }
+            }
+        }
+    }
+
     private func handleDisconnect() {
         isConnected = false
         isConnecting = false
         heartbeatTask?.cancel()
         heartbeatTask = nil
+        healthCheckTask?.cancel()
+        healthCheckTask = nil
 
         let staleTask = webSocketTask
         webSocketTask = nil

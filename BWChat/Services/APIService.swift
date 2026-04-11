@@ -860,6 +860,10 @@ class APIService {
         let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/moments/notifications/read", body: [:] as [String: String])
     }
 
+    func markMomentsFeedViewed() async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/moments/feed/viewed", body: [:] as [String: String])
+    }
+
     func getMomentDetail(momentID: Int) async throws -> Moment {
         let response: APIResponseWrapper<Moment> = try await get(path: "/moments/detail/\(momentID)")
         guard let moment = response.data else {

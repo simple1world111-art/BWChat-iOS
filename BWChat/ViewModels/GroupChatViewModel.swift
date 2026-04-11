@@ -18,6 +18,7 @@ class GroupChatViewModel: ObservableObject {
     @Published var replyingTo: GroupMessage?
     @Published var mentionedUserIDs: [String] = []
     @Published var showMentionPicker = false
+    @Published var mentionAlertMessage: GroupMessage?
 
     let group: ChatGroup
     private var cancellables = Set<AnyCancellable>()
@@ -137,6 +138,14 @@ class GroupChatViewModel: ObservableObject {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
         AudioServicesPlaySystemSound(1315)
+        mentionAlertMessage = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            if self?.mentionAlertMessage?.id == msg.id {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    self?.mentionAlertMessage = nil
+                }
+            }
+        }
     }
 
     private func setupWebSocketListener() {

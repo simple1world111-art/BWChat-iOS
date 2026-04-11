@@ -237,8 +237,13 @@ struct MomentsView: View {
         .shadow(color: .black.opacity(0.08), radius: 8, y: -2)
         .onChange(of: commentTriggerID) { _ in
             if commentTarget != nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     commentFieldFocused = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    if commentTarget != nil && !commentFieldFocused {
+                        commentFieldFocused = true
+                    }
                 }
             }
         }
@@ -290,36 +295,6 @@ struct MomentRow: View {
                     momentImageGrid
                 }
 
-                if !moment.likes.isEmpty || !moment.comments.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if !moment.likes.isEmpty {
-                            HStack(spacing: 4) {
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(Color(hex: "576B95"))
-                                Text(moment.likes.map(\.nickname).joined(separator: ", "))
-                                    .font(.system(size: 13))
-                                    .foregroundColor(Color(hex: "576B95"))
-                                    .lineLimit(2)
-                            }
-                        }
-
-                        if !moment.likes.isEmpty && !moment.comments.isEmpty {
-                            Divider()
-                        }
-
-                        ForEach(moment.comments) { comment in
-                            commentView(comment)
-                                .onTapGesture {
-                                    onComment(comment.userID, comment.nickname, comment.content)
-                                }
-                        }
-                    }
-                    .padding(8)
-                    .background(AppColors.separator.opacity(0.5))
-                    .cornerRadius(6)
-                }
-
                 HStack {
                     Text(moment.formattedTime)
                         .font(.system(size: 12))
@@ -327,7 +302,7 @@ struct MomentRow: View {
 
                     Spacer()
 
-                    Button { showActions.toggle() } label: {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { showActions.toggle() } } label: {
                         Image(systemName: "ellipsis.bubble")
                             .font(.system(size: 14))
                             .foregroundColor(AppColors.tertiaryText)
@@ -390,6 +365,36 @@ struct MomentRow: View {
                         }
                     }
                     .transition(.scale.combined(with: .opacity))
+                }
+
+                if !moment.likes.isEmpty || !moment.comments.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !moment.likes.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(Color(hex: "576B95"))
+                                Text(moment.likes.map(\.nickname).joined(separator: ", "))
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Color(hex: "576B95"))
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        if !moment.likes.isEmpty && !moment.comments.isEmpty {
+                            Divider()
+                        }
+
+                        ForEach(moment.comments) { comment in
+                            commentView(comment)
+                                .onTapGesture {
+                                    onComment(comment.userID, comment.nickname, comment.content)
+                                }
+                        }
+                    }
+                    .padding(8)
+                    .background(AppColors.separator.opacity(0.5))
+                    .cornerRadius(6)
                 }
             }
         }
@@ -538,6 +543,7 @@ struct MomentImageCell: View {
 struct MomentsNotificationListView: View {
     @State private var notifications: [MomentsNotification] = []
     @State private var isLoading = true
+    @State private var selectedMomentID: Int?
 
     var body: some View {
         Group {
@@ -556,7 +562,9 @@ struct MomentsNotificationListView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(notifications) { notif in
-                    NavigationLink(value: notif.momentID) {
+                    Button {
+                        selectedMomentID = notif.momentID
+                    } label: {
                         MomentsNotificationRow(notification: notif)
                     }
                     .listRowSeparator(.visible)
@@ -567,8 +575,13 @@ struct MomentsNotificationListView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("消息")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: Int.self) { momentID in
-            MomentDetailView(momentID: momentID)
+        .navigationDestination(isPresented: Binding(
+            get: { selectedMomentID != nil },
+            set: { if !$0 { selectedMomentID = nil } }
+        )) {
+            if let momentID = selectedMomentID {
+                MomentDetailView(momentID: momentID)
+            }
         }
         .task {
             do {
@@ -806,8 +819,13 @@ struct MomentDetailView: View {
         .shadow(color: .black.opacity(0.08), radius: 8, y: -2)
         .onChange(of: commentTriggerID) { _ in
             if commentTarget != nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     commentFieldFocused = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    if commentTarget != nil && !commentFieldFocused {
+                        commentFieldFocused = true
+                    }
                 }
             }
         }

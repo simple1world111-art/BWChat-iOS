@@ -132,6 +132,39 @@ struct GroupChatView: View {
             }
         }
         .background(AppColors.secondaryBackground)
+        .overlay(alignment: .top) {
+            if let alertMsg = viewModel.mentionAlertMessage {
+                HStack(spacing: 10) {
+                    Image(systemName: "at.badge.plus")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(alertMsg.senderNickname) 提到了你")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                        Text(alertMsg.content.prefix(50))
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.red.opacity(0.92))
+                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.mentionAlertMessage?.id)
+                .onTapGesture {
+                    withAnimation { viewModel.mentionAlertMessage = nil }
+                }
+            }
+        }
         .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
