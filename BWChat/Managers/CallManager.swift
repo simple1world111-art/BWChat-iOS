@@ -18,6 +18,7 @@ class CallManager: ObservableObject {
     @Published var isLocalVideoEnabled = true
     @Published var callDuration: TimeInterval = 0
     @Published var isMinimized = false
+    @Published var isFrontCamera = true
 
     // LiveKit room & participants
     @Published var room: Room?
@@ -202,9 +203,11 @@ class CallManager: ObservableObject {
             // Publish local audio
             try await newRoom.localParticipant.setMicrophone(enabled: true)
 
-            // Publish local video with higher quality
+            // Publish local video with higher quality, explicitly using front camera
             if isVideo {
+                isFrontCamera = true
                 let videoCaptureOptions = CameraCaptureOptions(
+                    position: .front,
                     dimensions: .h720_169,
                     fps: 30
                 )
@@ -257,9 +260,6 @@ class CallManager: ObservableObject {
             Task { try? await APIService.shared.leaveGroupCall(groupID: groupID) }
         }
 
-        Task {
-            await room?.disconnect()
-        }
         endCallLocally()
     }
 
@@ -281,7 +281,8 @@ class CallManager: ObservableObject {
         isLocalVideoEnabled.toggle()
         Task {
             if isLocalVideoEnabled {
-                let captureOpts = CameraCaptureOptions(dimensions: .h720_169, fps: 30)
+                let position: AVCaptureDevice.Position = isFrontCamera ? .front : .back
+                let captureOpts = CameraCaptureOptions(position: position, dimensions: .h720_169, fps: 30)
                 let publishOpts = VideoPublishOptions(encoding: VideoEncoding(maxBitrate: 1_500_000, maxFps: 30))
                 _ = try? await room?.localParticipant.setCamera(
                     enabled: true, captureOptions: captureOpts, publishOptions: publishOpts
@@ -293,6 +294,23 @@ class CallManager: ObservableObject {
             } else {
                 _ = try? await room?.localParticipant.setCamera(enabled: false)
                 localVideoTrack = nil
+            }
+        }
+    }
+
+    func flipCamera() {
+        isFrontCamera.toggle()
+        Task {
+            let position: AVCaptureDevice.Position = isFrontCamera ? .front : .back
+            let captureOpts = CameraCaptureOptions(position: position, dimensions: .h720_169, fps: 30)
+            let publishOpts = VideoPublishOptions(encoding: VideoEncoding(maxBitrate: 1_500_000, maxFps: 30))
+            try? await room?.localParticipant.setCamera(enabled: false)
+            try? await room?.localParticipant.setCamera(
+                enabled: true, captureOptions: captureOpts, publishOptions: publishOpts
+            )
+            if let pub = room?.localParticipant.localVideoTracks.first,
+               let track = pub.track as? VideoTrack {
+                localVideoTrack = track
             }
         }
     }
@@ -348,16 +366,22 @@ class CallManager: ObservableObject {
         isSpeakerOn = false
         isLocalVideoEnabled = true
         isMinimized = false
+        isFrontCamera = true
         localVideoTrack = nil
         remoteVideoTrack = nil
         remoteParticipants = []
 
-        Task {
-            await room?.disconnect()
-        }
+        let roomToClean = room
         room = nil
         roomDelegate = nil
         currentCall = nil
+
+        Task {
+            // Explicitly stop camera and mic before disconnecting to release hardware
+            try? await roomToClean?.localParticipant.setCamera(enabled: false)
+            try? await roomToClean?.localParticipant.setMicrophone(enabled: false)
+            await roomToClean?.disconnect()
+        }
 
         deactivateAudioSession()
 

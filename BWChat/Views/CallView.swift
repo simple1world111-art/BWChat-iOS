@@ -148,9 +148,9 @@ struct CallView: View {
                 }
             }
 
-            // Local video (PiP) — mirror for front camera
+            // Local video (PiP) — mirror for front camera only
             if let localTrack = callManager.localVideoTrack {
-                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: .mirror)
+                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: callManager.isFrontCamera ? .mirror : .off)
                     .frame(width: 120, height: 160)
                     .cornerRadius(12)
                     .shadow(color: .black.opacity(0.4), radius: 8)
@@ -210,6 +210,12 @@ struct CallView: View {
                     label: callManager.isLocalVideoEnabled ? "关闭摄像头" : "开启摄像头",
                     isActive: !callManager.isLocalVideoEnabled
                 ) { callManager.toggleLocalVideo() }
+
+                controlButton(
+                    icon: "camera.rotate.fill",
+                    label: "翻转",
+                    isActive: false
+                ) { callManager.flipCamera() }
             }
 
             controlButton(

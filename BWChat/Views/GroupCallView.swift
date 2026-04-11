@@ -85,7 +85,7 @@ struct GroupCallView: View {
     private func videoCell(name: String, videoTrack: VideoTrack?, isLocal: Bool = false) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let track = videoTrack {
-                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: isLocal ? .mirror : .off)
+                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isLocal && callManager.isFrontCamera) ? .mirror : .off)
                     .aspectRatio(3/4, contentMode: .fill)
                     .clipped()
                     .cornerRadius(8)
@@ -159,6 +159,11 @@ struct GroupCallView: View {
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
                     isActive: !callManager.isLocalVideoEnabled
                 ) { callManager.toggleLocalVideo() }
+
+                controlButton(
+                    icon: "camera.rotate.fill",
+                    isActive: false
+                ) { callManager.flipCamera() }
             }
 
             controlButton(
