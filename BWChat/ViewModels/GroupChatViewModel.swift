@@ -1,10 +1,9 @@
 // BWChat/ViewModels/GroupChatViewModel.swift
 // Group chat conversation view model
 
-import Foundation
+import SwiftUI
 import Combine
 import AudioToolbox
-import UIKit
 
 @MainActor
 class GroupChatViewModel: ObservableObject {
