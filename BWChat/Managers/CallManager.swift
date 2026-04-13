@@ -300,19 +300,14 @@ class CallManager: ObservableObject {
     }
 
     func flipCamera() {
-        isFrontCamera.toggle()
         Task {
-            let position: AVCaptureDevice.Position = isFrontCamera ? .front : .back
-            let captureOpts = CameraCaptureOptions(position: position, dimensions: .h720_169, fps: 30)
-            let publishOpts = VideoPublishOptions(encoding: VideoEncoding(maxBitrate: 1_500_000, maxFps: 30))
-            _ = try? await room?.localParticipant.setCamera(enabled: false)
-            _ = try? await room?.localParticipant.setCamera(
-                enabled: true, captureOptions: captureOpts, publishOptions: publishOpts
-            )
-            if let pub = room?.localParticipant.localVideoTracks.first,
-               let track = pub.track as? VideoTrack {
-                localVideoTrack = track
+            guard let publication = room?.localParticipant.localVideoTracks.first,
+                  let localTrack = publication.track as? LocalVideoTrack,
+                  let cameraCapturer = localTrack.capturer as? CameraCapturer else {
+                return
             }
+            try? await cameraCapturer.switchCameraPosition()
+            isFrontCamera.toggle()
         }
     }
 
