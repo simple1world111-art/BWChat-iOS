@@ -51,8 +51,10 @@ struct GroupChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(viewModel.pendingTexts.reversed()) { pending in
-                            PendingGroupBubble(pending: pending)
-                                .flippedRow()
+                            PendingGroupBubble(pending: pending) {
+                                Task { await viewModel.retryPendingText(pending) }
+                            }
+                            .flippedRow()
                         }
 
                         ForEach(viewModel.messages.reversed()) { message in
@@ -464,28 +466,29 @@ struct GroupMessageBubble: View {
 
 struct PendingGroupBubble: View {
     let pending: PendingGroupText
+    var onRetry: (() -> Void)?
 
     var body: some View {
         HStack {
             Spacer(minLength: 40)
-            VStack(alignment: .trailing, spacing: 4) {
+            HStack(alignment: .center, spacing: 6) {
+                if pending.status == .failed {
+                    Button {
+                        onRetry?()
+                    } label: {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 20))
+                    }
+                }
+
                 Text(pending.content)
                     .font(.system(size: 16))
-                    .foregroundColor(.white.opacity(pending.status == .sending ? 0.7 : 1))
+                    .foregroundColor(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(AppColors.sentBubbleGradient.opacity(pending.status == .sending ? 0.5 : 1))
+                    .background(AppColors.sentBubbleGradient)
                     .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
-
-                if pending.status == .sending {
-                    ProgressView()
-                        .tint(AppColors.accent)
-                        .scaleEffect(0.6)
-                } else if pending.status == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(AppColors.errorColor)
-                        .font(.caption)
-                }
             }
         }
         .padding(.vertical, 2)

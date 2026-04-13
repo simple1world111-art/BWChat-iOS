@@ -219,7 +219,7 @@ struct CallView: View {
             }
 
             controlButton(
-                icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill",
+                icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
                 label: callManager.isSpeakerOn ? "关闭扬声器" : "扬声器",
                 isActive: callManager.isSpeakerOn
             ) { callManager.toggleSpeaker() }
@@ -267,61 +267,113 @@ struct CallView: View {
 
 struct CallPipBubble: View {
     @ObservedObject private var callManager = CallManager.shared
-    @State private var dragOffset: CGSize = .zero
+    @State private var position: CGPoint = CGPoint(x: UIScreen.main.bounds.width - 80, y: 160)
+    @State private var isHidden = false
+
+    private let pipWidth: CGFloat = 120
+    private let pipHeight: CGFloat = 170
+    private let edgeMargin: CGFloat = 6
+    private let hiddenExposure: CGFloat = 16
 
     var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                callManager.restoreCall()
-            }
-        } label: {
+        GeometryReader { geo in
+            let screenW = geo.size.width
+            let screenH = geo.size.height
+
             ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: callManager.currentCall?.callType == .video
-                                ? [Color(hex: "5856D6"), Color(hex: "764BA2")]
-                                : [Color(hex: "34C759"), Color(hex: "30B350")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
+                if callManager.currentCall?.callType == .video,
+                   let localTrack = callManager.localVideoTrack {
+                    SwiftUIVideoView(localTrack, layoutMode: .fill,
+                                     mirrorMode: callManager.isFrontCamera ? .mirror : .off)
+                } else {
+                    LinearGradient(
+                        colors: callManager.currentCall?.callType == .video
+                            ? [Color(hex: "5856D6"), Color(hex: "764BA2")]
+                            : [Color(hex: "34C759"), Color(hex: "30B350")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
                     )
-                    .frame(width: 60, height: 60)
-                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+                }
 
                 VStack(spacing: 2) {
-                    Image(systemName: callManager.currentCall?.callType == .video ? "video.fill" : "phone.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
+                    if callManager.currentCall?.callType != .video || callManager.localVideoTrack == nil {
+                        Image(systemName: callManager.currentCall?.callType == .video ? "video.fill" : "phone.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
 
                     if callManager.currentCall?.state == .connected {
                         Text(pipDuration)
-                            .font(.system(size: 9, weight: .medium, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.9))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.black.opacity(0.5))
+                            .cornerRadius(6)
                     } else {
                         Circle()
                             .fill(.white.opacity(0.8))
-                            .frame(width: 4, height: 4)
+                            .frame(width: 5, height: 5)
                             .modifier(PulseAnimation())
                     }
                 }
             }
-        }
-        .offset(dragOffset)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    dragOffset = value.translation
-                }
-                .onEnded { _ in
-                    withAnimation(.spring(response: 0.3)) {
-                        dragOffset = .zero
+            .frame(width: pipWidth, height: pipHeight)
+            .cornerRadius(14)
+            .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+            .position(position)
+            .onTapGesture {
+                if isHidden {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                        isHidden = false
+                        position = snapToEdge(position, screenW: screenW, screenH: screenH, hide: false)
+                    }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        callManager.restoreCall()
                     }
                 }
-        )
-        .padding(.top, 100)
-        .padding(.trailing, 16)
-        .transition(.scale.combined(with: .opacity))
+            }
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        position = value.location
+                    }
+                    .onEnded { value in
+                        let velocity = CGSize(
+                            width: value.predictedEndLocation.x - value.location.x,
+                            height: value.predictedEndLocation.y - value.location.y
+                        )
+                        let shouldHide = abs(velocity.width) > 150 &&
+                            (velocity.width < 0 && value.location.x < screenW * 0.3 ||
+                             velocity.width > 0 && value.location.x > screenW * 0.7)
+
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                            isHidden = shouldHide
+                            position = snapToEdge(value.location, screenW: screenW, screenH: screenH, hide: shouldHide)
+                        }
+                    }
+            )
+            .onAppear {
+                position = CGPoint(x: screenW - pipWidth / 2 - edgeMargin, y: 160)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private func snapToEdge(_ point: CGPoint, screenW: CGFloat, screenH: CGFloat, hide: Bool) -> CGPoint {
+        let halfW = pipWidth / 2
+        let halfH = pipHeight / 2
+        let clampedY = min(max(point.y, halfH + 50), screenH - halfH - 30)
+        let onLeft = point.x < screenW / 2
+
+        if hide {
+            let x = onLeft ? -halfW + hiddenExposure : screenW + halfW - hiddenExposure
+            return CGPoint(x: x, y: clampedY)
+        } else {
+            let x = onLeft ? halfW + edgeMargin : screenW - halfW - edgeMargin
+            return CGPoint(x: x, y: clampedY)
+        }
     }
 
     private var pipDuration: String {

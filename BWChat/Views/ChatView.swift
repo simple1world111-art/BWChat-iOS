@@ -50,8 +50,10 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(viewModel.pendingMessages.reversed()) { pending in
-                            PendingMessageBubble(pending: pending)
-                                .flippedRow()
+                            PendingMessageBubble(pending: pending) {
+                                Task { await viewModel.retryPending(pending) }
+                            }
+                            .flippedRow()
                         }
 
                         ForEach(viewModel.messages.reversed()) { message in
@@ -267,19 +269,20 @@ struct ChatView: View {
 
 struct PendingMessageBubble: View {
     let pending: PendingMessage
+    var onRetry: (() -> Void)?
 
     var body: some View {
         HStack {
             Spacer()
-            HStack(alignment: .bottom, spacing: 4) {
-                if pending.status == .sending {
-                    ProgressView()
-                        .tint(AppColors.accent)
-                        .scaleEffect(0.6)
-                } else if pending.status == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(AppColors.errorColor)
-                        .font(.system(size: 16))
+            HStack(alignment: .center, spacing: 6) {
+                if pending.status == .failed {
+                    Button {
+                        onRetry?()
+                    } label: {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 20))
+                    }
                 }
 
                 if pending.msgType == "text" && !pending.content.isEmpty {
@@ -290,29 +293,21 @@ struct PendingMessageBubble: View {
                         .padding(.vertical, 10)
                         .background(AppColors.accentGradient)
                         .cornerRadius(18)
-                        .opacity(pending.status == .sending ? 0.7 : 1)
                 } else if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFit()
                         .frame(maxWidth: 200)
                         .cornerRadius(14)
-                        .opacity(pending.status == .sending ? 0.6 : 1)
                 } else if pending.videoData != nil {
                     ZStack {
                         RoundedRectangle(cornerRadius: 14)
                             .fill(Color.blue.opacity(0.1))
                             .frame(width: 200, height: 140)
-                            .opacity(pending.status == .sending ? 0.6 : 1)
 
-                        VStack(spacing: 6) {
-                            Image(systemName: "video.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(AppColors.secondaryText)
-                            Text("发送中...")
-                                .font(.system(size: 12))
-                                .foregroundColor(AppColors.secondaryText)
-                        }
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(AppColors.secondaryText)
                     }
                 }
             }

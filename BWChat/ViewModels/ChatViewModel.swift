@@ -95,6 +95,35 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    func retryPending(_ pending: PendingMessage) async {
+        if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
+            pendingMessages[index].status = .sending
+        }
+
+        if pending.msgType == "text" {
+            do {
+                let message = try await APIService.shared.sendTextMessage(
+                    receiverID: contact.userID,
+                    content: pending.content
+                )
+                pendingMessages.removeAll { $0.id == pending.id }
+                if !messages.contains(where: { $0.id == message.id }) {
+                    messages.append(message)
+                }
+            } catch {
+                if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
+                    pendingMessages[index].status = .failed
+                }
+            }
+        } else if pending.msgType == "image", let data = pending.imageData {
+            await sendImage(data: data)
+            pendingMessages.removeAll { $0.id == pending.id }
+        } else if pending.msgType == "video", let data = pending.videoData {
+            await sendVideo(data: data, filename: "video_\(Int(Date().timeIntervalSince1970)).mp4")
+            pendingMessages.removeAll { $0.id == pending.id }
+        }
+    }
+
     func setReply(to message: Message) {
         replyingTo = message
     }

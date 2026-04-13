@@ -167,7 +167,7 @@ struct GroupCallView: View {
             }
 
             controlButton(
-                icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.fill",
+                icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
                 isActive: callManager.isSpeakerOn
             ) { callManager.toggleSpeaker() }
 

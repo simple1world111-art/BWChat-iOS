@@ -83,6 +83,26 @@ class GroupChatViewModel: ObservableObject {
         }
     }
 
+    func retryPendingText(_ pending: PendingGroupText) async {
+        if let idx = pendingTexts.firstIndex(where: { $0.id == pending.id }) {
+            pendingTexts[idx].status = .sending
+        }
+        do {
+            let msg = try await APIService.shared.sendGroupText(
+                groupID: group.groupID,
+                content: pending.content
+            )
+            pendingTexts.removeAll { $0.id == pending.id }
+            if !messages.contains(where: { $0.id == msg.id }) {
+                messages.append(msg)
+            }
+        } catch {
+            if let idx = pendingTexts.firstIndex(where: { $0.id == pending.id }) {
+                pendingTexts[idx].status = .failed
+            }
+        }
+    }
+
     func setReply(to message: GroupMessage) {
         replyingTo = message
     }

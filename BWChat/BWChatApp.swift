@@ -31,7 +31,7 @@ struct BWChatApp: App {
                     .zIndex(100)
                 }
             }
-            .overlay(alignment: .topTrailing) {
+            .overlay {
                 if callManager.currentCall != nil && callManager.isMinimized {
                     CallPipBubble()
                         .zIndex(200)
