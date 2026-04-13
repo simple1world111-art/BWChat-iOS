@@ -68,6 +68,13 @@ struct ChatView: View {
                         ForEach(viewModel.messages.reversed()) { message in
                             let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
                             VStack(spacing: 4) {
+                                if TimestampHelper.shouldShowTime(
+                                    current: message.timestamp,
+                                    previous: previousTimestamp(for: message)
+                                ) {
+                                    TimeSeparatorView(timestamp: message.timestamp)
+                                }
+
                                 MessageBubble(
                                     message: message,
                                     isFromMe: isFromMe,
@@ -82,13 +89,6 @@ struct ChatView: View {
                                         scrollToMessage(targetID, proxy: proxy)
                                     }
                                 )
-
-                                if TimestampHelper.shouldShowTime(
-                                    current: message.timestamp,
-                                    previous: previousTimestamp(for: message)
-                                ) {
-                                    TimeSeparatorView(timestamp: message.timestamp)
-                                }
                             }
                             .id(message.id)
                             .background(

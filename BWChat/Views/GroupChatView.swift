@@ -70,6 +70,13 @@ struct GroupChatView: View {
                             let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
 
                             VStack(spacing: 4) {
+                                if TimestampHelper.shouldShowTime(
+                                    current: message.timestamp,
+                                    previous: previousTimestamp(for: message)
+                                ) {
+                                    TimeSeparatorView(timestamp: message.timestamp)
+                                }
+
                                 GroupMessageBubble(
                                     message: message,
                                     isFromMe: isFromMe,
@@ -87,13 +94,6 @@ struct GroupChatView: View {
                                         viewModel.addMention(userID: userID, nickname: nickname)
                                     }
                                 )
-
-                                if TimestampHelper.shouldShowTime(
-                                    current: message.timestamp,
-                                    previous: previousTimestamp(for: message)
-                                ) {
-                                    TimeSeparatorView(timestamp: message.timestamp)
-                                }
                             }
                             .id(message.id)
                             .background(

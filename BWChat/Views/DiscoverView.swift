@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 struct DiscoverView: View {
     @StateObject private var momentsNotif = MomentsNotificationManager.shared
@@ -57,6 +58,37 @@ struct DiscoverView: View {
                     .padding(.vertical, 6)
                 }
                 .listRowSeparator(.hidden)
+
+                NavigationLink {
+                    InAppWebView(url: URL(string: "https://g123.jp")!, title: "游戏")
+                } label: {
+                    HStack(spacing: 14) {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(LinearGradient(
+                                colors: [Color(hex: "FF6B6B"), Color(hex: "FF8E53")],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ))
+                            .frame(width: 40, height: 40)
+                            .overlay(
+                                Image(systemName: "gamecontroller.fill")
+                                    .font(.system(size: 17))
+                                    .foregroundColor(.white)
+                            )
+
+                        Text("游戏")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(AppColors.primaryText)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(AppColors.tertiaryText)
+                    }
+                    .padding(.vertical, 6)
+                }
+                .listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .background(AppColors.secondaryBackground)
@@ -64,6 +96,64 @@ struct DiscoverView: View {
             .task {
                 await momentsNotif.fetchFromServer()
             }
+        }
+    }
+}
+
+// MARK: - In-App WebView
+
+struct InAppWebView: View {
+    let url: URL
+    let title: String
+    @State private var isLoading = true
+
+    var body: some View {
+        ZStack {
+            WebViewRepresentable(url: url, isLoading: $isLoading)
+                .ignoresSafeArea(edges: .bottom)
+
+            if isLoading {
+                ProgressView()
+                    .tint(AppColors.accent)
+                    .scaleEffect(1.2)
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct WebViewRepresentable: UIViewRepresentable {
+    let url: URL
+    @Binding var isLoading: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+        webView.load(URLRequest(url: url))
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: WebViewRepresentable
+
+        init(_ parent: WebViewRepresentable) {
+            self.parent = parent
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.isLoading = false
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            parent.isLoading = true
         }
     }
 }
