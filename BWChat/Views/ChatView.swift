@@ -11,12 +11,13 @@ struct ChatView: View {
     var onMarkRead: (() -> Void)?
     @StateObject private var viewModel: ChatViewModel
     @State private var selectedMediaItems: [PhotosPickerItem] = []
-    @State private var preparedMedia: [PreparedMediaItem] = []
-    @State private var showMediaPreview = false
-    @State private var isLoadingMedia = false
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
     @State private var showPlusMenu = false
+
+    private var isSelfChat: Bool {
+        contact.userID == AuthManager.shared.currentUser?.userID
+    }
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
@@ -129,34 +130,6 @@ struct ChatView: View {
         )) { item in
             VideoPlayerView(videoURL: item.url)
         }
-        .sheet(isPresented: $showMediaPreview) {
-            MediaPickerPreview(mediaItems: $preparedMedia) { items in
-                Task {
-                    for item in items {
-                        switch item.type {
-                        case .image:
-                            await viewModel.sendImage(data: item.data)
-                        case .video:
-                            await viewModel.sendVideo(data: item.data, filename: item.filename)
-                        }
-                    }
-                }
-            }
-        }
-        .overlay {
-            if isLoadingMedia {
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
-                    .overlay {
-                        ProgressView("加载中...")
-                            .tint(.white)
-                            .foregroundColor(.white)
-                            .padding(20)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(12)
-                    }
-            }
-        }
     }
 
     // MARK: - Input Bar
@@ -232,60 +205,55 @@ struct ChatView: View {
             .onChange(of: selectedMediaItems) { items in
                 guard !items.isEmpty else { return }
                 showPlusMenu = false
-                isLoadingMedia = true
+                let captured = items
+                selectedMediaItems = []
                 Task {
-                    var prepared: [PreparedMediaItem] = []
-                    for (index, item) in items.enumerated() {
+                    for (index, item) in captured.enumerated() {
                         if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                             if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                                let thumbnail = generateVideoThumbnail(from: movie.url)
                                 let data = try? Data(contentsOf: movie.url)
                                 let ext = movie.url.pathExtension.lowercased()
                                 try? FileManager.default.removeItem(at: movie.url)
                                 if let data = data {
-                                    prepared.append(PreparedMediaItem(type: .video, data: data, thumbnail: thumbnail, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)"))
+                                    await viewModel.sendVideo(data: data, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)")
                                 }
                             }
                         } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
                             if let data = try? await item.loadTransferable(type: Data.self),
                                let uiImage = UIImage(data: data),
                                let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
-                                prepared.append(PreparedMediaItem(type: .image, data: jpegData, thumbnail: uiImage, filename: "image_\(Int(Date().timeIntervalSince1970))_\(index).jpg"))
+                                await viewModel.sendImage(data: jpegData)
                             }
                         }
                     }
-                    selectedMediaItems = []
-                    isLoadingMedia = false
-                    if !prepared.isEmpty {
-                        preparedMedia = prepared
-                        showMediaPreview = true
-                    }
                 }
             }
 
-            Button {
-                showPlusMenu = false
-                CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .voice)
-            } label: {
-                VStack(spacing: 6) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
-                        Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+            if !isSelfChat {
+                Button {
+                    showPlusMenu = false
+                    CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .voice)
+                } label: {
+                    VStack(spacing: 6) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                            Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                        }
+                        Text("语音通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                     }
-                    Text("语音通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                 }
-            }
 
-            Button {
-                showPlusMenu = false
-                CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .video)
-            } label: {
-                VStack(spacing: 6) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
-                        Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                Button {
+                    showPlusMenu = false
+                    CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .video)
+                } label: {
+                    VStack(spacing: 6) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                            Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
+                        }
+                        Text("视频通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                     }
-                    Text("视频通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                 }
             }
         }
@@ -303,8 +271,27 @@ struct PendingMessageBubble: View {
     var body: some View {
         HStack {
             Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
+            HStack(alignment: .bottom, spacing: 4) {
+                if pending.status == .sending {
+                    ProgressView()
+                        .tint(AppColors.accent)
+                        .scaleEffect(0.6)
+                } else if pending.status == .failed {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(AppColors.errorColor)
+                        .font(.system(size: 16))
+                }
+
+                if pending.msgType == "text" && !pending.content.isEmpty {
+                    Text(pending.content)
+                        .font(.system(size: 16))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(AppColors.accentGradient)
+                        .cornerRadius(18)
+                        .opacity(pending.status == .sending ? 0.7 : 1)
+                } else if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
                     Image(uiImage: uiImage)
                         .resizable()
                         .scaledToFit()
@@ -327,16 +314,6 @@ struct PendingMessageBubble: View {
                                 .foregroundColor(AppColors.secondaryText)
                         }
                     }
-                }
-
-                if pending.status == .sending {
-                    ProgressView()
-                        .tint(AppColors.accent)
-                        .scaleEffect(0.7)
-                } else if pending.status == .failed {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(AppColors.errorColor)
-                        .font(.caption)
                 }
             }
         }

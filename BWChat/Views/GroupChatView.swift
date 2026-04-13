@@ -12,10 +12,6 @@ struct GroupChatView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: GroupChatViewModel
     @State private var selectedMediaItems: [PhotosPickerItem] = []
-    @State private var preparedMedia: [PreparedMediaItem] = []
-    @State private var showMediaPreview = false
-    @State private var isLoadingMedia = false
-    
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
     @State private var showGroupDetail = false
@@ -203,34 +199,7 @@ struct GroupChatView: View {
         )) { item in
             VideoPlayerView(videoURL: item.url)
         }
-        .sheet(isPresented: $showMediaPreview) {
-            MediaPickerPreview(mediaItems: $preparedMedia) { items in
-                Task {
-                    for item in items {
-                        switch item.type {
-                        case .image:
-                            await viewModel.sendImage(data: item.data)
-                        case .video:
-                            await viewModel.sendVideo(data: item.data, filename: item.filename)
-                        }
-                    }
-                }
-            }
-        }
-        .overlay {
-            if isLoadingMedia {
-                Color.black.opacity(0.3)
-                    .ignoresSafeArea()
-                    .overlay {
-                        ProgressView("加载中...")
-                            .tint(.white)
-                            .foregroundColor(.white)
-                            .padding(20)
-                            .background(Color.black.opacity(0.7))
-                            .cornerRadius(12)
-                    }
-            }
-        }
+        
     }
 
     // MARK: - Input Bar
@@ -300,33 +269,26 @@ struct GroupChatView: View {
             .onChange(of: selectedMediaItems) { items in
                 guard !items.isEmpty else { return }
                 showPlusMenu = false
-                isLoadingMedia = true
+                let captured = items
+                selectedMediaItems = []
                 Task {
-                    var prepared: [PreparedMediaItem] = []
-                    for (index, item) in items.enumerated() {
+                    for (index, item) in captured.enumerated() {
                         if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                             if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                                let thumbnail = generateVideoThumbnail(from: movie.url)
                                 let data = try? Data(contentsOf: movie.url)
                                 let ext = movie.url.pathExtension.lowercased()
                                 try? FileManager.default.removeItem(at: movie.url)
                                 if let data = data {
-                                    prepared.append(PreparedMediaItem(type: .video, data: data, thumbnail: thumbnail, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)"))
+                                    await viewModel.sendVideo(data: data, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)")
                                 }
                             }
                         } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
                             if let data = try? await item.loadTransferable(type: Data.self),
                                let uiImage = UIImage(data: data),
                                let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
-                                prepared.append(PreparedMediaItem(type: .image, data: jpegData, thumbnail: uiImage, filename: "image_\(Int(Date().timeIntervalSince1970))_\(index).jpg"))
+                                await viewModel.sendImage(data: jpegData)
                             }
                         }
-                    }
-                    selectedMediaItems = []
-                    isLoadingMedia = false
-                    if !prepared.isEmpty {
-                        preparedMedia = prepared
-                        showMediaPreview = true
                     }
                 }
             }

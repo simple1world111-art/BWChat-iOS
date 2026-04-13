@@ -69,17 +69,29 @@ class ChatViewModel: ObservableObject {
         inputText = ""
         replyingTo = nil
 
+        let pending = PendingMessage(
+            receiverID: contact.userID,
+            msgType: "text",
+            content: text,
+            imageData: nil,
+            videoData: nil
+        )
+        pendingMessages.append(pending)
+
         do {
             let message = try await APIService.shared.sendTextMessage(
                 receiverID: contact.userID,
                 content: text,
                 replyToID: replyID
             )
+            pendingMessages.removeAll { $0.id == pending.id }
             if !messages.contains(where: { $0.id == message.id }) {
                 messages.append(message)
             }
         } catch {
-            errorMessage = "发送失败，请重试"
+            if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
+                pendingMessages[index].status = .failed
+            }
         }
     }
 

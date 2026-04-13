@@ -266,7 +266,7 @@ class CallManager: ObservableObject {
     func toggleMute() {
         isMuted.toggle()
         Task {
-            try? await room?.localParticipant.setMicrophone(enabled: !isMuted)
+            _ = try? await room?.localParticipant.setMicrophone(enabled: !isMuted)
         }
     }
 
@@ -274,7 +274,7 @@ class CallManager: ObservableObject {
         isSpeakerOn.toggle()
         let session = AVAudioSession.sharedInstance()
         let port: AVAudioSession.PortOverride = isSpeakerOn ? .speaker : .none
-        try? session.overrideOutputAudioPort(port)
+        _ = try? session.overrideOutputAudioPort(port)
     }
 
     func toggleLocalVideo() {
@@ -304,8 +304,8 @@ class CallManager: ObservableObject {
             let position: AVCaptureDevice.Position = isFrontCamera ? .front : .back
             let captureOpts = CameraCaptureOptions(position: position, dimensions: .h720_169, fps: 30)
             let publishOpts = VideoPublishOptions(encoding: VideoEncoding(maxBitrate: 1_500_000, maxFps: 30))
-            try? await room?.localParticipant.setCamera(enabled: false)
-            try? await room?.localParticipant.setCamera(
+            _ = try? await room?.localParticipant.setCamera(enabled: false)
+            _ = try? await room?.localParticipant.setCamera(
                 enabled: true, captureOptions: captureOpts, publishOptions: publishOpts
             )
             if let pub = room?.localParticipant.localVideoTracks.first,
@@ -378,8 +378,8 @@ class CallManager: ObservableObject {
 
         Task {
             // Explicitly stop camera and mic before disconnecting to release hardware
-            try? await roomToClean?.localParticipant.setCamera(enabled: false)
-            try? await roomToClean?.localParticipant.setMicrophone(enabled: false)
+            _ = try? await roomToClean?.localParticipant.setCamera(enabled: false)
+            _ = try? await roomToClean?.localParticipant.setMicrophone(enabled: false)
             await roomToClean?.disconnect()
         }
 
@@ -392,12 +392,12 @@ class CallManager: ObservableObject {
 
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
-        try? session.setActive(true)
+        _ = try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
+        _ = try? session.setActive(true)
     }
 
     private func deactivateAudioSession() {
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        _ = try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func startDurationTimer() {

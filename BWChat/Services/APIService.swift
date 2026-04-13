@@ -2,6 +2,7 @@
 // HTTP API service using URLSession
 
 import Foundation
+import UIKit
 
 enum APIError: Error, LocalizedError {
     case invalidURL

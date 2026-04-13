@@ -94,10 +94,10 @@ class ConversationListViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        WebSocketService.shared.groupMessagePublisher
+        WebSocketService.shared.groupContactUpdatePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] groupMsg in
-                self?.handleNewGroupMessage(groupMsg)
+            .sink { [weak self] data in
+                self?.handleGroupContactUpdate(data)
             }
             .store(in: &cancellables)
 
@@ -146,24 +146,30 @@ class ConversationListViewModel: ObservableObject {
         }
     }
 
-    private func handleNewGroupMessage(_ msg: GroupMessage) {
-        let gidStr = String(msg.groupID)
+    private func handleGroupContactUpdate(_ data: [String: Any]) {
+        guard let groupID = data["group_id"] as? Int,
+              let lastMessage = data["last_message"] as? String,
+              let lastMessageTime = data["last_message_time"] as? String else { return }
+
+        let senderNickname = data["sender_nickname"] as? String
+        let senderID = data["sender_id"] as? String
         let myID = AuthManager.shared.currentUser?.userID
-        let isFromOther = msg.senderID != myID
-        let isViewingThisGroup = isFromOther && WebSocketService.shared.activeGroupID == msg.groupID
+        let isFromOther = senderID != myID
+
+        let isViewingThisGroup = isFromOther && WebSocketService.shared.activeGroupID == groupID
         let unreadDelta = (isFromOther && !isViewingThisGroup) ? 1 : 0
 
-        let lastMsg: String
-        if msg.isImage { lastMsg = "[图片]" }
-        else if msg.isVideo { lastMsg = "[视频]" }
-        else { lastMsg = msg.content }
+        if isViewingThisGroup {
+            Task { try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID) }
+        }
 
+        let gidStr = String(groupID)
         if let index = conversations.firstIndex(where: { $0.id == gidStr && $0.isGroup }) {
             let c = conversations[index]
             conversations[index] = Conversation(
                 type: "group", id: c.id, name: c.name, avatarURL: c.avatarURL,
-                lastMessage: lastMsg, lastMessageTime: msg.timestamp,
-                unreadCount: c.unreadCount + unreadDelta, subtitle: msg.senderNickname,
+                lastMessage: lastMessage, lastMessageTime: lastMessageTime,
+                unreadCount: c.unreadCount + unreadDelta, subtitle: senderNickname ?? c.subtitle,
                 groupID: c.groupID, memberCount: c.memberCount
             )
             conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }

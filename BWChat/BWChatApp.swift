@@ -37,6 +37,14 @@ struct BWChatApp: App {
                         .zIndex(200)
                 }
             }
+            .onChange(of: callManager.currentCall != nil) { hasCalling in
+                if hasCalling {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                }
+            }
         }
     }
 
