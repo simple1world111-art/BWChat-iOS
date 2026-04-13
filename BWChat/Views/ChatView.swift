@@ -311,7 +311,7 @@ struct PendingMessageBubble: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(AppColors.accentGradient)
-                        .cornerRadius(18)
+                        .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
                 } else if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
                     Image(uiImage: uiImage)
                         .resizable()
