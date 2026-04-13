@@ -19,6 +19,7 @@ class CallManager: ObservableObject {
     @Published var callDuration: TimeInterval = 0
     @Published var isMinimized = false
     @Published var isFrontCamera = true
+    @Published var isRemotePrimary = true
 
     // LiveKit room & participants
     @Published var room: Room?
@@ -367,6 +368,7 @@ class CallManager: ObservableObject {
         isLocalVideoEnabled = true
         isMinimized = false
         isFrontCamera = true
+        isRemotePrimary = true
         localVideoTrack = nil
         remoteVideoTrack = nil
         remoteParticipants = []
@@ -392,7 +394,7 @@ class CallManager: ObservableObject {
 
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        _ = try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
+        _ = try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
         _ = try? session.setActive(true)
     }
 

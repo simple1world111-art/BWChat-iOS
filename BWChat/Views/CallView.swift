@@ -124,39 +124,61 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Video Layer
+    // MARK: - Video Layer (tap to swap big/small)
 
     @ViewBuilder
     private var videoLayer: some View {
         ZStack(alignment: .topTrailing) {
-            // Remote video (full screen)
-            if let remoteTrack = callManager.remoteVideoTrack {
-                SwiftUIVideoView(remoteTrack, layoutMode: .fill)
-                    .ignoresSafeArea()
+            // Primary (full screen)
+            if callManager.isRemotePrimary {
+                if let remoteTrack = callManager.remoteVideoTrack {
+                    SwiftUIVideoView(remoteTrack, layoutMode: .fill)
+                        .ignoresSafeArea()
+                } else {
+                    noVideoPlaceholder
+                }
             } else {
-                Color.black.ignoresSafeArea()
-                VStack {
-                    Spacer()
-                    Image(systemName: "video.slash.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(.white.opacity(0.3))
-                    Text("等待视频连接...")
-                        .font(.system(size: 16))
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding(.top, 8)
-                    Spacer()
+                if let localTrack = callManager.localVideoTrack {
+                    SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: callManager.isFrontCamera ? .mirror : .off)
+                        .ignoresSafeArea()
+                } else {
+                    noVideoPlaceholder
                 }
             }
 
-            // Local video (PiP) — mirror for front camera only
-            if let localTrack = callManager.localVideoTrack {
-                SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: callManager.isFrontCamera ? .mirror : .off)
-                    .frame(width: 120, height: 160)
+            // Secondary (small corner) — tap to swap
+            let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
+            let isSecondaryLocal = callManager.isRemotePrimary
+
+            if let track = secondaryTrack {
+                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isSecondaryLocal && callManager.isFrontCamera) ? .mirror : .off)
+                    .frame(width: 110, height: 150)
                     .cornerRadius(12)
                     .shadow(color: .black.opacity(0.4), radius: 8)
                     .padding(.top, 60)
                     .padding(.trailing, 16)
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            callManager.isRemotePrimary.toggle()
+                        }
+                    }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var noVideoPlaceholder: some View {
+        Color.black.ignoresSafeArea()
+        VStack {
+            Spacer()
+            Image(systemName: "video.slash.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.white.opacity(0.3))
+            Text("等待视频连接...")
+                .font(.system(size: 16))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.top, 8)
+            Spacer()
         }
     }
 
@@ -194,10 +216,10 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Active Call Buttons
+    // MARK: - Active Call Buttons (compact)
 
     private func activeCallButtons(call: CallSession) -> some View {
-        HStack(spacing: 40) {
+        HStack(spacing: call.callType == .video ? 16 : 32) {
             controlButton(
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
                 label: callManager.isMuted ? "取消静音" : "静音",
@@ -207,7 +229,7 @@ struct CallView: View {
             if call.callType == .video {
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
-                    label: callManager.isLocalVideoEnabled ? "关闭摄像头" : "开启摄像头",
+                    label: callManager.isLocalVideoEnabled ? "关摄像头" : "开摄像头",
                     isActive: !callManager.isLocalVideoEnabled
                 ) { callManager.toggleLocalVideo() }
 
@@ -220,40 +242,42 @@ struct CallView: View {
 
             controlButton(
                 icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
-                label: callManager.isSpeakerOn ? "关闭扬声器" : "扬声器",
+                label: callManager.isSpeakerOn ? "扬声器" : "听筒",
                 isActive: callManager.isSpeakerOn
             ) { callManager.toggleSpeaker() }
 
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Button { callManager.endCall() } label: {
                     Image(systemName: "phone.down.fill")
-                        .font(.system(size: 24))
+                        .font(.system(size: 20))
                         .foregroundColor(.white)
-                        .frame(width: 56, height: 56)
+                        .frame(width: 46, height: 46)
                         .background(Color.red)
                         .clipShape(Circle())
                 }
                 Text("挂断")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.7))
             }
         }
+        .padding(.horizontal, 12)
     }
 
     private func controlButton(icon: String, label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Button(action: action) {
                 Image(systemName: icon)
-                    .font(.system(size: 22))
+                    .font(.system(size: 18))
                     .foregroundColor(isActive ? .black : .white)
-                    .frame(width: 50, height: 50)
+                    .frame(width: 44, height: 44)
                     .background(isActive ? Color.white : Color.white.opacity(0.2))
                     .clipShape(Circle())
             }
             Text(label)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.7))
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
     }
 
@@ -270,10 +294,14 @@ struct CallPipBubble: View {
     @State private var position: CGPoint = CGPoint(x: UIScreen.main.bounds.width - 80, y: 160)
     @State private var isHidden = false
 
-    private let pipWidth: CGFloat = 120
-    private let pipHeight: CGFloat = 170
+    private var isVoiceCall: Bool {
+        callManager.currentCall?.callType == .voice
+    }
+
+    private let videoPipWidth: CGFloat = 120
+    private let videoPipHeight: CGFloat = 170
+    private let voicePipSize: CGFloat = 60
     private let edgeMargin: CGFloat = 6
-    private let hiddenExposure: CGFloat = 16
 
     var body: some View {
         GeometryReader { geo in
@@ -281,99 +309,184 @@ struct CallPipBubble: View {
             let screenH = geo.size.height
 
             ZStack {
-                if callManager.currentCall?.callType == .video,
-                   let localTrack = callManager.localVideoTrack {
-                    SwiftUIVideoView(localTrack, layoutMode: .fill,
-                                     mirrorMode: callManager.isFrontCamera ? .mirror : .off)
-                } else {
-                    LinearGradient(
-                        colors: callManager.currentCall?.callType == .video
-                            ? [Color(hex: "5856D6"), Color(hex: "764BA2")]
-                            : [Color(hex: "34C759"), Color(hex: "30B350")],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                }
-
-                VStack(spacing: 2) {
-                    if callManager.currentCall?.callType != .video || callManager.localVideoTrack == nil {
-                        Image(systemName: callManager.currentCall?.callType == .video ? "video.fill" : "phone.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
-
-                    if callManager.currentCall?.state == .connected {
-                        Text(pipDuration)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.black.opacity(0.5))
-                            .cornerRadius(6)
-                    } else {
-                        Circle()
-                            .fill(.white.opacity(0.8))
-                            .frame(width: 5, height: 5)
-                            .modifier(PulseAnimation())
-                    }
-                }
-            }
-            .frame(width: pipWidth, height: pipHeight)
-            .cornerRadius(14)
-            .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
-            .position(position)
-            .onTapGesture {
                 if isHidden {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                        isHidden = false
-                        position = snapToEdge(position, screenW: screenW, screenH: screenH, hide: false)
-                    }
+                    hiddenArrow(screenW: screenW)
+                        .position(arrowPosition(screenW: screenW, screenH: screenH))
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                isHidden = false
+                                position = snapToEdge(position, screenW: screenW, screenH: screenH)
+                            }
+                        }
                 } else {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        callManager.restoreCall()
+                    if isVoiceCall {
+                        voiceBubble
+                            .position(position)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    callManager.restoreCall()
+                                }
+                            }
+                            .gesture(dragGesture(screenW: screenW, screenH: screenH))
+                            .onAppear {
+                                position = CGPoint(x: screenW - voicePipSize / 2 - edgeMargin, y: 160)
+                            }
+                    } else {
+                        videoBubble
+                            .position(position)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    callManager.restoreCall()
+                                }
+                            }
+                            .gesture(dragGesture(screenW: screenW, screenH: screenH))
+                            .onAppear {
+                                position = CGPoint(x: screenW - videoPipWidth / 2 - edgeMargin, y: 160)
+                            }
                     }
                 }
-            }
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        position = value.location
-                    }
-                    .onEnded { value in
-                        let velocity = CGSize(
-                            width: value.predictedEndLocation.x - value.location.x,
-                            height: value.predictedEndLocation.y - value.location.y
-                        )
-                        let shouldHide = abs(velocity.width) > 150 &&
-                            (velocity.width < 0 && value.location.x < screenW * 0.3 ||
-                             velocity.width > 0 && value.location.x > screenW * 0.7)
-
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            isHidden = shouldHide
-                            position = snapToEdge(value.location, screenW: screenW, screenH: screenH, hide: shouldHide)
-                        }
-                    }
-            )
-            .onAppear {
-                position = CGPoint(x: screenW - pipWidth / 2 - edgeMargin, y: 160)
             }
         }
         .ignoresSafeArea()
     }
 
-    private func snapToEdge(_ point: CGPoint, screenW: CGFloat, screenH: CGFloat, hide: Bool) -> CGPoint {
-        let halfW = pipWidth / 2
-        let halfH = pipHeight / 2
+    // MARK: - Voice Bubble (small circle)
+
+    private var voiceBubble: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "34C759"), Color(hex: "30B350")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            VStack(spacing: 2) {
+                Image(systemName: "phone.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.white)
+
+                if callManager.currentCall?.state == .connected {
+                    Text(pipDuration)
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.9))
+                }
+            }
+        }
+        .frame(width: voicePipSize, height: voicePipSize)
+        .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
+    }
+
+    // MARK: - Video Bubble (rectangular with video)
+
+    private var videoBubble: some View {
+        ZStack {
+            let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
+            let isPipLocal = callManager.isRemotePrimary
+
+            if let track = secondaryTrack {
+                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isPipLocal && callManager.isFrontCamera) ? .mirror : .off)
+            } else {
+                LinearGradient(
+                    colors: [Color(hex: "5856D6"), Color(hex: "764BA2")],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+
+            VStack(spacing: 2) {
+                if callManager.localVideoTrack == nil && callManager.remoteVideoTrack == nil {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+
+                if callManager.currentCall?.state == .connected {
+                    Text(pipDuration)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.5))
+                        .cornerRadius(6)
+                }
+            }
+        }
+        .frame(width: videoPipWidth, height: videoPipHeight)
+        .cornerRadius(14)
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+    }
+
+    // MARK: - Hidden Arrow Indicator
+
+    @ViewBuilder
+    private func hiddenArrow(screenW: CGFloat) -> some View {
+        let onLeft = position.x < screenW / 2
+        HStack(spacing: 0) {
+            if !onLeft {
+                Spacer()
+            }
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        isVoiceCall
+                            ? LinearGradient(colors: [Color(hex: "34C759"), Color(hex: "30B350")], startPoint: .top, endPoint: .bottom)
+                            : LinearGradient(colors: [Color(hex: "5856D6"), Color(hex: "764BA2")], startPoint: .top, endPoint: .bottom)
+                    )
+                Image(systemName: onLeft ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .frame(width: 22, height: 56)
+            .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+            if onLeft {
+                Spacer()
+            }
+        }
+    }
+
+    private func arrowPosition(screenW: CGFloat, screenH: CGFloat) -> CGPoint {
+        let onLeft = position.x < screenW / 2
+        let halfH = CGFloat(28)
+        let clampedY = min(max(position.y, halfH + 50), screenH - halfH - 30)
+        let x: CGFloat = onLeft ? 11 : screenW - 11
+        return CGPoint(x: x, y: clampedY)
+    }
+
+    // MARK: - Gesture & Helpers
+
+    private func dragGesture(screenW: CGFloat, screenH: CGFloat) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                position = value.location
+            }
+            .onEnded { value in
+                let velocity = CGSize(
+                    width: value.predictedEndLocation.x - value.location.x,
+                    height: value.predictedEndLocation.y - value.location.y
+                )
+                let shouldHide = abs(velocity.width) > 150 &&
+                    ((velocity.width < 0 && value.location.x < screenW * 0.3) ||
+                     (velocity.width > 0 && value.location.x > screenW * 0.7))
+
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                    isHidden = shouldHide
+                    if !shouldHide {
+                        position = snapToEdge(value.location, screenW: screenW, screenH: screenH)
+                    }
+                }
+            }
+    }
+
+    private func snapToEdge(_ point: CGPoint, screenW: CGFloat, screenH: CGFloat) -> CGPoint {
+        let halfW = isVoiceCall ? voicePipSize / 2 : videoPipWidth / 2
+        let halfH = isVoiceCall ? voicePipSize / 2 : videoPipHeight / 2
         let clampedY = min(max(point.y, halfH + 50), screenH - halfH - 30)
         let onLeft = point.x < screenW / 2
-
-        if hide {
-            let x = onLeft ? -halfW + hiddenExposure : screenW + halfW - hiddenExposure
-            return CGPoint(x: x, y: clampedY)
-        } else {
-            let x = onLeft ? halfW + edgeMargin : screenW - halfW - edgeMargin
-            return CGPoint(x: x, y: clampedY)
-        }
+        let x = onLeft ? halfW + edgeMargin : screenW - halfW - edgeMargin
+        return CGPoint(x: x, y: clampedY)
     }
 
     private var pipDuration: String {

@@ -19,6 +19,10 @@ struct ChatView: View {
         contact.userID == AuthManager.shared.currentUser?.userID
     }
 
+    private var myAvatarURL: String {
+        AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
         self.contact = contact
         self.onMarkRead = onMarkRead
@@ -43,33 +47,49 @@ struct ChatView: View {
         }
     }
 
+    private func previousTimestamp(for message: Message) -> String? {
+        guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }),
+              idx > 0 else { return nil }
+        return viewModel.messages[idx - 1].timestamp
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Messages list
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(viewModel.pendingMessages.reversed()) { pending in
-                            PendingMessageBubble(pending: pending) {
+                            PendingMessageBubble(pending: pending, avatarURL: myAvatarURL) {
                                 Task { await viewModel.retryPending(pending) }
                             }
                             .flippedRow()
                         }
 
                         ForEach(viewModel.messages.reversed()) { message in
-                            MessageBubble(
-                                message: message,
-                                isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
-                                onImageTap: { url in
-                                    let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                    ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
-                                },
-                                onVideoTap: { url in previewVideoURL = url },
-                                onReply: { msg in viewModel.setReply(to: msg) },
-                                onQuoteTap: { targetID in
-                                    scrollToMessage(targetID, proxy: proxy)
+                            let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
+                            VStack(spacing: 4) {
+                                MessageBubble(
+                                    message: message,
+                                    isFromMe: isFromMe,
+                                    avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
+                                    onImageTap: { url in
+                                        let allImages = viewModel.messages.filter(\.isImage).map(\.content)
+                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
+                                    },
+                                    onVideoTap: { url in previewVideoURL = url },
+                                    onReply: { msg in viewModel.setReply(to: msg) },
+                                    onQuoteTap: { targetID in
+                                        scrollToMessage(targetID, proxy: proxy)
+                                    }
+                                )
+
+                                if TimestampHelper.shouldShowTime(
+                                    current: message.timestamp,
+                                    previous: previousTimestamp(for: message)
+                                ) {
+                                    TimeSeparatorView(timestamp: message.timestamp)
                                 }
-                            )
+                            }
                             .id(message.id)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
@@ -102,7 +122,6 @@ struct ChatView: View {
                 }
             }
 
-            // Reply preview bar
             if let replyMsg = viewModel.replyingTo {
                 let senderName = replyMsg.senderID == AuthManager.shared.currentUser?.userID ? "我" : contact.nickname
                 ReplyPreviewBar(
@@ -113,7 +132,6 @@ struct ChatView: View {
                 )
             }
 
-            // Input Bar
             inputBar
         }
         .background(AppColors.secondaryBackground)
@@ -269,10 +287,11 @@ struct ChatView: View {
 
 struct PendingMessageBubble: View {
     let pending: PendingMessage
+    var avatarURL: String = ""
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             Spacer()
             HStack(alignment: .center, spacing: 6) {
                 if pending.status == .failed {
@@ -311,6 +330,8 @@ struct PendingMessageBubble: View {
                     }
                 }
             }
+
+            AvatarView(url: avatarURL, size: 36)
         }
     }
 }

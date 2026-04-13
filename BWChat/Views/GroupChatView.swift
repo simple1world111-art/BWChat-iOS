@@ -20,6 +20,10 @@ struct GroupChatView: View {
     @State private var showPlusMenu = false
     @State private var highlightedMessageID: Int?
 
+    private var myAvatarURL: String {
+        AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
         self.group = group
         self.onMarkRead = onMarkRead
@@ -44,36 +48,53 @@ struct GroupChatView: View {
         }
     }
 
+    private func previousTimestamp(for message: GroupMessage) -> String? {
+        guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }),
+              idx > 0 else { return nil }
+        return viewModel.messages[idx - 1].timestamp
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(viewModel.pendingTexts.reversed()) { pending in
-                            PendingGroupBubble(pending: pending) {
+                            PendingGroupBubble(pending: pending, avatarURL: myAvatarURL) {
                                 Task { await viewModel.retryPendingText(pending) }
                             }
                             .flippedRow()
                         }
 
                         ForEach(viewModel.messages.reversed()) { message in
-                            GroupMessageBubble(
-                                message: message,
-                                isFromMe: message.senderID == AuthManager.shared.currentUser?.userID,
-                                onImageTap: { url in
-                                    let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                    ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
-                                },
-                                onVideoTap: { url in previewVideoURL = url },
-                                onReply: { msg in viewModel.setReply(to: msg) },
-                                onQuoteTap: { targetID in
-                                    scrollToMessage(targetID, proxy: proxy)
-                                },
-                                onMention: { userID, nickname in
-                                    viewModel.addMention(userID: userID, nickname: nickname)
+                            let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
+
+                            VStack(spacing: 4) {
+                                GroupMessageBubble(
+                                    message: message,
+                                    isFromMe: isFromMe,
+                                    myAvatarURL: myAvatarURL,
+                                    onImageTap: { url in
+                                        let allImages = viewModel.messages.filter(\.isImage).map(\.content)
+                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
+                                    },
+                                    onVideoTap: { url in previewVideoURL = url },
+                                    onReply: { msg in viewModel.setReply(to: msg) },
+                                    onQuoteTap: { targetID in
+                                        scrollToMessage(targetID, proxy: proxy)
+                                    },
+                                    onMention: { userID, nickname in
+                                        viewModel.addMention(userID: userID, nickname: nickname)
+                                    }
+                                )
+
+                                if TimestampHelper.shouldShowTime(
+                                    current: message.timestamp,
+                                    previous: previousTimestamp(for: message)
+                                ) {
+                                    TimeSeparatorView(timestamp: message.timestamp)
                                 }
-                            )
+                            }
                             .id(message.id)
                             .background(
                                 RoundedRectangle(cornerRadius: 12)
@@ -111,7 +132,6 @@ struct GroupChatView: View {
                 }
             }
 
-            // Reply preview bar
             if let replyMsg = viewModel.replyingTo {
                 ReplyPreviewBar(
                     senderName: replyMsg.senderNickname,
@@ -121,7 +141,6 @@ struct GroupChatView: View {
                 )
             }
 
-            // Input bar
             groupInputBar
         }
         .sheet(isPresented: $viewModel.showMentionPicker) {
@@ -332,6 +351,7 @@ struct GroupChatView: View {
 struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
+    var myAvatarURL: String = ""
     var onImageTap: ((String) -> Void)?
     var onVideoTap: ((String) -> Void)?
     var onReply: ((GroupMessage) -> Void)?
@@ -360,7 +380,7 @@ struct GroupMessageBubble: View {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
-                AvatarView(url: message.senderAvatar, size: 32)
+                AvatarView(url: message.senderAvatar, size: 36)
                     .onTapGesture {
                         onMention?(message.senderID, message.senderNickname)
                     }
@@ -373,7 +393,6 @@ struct GroupMessageBubble: View {
                         .foregroundColor(AppColors.secondaryText)
                 }
 
-                // Quoted message
                 if let reply = message.replyTo {
                     QuotedMessageView(
                         senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
@@ -432,11 +451,10 @@ struct GroupMessageBubble: View {
                             Button("取消", role: .cancel) {}
                         }
                 }
+            }
 
-                Text(message.formattedTime)
-                    .font(.system(size: 10))
-                    .foregroundColor(AppColors.tertiaryText)
-                    .padding(.horizontal, 4)
+            if isFromMe {
+                AvatarView(url: myAvatarURL, size: 36)
             }
 
             if !isFromMe { Spacer(minLength: 40) }
@@ -466,10 +484,11 @@ struct GroupMessageBubble: View {
 
 struct PendingGroupBubble: View {
     let pending: PendingGroupText
+    var avatarURL: String = ""
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 40)
             HStack(alignment: .center, spacing: 6) {
                 if pending.status == .failed {
@@ -490,6 +509,8 @@ struct PendingGroupBubble: View {
                     .background(AppColors.sentBubbleGradient)
                     .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
             }
+
+            AvatarView(url: avatarURL, size: 36)
         }
         .padding(.vertical, 2)
     }

@@ -148,7 +148,7 @@ struct GroupCallView: View {
     // MARK: - Control Bar
 
     private var controlBar: some View {
-        HStack(spacing: 36) {
+        HStack(spacing: callManager.currentCall?.callType == .video ? 16 : 28) {
             controlButton(
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
                 isActive: callManager.isMuted
@@ -173,21 +173,22 @@ struct GroupCallView: View {
 
             Button { callManager.endCall() } label: {
                 Image(systemName: "phone.down.fill")
-                    .font(.system(size: 22))
+                    .font(.system(size: 18))
                     .foregroundColor(.white)
-                    .frame(width: 52, height: 52)
+                    .frame(width: 44, height: 44)
                     .background(Color.red)
                     .clipShape(Circle())
             }
         }
+        .padding(.horizontal, 12)
     }
 
     private func controlButton(icon: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 20))
+                .font(.system(size: 18))
                 .foregroundColor(isActive ? .black : .white)
-                .frame(width: 48, height: 48)
+                .frame(width: 44, height: 44)
                 .background(isActive ? Color.white : Color.white.opacity(0.2))
                 .clipShape(Circle())
         }

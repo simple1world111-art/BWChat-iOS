@@ -43,6 +43,49 @@ extension Date {
     }
 }
 
+// MARK: - Timestamp Grouping
+
+enum TimestampHelper {
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoFormatterNoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    static func parse(_ string: String) -> Date? {
+        isoFormatter.date(from: string) ?? isoFormatterNoFrac.date(from: string)
+    }
+
+    static func formatSeparator(_ string: String) -> String {
+        guard let date = parse(string) else { return "" }
+        let cal = Calendar.current
+        let tf = DateFormatter()
+        if cal.isDateInToday(date) {
+            tf.dateFormat = "HH:mm"
+        } else if cal.isDateInYesterday(date) {
+            tf.dateFormat = "'昨天' HH:mm"
+        } else if cal.component(.year, from: date) == cal.component(.year, from: Date()) {
+            tf.dateFormat = "M月d日 HH:mm"
+        } else {
+            tf.dateFormat = "yyyy年M月d日 HH:mm"
+        }
+        return tf.string(from: date)
+    }
+
+    static func shouldShowTime(current: String, previous: String?) -> Bool {
+        guard let prev = previous, let curDate = parse(current), let prevDate = parse(prev) else {
+            return true
+        }
+        return curDate.timeIntervalSince(prevDate) >= 120
+    }
+}
+
 // MARK: - Data Extensions
 
 extension Data {

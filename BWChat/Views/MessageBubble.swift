@@ -1,11 +1,12 @@
 // BWChat/Views/MessageBubble.swift
-// Premium gradient message bubble - adaptive spacing
+// Premium gradient message bubble with avatar
 
 import SwiftUI
 
 struct MessageBubble: View {
     let message: Message
     let isFromMe: Bool
+    var avatarURL: String = ""
     var onImageTap: ((String) -> Void)?
     var onVideoTap: ((String) -> Void)?
     var onReply: ((Message) -> Void)?
@@ -14,11 +15,14 @@ struct MessageBubble: View {
     @State private var swipeOffset: CGFloat = 0
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 4) {
+        HStack(alignment: .top, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
+            if !isFromMe {
+                AvatarView(url: avatarURL, size: 36)
+            }
+
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
-                // Quoted message preview
                 if let reply = message.replyTo {
                     let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID
                     QuotedMessageView(
@@ -37,11 +41,10 @@ struct MessageBubble: View {
                 } else {
                     textBubble
                 }
+            }
 
-                Text(message.formattedTime)
-                    .font(.system(size: 11))
-                    .foregroundColor(AppColors.tertiaryText)
-                    .padding(.horizontal, 4)
+            if isFromMe {
+                AvatarView(url: avatarURL, size: 36)
             }
 
             if !isFromMe { Spacer(minLength: 40) }
@@ -138,6 +141,24 @@ struct MessageBubble: View {
         .onTapGesture {
             onVideoTap?(message.content)
         }
+    }
+}
+
+// MARK: - Time Separator
+
+struct TimeSeparatorView: View {
+    let timestamp: String
+
+    var body: some View {
+        Text(TimestampHelper.formatSeparator(timestamp))
+            .font(.system(size: 12))
+            .foregroundColor(AppColors.secondaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(AppColors.separator.opacity(0.6))
+            .cornerRadius(8)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
     }
 }
 
