@@ -84,9 +84,14 @@ class ChatViewModel: ObservableObject {
                 content: text,
                 replyToID: replyID
             )
-            pendingMessages.removeAll { $0.id == pending.id }
-            if !messages.contains(where: { $0.id == message.id }) {
+            // If WS already delivered this message, just remove pending
+            if messages.contains(where: { $0.id == message.id }) {
+                pendingMessages.removeAll { $0.id == pending.id }
+            } else {
+                // Replace pending with confirmed message atomically:
+                // add message first, then remove pending in same render cycle
                 messages.append(message)
+                pendingMessages.removeAll { $0.id == pending.id }
             }
         } catch {
             if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
@@ -210,9 +215,14 @@ class ChatViewModel: ObservableObject {
                                  (message.senderID == AuthManager.shared.currentUser?.userID &&
                                   message.receiverID == self.contact.userID)
                 if isRelevant {
-                    // Avoid duplicates
                     if !self.messages.contains(where: { $0.id == message.id }) {
                         self.messages.append(message)
+                    }
+                    // Remove matching pending for self-sent messages
+                    if message.senderID == AuthManager.shared.currentUser?.userID {
+                        self.pendingMessages.removeAll {
+                            $0.msgType == message.msgType && $0.content == message.content
+                        }
                     }
                 }
             }

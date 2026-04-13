@@ -199,10 +199,11 @@ class CallManager: ObservableObject {
             let connectOptions = ConnectOptions(autoSubscribe: true)
             try await newRoom.connect(url: url, token: token, connectOptions: connectOptions)
 
-            configureAudioSession()
-
             // Publish local audio
             try await newRoom.localParticipant.setMicrophone(enabled: true)
+
+            // Configure audio AFTER LiveKit setup to override its defaults
+            configureAudioSession()
 
             // Publish local video with higher quality, explicitly using front camera
             if isVideo {
@@ -274,8 +275,17 @@ class CallManager: ObservableObject {
     func toggleSpeaker() {
         isSpeakerOn.toggle()
         let session = AVAudioSession.sharedInstance()
-        let port: AVAudioSession.PortOverride = isSpeakerOn ? .speaker : .none
-        _ = try? session.overrideOutputAudioPort(port)
+        do {
+            if isSpeakerOn {
+                try session.overrideOutputAudioPort(.speaker)
+            } else {
+                try session.overrideOutputAudioPort(.none)
+                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+                try session.setActive(true)
+            }
+        } catch {
+            print("[CallManager] toggleSpeaker error: \(error)")
+        }
     }
 
     func toggleLocalVideo() {
@@ -389,8 +399,13 @@ class CallManager: ObservableObject {
 
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        _ = try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
-        _ = try? session.setActive(true)
+        do {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+            try session.setActive(true)
+            try session.overrideOutputAudioPort(isSpeakerOn ? .speaker : .none)
+        } catch {
+            print("[CallManager] configureAudioSession error: \(error)")
+        }
     }
 
     private func deactivateAudioSession() {

@@ -292,47 +292,51 @@ struct PendingMessageBubble: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Spacer()
-            HStack(alignment: .center, spacing: 6) {
-                if pending.status == .failed {
-                    Button {
-                        onRetry?()
-                    } label: {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .font(.system(size: 20))
+            Spacer(minLength: 40)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(alignment: .center, spacing: 6) {
+                    if pending.status == .failed {
+                        Button {
+                            onRetry?()
+                        } label: {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.system(size: 20))
+                        }
                     }
-                }
 
-                if pending.msgType == "text" && !pending.content.isEmpty {
-                    Text(pending.content)
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(AppColors.accentGradient)
-                        .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
-                } else if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 200)
-                        .cornerRadius(14)
-                } else if pending.videoData != nil {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 14)
-                            .fill(Color.blue.opacity(0.1))
-                            .frame(width: 200, height: 140)
+                    if pending.msgType == "text" && !pending.content.isEmpty {
+                        Text(pending.content)
+                            .font(.system(size: 16))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(AppColors.accentGradient)
+                            .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
+                    } else if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 200)
+                            .cornerRadius(14)
+                    } else if pending.videoData != nil {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.blue.opacity(0.1))
+                                .frame(width: 200, height: 140)
 
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(AppColors.secondaryText)
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(AppColors.secondaryText)
+                        }
                     }
                 }
             }
 
             AvatarView(url: avatarURL, size: 36)
         }
+        .padding(.vertical, 2)
     }
 }
 

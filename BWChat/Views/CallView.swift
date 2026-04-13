@@ -293,6 +293,7 @@ struct CallPipBubble: View {
     @ObservedObject private var callManager = CallManager.shared
     @State private var position: CGPoint = CGPoint(x: UIScreen.main.bounds.width - 80, y: 160)
     @State private var isHidden = false
+    @State private var lastEdgeOnLeft = false
 
     private var isVoiceCall: Bool {
         callManager.currentCall?.callType == .voice
@@ -310,17 +311,10 @@ struct CallPipBubble: View {
 
             ZStack {
                 if isHidden {
-                    hiddenArrow(screenW: screenW)
-                        .position(arrowPosition(screenW: screenW, screenH: screenH))
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                                isHidden = false
-                                position = snapToEdge(position, screenW: screenW, screenH: screenH)
-                            }
-                        }
+                    edgeButton(screenW: screenW, screenH: screenH)
                 } else {
                     if isVoiceCall {
-                        voiceBubble
+                        voiceBubble(screenW: screenW)
                             .position(position)
                             .onTapGesture {
                                 withAnimation(.easeInOut(duration: 0.25)) {
@@ -332,7 +326,7 @@ struct CallPipBubble: View {
                                 position = CGPoint(x: screenW - voicePipSize / 2 - edgeMargin, y: 160)
                             }
                     } else {
-                        videoBubble
+                        videoBubble(screenW: screenW)
                             .position(position)
                             .onTapGesture {
                                 withAnimation(.easeInOut(duration: 0.25)) {
@@ -352,107 +346,135 @@ struct CallPipBubble: View {
 
     // MARK: - Voice Bubble (small circle)
 
-    private var voiceBubble: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: "34C759"), Color(hex: "30B350")],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+    private func voiceBubble(screenW: CGFloat) -> some View {
+        ZStack(alignment: .topTrailing) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: "34C759"), Color(hex: "30B350")],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
 
-            VStack(spacing: 2) {
-                Image(systemName: "phone.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.white)
+                VStack(spacing: 2) {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
 
-                if callManager.currentCall?.state == .connected {
-                    Text(pipDuration)
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
+                    if callManager.currentCall?.state == .connected {
+                        Text(pipDuration)
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.9))
+                    }
                 }
             }
+            .frame(width: voicePipSize, height: voicePipSize)
+
+            // Hide button
+            Button {
+                lastEdgeOnLeft = position.x < screenW / 2
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    isHidden = true
+                }
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Color.black.opacity(0.5))
+                    .clipShape(Circle())
+            }
+            .offset(x: 4, y: -4)
         }
-        .frame(width: voicePipSize, height: voicePipSize)
         .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
     }
 
     // MARK: - Video Bubble (rectangular with video)
 
-    private var videoBubble: some View {
-        ZStack {
-            let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
-            let isPipLocal = callManager.isRemotePrimary
+    private func videoBubble(screenW: CGFloat) -> some View {
+        ZStack(alignment: .topTrailing) {
+            ZStack {
+                let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
+                let isPipLocal = callManager.isRemotePrimary
 
-            if let track = secondaryTrack {
-                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isPipLocal && callManager.isFrontCamera) ? .mirror : .off)
-            } else {
-                LinearGradient(
-                    colors: [Color(hex: "5856D6"), Color(hex: "764BA2")],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-
-            VStack(spacing: 2) {
-                if callManager.localVideoTrack == nil && callManager.remoteVideoTrack == nil {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(.white)
+                if let track = secondaryTrack {
+                    SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isPipLocal && callManager.isFrontCamera) ? .mirror : .off)
+                } else {
+                    LinearGradient(
+                        colors: [Color(hex: "5856D6"), Color(hex: "764BA2")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
                 }
 
-                if callManager.currentCall?.state == .connected {
-                    Text(pipDuration)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(6)
+                VStack(spacing: 2) {
+                    if callManager.localVideoTrack == nil && callManager.remoteVideoTrack == nil {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+
+                    if callManager.currentCall?.state == .connected {
+                        Text(pipDuration)
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.black.opacity(0.5))
+                            .cornerRadius(6)
+                    }
                 }
             }
+            .frame(width: videoPipWidth, height: videoPipHeight)
+            .cornerRadius(14)
+
+            // Hide button
+            Button {
+                lastEdgeOnLeft = position.x < screenW / 2
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    isHidden = true
+                }
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Color.black.opacity(0.5))
+                    .clipShape(Circle())
+            }
+            .offset(x: -4, y: 4)
         }
-        .frame(width: videoPipWidth, height: videoPipHeight)
-        .cornerRadius(14)
         .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
     }
 
-    // MARK: - Hidden Arrow Indicator
+    // MARK: - Edge Button (when hidden)
 
     @ViewBuilder
-    private func hiddenArrow(screenW: CGFloat) -> some View {
-        let onLeft = position.x < screenW / 2
-        HStack(spacing: 0) {
-            if !onLeft {
-                Spacer()
-            }
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        isVoiceCall
-                            ? LinearGradient(colors: [Color(hex: "34C759"), Color(hex: "30B350")], startPoint: .top, endPoint: .bottom)
-                            : LinearGradient(colors: [Color(hex: "5856D6"), Color(hex: "764BA2")], startPoint: .top, endPoint: .bottom)
-                    )
-                Image(systemName: onLeft ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white)
-            }
-            .frame(width: 22, height: 56)
-            .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
-            if onLeft {
-                Spacer()
+    private func edgeButton(screenW: CGFloat, screenH: CGFloat) -> some View {
+        let clampedY = min(max(position.y, 78), screenH - 58)
+        let x: CGFloat = lastEdgeOnLeft ? 11 : screenW - 11
+
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    isVoiceCall
+                        ? LinearGradient(colors: [Color(hex: "34C759"), Color(hex: "30B350")], startPoint: .top, endPoint: .bottom)
+                        : LinearGradient(colors: [Color(hex: "5856D6"), Color(hex: "764BA2")], startPoint: .top, endPoint: .bottom)
+                )
+            Image(systemName: lastEdgeOnLeft ? "chevron.right" : "chevron.left")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.white)
+        }
+        .frame(width: 22, height: 56)
+        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+        .position(x: x, y: clampedY)
+        .onTapGesture {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                isHidden = false
             }
         }
-    }
-
-    private func arrowPosition(screenW: CGFloat, screenH: CGFloat) -> CGPoint {
-        let onLeft = position.x < screenW / 2
-        let halfH = CGFloat(28)
-        let clampedY = min(max(position.y, halfH + 50), screenH - halfH - 30)
-        let x: CGFloat = onLeft ? 11 : screenW - 11
-        return CGPoint(x: x, y: clampedY)
     }
 
     // MARK: - Gesture & Helpers
@@ -463,19 +485,8 @@ struct CallPipBubble: View {
                 position = value.location
             }
             .onEnded { value in
-                let velocity = CGSize(
-                    width: value.predictedEndLocation.x - value.location.x,
-                    height: value.predictedEndLocation.y - value.location.y
-                )
-                let shouldHide = abs(velocity.width) > 150 &&
-                    ((velocity.width < 0 && value.location.x < screenW * 0.3) ||
-                     (velocity.width > 0 && value.location.x > screenW * 0.7))
-
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                    isHidden = shouldHide
-                    if !shouldHide {
-                        position = snapToEdge(value.location, screenW: screenW, screenH: screenH)
-                    }
+                    position = snapToEdge(value.location, screenW: screenW, screenH: screenH)
                 }
             }
     }
