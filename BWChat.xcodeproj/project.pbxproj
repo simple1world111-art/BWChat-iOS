@@ -67,6 +67,8 @@
 		A10104 /* MomentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104; };
 		A10105 /* CreateMomentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105; };
 		A10106 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106; };
+		A10107 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10107; };
+		A10108 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B10108; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -158,6 +160,8 @@
 		B10106 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
 		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10107 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
+		B10108 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,6 +170,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10097 /* LiveKit in Frameworks */,
+				A10108 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -185,6 +190,7 @@
 				G10001 /* BWChat */,
 				G10009 /* BWChatNotificationService */,
 				G10010 /* Products */,
+				B10108 /* libsqlite3.tbd */,
 			);
 			sourceTree = "<group>";
 		};
@@ -271,6 +277,7 @@
 				B10014 /* APIService.swift */,
 				B10015 /* WebSocketService.swift */,
 				B10016 /* PushService.swift */,
+				B10107 /* MessageStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -483,6 +490,7 @@
 				A10104 /* MomentsView.swift in Sources */,
 				A10105 /* CreateMomentView.swift in Sources */,
 				A10106 /* DiscoverView.swift in Sources */,
+				A10107 /* MessageStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

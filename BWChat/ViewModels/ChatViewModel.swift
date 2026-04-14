@@ -1,5 +1,5 @@
 // BWChat/ViewModels/ChatViewModel.swift
-// Chat conversation view model
+// Chat conversation view model with local caching
 
 import Foundation
 import Combine
@@ -20,6 +20,8 @@ class ChatViewModel: ObservableObject {
 
     let contact: Contact
     private var cancellables = Set<AnyCancellable>()
+    private let store = MessageStore.shared
+    private var myID: String { AuthManager.shared.currentUser?.userID ?? "" }
 
     init(contact: Contact) {
         self.contact = contact
@@ -30,17 +32,48 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
+        let cached = store.loadMessages(userID: myID, contactID: contact.userID)
+        if !cached.isEmpty {
+            messages = cached
+            hasMore = store.localMessageCount(userID: myID, contactID: contact.userID) >= 30
+        }
+
+        // Incremental sync: fetch messages newer than local latest
+        let latestID = store.latestMessageID(userID: myID, contactID: contact.userID)
         do {
-            let (msgs, more) = try await APIService.shared.getMessages(contactID: contact.userID)
-            messages = msgs
-            hasMore = more
+            if let latestID = latestID {
+                var allNew: [Message] = []
+                var fetchMore = true
+                var currentAfterID = latestID
+                while fetchMore {
+                    let (msgs, more) = try await APIService.shared.getMessages(
+                        contactID: contact.userID, afterID: currentAfterID, limit: 100
+                    )
+                    allNew.append(contentsOf: msgs)
+                    fetchMore = more && !msgs.isEmpty
+                    if let last = msgs.last { currentAfterID = last.id }
+                }
+
+                if !allNew.isEmpty {
+                    store.saveMessages(allNew)
+                    for msg in allNew where !messages.contains(where: { $0.id == msg.id }) {
+                        messages.append(msg)
+                    }
+                }
+                hasMore = store.localMessageCount(userID: myID, contactID: contact.userID) >= 30
+            } else {
+                let (msgs, more) = try await APIService.shared.getMessages(contactID: contact.userID)
+                store.saveMessages(msgs)
+                messages = msgs
+                hasMore = more
+            }
         } catch let error as APIError {
             if case .unauthorized = error {
                 AuthManager.shared.logout()
             }
-            errorMessage = error.errorDescription
+            if messages.isEmpty { errorMessage = error.errorDescription }
         } catch {
-            errorMessage = "加载消息失败"
+            if messages.isEmpty { errorMessage = "加载消息失败" }
         }
 
         isLoading = false
@@ -49,11 +82,18 @@ class ChatViewModel: ObservableObject {
     func loadMoreMessages() async {
         guard hasMore, let firstMessage = messages.first else { return }
 
+        let cached = store.loadMessages(userID: myID, contactID: contact.userID, beforeID: firstMessage.id)
+        if !cached.isEmpty {
+            messages.insert(contentsOf: cached, at: 0)
+            hasMore = store.loadMessages(userID: myID, contactID: contact.userID, beforeID: cached.first!.id, limit: 1).count > 0
+            return
+        }
+
         do {
             let (msgs, more) = try await APIService.shared.getMessages(
-                contactID: contact.userID,
-                beforeID: firstMessage.id
+                contactID: contact.userID, beforeID: firstMessage.id
             )
+            store.saveMessages(msgs)
             messages.insert(contentsOf: msgs, at: 0)
             hasMore = more
         } catch {
@@ -84,12 +124,10 @@ class ChatViewModel: ObservableObject {
                 content: text,
                 replyToID: replyID
             )
-            // If WS already delivered this message, just remove pending
+            store.saveMessage(message)
             if messages.contains(where: { $0.id == message.id }) {
                 pendingMessages.removeAll { $0.id == pending.id }
             } else {
-                // Replace pending with confirmed message atomically:
-                // add message first, then remove pending in same render cycle
                 messages.append(message)
                 pendingMessages.removeAll { $0.id == pending.id }
             }
@@ -111,6 +149,7 @@ class ChatViewModel: ObservableObject {
                     receiverID: contact.userID,
                     content: pending.content
                 )
+                store.saveMessage(message)
                 pendingMessages.removeAll { $0.id == pending.id }
                 if !messages.contains(where: { $0.id == message.id }) {
                     messages.append(message)
@@ -140,7 +179,6 @@ class ChatViewModel: ObservableObject {
     func sendImage(data: Data) async {
         isSending = true
 
-        // Add pending message for optimistic UI
         let pending = PendingMessage(
             receiverID: contact.userID,
             msgType: "image",
@@ -156,11 +194,10 @@ class ChatViewModel: ObservableObject {
                 imageData: data,
                 filename: "image_\(Int(Date().timeIntervalSince1970)).jpg"
             )
+            store.saveMessage(message)
             messages.append(message)
-            // Remove pending
             pendingMessages.removeAll { $0.id == pending.id }
         } catch {
-            // Mark as failed
             if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
                 pendingMessages[index].status = .failed
             }
@@ -188,6 +225,7 @@ class ChatViewModel: ObservableObject {
                 videoData: data,
                 filename: filename
             )
+            store.saveMessage(message)
             messages.append(message)
             pendingMessages.removeAll { $0.id == pending.id }
         } catch {
@@ -219,6 +257,7 @@ class ChatViewModel: ObservableObject {
                 duration: duration,
                 filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
             )
+            store.saveMessage(message)
             messages.append(message)
             pendingMessages.removeAll { $0.id == pending.id }
         } catch {
@@ -240,16 +279,15 @@ class ChatViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] message in
                 guard let self = self else { return }
-                // Only add messages from/to this contact
                 let isRelevant = (message.senderID == self.contact.userID &&
                                   message.receiverID == AuthManager.shared.currentUser?.userID) ||
                                  (message.senderID == AuthManager.shared.currentUser?.userID &&
                                   message.receiverID == self.contact.userID)
                 if isRelevant {
+                    self.store.saveMessage(message)
                     if !self.messages.contains(where: { $0.id == message.id }) {
                         self.messages.append(message)
                     }
-                    // Remove matching pending for self-sent messages
                     if message.senderID == AuthManager.shared.currentUser?.userID {
                         self.pendingMessages.removeAll {
                             $0.msgType == message.msgType && $0.content == message.content

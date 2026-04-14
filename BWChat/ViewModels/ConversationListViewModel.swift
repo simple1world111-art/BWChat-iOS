@@ -9,10 +9,19 @@ class ConversationListViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private var cancellables = Set<AnyCancellable>()
+    private let store = MessageStore.shared
 
     init() {
+        loadCachedConversations()
         setupWebSocketListeners()
         setupForegroundReload()
+    }
+
+    private func loadCachedConversations() {
+        let cached = store.loadConversations()
+        if !cached.isEmpty {
+            conversations = cached
+        }
     }
 
     private func setupForegroundReload() {
@@ -29,14 +38,16 @@ class ConversationListViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            conversations = try await APIService.shared.getConversations()
+            let serverConvs = try await APIService.shared.getConversations()
+            conversations = serverConvs
+            store.saveConversations(serverConvs)
         } catch let error as APIError {
             if case .unauthorized = error {
                 AuthManager.shared.logout()
             }
-            errorMessage = error.errorDescription
+            if conversations.isEmpty { errorMessage = error.errorDescription }
         } catch {
-            errorMessage = "加载会话失败"
+            if conversations.isEmpty { errorMessage = "加载会话失败" }
         }
 
         isLoading = false
@@ -46,6 +57,7 @@ class ConversationListViewModel: ObservableObject {
         do {
             try await APIService.shared.logout()
         } catch { }
+        store.clearAll()
         AuthManager.shared.logout()
     }
 
@@ -53,12 +65,14 @@ class ConversationListViewModel: ObservableObject {
         if let index = conversations.firstIndex(where: { $0.id == conversationID && $0.isDM }) {
             let c = conversations[index]
             if c.unreadCount > 0 {
-                conversations[index] = Conversation(
+                let updated = Conversation(
                     type: c.type, id: c.id, name: c.name, avatarURL: c.avatarURL,
                     lastMessage: c.lastMessage, lastMessageTime: c.lastMessageTime,
                     unreadCount: 0, subtitle: c.subtitle, groupID: c.groupID,
                     memberCount: c.memberCount
                 )
+                conversations[index] = updated
+                store.updateConversation(updated)
             }
         }
         Task {
@@ -72,12 +86,14 @@ class ConversationListViewModel: ObservableObject {
         if let index = conversations.firstIndex(where: { $0.id == gidStr && $0.isGroup }) {
             let c = conversations[index]
             if c.unreadCount > 0 {
-                conversations[index] = Conversation(
+                let updated = Conversation(
                     type: c.type, id: c.id, name: c.name, avatarURL: c.avatarURL,
                     lastMessage: c.lastMessage, lastMessageTime: c.lastMessageTime,
                     unreadCount: 0, subtitle: c.subtitle, groupID: c.groupID,
                     memberCount: c.memberCount
                 )
+                conversations[index] = updated
+                store.updateConversation(updated)
             }
         }
         Task {
@@ -130,17 +146,20 @@ class ConversationListViewModel: ObservableObject {
         let lastMsg: String
         if message.isImage { lastMsg = "[图片]" }
         else if message.isVideo { lastMsg = "[视频]" }
+        else if message.isVoice { lastMsg = "[语音]" }
         else { lastMsg = message.content }
 
         if let index = conversations.firstIndex(where: { $0.id == contactID && $0.isDM }) {
             let c = conversations[index]
-            conversations[index] = Conversation(
+            let updated = Conversation(
                 type: "dm", id: c.id, name: c.name, avatarURL: c.avatarURL,
                 lastMessage: lastMsg, lastMessageTime: message.timestamp,
                 unreadCount: c.unreadCount + unreadDelta, subtitle: nil,
                 groupID: nil, memberCount: nil
             )
+            conversations[index] = updated
             conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            store.updateConversation(updated)
         } else {
             Task { await loadConversations() }
         }
@@ -166,13 +185,15 @@ class ConversationListViewModel: ObservableObject {
         let gidStr = String(groupID)
         if let index = conversations.firstIndex(where: { $0.id == gidStr && $0.isGroup }) {
             let c = conversations[index]
-            conversations[index] = Conversation(
+            let updated = Conversation(
                 type: "group", id: c.id, name: c.name, avatarURL: c.avatarURL,
                 lastMessage: lastMessage, lastMessageTime: lastMessageTime,
                 unreadCount: c.unreadCount + unreadDelta, subtitle: senderNickname ?? c.subtitle,
                 groupID: c.groupID, memberCount: c.memberCount
             )
+            conversations[index] = updated
             conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            store.updateConversation(updated)
         } else {
             Task { await loadConversations() }
         }

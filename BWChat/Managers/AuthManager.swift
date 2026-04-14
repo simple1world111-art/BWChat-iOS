@@ -64,6 +64,7 @@ class AuthManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: currentUserKey)
         UserCacheManager.shared.clearCache()
         ImageCacheManager.shared.clearCache()
+        MessageStore.shared.clearAll()
         WebSocketService.shared.disconnect()
     }
 

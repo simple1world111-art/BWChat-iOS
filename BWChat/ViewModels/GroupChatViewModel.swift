@@ -1,5 +1,5 @@
 // BWChat/ViewModels/GroupChatViewModel.swift
-// Group chat conversation view model
+// Group chat conversation view model with local caching
 
 import SwiftUI
 import Combine
@@ -21,6 +21,7 @@ class GroupChatViewModel: ObservableObject {
 
     let group: ChatGroup
     private var cancellables = Set<AnyCancellable>()
+    private let store = MessageStore.shared
 
     init(group: ChatGroup) {
         self.group = group
@@ -29,25 +30,63 @@ class GroupChatViewModel: ObservableObject {
 
     func loadMessages() async {
         isLoading = true
-        do {
-            let (msgs, more) = try await APIService.shared.getGroupMessages(groupID: group.groupID)
-            messages = msgs
-            hasMore = more
-        } catch {
-            errorMessage = "加载消息失败"
+
+        let cached = store.loadGroupMessages(groupID: group.groupID)
+        if !cached.isEmpty {
+            messages = cached
+            hasMore = cached.count >= 30
         }
+
+        let latestID = store.latestGroupMessageID(groupID: group.groupID)
+        do {
+            if let latestID = latestID {
+                var allNew: [GroupMessage] = []
+                var fetchMore = true
+                var currentAfterID = latestID
+                while fetchMore {
+                    let (msgs, more) = try await APIService.shared.getGroupMessages(
+                        groupID: group.groupID, afterID: currentAfterID
+                    )
+                    allNew.append(contentsOf: msgs)
+                    fetchMore = more && !msgs.isEmpty
+                    if let last = msgs.last { currentAfterID = last.id }
+                }
+
+                if !allNew.isEmpty {
+                    store.saveGroupMessages(allNew)
+                    for msg in allNew where !messages.contains(where: { $0.id == msg.id }) {
+                        messages.append(msg)
+                    }
+                }
+            } else {
+                let (msgs, more) = try await APIService.shared.getGroupMessages(groupID: group.groupID)
+                store.saveGroupMessages(msgs)
+                messages = msgs
+                hasMore = more
+            }
+        } catch {
+            if messages.isEmpty { errorMessage = "加载消息失败" }
+        }
+
         isLoading = false
     }
 
     func loadMoreMessages() async {
         guard hasMore, let first = messages.first else { return }
+
+        let cached = store.loadGroupMessages(groupID: group.groupID, beforeID: first.id)
+        if !cached.isEmpty {
+            messages.insert(contentsOf: cached, at: 0)
+            hasMore = store.loadGroupMessages(groupID: group.groupID, beforeID: cached.first!.id, limit: 1).count > 0
+            return
+        }
+
         do {
             let (msgs, more) = try await APIService.shared.getGroupMessages(groupID: group.groupID, beforeID: first.id)
+            store.saveGroupMessages(msgs)
             messages.insert(contentsOf: msgs, at: 0)
             hasMore = more
-        } catch {
-            // silently fail
-        }
+        } catch { }
     }
 
     func sendText() async {
@@ -71,6 +110,7 @@ class GroupChatViewModel: ObservableObject {
                 replyToID: replyID,
                 mentions: mentions
             )
+            store.saveGroupMessage(msg)
             pendingTexts.removeAll { $0.id == pendingID }
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
@@ -92,6 +132,7 @@ class GroupChatViewModel: ObservableObject {
                 groupID: group.groupID,
                 content: pending.content
             )
+            store.saveGroupMessage(msg)
             pendingTexts.removeAll { $0.id == pending.id }
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
@@ -123,6 +164,7 @@ class GroupChatViewModel: ObservableObject {
         isSending = true
         do {
             let msg = try await APIService.shared.sendGroupImage(groupID: group.groupID, imageData: data, filename: "img_\(Int(Date().timeIntervalSince1970)).jpg")
+            store.saveGroupMessage(msg)
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
             }
@@ -136,6 +178,7 @@ class GroupChatViewModel: ObservableObject {
         isSending = true
         do {
             let msg = try await APIService.shared.sendGroupVideo(groupID: group.groupID, videoData: data, filename: filename)
+            store.saveGroupMessage(msg)
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
             }
@@ -154,6 +197,7 @@ class GroupChatViewModel: ObservableObject {
                 duration: duration,
                 filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
             )
+            store.saveGroupMessage(msg)
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
             }
@@ -191,6 +235,7 @@ class GroupChatViewModel: ObservableObject {
             .sink { [weak self] msg in
                 guard let self = self else { return }
                 if msg.groupID == self.group.groupID {
+                    self.store.saveGroupMessage(msg)
                     if !self.messages.contains(where: { $0.id == msg.id }) {
                         self.messages.append(msg)
                     }
@@ -199,7 +244,6 @@ class GroupChatViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Clear messages when chat is reset (e.g., logout)
         WebSocketService.shared.chatResetPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
@@ -210,7 +254,6 @@ class GroupChatViewModel: ObservableObject {
     }
 }
 
-// Pending text message placeholder for optimistic UI
 struct PendingGroupText: Identifiable {
     let id: String
     let content: String
