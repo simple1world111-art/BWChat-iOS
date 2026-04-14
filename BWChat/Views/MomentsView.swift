@@ -439,10 +439,7 @@ struct MomentRow: View {
                         }
 
                         ForEach(moment.comments) { comment in
-                            commentView(comment)
-                                .onTapGesture {
-                                    onComment(comment.userID, comment.nickname, comment.content)
-                                }
+                            commentRow(comment)
                         }
                     }
                     .padding(8)
@@ -456,7 +453,7 @@ struct MomentRow: View {
     }
 
     @ViewBuilder
-    private func commentView(_ comment: MomentComment) -> some View {
+    private func commentRow(_ comment: MomentComment) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 0) {
                 Text(comment.nickname)
@@ -478,9 +475,16 @@ struct MomentRow: View {
                         .foregroundColor(AppColors.primaryText)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onComment(comment.userID, comment.nickname, comment.content)
+            }
 
             if let imageURL = comment.imageURL, !imageURL.isEmpty {
                 CommentImageView(url: imageURL)
+                    .onTapGesture {
+                        ImageGalleryState.shared.show(urls: [imageURL], index: 0)
+                    }
             }
 
             if let createdAt = comment.createdAt {
@@ -956,14 +960,14 @@ struct CommentImageView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 80, height: 80)
+                    .frame(width: 50, height: 50)
                     .clipped()
                     .cornerRadius(4)
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(AppColors.separator)
-                    .frame(width: 80, height: 80)
-                    .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.6))
+                    .frame(width: 50, height: 50)
+                    .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.5))
             }
         }
         .padding(.top, 2)

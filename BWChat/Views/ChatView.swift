@@ -161,62 +161,58 @@ struct ChatView: View {
         VStack(spacing: 0) {
             Divider().opacity(0.3)
 
-            if recorder.isRecording {
-                voiceRecordingBar
-            } else {
-                HStack(spacing: 10) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { isVoiceMode.toggle() }
-                    } label: {
-                        Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 32, height: 40)
-                    }
+            HStack(spacing: 10) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { isVoiceMode.toggle() }
+                } label: {
+                    Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 32, height: 40)
+                }
 
-                    if isVoiceMode {
-                        holdToRecordButton
-                    } else {
-                        TextField("输入消息...", text: $viewModel.inputText)
-                            .font(.system(size: 16))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 22)
-                                    .fill(AppColors.separator)
-                            )
-                            .onSubmit {
-                                Task { await viewModel.sendText() }
-                            }
-                    }
-
-                    if viewModel.isSendEnabled && !isVoiceMode {
-                        Button {
+                if isVoiceMode {
+                    holdToRecordButton
+                } else {
+                    TextField("输入消息...", text: $viewModel.inputText)
+                        .font(.system(size: 16))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 22)
+                                .fill(AppColors.separator)
+                        )
+                        .onSubmit {
                             Task { await viewModel.sendText() }
-                        } label: {
-                            ZStack {
-                                Circle()
-                                    .fill(AppColors.accentGradient)
-                                    .frame(width: 40, height: 40)
-                                Image(systemName: "arrow.up")
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            .contentShape(Circle())
                         }
-                    } else if !isVoiceMode {
-                        Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
-                            Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundColor(AppColors.accent)
+                }
+
+                if viewModel.isSendEnabled && !isVoiceMode {
+                    Button {
+                        Task { await viewModel.sendText() }
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(AppColors.accentGradient)
                                 .frame(width: 40, height: 40)
-                                .contentShape(Rectangle())
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
                         }
+                        .contentShape(Circle())
+                    }
+                } else if !isVoiceMode {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
+                        Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(AppColors.accent)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
             if showPlusMenu && !isVoiceMode {
                 chatPlusMenu
@@ -228,62 +224,24 @@ struct ChatView: View {
     private var holdToRecordButton: some View {
         Text(recorder.isRecording ? "松开 发送" : "按住 说话")
             .font(.system(size: 16, weight: .medium))
-            .foregroundColor(AppColors.primaryText)
+            .foregroundColor(recorder.isRecording ? .white : AppColors.primaryText)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 22)
-                    .fill(recorder.isRecording ? AppColors.accent.opacity(0.2) : AppColors.separator)
+                    .fill(recorder.isRecording ? AppColors.accent : AppColors.separator)
             )
             .gesture(
-                LongPressGesture(minimumDuration: 0.15)
-                    .onEnded { _ in
-                        recorder.startRecording()
-                    }
-                    .sequenced(before: DragGesture(minimumDistance: 0)
-                        .onEnded { _ in
-                            finishVoiceRecording()
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !recorder.isRecording {
+                            recorder.startRecording()
                         }
-                    )
+                    }
+                    .onEnded { _ in
+                        finishVoiceRecording()
+                    }
             )
-    }
-
-    private var voiceRecordingBar: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.red)
-                .frame(width: 10, height: 10)
-
-            Text(recorder.formattedDuration)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(AppColors.primaryText)
-                .monospacedDigit()
-
-            Spacer()
-
-            Button {
-                recorder.cancelRecording()
-            } label: {
-                Text("取消")
-                    .font(.system(size: 15))
-                    .foregroundColor(.red)
-            }
-
-            Button {
-                finishVoiceRecording()
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(AppColors.accentGradient)
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     private func finishVoiceRecording() {

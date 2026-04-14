@@ -215,44 +215,44 @@ struct VoiceBubbleView: View {
     }
 
     var body: some View {
-        Button {
+        HStack(spacing: 6) {
+            if !isFromMe {
+                voiceWaveIcon
+                Spacer()
+                Text(displayDuration)
+                    .font(.system(size: 14))
+                    .foregroundColor(isFromMe ? .white : AppColors.primaryText)
+            } else {
+                Text(displayDuration)
+                    .font(.system(size: 14))
+                    .foregroundColor(isFromMe ? .white : AppColors.primaryText)
+                Spacer()
+                voiceWaveIcon
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(width: bubbleWidth)
+        .background(
+            Group {
+                if isFromMe {
+                    AppColors.sentBubbleGradient
+                } else {
+                    LinearGradient(
+                        colors: [AppColors.receivedBubble, AppColors.receivedBubble],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                }
+            }
+        )
+        .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+        .contentShape(Rectangle())
+        .onTapGesture {
             if player.isPlaying {
                 player.stop()
             } else {
                 player.play(urlString: url)
             }
-        } label: {
-            HStack(spacing: 6) {
-                if !isFromMe {
-                    voiceWaveIcon
-                    Spacer()
-                    Text(displayDuration)
-                        .font(.system(size: 14))
-                        .foregroundColor(isFromMe ? .white : AppColors.primaryText)
-                } else {
-                    Text(displayDuration)
-                        .font(.system(size: 14))
-                        .foregroundColor(isFromMe ? .white : AppColors.primaryText)
-                    Spacer()
-                    voiceWaveIcon
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(width: bubbleWidth)
-            .background(
-                Group {
-                    if isFromMe {
-                        AppColors.sentBubbleGradient
-                    } else {
-                        LinearGradient(
-                            colors: [AppColors.receivedBubble, AppColors.receivedBubble],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    }
-                }
-            )
-            .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
         }
     }
 
@@ -280,15 +280,26 @@ class VoicePlayerManager: ObservableObject {
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var downloadTask: URLSessionDataTask?
+    private let delegate = VoicePlayerDelegateHandler()
 
     func play(urlString: String) {
         stop()
-        guard let baseURL = URL(string: APIService.shared.baseURL),
-              let full = URL(string: urlString, relativeTo: baseURL) else { return }
 
-        let resolvedURL = full.absoluteURL
+        let base = APIService.shared.baseURL
+        let fullURLString: String
+        if urlString.hasPrefix("http") {
+            fullURLString = urlString
+        } else {
+            fullURLString = base + urlString
+        }
+        guard let url = URL(string: fullURLString) else { return }
 
-        downloadTask = URLSession.shared.dataTask(with: resolvedURL) { [weak self] data, _, error in
+        var request = URLRequest(url: url)
+        if let token = AuthManager.shared.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        downloadTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let data = data, error == nil else { return }
             DispatchQueue.main.async {
                 self?.playData(data)
@@ -302,10 +313,10 @@ class VoicePlayerManager: ObservableObject {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
             player = try AVAudioPlayer(data: data)
-            player?.delegate = VoicePlayerDelegate.shared
-            VoicePlayerDelegate.shared.onFinish = { [weak self] in
+            delegate.onFinish = { [weak self] in
                 DispatchQueue.main.async { self?.stop() }
             }
+            player?.delegate = delegate
             player?.play()
             isPlaying = true
             timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
@@ -328,8 +339,7 @@ class VoicePlayerManager: ObservableObject {
     }
 }
 
-class VoicePlayerDelegate: NSObject, AVAudioPlayerDelegate {
-    static let shared = VoicePlayerDelegate()
+class VoicePlayerDelegateHandler: NSObject, AVAudioPlayerDelegate {
     var onFinish: (() -> Void)?
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
