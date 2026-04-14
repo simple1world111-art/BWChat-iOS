@@ -17,6 +17,7 @@ struct ChatView: View {
     @State private var showPlusMenu = false
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
+    @State private var voiceCancelZone = false
 
     private var isSelfChat: Bool {
         contact.userID == AuthManager.shared.currentUser?.userID
@@ -145,6 +146,7 @@ struct ChatView: View {
                 EmptyView()
             }
         }
+        .overlay { voiceRecordingOverlay }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
         .fullScreenCover(item: Binding(
@@ -174,17 +176,15 @@ struct ChatView: View {
                 if isVoiceMode {
                     holdToRecordButton
                 } else {
-                    TextField("输入消息...", text: $viewModel.inputText)
+                    TextField("输入消息...", text: $viewModel.inputText, axis: .vertical)
                         .font(.system(size: 16))
+                        .lineLimit(1...5)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 22)
                                 .fill(AppColors.separator)
                         )
-                        .onSubmit {
-                            Task { await viewModel.sendText() }
-                        }
                 }
 
                 if viewModel.isSendEnabled && !isVoiceMode {
@@ -222,26 +222,92 @@ struct ChatView: View {
     }
 
     private var holdToRecordButton: some View {
-        Text(recorder.isRecording ? "松开 发送" : "按住 说话")
+        Text(recorder.isRecording ? (voiceCancelZone ? "松开 取消" : "松开 发送") : "按住 说话")
             .font(.system(size: 16, weight: .medium))
             .foregroundColor(recorder.isRecording ? .white : AppColors.primaryText)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 22)
-                    .fill(recorder.isRecording ? AppColors.accent : AppColors.separator)
+                    .fill(recorder.isRecording ? (voiceCancelZone ? Color.red.opacity(0.8) : AppColors.accent) : AppColors.separator)
             )
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
+                    .onChanged { value in
                         if !recorder.isRecording {
                             recorder.startRecording()
                         }
+                        let inCancel = value.translation.height < -80
+                        if inCancel != voiceCancelZone {
+                            withAnimation(.easeInOut(duration: 0.15)) { voiceCancelZone = inCancel }
+                        }
                     }
                     .onEnded { _ in
-                        finishVoiceRecording()
+                        if voiceCancelZone {
+                            recorder.cancelRecording()
+                            voiceCancelZone = false
+                        } else {
+                            finishVoiceRecording()
+                        }
                     }
             )
+    }
+
+    @ViewBuilder
+    private var voiceRecordingOverlay: some View {
+        if recorder.isRecording {
+            ZStack {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+
+                VStack(spacing: 24) {
+                    Spacer()
+
+                    ZStack {
+                        Circle()
+                            .fill(voiceCancelZone ? Color.red.opacity(0.9) : AppColors.accent)
+                            .frame(width: 100, height: 100)
+
+                        if voiceCancelZone {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 36, weight: .bold))
+                                .foregroundColor(.white)
+                        } else {
+                            voiceWaveAnimation
+                        }
+                    }
+                    .scaleEffect(voiceCancelZone ? 1.1 : 1.0)
+                    .animation(.easeInOut(duration: 0.2), value: voiceCancelZone)
+
+                    Text(recorder.formattedDuration)
+                        .font(.system(size: 48, weight: .light, design: .monospaced))
+                        .foregroundColor(.white)
+
+                    Text(voiceCancelZone ? "松开 取消发送" : "上滑 取消")
+                        .font(.system(size: 15))
+                        .foregroundColor(.white.opacity(0.7))
+                        .padding(.bottom, 120)
+                }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private var voiceWaveAnimation: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<5, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white)
+                    .frame(width: 4, height: CGFloat([16, 24, 32, 24, 16][i]))
+                    .animation(
+                        .easeInOut(duration: 0.4)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(i) * 0.1),
+                        value: recorder.isRecording
+                    )
+            }
+        }
     }
 
     private func finishVoiceRecording() {
@@ -356,6 +422,7 @@ struct PendingMessageBubble: View {
                         Text(pending.content)
                             .font(.system(size: 16))
                             .foregroundColor(.white)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .background(AppColors.accentGradient)

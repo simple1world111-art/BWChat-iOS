@@ -238,17 +238,15 @@ struct MomentsView: View {
 
                 TextField(
                     commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
-                    text: $commentText
+                    text: $commentText,
+                    axis: .vertical
                 )
                 .focused($commentFieldFocused)
                 .font(.system(size: 16))
+                .lineLimit(1...4)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 20).fill(AppColors.separator))
-                .submitLabel(.send)
-                .onSubmit {
-                    sendComment()
-                }
 
                 Button {
                     sendComment()
@@ -455,36 +453,65 @@ struct MomentRow: View {
     @ViewBuilder
     private func commentRow(_ comment: MomentComment) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 0) {
-                Text(comment.nickname)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Color(hex: "576B95"))
-
+            Group {
                 if let replyTo = comment.replyTo {
-                    Text(" 回复 ")
-                        .font(.system(size: 13))
-                        .foregroundColor(AppColors.secondaryText)
-                    Text(replyTo.nickname)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color(hex: "576B95"))
-                }
-
-                if !comment.content.isEmpty {
-                    Text(": \(comment.content)")
-                        .font(.system(size: 13))
-                        .foregroundColor(AppColors.primaryText)
+                    if !comment.content.isEmpty {
+                        (Text(comment.nickname)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "576B95"))
+                        + Text(" 回复 ")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.secondaryText)
+                        + Text(replyTo.nickname)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "576B95"))
+                        + Text(": \(comment.content)")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.primaryText))
+                    } else {
+                        (Text(comment.nickname)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "576B95"))
+                        + Text(" 回复 ")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.secondaryText)
+                        + Text(replyTo.nickname)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "576B95")))
+                    }
+                } else {
+                    if !comment.content.isEmpty {
+                        (Text(comment.nickname)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "576B95"))
+                        + Text(": \(comment.content)")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.primaryText))
+                    } else {
+                        Text(comment.nickname)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "576B95"))
+                    }
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .contentShape(Rectangle())
             .onTapGesture {
                 onComment(comment.userID, comment.nickname, comment.content)
             }
 
             if let imageURL = comment.imageURL, !imageURL.isEmpty {
-                CommentImageView(url: imageURL)
-                    .onTapGesture {
-                        ImageGalleryState.shared.show(urls: [imageURL], index: 0)
-                    }
+                HStack(spacing: 0) {
+                    CommentImageView(url: imageURL)
+                        .onTapGesture {
+                            ImageGalleryState.shared.show(urls: [imageURL], index: 0)
+                        }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onComment(comment.userID, comment.nickname, comment.content)
+                }
             }
 
             if let createdAt = comment.createdAt {
@@ -894,15 +921,15 @@ struct MomentDetailView: View {
 
                 TextField(
                     commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
-                    text: $commentText
+                    text: $commentText,
+                    axis: .vertical
                 )
                 .focused($commentFieldFocused)
                 .font(.system(size: 16))
+                .lineLimit(1...4)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 20).fill(AppColors.separator))
-                .submitLabel(.send)
-                .onSubmit { sendComment() }
 
                 Button { sendComment() } label: {
                     Text("发送")

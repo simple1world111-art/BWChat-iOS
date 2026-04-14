@@ -92,6 +92,7 @@ struct MessageBubble: View {
         Text(message.content)
             .font(.system(size: 16))
             .foregroundColor(isFromMe ? .white : AppColors.primaryText)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(
@@ -285,12 +286,15 @@ class VoicePlayerManager: ObservableObject {
     func play(urlString: String) {
         stop()
 
-        let base = APIService.shared.baseURL
         let fullURLString: String
         if urlString.hasPrefix("http") {
             fullURLString = urlString
+        } else if let baseURL = URL(string: APIService.shared.baseURL),
+                  let scheme = baseURL.scheme, let host = baseURL.host {
+            let port = baseURL.port.map { ":\($0)" } ?? ""
+            fullURLString = "\(scheme)://\(host)\(port)\(urlString)"
         } else {
-            fullURLString = base + urlString
+            return
         }
         guard let url = URL(string: fullURLString) else { return }
 
