@@ -146,7 +146,10 @@ class ConversationListViewModel: ObservableObject {
         let lastMsg: String
         if message.isImage { lastMsg = "[图片]" }
         else if message.isVideo { lastMsg = "[视频]" }
-        else if message.isVoice { lastMsg = "[语音]" }
+        else if message.isVoice {
+            let dur = Int(message.voiceDuration)
+            lastMsg = dur > 0 ? "[语音] \(dur)''" : "[语音]"
+        }
         else { lastMsg = message.content }
 
         if let index = conversations.firstIndex(where: { $0.id == contactID && $0.isDM }) {
