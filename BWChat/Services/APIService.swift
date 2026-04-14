@@ -36,7 +36,7 @@ struct EmptyData: Decodable {}
 class APIService {
     static let shared = APIService()
     private let session: URLSession
-    private let baseURL: String
+    private(set) var baseURL: String
     private var isRefreshing = false
     private var refreshContinuations: [CheckedContinuation<Void, Error>] = []
 
