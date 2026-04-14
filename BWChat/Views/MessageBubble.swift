@@ -2,6 +2,7 @@
 // Premium gradient message bubble with avatar
 
 import SwiftUI
+import AVFoundation
 
 struct MessageBubble: View {
     let message: Message
@@ -38,6 +39,12 @@ struct MessageBubble: View {
                     imageBubble
                 } else if message.isVideo {
                     videoBubble
+                } else if message.isVoice {
+                    VoiceBubbleView(
+                        url: message.voiceURL ?? "",
+                        duration: message.voiceDuration,
+                        isFromMe: isFromMe
+                    )
                 } else {
                     textBubble
                 }
@@ -181,6 +188,152 @@ struct RoundedCorner: Shape {
             cornerRadii: CGSize(width: radius, height: radius)
         )
         return Path(path.cgPath)
+    }
+}
+
+// MARK: - Cached Async Image
+
+// MARK: - Voice Bubble
+
+struct VoiceBubbleView: View {
+    let url: String
+    let duration: Double
+    let isFromMe: Bool
+    @StateObject private var player = VoicePlayerManager()
+
+    var displayDuration: String {
+        let d = player.isPlaying ? player.currentTime : duration
+        let secs = Int(d)
+        return "\(secs)\""
+    }
+
+    private var bubbleWidth: CGFloat {
+        let minW: CGFloat = 80
+        let maxW: CGFloat = 200
+        let perSec: CGFloat = 8
+        return min(max(minW, minW + CGFloat(duration) * perSec), maxW)
+    }
+
+    var body: some View {
+        Button {
+            if player.isPlaying {
+                player.stop()
+            } else {
+                player.play(urlString: url)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if !isFromMe {
+                    voiceWaveIcon
+                    Spacer()
+                    Text(displayDuration)
+                        .font(.system(size: 14))
+                        .foregroundColor(isFromMe ? .white : AppColors.primaryText)
+                } else {
+                    Text(displayDuration)
+                        .font(.system(size: 14))
+                        .foregroundColor(isFromMe ? .white : AppColors.primaryText)
+                    Spacer()
+                    voiceWaveIcon
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(width: bubbleWidth)
+            .background(
+                Group {
+                    if isFromMe {
+                        AppColors.sentBubbleGradient
+                    } else {
+                        LinearGradient(
+                            colors: [AppColors.receivedBubble, AppColors.receivedBubble],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    }
+                }
+            )
+            .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+        }
+    }
+
+    private var voiceWaveIcon: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(isFromMe ? Color.white : AppColors.primaryText)
+                    .frame(width: 2, height: player.isPlaying ? CGFloat([8, 14, 10][i]) : CGFloat([6, 10, 6][i]))
+                    .animation(
+                        player.isPlaying
+                            ? .easeInOut(duration: 0.4).repeatForever(autoreverses: true).delay(Double(i) * 0.15)
+                            : .default,
+                        value: player.isPlaying
+                    )
+            }
+        }
+    }
+}
+
+@MainActor
+class VoicePlayerManager: ObservableObject {
+    @Published var isPlaying = false
+    @Published var currentTime: Double = 0
+    private var player: AVAudioPlayer?
+    private var timer: Timer?
+    private var downloadTask: URLSessionDataTask?
+
+    func play(urlString: String) {
+        stop()
+        guard let baseURL = URL(string: APIService.shared.baseURL),
+              let full = URL(string: urlString, relativeTo: baseURL) else { return }
+
+        let resolvedURL = full.absoluteURL
+
+        downloadTask = URLSession.shared.dataTask(with: resolvedURL) { [weak self] data, _, error in
+            guard let data = data, error == nil else { return }
+            DispatchQueue.main.async {
+                self?.playData(data)
+            }
+        }
+        downloadTask?.resume()
+    }
+
+    private func playData(_ data: Data) {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setActive(true)
+            player = try AVAudioPlayer(data: data)
+            player?.delegate = VoicePlayerDelegate.shared
+            VoicePlayerDelegate.shared.onFinish = { [weak self] in
+                DispatchQueue.main.async { self?.stop() }
+            }
+            player?.play()
+            isPlaying = true
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.currentTime = self?.player?.currentTime ?? 0
+                }
+            }
+        } catch { }
+    }
+
+    func stop() {
+        player?.stop()
+        player = nil
+        timer?.invalidate()
+        timer = nil
+        downloadTask?.cancel()
+        downloadTask = nil
+        isPlaying = false
+        currentTime = 0
+    }
+}
+
+class VoicePlayerDelegate: NSObject, AVAudioPlayerDelegate {
+    static let shared = VoicePlayerDelegate()
+    var onFinish: (() -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish?()
     }
 }
 

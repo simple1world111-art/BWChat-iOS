@@ -46,6 +46,20 @@ struct Message: Codable, Identifiable, Equatable {
         msgType == "video"
     }
 
+    var isVoice: Bool {
+        msgType == "voice"
+    }
+
+    var voiceURL: String? {
+        guard isVoice else { return nil }
+        return content.components(separatedBy: "|").first
+    }
+
+    var voiceDuration: Double {
+        guard isVoice, let durStr = content.components(separatedBy: "|").last else { return 0 }
+        return Double(durStr) ?? 0
+    }
+
     var formattedTime: String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -76,11 +90,23 @@ struct PendingMessage: Identifiable {
     let content: String
     let imageData: Data?
     let videoData: Data?
+    let voiceData: Data?
+    let voiceDuration: Double
     var status: SendStatus = .sending
 
     enum SendStatus {
         case sending
         case sent
         case failed
+    }
+
+    init(receiverID: String, msgType: String, content: String, imageData: Data? = nil, videoData: Data? = nil, voiceData: Data? = nil, voiceDuration: Double = 0) {
+        self.receiverID = receiverID
+        self.msgType = msgType
+        self.content = content
+        self.imageData = imageData
+        self.videoData = videoData
+        self.voiceData = voiceData
+        self.voiceDuration = voiceDuration
     }
 }

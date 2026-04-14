@@ -4,6 +4,7 @@
 import SwiftUI
 import PhotosUI
 import AVKit
+import AVFoundation
 import UniformTypeIdentifiers
 
 struct GroupChatView: View {
@@ -19,6 +20,8 @@ struct GroupChatView: View {
     @State private var shouldPopToRoot = false
     @State private var showPlusMenu = false
     @State private var highlightedMessageID: Int?
+    @State private var isVoiceMode = false
+    @StateObject private var recorder = AudioRecorderManager()
 
     private var myAvatarURL: String {
         AuthManager.shared.currentUser?.avatarURL ?? ""
@@ -229,51 +232,136 @@ struct GroupChatView: View {
         VStack(spacing: 0) {
             Divider().opacity(0.3)
 
-            HStack(spacing: 10) {
-                TextField("输入消息...", text: $viewModel.inputText)
-                    .font(.system(size: 16))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22)
-                            .fill(AppColors.separator)
-                    )
-                    .onSubmit {
-                        Task { await viewModel.sendText() }
+            if recorder.isRecording {
+                groupVoiceRecordingBar
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isVoiceMode.toggle() }
+                    } label: {
+                        Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(AppColors.accent)
+                            .frame(width: 32, height: 40)
                     }
 
-                if viewModel.isSendEnabled {
-                    Button {
-                        Task { await viewModel.sendText() }
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(AppColors.accentGradient)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                        .contentShape(Circle())
+                    if isVoiceMode {
+                        groupHoldToRecordButton
+                    } else {
+                        TextField("输入消息...", text: $viewModel.inputText)
+                            .font(.system(size: 16))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 22)
+                                    .fill(AppColors.separator)
+                            )
+                            .onSubmit {
+                                Task { await viewModel.sendText() }
+                            }
                     }
-                } else {
-                    Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
-                        Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 40, height: 40)
-                            .contentShape(Rectangle())
+
+                    if viewModel.isSendEnabled && !isVoiceMode {
+                        Button {
+                            Task { await viewModel.sendText() }
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(AppColors.accentGradient)
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .contentShape(Circle())
+                        }
+                    } else if !isVoiceMode {
+                        Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
+                            Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(AppColors.accent)
+                                .frame(width: 40, height: 40)
+                                .contentShape(Rectangle())
+                        }
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
 
-            if showPlusMenu {
+            if showPlusMenu && !isVoiceMode {
                 groupPlusMenu
             }
         }
         .background(AppColors.secondaryBackground)
+    }
+
+    private var groupHoldToRecordButton: some View {
+        Text(recorder.isRecording ? "松开 发送" : "按住 说话")
+            .font(.system(size: 16, weight: .medium))
+            .foregroundColor(AppColors.primaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(recorder.isRecording ? AppColors.accent.opacity(0.2) : AppColors.separator)
+            )
+            .gesture(
+                LongPressGesture(minimumDuration: 0.15)
+                    .onEnded { _ in
+                        recorder.startRecording()
+                    }
+                    .sequenced(before: DragGesture(minimumDistance: 0)
+                        .onEnded { _ in
+                            finishGroupVoiceRecording()
+                        }
+                    )
+            )
+    }
+
+    private var groupVoiceRecordingBar: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 10, height: 10)
+
+            Text(recorder.formattedDuration)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(AppColors.primaryText)
+                .monospacedDigit()
+
+            Spacer()
+
+            Button {
+                recorder.cancelRecording()
+            } label: {
+                Text("取消")
+                    .font(.system(size: 15))
+                    .foregroundColor(.red)
+            }
+
+            Button {
+                finishGroupVoiceRecording()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(AppColors.accentGradient)
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func finishGroupVoiceRecording() {
+        guard let result = recorder.stopRecording() else { return }
+        Task {
+            await viewModel.sendVoice(data: result.data, duration: result.duration)
+        }
     }
 
     private var groupPlusMenu: some View {
@@ -419,6 +507,12 @@ struct GroupMessageBubble: View {
                     }
                     .cornerRadius(16)
                     .onTapGesture { onVideoTap?(message.content) }
+                } else if message.isVoice {
+                    VoiceBubbleView(
+                        url: message.voiceURL ?? "",
+                        duration: message.voiceDuration,
+                        isFromMe: isFromMe
+                    )
                 } else {
                     Text(message.content)
                         .font(.system(size: 16))

@@ -200,6 +200,37 @@ class ChatViewModel: ObservableObject {
         isSending = false
     }
 
+    func sendVoice(data: Data, duration: Double) async {
+        isSending = true
+
+        let pending = PendingMessage(
+            receiverID: contact.userID,
+            msgType: "voice",
+            content: "",
+            voiceData: data,
+            voiceDuration: duration
+        )
+        pendingMessages.append(pending)
+
+        do {
+            let message = try await APIService.shared.sendVoiceMessage(
+                receiverID: contact.userID,
+                voiceData: data,
+                duration: duration,
+                filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
+            )
+            messages.append(message)
+            pendingMessages.removeAll { $0.id == pending.id }
+        } catch {
+            if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
+                pendingMessages[index].status = .failed
+            }
+            errorMessage = "语音发送失败"
+        }
+
+        isSending = false
+    }
+
     var isSendEnabled: Bool {
         !inputText.isBlank
     }

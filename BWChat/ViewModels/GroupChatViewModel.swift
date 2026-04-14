@@ -145,6 +145,24 @@ class GroupChatViewModel: ObservableObject {
         isSending = false
     }
 
+    func sendVoice(data: Data, duration: Double) async {
+        isSending = true
+        do {
+            let msg = try await APIService.shared.sendGroupVoice(
+                groupID: group.groupID,
+                voiceData: data,
+                duration: duration,
+                filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
+            )
+            if !messages.contains(where: { $0.id == msg.id }) {
+                messages.append(msg)
+            }
+        } catch {
+            errorMessage = "语音发送失败"
+        }
+        isSending = false
+    }
+
     var isSendEnabled: Bool {
         !inputText.isBlank
     }

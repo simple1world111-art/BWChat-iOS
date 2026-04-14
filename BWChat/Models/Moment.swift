@@ -22,6 +22,7 @@ struct MomentComment: Codable, Identifiable, Equatable {
     let nickname: String
     let avatarURL: String
     let replyTo: MomentAuthor?
+    let imageURL: String?
 
     enum CodingKeys: String, CodingKey {
         case id, content
@@ -30,6 +31,7 @@ struct MomentComment: Codable, Identifiable, Equatable {
         case nickname
         case avatarURL = "avatar_url"
         case replyTo = "reply_to"
+        case imageURL = "image_url"
     }
 }
 

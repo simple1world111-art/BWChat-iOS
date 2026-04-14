@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct MomentsView: View {
     var filterUserID: String? = nil
@@ -11,6 +12,8 @@ struct MomentsView: View {
     @State private var commentText = ""
     @State private var commentTarget: (momentID: Int, replyToUserID: String?, replyToName: String?, replyContent: String?)? = nil
     @State private var commentTriggerID = UUID()
+    @State private var commentImageItem: PhotosPickerItem?
+    @State private var commentImageData: Data?
     @FocusState private var commentFieldFocused: Bool
 
     var body: some View {
@@ -192,7 +195,47 @@ struct MomentsView: View {
                 .padding(.bottom, 2)
             }
 
+            if let imgData = commentImageData, let uiImg = UIImage(data: imgData) {
+                HStack {
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: uiImg)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 60, height: 60)
+                            .clipped()
+                            .cornerRadius(6)
+
+                        Button {
+                            commentImageData = nil
+                            commentImageItem = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
+                        .offset(x: 4, y: -4)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+            }
+
             HStack(spacing: 10) {
+                PhotosPicker(selection: $commentImageItem, matching: .images) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppColors.accent)
+                }
+                .onChange(of: commentImageItem) { item in
+                    Task {
+                        if let data = try? await item?.loadTransferable(type: Data.self) {
+                            commentImageData = data
+                        }
+                    }
+                }
+
                 TextField(
                     commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
                     text: $commentText
@@ -215,14 +258,16 @@ struct MomentsView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(commentText.isEmpty ? AppColors.tertiaryText : AppColors.accent)
+                        .background(canSendComment ? AppColors.accent : AppColors.tertiaryText)
                         .cornerRadius(20)
                 }
-                .disabled(commentText.isEmpty)
+                .disabled(!canSendComment)
 
                 Button {
                     commentTarget = nil
                     commentText = ""
+                    commentImageData = nil
+                    commentImageItem = nil
                     commentFieldFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -249,17 +294,25 @@ struct MomentsView: View {
         }
     }
 
+    private var canSendComment: Bool {
+        !commentText.isEmpty || commentImageData != nil
+    }
+
     private func sendComment() {
-        guard let target = commentTarget, !commentText.isEmpty else { return }
+        guard let target = commentTarget, canSendComment else { return }
         let text = commentText
+        let imgData = commentImageData
         commentText = ""
+        commentImageData = nil
+        commentImageItem = nil
         commentTarget = nil
         commentFieldFocused = false
         Task {
             await viewModel.addComment(
                 momentID: target.momentID,
                 content: text,
-                replyToUserID: target.replyToUserID
+                replyToUserID: target.replyToUserID,
+                imageData: imgData
             )
         }
     }
@@ -419,9 +472,15 @@ struct MomentRow: View {
                         .foregroundColor(Color(hex: "576B95"))
                 }
 
-                Text(": \(comment.content)")
-                    .font(.system(size: 13))
-                    .foregroundColor(AppColors.primaryText)
+                if !comment.content.isEmpty {
+                    Text(": \(comment.content)")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.primaryText)
+                }
+            }
+
+            if let imageURL = comment.imageURL, !imageURL.isEmpty {
+                CommentImageView(url: imageURL)
             }
 
             if let createdAt = comment.createdAt {
@@ -654,6 +713,8 @@ struct MomentDetailView: View {
     @State private var commentText = ""
     @State private var commentTarget: (replyToUserID: String?, replyToName: String?, replyContent: String?)?
     @State private var commentTriggerID = UUID()
+    @State private var commentImageItem: PhotosPickerItem?
+    @State private var commentImageData: Data?
     @FocusState private var commentFieldFocused: Bool
 
     var body: some View {
@@ -731,16 +792,24 @@ struct MomentDetailView: View {
         }
     }
 
+    private var canSendDetailComment: Bool {
+        !commentText.isEmpty || commentImageData != nil
+    }
+
     private func sendComment() {
-        guard let target = commentTarget, !commentText.isEmpty, let m = moment else { return }
+        guard let target = commentTarget, canSendDetailComment, let m = moment else { return }
         let text = commentText
+        let imgData = commentImageData
         commentText = ""
+        commentImageData = nil
+        commentImageItem = nil
         commentTarget = nil
         commentFieldFocused = false
         Task {
             do {
+                let imgJpeg: Data? = imgData.flatMap { UIImage(data: $0)?.jpegData(compressionQuality: 0.7) }
                 let comment = try await APIService.shared.addMomentComment(
-                    momentID: m.id, content: text, replyToUserID: target.replyToUserID
+                    momentID: m.id, content: text, replyToUserID: target.replyToUserID, imageData: imgJpeg
                 )
                 var newComments = m.comments
                 newComments.append(comment)
@@ -778,7 +847,47 @@ struct MomentDetailView: View {
                 .padding(.bottom, 2)
             }
 
+            if let imgData = commentImageData, let uiImg = UIImage(data: imgData) {
+                HStack {
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: uiImg)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 60, height: 60)
+                            .clipped()
+                            .cornerRadius(6)
+
+                        Button {
+                            commentImageData = nil
+                            commentImageItem = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.white)
+                                .background(Circle().fill(Color.black.opacity(0.5)))
+                        }
+                        .offset(x: 4, y: -4)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+            }
+
             HStack(spacing: 10) {
+                PhotosPicker(selection: $commentImageItem, matching: .images) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppColors.accent)
+                }
+                .onChange(of: commentImageItem) { item in
+                    Task {
+                        if let data = try? await item?.loadTransferable(type: Data.self) {
+                            commentImageData = data
+                        }
+                    }
+                }
+
                 TextField(
                     commentTarget?.replyToName != nil ? "回复 \(commentTarget!.replyToName!)..." : "评论...",
                     text: $commentText
@@ -797,14 +906,16 @@ struct MomentDetailView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(commentText.isEmpty ? AppColors.tertiaryText : AppColors.accent)
+                        .background(canSendDetailComment ? AppColors.accent : AppColors.tertiaryText)
                         .cornerRadius(20)
                 }
-                .disabled(commentText.isEmpty)
+                .disabled(!canSendDetailComment)
 
                 Button {
                     commentTarget = nil
                     commentText = ""
+                    commentImageData = nil
+                    commentImageItem = nil
                     commentFieldFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -828,6 +939,37 @@ struct MomentDetailView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - Comment Image View (small thumbnail)
+
+struct CommentImageView: View {
+    let url: String
+    @State private var image: UIImage?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 80, height: 80)
+                    .clipped()
+                    .cornerRadius(4)
+            } else if isLoading {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppColors.separator)
+                    .frame(width: 80, height: 80)
+                    .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.6))
+            }
+        }
+        .padding(.top, 2)
+        .task(id: url) {
+            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            isLoading = false
         }
     }
 }

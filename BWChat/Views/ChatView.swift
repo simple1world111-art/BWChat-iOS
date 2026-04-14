@@ -4,6 +4,7 @@
 import SwiftUI
 import PhotosUI
 import AVKit
+import AVFoundation
 import UniformTypeIdentifiers
 
 struct ChatView: View {
@@ -14,6 +15,8 @@ struct ChatView: View {
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
     @State private var showPlusMenu = false
+    @State private var isVoiceMode = false
+    @StateObject private var recorder = AudioRecorderManager()
 
     private var isSelfChat: Bool {
         contact.userID == AuthManager.shared.currentUser?.userID
@@ -158,51 +161,136 @@ struct ChatView: View {
         VStack(spacing: 0) {
             Divider().opacity(0.3)
 
-            HStack(spacing: 10) {
-                TextField("输入消息...", text: $viewModel.inputText)
-                    .font(.system(size: 16))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22)
-                            .fill(AppColors.separator)
-                    )
-                    .onSubmit {
-                        Task { await viewModel.sendText() }
+            if recorder.isRecording {
+                voiceRecordingBar
+            } else {
+                HStack(spacing: 10) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { isVoiceMode.toggle() }
+                    } label: {
+                        Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(AppColors.accent)
+                            .frame(width: 32, height: 40)
                     }
 
-                if viewModel.isSendEnabled {
-                    Button {
-                        Task { await viewModel.sendText() }
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(AppColors.accentGradient)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                        .contentShape(Circle())
+                    if isVoiceMode {
+                        holdToRecordButton
+                    } else {
+                        TextField("输入消息...", text: $viewModel.inputText)
+                            .font(.system(size: 16))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 22)
+                                    .fill(AppColors.separator)
+                            )
+                            .onSubmit {
+                                Task { await viewModel.sendText() }
+                            }
                     }
-                } else {
-                    Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
-                        Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 40, height: 40)
-                            .contentShape(Rectangle())
+
+                    if viewModel.isSendEnabled && !isVoiceMode {
+                        Button {
+                            Task { await viewModel.sendText() }
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(AppColors.accentGradient)
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .contentShape(Circle())
+                        }
+                    } else if !isVoiceMode {
+                        Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
+                            Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(AppColors.accent)
+                                .frame(width: 40, height: 40)
+                                .contentShape(Rectangle())
+                        }
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
 
-            if showPlusMenu {
+            if showPlusMenu && !isVoiceMode {
                 chatPlusMenu
             }
         }
         .background(AppColors.secondaryBackground)
+    }
+
+    private var holdToRecordButton: some View {
+        Text(recorder.isRecording ? "松开 发送" : "按住 说话")
+            .font(.system(size: 16, weight: .medium))
+            .foregroundColor(AppColors.primaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(recorder.isRecording ? AppColors.accent.opacity(0.2) : AppColors.separator)
+            )
+            .gesture(
+                LongPressGesture(minimumDuration: 0.15)
+                    .onEnded { _ in
+                        recorder.startRecording()
+                    }
+                    .sequenced(before: DragGesture(minimumDistance: 0)
+                        .onEnded { _ in
+                            finishVoiceRecording()
+                        }
+                    )
+            )
+    }
+
+    private var voiceRecordingBar: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 10, height: 10)
+
+            Text(recorder.formattedDuration)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(AppColors.primaryText)
+                .monospacedDigit()
+
+            Spacer()
+
+            Button {
+                recorder.cancelRecording()
+            } label: {
+                Text("取消")
+                    .font(.system(size: 15))
+                    .foregroundColor(.red)
+            }
+
+            Button {
+                finishVoiceRecording()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(AppColors.accentGradient)
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func finishVoiceRecording() {
+        guard let result = recorder.stopRecording() else { return }
+        Task {
+            await viewModel.sendVoice(data: result.data, duration: result.duration)
+        }
     }
 
     private var chatPlusMenu: some View {
@@ -330,6 +418,25 @@ struct PendingMessageBubble: View {
                                 .font(.system(size: 32))
                                 .foregroundColor(AppColors.secondaryText)
                         }
+                    } else if pending.msgType == "voice" {
+                        HStack(spacing: 6) {
+                            Text("\(Int(pending.voiceDuration))\"")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white)
+                            Spacer()
+                            HStack(spacing: 2) {
+                                ForEach(0..<3, id: \.self) { i in
+                                    RoundedRectangle(cornerRadius: 1)
+                                        .fill(Color.white)
+                                        .frame(width: 2, height: CGFloat([6, 10, 6][i]))
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .frame(width: 100)
+                        .background(AppColors.accentGradient)
+                        .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
                     }
                 }
             }
@@ -368,5 +475,107 @@ struct VideoTransferable: Transferable {
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Self(url: copy)
         }
+    }
+}
+
+// MARK: - Audio Recorder Manager
+
+struct VoiceRecordingResult {
+    let data: Data
+    let duration: Double
+}
+
+@MainActor
+class AudioRecorderManager: ObservableObject {
+    @Published var isRecording = false
+    @Published var recordingDuration: Double = 0
+
+    private var audioRecorder: AVAudioRecorder?
+    private var recordingURL: URL?
+    private var timer: Timer?
+    private var startTime: Date?
+
+    var formattedDuration: String {
+        let secs = Int(recordingDuration)
+        let mins = secs / 60
+        let rem = secs % 60
+        return String(format: "%d:%02d", mins, rem)
+    }
+
+    func startRecording() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.record, mode: .default)
+            try session.setActive(true)
+        } catch {
+            return
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory
+        let url = tempDir.appendingPathComponent("voice_\(UUID().uuidString).m4a")
+        recordingURL = url
+
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 22050,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+        ]
+
+        do {
+            audioRecorder = try AVAudioRecorder(url: url, settings: settings)
+            audioRecorder?.record()
+            isRecording = true
+            startTime = Date()
+            recordingDuration = 0
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self = self, let start = self.startTime else { return }
+                    self.recordingDuration = Date().timeIntervalSince(start)
+                }
+            }
+        } catch { }
+    }
+
+    func stopRecording() -> VoiceRecordingResult? {
+        timer?.invalidate()
+        timer = nil
+        audioRecorder?.stop()
+        isRecording = false
+
+        guard let url = recordingURL,
+              let start = startTime else { return nil }
+
+        let duration = Date().timeIntervalSince(start)
+        startTime = nil
+
+        guard duration >= 1.0 else {
+            try? FileManager.default.removeItem(at: url)
+            recordingURL = nil
+            return nil
+        }
+
+        guard let data = try? Data(contentsOf: url) else {
+            recordingURL = nil
+            return nil
+        }
+
+        try? FileManager.default.removeItem(at: url)
+        recordingURL = nil
+
+        return VoiceRecordingResult(data: data, duration: duration)
+    }
+
+    func cancelRecording() {
+        timer?.invalidate()
+        timer = nil
+        audioRecorder?.stop()
+        isRecording = false
+        startTime = nil
+        if let url = recordingURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordingURL = nil
+        recordingDuration = 0
     }
 }

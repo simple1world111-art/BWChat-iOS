@@ -131,7 +131,18 @@ struct GroupMessage: Codable, Identifiable, Equatable {
 
     var isImage: Bool { msgType == "image" }
     var isVideo: Bool { msgType == "video" }
+    var isVoice: Bool { msgType == "voice" }
     var isSystem: Bool { msgType == "system" }
+
+    var voiceURL: String? {
+        guard isVoice else { return nil }
+        return content.components(separatedBy: "|").first
+    }
+
+    var voiceDuration: Double {
+        guard isVoice, let durStr = content.components(separatedBy: "|").last else { return 0 }
+        return Double(durStr) ?? 0
+    }
 
     var formattedTime: String {
         let formatter = ISO8601DateFormatter()

@@ -73,10 +73,11 @@ class MomentsViewModel: ObservableObject {
         } catch { }
     }
 
-    func addComment(momentID: Int, content: String, replyToUserID: String? = nil) async {
+    func addComment(momentID: Int, content: String, replyToUserID: String? = nil, imageData: Data? = nil) async {
         do {
+            let imgJpeg: Data? = imageData.flatMap { UIImage(data: $0)?.jpegData(compressionQuality: 0.7) }
             let comment = try await APIService.shared.addMomentComment(
-                momentID: momentID, content: content, replyToUserID: replyToUserID
+                momentID: momentID, content: content, replyToUserID: replyToUserID, imageData: imgJpeg
             )
             if let index = moments.firstIndex(where: { $0.id == momentID }) {
                 let m = moments[index]

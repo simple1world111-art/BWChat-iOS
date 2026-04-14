@@ -265,6 +265,27 @@ class APIService {
         return msg
     }
 
+    func sendVoiceMessage(receiverID: String, voiceData: Data, duration: Double, filename: String) async throws -> Message {
+        guard let url = URL(string: baseURL + "/chat/messages/voice") else { throw APIError.invalidURL }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        addAuthHeader(&request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"receiver_id\"\r\n\r\n\(receiverID)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"duration\"\r\n\r\n\(String(format: "%.1f", duration))\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"voice\"; filename=\"\(filename)\"\r\nContent-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
+        body.append(voiceData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let response: APIResponseWrapper<Message> = try await perform(request)
+        guard let msg = response.data else { throw APIError.serverError(code: response.code, message: response.message) }
+        return msg
+    }
+
     // MARK: - Friends
 
     func searchUsers(keyword: String) async throws -> [SearchUser] {
@@ -402,6 +423,26 @@ class APIService {
         guard let msg = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
         }
+        return msg
+    }
+
+    func sendGroupVoice(groupID: Int, voiceData: Data, duration: Double, filename: String) async throws -> GroupMessage {
+        guard let url = URL(string: baseURL + "/groups/\(groupID)/messages/voice") else { throw APIError.invalidURL }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        addAuthHeader(&request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"duration\"\r\n\r\n\(String(format: "%.1f", duration))\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"voice\"; filename=\"\(filename)\"\r\nContent-Type: audio/m4a\r\n\r\n".data(using: .utf8)!)
+        body.append(voiceData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let response: APIResponseWrapper<GroupMessage> = try await perform(request)
+        guard let msg = response.data else { throw APIError.serverError(code: response.code, message: response.message) }
         return msg
     }
 
@@ -816,7 +857,7 @@ class APIService {
         return response.data?.liked ?? false
     }
 
-    func addMomentComment(momentID: Int, content: String, replyToUserID: String? = nil) async throws -> MomentComment {
+    func addMomentComment(momentID: Int, content: String, replyToUserID: String? = nil, imageData: Data? = nil) async throws -> MomentComment {
         guard let url = URL(string: baseURL + "/moments/\(momentID)/comment") else {
             throw APIError.invalidURL
         }
@@ -836,6 +877,15 @@ class APIService {
             body.append("Content-Disposition: form-data; name=\"reply_to_user_id\"\r\n\r\n".data(using: .utf8)!)
             body.append("\(rid)\r\n".data(using: .utf8)!)
         }
+
+        if let imgData = imageData {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"image\"; filename=\"comment.jpg\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+            body.append(imgData)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
