@@ -14,7 +14,8 @@ class CallManager: ObservableObject {
 
     @Published var currentCall: CallSession?
     @Published var isMuted = false
-    @Published var isSpeakerOn = false
+    /// Default speaker (loudspeaker); user can switch to earpiece with the toolbar control.
+    @Published var isSpeakerOn = true
     @Published var isLocalVideoEnabled = true
     @Published var callDuration: TimeInterval = 0
     @Published var isMinimized = false
@@ -390,7 +391,7 @@ class CallManager: ObservableObject {
         durationTimer = nil
         callDuration = 0
         isMuted = false
-        isSpeakerOn = false
+        isSpeakerOn = true
         isLocalVideoEnabled = true
         isMinimized = false
         isFrontCamera = true
