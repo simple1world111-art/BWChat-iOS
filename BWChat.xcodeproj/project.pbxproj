@@ -440,6 +440,7 @@
 				A10001 /* BWChatApp.swift in Sources */,
 				A10002 /* User.swift in Sources */,
 				A10003 /* Message.swift in Sources */,
+				A10107 /* MessageStore.swift in Sources */,
 				A10004 /* Contact.swift in Sources */,
 				A10005 /* AuthViewModel.swift in Sources */,
 				A10006 /* ChatViewModel.swift in Sources */,
@@ -493,7 +494,6 @@
 				A10104 /* MomentsView.swift in Sources */,
 				A10105 /* CreateMomentView.swift in Sources */,
 				A10106 /* DiscoverView.swift in Sources */,
-				A10107 /* MessageStore.swift in Sources */,
 				A10109 /* MediaLibrarySaver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

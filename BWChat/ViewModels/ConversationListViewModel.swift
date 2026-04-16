@@ -110,6 +110,13 @@ class ConversationListViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        WebSocketService.shared.groupMessagePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] message in
+                self?.handleNewGroupMessage(message)
+            }
+            .store(in: &cancellables)
+
         WebSocketService.shared.groupContactUpdatePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] data in
@@ -159,6 +166,43 @@ class ConversationListViewModel: ObservableObject {
                 lastMessage: lastMsg, lastMessageTime: message.timestamp,
                 unreadCount: c.unreadCount + unreadDelta, subtitle: nil,
                 groupID: nil, memberCount: nil
+            )
+            conversations[index] = updated
+            conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            store.updateConversation(updated)
+        } else {
+            Task { await loadConversations() }
+        }
+    }
+
+    /// Updates list preview when the server sends `new_group_message` without a separate contact_update payload.
+    private func handleNewGroupMessage(_ message: GroupMessage) {
+        let myID = AuthManager.shared.currentUser?.userID
+        let isFromOther = message.senderID != myID
+        let isViewingThisGroup = isFromOther && WebSocketService.shared.activeGroupID == message.groupID
+        let unreadDelta = (isFromOther && !isViewingThisGroup) ? 1 : 0
+
+        if isViewingThisGroup {
+            Task { try? await APIService.shared.markGroupMessagesAsRead(groupID: message.groupID) }
+        }
+
+        let lastMsg: String
+        if message.isImage { lastMsg = "[图片]" }
+        else if message.isVideo { lastMsg = "[视频]" }
+        else if message.isVoice {
+            let dur = Int(message.voiceDuration)
+            lastMsg = dur > 0 ? "[语音] \(dur)''" : "[语音]"
+        }
+        else { lastMsg = message.content }
+
+        let gidStr = String(message.groupID)
+        if let index = conversations.firstIndex(where: { $0.id == gidStr && $0.isGroup }) {
+            let c = conversations[index]
+            let updated = Conversation(
+                type: "group", id: c.id, name: c.name, avatarURL: c.avatarURL,
+                lastMessage: lastMsg, lastMessageTime: message.timestamp,
+                unreadCount: c.unreadCount + unreadDelta, subtitle: message.senderNickname,
+                groupID: c.groupID, memberCount: c.memberCount
             )
             conversations[index] = updated
             conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }

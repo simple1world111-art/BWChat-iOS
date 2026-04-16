@@ -202,6 +202,8 @@ class WebSocketService: ObservableObject {
             if let msgData = json["data"],
                let msgJSON = try? JSONSerialization.data(withJSONObject: msgData),
                let msg = try? JSONDecoder().decode(Message.self, from: msgJSON) {
+                // Persist for every incoming message (not only when a chat screen is open).
+                MessageStore.shared.saveMessage(msg)
                 newMessagePublisher.send(msg)
             }
 
@@ -219,6 +221,7 @@ class WebSocketService: ObservableObject {
             if let msgData = json["data"],
                let msgJSON = try? JSONSerialization.data(withJSONObject: msgData),
                let msg = try? JSONDecoder().decode(GroupMessage.self, from: msgJSON) {
+                MessageStore.shared.saveGroupMessage(msg)
                 groupMessagePublisher.send(msg)
             }
 
