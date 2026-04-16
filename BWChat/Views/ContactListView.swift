@@ -38,7 +38,7 @@ struct ContactListView: View {
                 }
             }
         }
-        .task {
+        .task(id: AuthManager.shared.currentUser?.userID ?? "") {
             await viewModel.loadConversations()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { notif in

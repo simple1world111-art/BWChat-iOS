@@ -2,6 +2,7 @@
 // Full-screen image gallery with center-zoom, swipe/tap to dismiss
 
 import SwiftUI
+import UIKit
 
 // MARK: - Shared state so overlay can live at root level (above tab bar)
 
@@ -189,6 +190,10 @@ private struct ZoomableImagePage: View {
                         .simultaneousGesture(scale > 1.05 ? panGesture : nil)
                         .onTapGesture(count: 2) { onDoubleTap() }
                         .onTapGesture { onSingleTap() }
+                        .onLongPressGesture(minimumDuration: 0.5) {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            Task { await MediaLibrarySaver.saveImage(mediaPath: imageURL) }
+                        }
                 } else if isLoading {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))

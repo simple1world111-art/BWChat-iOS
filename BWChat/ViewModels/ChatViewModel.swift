@@ -25,12 +25,20 @@ class ChatViewModel: ObservableObject {
 
     init(contact: Contact) {
         self.contact = contact
+        let uid = AuthManager.shared.currentUser?.userID ?? ""
+        let initial = store.loadMessages(userID: uid, contactID: contact.userID)
+        _messages = Published(initialValue: initial)
+        if !initial.isEmpty {
+            _hasMore = Published(initialValue: store.localMessageCount(userID: uid, contactID: contact.userID) >= 30)
+        }
         setupWebSocketListener()
     }
 
     func loadMessages() async {
-        isLoading = true
+        let showBlockingLoader = messages.isEmpty
+        if showBlockingLoader { isLoading = true }
         errorMessage = nil
+        defer { isLoading = false }
 
         let cached = store.loadMessages(userID: myID, contactID: contact.userID)
         if !cached.isEmpty {
@@ -75,8 +83,6 @@ class ChatViewModel: ObservableObject {
         } catch {
             if messages.isEmpty { errorMessage = "加载消息失败" }
         }
-
-        isLoading = false
     }
 
     func loadMoreMessages() async {

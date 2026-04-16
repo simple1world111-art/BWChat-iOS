@@ -3,6 +3,7 @@
 
 import SwiftUI
 import AVFoundation
+import UIKit
 
 struct MessageBubble: View {
     let message: Message
@@ -129,6 +130,10 @@ struct MessageBubble: View {
             .onTapGesture {
                 onImageTap?(message.content)
             }
+            .onLongPressGesture(minimumDuration: 0.5) {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
+            }
     }
 
     // MARK: - Video Bubble
@@ -148,6 +153,10 @@ struct MessageBubble: View {
         .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
         .onTapGesture {
             onVideoTap?(message.content)
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
         }
     }
 }

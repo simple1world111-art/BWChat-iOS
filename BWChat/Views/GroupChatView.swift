@@ -6,6 +6,7 @@ import PhotosUI
 import AVKit
 import AVFoundation
 import UniformTypeIdentifiers
+import UIKit
 
 struct GroupChatView: View {
     let group: ChatGroup
@@ -515,6 +516,10 @@ struct GroupMessageBubble: View {
                 if message.isImage {
                     CachedAsyncImage(url: message.content)
                         .onTapGesture { onImageTap?(message.content) }
+                        .onLongPressGesture(minimumDuration: 0.5) {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
+                        }
                 } else if message.isVideo {
                     ZStack {
                         VideoThumbnailView(videoURL: message.content)
@@ -528,6 +533,10 @@ struct GroupMessageBubble: View {
                     }
                     .cornerRadius(16)
                     .onTapGesture { onVideoTap?(message.content) }
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
+                    }
                 } else if message.isVoice {
                     VoiceBubbleView(
                         url: message.voiceURL ?? "",

@@ -99,18 +99,19 @@ final class MessageStore {
     // MARK: - DM Messages
 
     func saveMessage(_ message: Message) {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             self?.insertMessage(message)
         }
     }
 
     func saveMessages(_ messages: [Message]) {
-        queue.async { [weak self] in
-            self?.exec("BEGIN TRANSACTION")
+        queue.sync { [weak self] in
+            guard let self = self else { return }
+            self.exec("BEGIN TRANSACTION")
             for msg in messages {
-                self?.insertMessage(msg)
+                self.insertMessage(msg)
             }
-            self?.exec("COMMIT")
+            self.exec("COMMIT")
         }
     }
 
@@ -241,18 +242,19 @@ final class MessageStore {
     // MARK: - Group Messages
 
     func saveGroupMessage(_ message: GroupMessage) {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             self?.insertGroupMessage(message)
         }
     }
 
     func saveGroupMessages(_ messages: [GroupMessage]) {
-        queue.async { [weak self] in
-            self?.exec("BEGIN TRANSACTION")
+        queue.sync { [weak self] in
+            guard let self = self else { return }
+            self.exec("BEGIN TRANSACTION")
             for msg in messages {
-                self?.insertGroupMessage(msg)
+                self.insertGroupMessage(msg)
             }
-            self?.exec("COMMIT")
+            self.exec("COMMIT")
         }
     }
 
@@ -379,18 +381,19 @@ final class MessageStore {
     // MARK: - Conversations
 
     func saveConversations(_ convs: [Conversation]) {
-        queue.async { [weak self] in
-            self?.exec("DELETE FROM conversations")
-            self?.exec("BEGIN TRANSACTION")
+        queue.sync { [weak self] in
+            guard let self = self else { return }
+            self.exec("DELETE FROM conversations")
+            self.exec("BEGIN TRANSACTION")
             for c in convs {
-                self?.insertConversation(c)
+                self.insertConversation(c)
             }
-            self?.exec("COMMIT")
+            self.exec("COMMIT")
         }
     }
 
     func updateConversation(_ conv: Conversation) {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             self?.insertConversation(conv)
         }
     }
@@ -463,7 +466,7 @@ final class MessageStore {
     // MARK: - Cleanup
 
     func clearAll() {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             self?.exec("DELETE FROM messages")
             self?.exec("DELETE FROM group_messages")
             self?.exec("DELETE FROM conversations")

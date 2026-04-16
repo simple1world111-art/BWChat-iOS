@@ -627,6 +627,11 @@ class APIService {
         return data
     }
 
+    /// Authenticated GET for images, videos, or any media path (same URL rules as `loadImage`).
+    func loadAuthenticatedMedia(path: String) async throws -> Data {
+        try await loadImage(path: path)
+    }
+
     // MARK: - Image Compression
 
     static func compressImageForUpload(_ data: Data, maxDimension: CGFloat = 1200, quality: CGFloat = 0.7) -> Data {

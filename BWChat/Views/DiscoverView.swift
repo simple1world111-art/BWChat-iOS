@@ -93,7 +93,7 @@ struct DiscoverView: View {
             .listStyle(.plain)
             .background(AppColors.secondaryBackground)
             .navigationTitle("发现")
-            .task {
+            .task(id: AuthManager.shared.currentUser?.userID ?? "") {
                 await momentsNotif.fetchFromServer()
             }
         }

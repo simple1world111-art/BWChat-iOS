@@ -41,7 +41,7 @@
         <true/>
     </dict>
     <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>BWChat 需要访问相册以保存图片</string>
+    <string>BWChat 需要访问相册以保存图片和视频</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>BWChat 需要访问相册以发送图片</string>
     <key>NSCameraUsageDescription</key>

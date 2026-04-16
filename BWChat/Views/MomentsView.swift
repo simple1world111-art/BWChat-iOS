@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UIKit
 
 struct MomentsView: View {
     var filterUserID: String? = nil
@@ -93,7 +94,7 @@ struct MomentsView: View {
         .navigationDestination(isPresented: $showNotificationList) {
             MomentsNotificationListView()
         }
-        .task {
+        .task(id: "\(AuthManager.shared.currentUser?.userID ?? "")|\(filterUserID ?? "")") {
             viewModel.filterUserID = filterUserID
             await viewModel.loadFeed()
         }
@@ -568,6 +569,10 @@ struct MomentSingleImage: View {
                     .scaledToFit()
                     .frame(maxWidth: 200, maxHeight: 260)
                     .cornerRadius(6)
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Task { await MediaLibrarySaver.saveImage(mediaPath: url) }
+                    }
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(AppColors.separator)
@@ -607,6 +612,10 @@ struct MomentImageCell: View {
                     .frame(width: size, height: size)
                     .clipped()
                     .cornerRadius(4)
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Task { await MediaLibrarySaver.saveImage(mediaPath: url) }
+                    }
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(AppColors.separator)
@@ -993,6 +1002,10 @@ struct CommentImageView: View {
                     .frame(width: 50, height: 50)
                     .clipped()
                     .cornerRadius(4)
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Task { await MediaLibrarySaver.saveImage(mediaPath: url) }
+                    }
             } else if isLoading {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(AppColors.separator)

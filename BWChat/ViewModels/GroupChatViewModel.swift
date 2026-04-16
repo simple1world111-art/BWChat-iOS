@@ -25,11 +25,18 @@ class GroupChatViewModel: ObservableObject {
 
     init(group: ChatGroup) {
         self.group = group
+        let initial = store.loadGroupMessages(groupID: group.groupID)
+        _messages = Published(initialValue: initial)
+        if !initial.isEmpty {
+            _hasMore = Published(initialValue: initial.count >= 30)
+        }
         setupWebSocketListener()
     }
 
     func loadMessages() async {
-        isLoading = true
+        let showBlockingLoader = messages.isEmpty
+        if showBlockingLoader { isLoading = true }
+        defer { isLoading = false }
 
         let cached = store.loadGroupMessages(groupID: group.groupID)
         if !cached.isEmpty {
@@ -67,8 +74,6 @@ class GroupChatViewModel: ObservableObject {
         } catch {
             if messages.isEmpty { errorMessage = "加载消息失败" }
         }
-
-        isLoading = false
     }
 
     func loadMoreMessages() async {

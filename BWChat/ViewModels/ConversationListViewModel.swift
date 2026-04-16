@@ -34,8 +34,10 @@ class ConversationListViewModel: ObservableObject {
     }
 
     func loadConversations() async {
-        isLoading = true
+        let showBlockingLoader = conversations.isEmpty
+        if showBlockingLoader { isLoading = true }
         errorMessage = nil
+        defer { isLoading = false }
 
         do {
             let serverConvs = try await APIService.shared.getConversations()
@@ -49,8 +51,6 @@ class ConversationListViewModel: ObservableObject {
         } catch {
             if conversations.isEmpty { errorMessage = "加载会话失败" }
         }
-
-        isLoading = false
     }
 
     func logout() async {

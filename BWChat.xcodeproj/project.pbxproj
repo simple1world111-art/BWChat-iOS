@@ -69,6 +69,7 @@
 		A10106 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106; };
 		A10107 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10107; };
 		A10108 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B10108; };
+		A10109 /* MediaLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10109; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -162,6 +163,7 @@
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10107 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 		B10108 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		B10109 /* MediaLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibrarySaver.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -278,6 +280,7 @@
 				B10015 /* WebSocketService.swift */,
 				B10016 /* PushService.swift */,
 				B10107 /* MessageStore.swift */,
+				B10109 /* MediaLibrarySaver.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -491,6 +494,7 @@
 				A10105 /* CreateMomentView.swift in Sources */,
 				A10106 /* DiscoverView.swift in Sources */,
 				A10107 /* MessageStore.swift in Sources */,
+				A10109 /* MediaLibrarySaver.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -39,7 +39,7 @@ struct ProfileView: View {
             } message: {
                 Text("退出后将无法接收新消息")
             }
-            .task {
+            .task(id: AuthManager.shared.currentUser?.userID ?? "") {
                 await viewModel.loadProfile()
             }
             .refreshable {

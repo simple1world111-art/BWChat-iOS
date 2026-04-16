@@ -5,6 +5,7 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @ObservedObject private var mediaSaveFeedback = MediaSaveFeedback.shared
 
     var body: some View {
         ZStack {
@@ -48,6 +49,7 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openGroupChat"))) { _ in
             selectedTab = 0
         }
+        .toast(message: $mediaSaveFeedback.toastMessage)
     }
 }
 
@@ -192,7 +194,7 @@ struct ContactsTabView: View {
             .sheet(isPresented: $showAddFriend) {
                 AddFriendView()
             }
-            .task {
+            .task(id: AuthManager.shared.currentUser?.userID ?? "") {
                 await viewModel.loadFriends()
                 await viewModel.loadFriendRequests()
             }
@@ -272,7 +274,7 @@ struct GroupListView: View {
                     Task { await viewModel.loadGroups() }
                 }
             }
-            .task {
+            .task(id: AuthManager.shared.currentUser?.userID ?? "") {
                 await viewModel.loadGroups()
             }
             .refreshable {
