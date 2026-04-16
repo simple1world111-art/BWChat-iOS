@@ -59,7 +59,7 @@
 		A10094 /* ReplyPreviewBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10094; };
 		A10095 /* BWChatNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = PR10002; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10096 /* GroupCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096; };
-		A10097 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10001; };
+		A10097 /* LiveKitSDK in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10001; };
 		A10100 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100; };
 		A10101 /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101; };
 		A10102 /* ConversationListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102; };
@@ -171,7 +171,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10097 /* LiveKit in Frameworks */,
+				A10097 /* LiveKitSDK in Frameworks */,
 				A10108 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -358,7 +358,7 @@
 			);
 			name = BWChat;
 			packageProductDependencies = (
-				PKG10001 /* LiveKit */,
+				PKG10001 /* LiveKitSDK */,
 			);
 			productName = BWChat;
 			productReference = PR10001;
@@ -726,10 +726,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		PKG10001 /* LiveKit */ = {
+		PKG10001 /* LiveKitSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = SPKG10001;
-			productName = LiveKit;
+			productName = LiveKitSDK;
 		};
 /* End XCSwiftPackageProductDependency section */
 

@@ -2,7 +2,7 @@
 // Multi-person group call UI
 
 import SwiftUI
-import LiveKit
+import LiveKitSDK
 import UIKit
 
 struct GroupCallView: View {
