@@ -88,6 +88,7 @@ class CallManager: ObservableObject {
 
     func acceptCall() {
         guard var call = currentCall, call.state == .incoming else { return }
+        dismissKeyboard()
         call.state = .connecting
         currentCall = call
         stopRingtone()
@@ -156,6 +157,7 @@ class CallManager: ObservableObject {
 
     func joinGroupCall(groupID: Int, groupName: String, roomName: String, callType: CallType) {
         guard currentCall == nil else { return }
+        dismissKeyboard()
 
         currentCall = CallSession(
             remoteUserID: "",
@@ -227,12 +229,17 @@ class CallManager: ObservableObject {
                 }
             }
 
-            stopRingtone()
-            if var call = currentCall {
-                call.state = .connected
-                currentCall = call
+            // Outgoing calls: stay "ringing" until at least one remote joins LiveKit;
+            // then mark connected and start the duration timer (avoids green timer before callee answers).
+            let waitForRemote = currentCall?.isOutgoing == true
+            if !waitForRemote {
+                stopRingtone()
+                if var call = currentCall {
+                    call.state = .connected
+                    currentCall = call
+                }
+                startDurationTimer()
             }
-            startDurationTimer()
             updateRemoteParticipants()
         } catch {
             print("[CallManager] Room connect failed: \(error)")
@@ -351,9 +358,23 @@ class CallManager: ObservableObject {
             for pub in participant.videoTracks {
                 if let track = pub.track as? VideoTrack {
                     remoteVideoTrack = track
-                    return
+                    break
                 }
             }
+            if remoteVideoTrack != nil { break }
+        }
+
+        // First remote joined on an outgoing call: now we're truly "connected"
+        if currentCall?.isOutgoing == true,
+           currentCall?.state != .connected,
+           !remoteParticipants.isEmpty {
+            stopRingtone()
+            if var call = currentCall {
+                call.state = .connected
+                currentCall = call
+            }
+            startDurationTimer()
+            dismissKeyboard()
         }
     }
 

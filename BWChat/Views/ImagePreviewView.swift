@@ -12,10 +12,13 @@ class ImageGalleryState: ObservableObject {
     @Published var isPresented = false
     @Published var imageURLs: [String] = []
     @Published var initialIndex: Int = 0
+    /// Normalized tap point on the thumbnail (for zoom-from-tap entrance animation).
+    @Published var openAnchor: UnitPoint = .center
 
-    func show(urls: [String], index: Int) {
+    func show(urls: [String], index: Int, tapAnchor: UnitPoint = .center) {
         imageURLs = urls
         initialIndex = index
+        openAnchor = tapAnchor
         isPresented = true
     }
 }
@@ -33,6 +36,7 @@ struct ImageGalleryOverlay: View {
     @State private var verticalDrag: CGFloat = 0
     @State private var appeared = false
     @State private var layoutReady = false
+    @State private var entranceAnchor: UnitPoint = .center
 
     var body: some View {
         if state.isPresented {
@@ -58,6 +62,7 @@ struct ImageGalleryOverlay: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .offset(y: verticalDrag)
                 .scaleEffect(dragDismissScale)
+                .scaleEffect(appeared ? 1.0 : 0.28, anchor: entranceAnchor)
                 .opacity(appeared ? 1.0 : 0.0)
                 .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
                 .onChange(of: currentIndex) { _ in
@@ -82,10 +87,11 @@ struct ImageGalleryOverlay: View {
             .ignoresSafeArea()
             .onAppear {
                 currentIndex = state.initialIndex
+                entranceAnchor = state.openAnchor
                 // Let TabView finish its initial layout pass before animating in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
                     layoutReady = true
-                    withAnimation(.easeOut(duration: 0.22)) {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
                         appeared = true
                     }
                 }

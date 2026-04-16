@@ -51,8 +51,9 @@ struct MomentsView: View {
                             commentTriggerID = UUID()
                         },
                         onDelete: { Task { await viewModel.deleteMoment(momentID: moment.id) } },
-                        onImageTap: { url in
-                            ImageGalleryState.shared.show(urls: moment.images, index: moment.images.firstIndex(of: url) ?? 0)
+                        onImageTap: { url, anchor in
+                            hideKeyboard()
+                            ImageGalleryState.shared.show(urls: moment.images, index: moment.images.firstIndex(of: url) ?? 0, tapAnchor: anchor)
                         }
                     )
 
@@ -325,7 +326,7 @@ struct MomentRow: View {
     var onLike: () -> Void
     var onComment: (_ replyToUserID: String?, _ replyToName: String?, _ replyContent: String?) -> Void
     var onDelete: () -> Void
-    var onImageTap: (String) -> Void
+    var onImageTap: (String, UnitPoint) -> Void
     @State private var showActions = false
 
     var body: some View {
@@ -505,8 +506,9 @@ struct MomentRow: View {
             if let imageURL = comment.imageURL, !imageURL.isEmpty {
                 HStack(spacing: 0) {
                     CommentImageView(url: imageURL)
-                        .onTapGesture {
-                            ImageGalleryState.shared.show(urls: [imageURL], index: 0)
+                        .onTapWithNormalizedAnchor { anchor in
+                            hideKeyboard()
+                            ImageGalleryState.shared.show(urls: [imageURL], index: 0, tapAnchor: anchor)
                         }
                     Spacer()
                 }
@@ -530,7 +532,9 @@ struct MomentRow: View {
 
         if count == 1 {
             MomentSingleImage(url: moment.images[0])
-                .onTapGesture { onImageTap(moment.images[0]) }
+                .onTapWithNormalizedAnchor { anchor in
+                    onImageTap(moment.images[0], anchor)
+                }
         } else {
             let cols = count <= 4 ? 2 : 3
             let spacing: CGFloat = 3
@@ -543,7 +547,9 @@ struct MomentRow: View {
                             let idx = row * cols + col
                             if idx < count {
                                 MomentImageCell(url: moment.images[idx], size: 80)
-                                    .onTapGesture { onImageTap(moment.images[idx]) }
+                                    .onTapWithNormalizedAnchor { anchor in
+                                        onImageTap(moment.images[idx], anchor)
+                                    }
                             }
                         }
                     }
@@ -775,10 +781,12 @@ struct MomentDetailView: View {
                                 commentTriggerID = UUID()
                             },
                             onDelete: { },
-                            onImageTap: { url in
+                            onImageTap: { url, anchor in
+                                hideKeyboard()
                                 ImageGalleryState.shared.show(
                                     urls: moment.images,
-                                    index: moment.images.firstIndex(of: url) ?? 0
+                                    index: moment.images.firstIndex(of: url) ?? 0,
+                                    tapAnchor: anchor
                                 )
                             }
                         )

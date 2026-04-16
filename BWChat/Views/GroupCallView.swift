@@ -3,6 +3,7 @@
 
 import SwiftUI
 import LiveKit
+import UIKit
 
 struct GroupCallView: View {
     @ObservedObject var callManager = CallManager.shared
@@ -54,6 +55,9 @@ struct GroupCallView: View {
             }
         }
         .statusBarHidden(true)
+        .onAppear {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
     }
 
     // MARK: - Video Grid

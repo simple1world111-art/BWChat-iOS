@@ -9,8 +9,8 @@ struct MessageBubble: View {
     let message: Message
     let isFromMe: Bool
     var avatarURL: String = ""
-    var onImageTap: ((String) -> Void)?
-    var onVideoTap: ((String) -> Void)?
+    var onImageTap: ((String, UnitPoint) -> Void)?
+    var onVideoTap: ((String, UnitPoint) -> Void)?
     var onReply: ((Message) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
 
@@ -127,13 +127,16 @@ struct MessageBubble: View {
     private var imageBubble: some View {
         CachedAsyncImage(url: message.content)
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-            .onTapGesture {
-                onImageTap?(message.content)
+            .onTapWithNormalizedAnchor { anchor in
+                onImageTap?(message.content, anchor)
             }
-            .onLongPressGesture(minimumDuration: 0.5) {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
-            }
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.5)
+                    .onEnded { _ in
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
+                    }
+            )
     }
 
     // MARK: - Video Bubble
@@ -151,13 +154,16 @@ struct MessageBubble: View {
         }
         .cornerRadius(14)
         .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-        .onTapGesture {
-            onVideoTap?(message.content)
+        .onTapWithNormalizedAnchor { anchor in
+            onVideoTap?(message.content, anchor)
         }
-        .onLongPressGesture(minimumDuration: 0.5) {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
-        }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
+                }
+        )
     }
 }
 

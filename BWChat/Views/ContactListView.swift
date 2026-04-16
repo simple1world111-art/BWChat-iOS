@@ -3,6 +3,10 @@ import SwiftUI
 struct ContactListView: View {
     @StateObject private var viewModel = ConversationListViewModel()
     @State private var showCreateGroup = false
+    @State private var showComposeMenu = false
+    @State private var showAddFriendSheet = false
+    @State private var showScannerComingSoon = false
+    @State private var showAgentComingSoon = false
     @State private var navigationPath = NavigationPath()
 
     var body: some View {
@@ -19,7 +23,7 @@ struct ContactListView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showCreateGroup = true
+                        showComposeMenu = true
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 20))
@@ -28,6 +32,26 @@ struct ContactListView: View {
                             .contentShape(Rectangle())
                     }
                 }
+            }
+            .confirmationDialog("", isPresented: $showComposeMenu, titleVisibility: .hidden) {
+                Button("发起群聊") { showCreateGroup = true }
+                Button("添加朋友") { showAddFriendSheet = true }
+                Button("扫一扫") { showScannerComingSoon = true }
+                Button("创建智能体") { showAgentComingSoon = true }
+                Button("取消", role: .cancel) {}
+            }
+            .sheet(isPresented: $showAddFriendSheet) {
+                AddFriendView()
+            }
+            .alert("扫一扫", isPresented: $showScannerComingSoon) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text("功能开发中，敬请期待。")
+            }
+            .alert("创建智能体", isPresented: $showAgentComingSoon) {
+                Button("好的", role: .cancel) {}
+            } message: {
+                Text("智能体功能开发中，敬请期待。")
             }
             .refreshable {
                 await viewModel.loadConversations()

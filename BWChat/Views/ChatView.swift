@@ -51,6 +51,22 @@ struct ChatView: View {
         }
     }
 
+    private func scrollChatToLatest(proxy: ScrollViewProxy) {
+        if let pending = viewModel.pendingMessages.last {
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(pending.id, anchor: .top)
+                }
+            }
+        } else if let last = viewModel.messages.last {
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(last.id, anchor: .top)
+                }
+            }
+        }
+    }
+
     private func previousTimestamp(for message: Message) -> String? {
         guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }),
               idx > 0 else { return nil }
@@ -66,6 +82,7 @@ struct ChatView: View {
                             PendingMessageBubble(pending: pending, avatarURL: myAvatarURL) {
                                 Task { await viewModel.retryPending(pending) }
                             }
+                            .id(pending.id)
                             .flippedRow()
                         }
 
@@ -83,11 +100,15 @@ struct ChatView: View {
                                     message: message,
                                     isFromMe: isFromMe,
                                     avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
-                                    onImageTap: { url in
+                                    onImageTap: { url, anchor in
+                                        hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
+                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
                                     },
-                                    onVideoTap: { url in previewVideoURL = url },
+                                    onVideoTap: { url, _ in
+                                        hideKeyboard()
+                                        previewVideoURL = url
+                                    },
                                     onReply: { msg in viewModel.setReply(to: msg) },
                                     onQuoteTap: { targetID in
                                         scrollToMessage(targetID, proxy: proxy)
@@ -120,6 +141,9 @@ struct ChatView: View {
                 .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
+                .onChange(of: viewModel.messages.count) { _ in scrollChatToLatest(proxy: proxy) }
+                .onChange(of: viewModel.messages.last?.id) { _ in scrollChatToLatest(proxy: proxy) }
+                .onChange(of: viewModel.pendingMessages.count) { _ in scrollChatToLatest(proxy: proxy) }
                 .task {
                     await viewModel.loadMessages()
                     onMarkRead?()
@@ -180,6 +204,10 @@ struct ChatView: View {
                     TextField("输入消息...", text: $viewModel.inputText, axis: .vertical)
                         .font(.system(size: 16))
                         .lineLimit(1...5)
+                        .submitLabel(.send)
+                        .onSubmit {
+                            Task { await viewModel.sendText() }
+                        }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(

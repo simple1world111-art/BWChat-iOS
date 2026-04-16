@@ -53,6 +53,22 @@ struct GroupChatView: View {
         }
     }
 
+    private func scrollGroupChatToLatest(proxy: ScrollViewProxy) {
+        if let pending = viewModel.pendingTexts.last {
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(pending.id, anchor: .top)
+                }
+            }
+        } else if let last = viewModel.messages.last {
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(last.id, anchor: .top)
+                }
+            }
+        }
+    }
+
     private func previousTimestamp(for message: GroupMessage) -> String? {
         guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }),
               idx > 0 else { return nil }
@@ -68,6 +84,7 @@ struct GroupChatView: View {
                             PendingGroupBubble(pending: pending, avatarURL: myAvatarURL) {
                                 Task { await viewModel.retryPendingText(pending) }
                             }
+                            .id(pending.id)
                             .flippedRow()
                         }
 
@@ -86,11 +103,15 @@ struct GroupChatView: View {
                                     message: message,
                                     isFromMe: isFromMe,
                                     myAvatarURL: myAvatarURL,
-                                    onImageTap: { url in
+                                    onImageTap: { url, anchor in
+                                        hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
+                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
                                     },
-                                    onVideoTap: { url in previewVideoURL = url },
+                                    onVideoTap: { url, _ in
+                                        hideKeyboard()
+                                        previewVideoURL = url
+                                    },
                                     onReply: { msg in viewModel.setReply(to: msg) },
                                     onQuoteTap: { targetID in
                                         scrollToMessage(targetID, proxy: proxy)
@@ -126,6 +147,9 @@ struct GroupChatView: View {
                 .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
+                .onChange(of: viewModel.messages.count) { _ in scrollGroupChatToLatest(proxy: proxy) }
+                .onChange(of: viewModel.messages.last?.id) { _ in scrollGroupChatToLatest(proxy: proxy) }
+                .onChange(of: viewModel.pendingTexts.count) { _ in scrollGroupChatToLatest(proxy: proxy) }
                 .task {
                     async let messagesTask: () = viewModel.loadMessages()
                     async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
@@ -252,6 +276,10 @@ struct GroupChatView: View {
                     TextField("输入消息...", text: $viewModel.inputText, axis: .vertical)
                         .font(.system(size: 16))
                         .lineLimit(1...5)
+                        .submitLabel(.send)
+                        .onSubmit {
+                            Task { await viewModel.sendText() }
+                        }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(
@@ -462,8 +490,8 @@ struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
     var myAvatarURL: String = ""
-    var onImageTap: ((String) -> Void)?
-    var onVideoTap: ((String) -> Void)?
+    var onImageTap: ((String, UnitPoint) -> Void)?
+    var onVideoTap: ((String, UnitPoint) -> Void)?
     var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
     var onMention: ((String, String) -> Void)?
@@ -515,11 +543,16 @@ struct GroupMessageBubble: View {
 
                 if message.isImage {
                     CachedAsyncImage(url: message.content)
-                        .onTapGesture { onImageTap?(message.content) }
-                        .onLongPressGesture(minimumDuration: 0.5) {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
+                        .onTapWithNormalizedAnchor { anchor in
+                            onImageTap?(message.content, anchor)
                         }
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
+                                }
+                        )
                 } else if message.isVideo {
                     ZStack {
                         VideoThumbnailView(videoURL: message.content)
@@ -532,11 +565,16 @@ struct GroupMessageBubble: View {
                             .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                     }
                     .cornerRadius(16)
-                    .onTapGesture { onVideoTap?(message.content) }
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
+                    .onTapWithNormalizedAnchor { anchor in
+                        onVideoTap?(message.content, anchor)
                     }
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.5)
+                            .onEnded { _ in
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
+                            }
+                    )
                 } else if message.isVoice {
                     VoiceBubbleView(
                         url: message.voiceURL ?? "",

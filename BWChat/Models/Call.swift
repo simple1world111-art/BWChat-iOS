@@ -8,7 +8,7 @@ enum CallType: String, Codable {
     case video
 }
 
-enum CallState {
+enum CallState: Equatable {
     case idle
     case outgoing
     case incoming

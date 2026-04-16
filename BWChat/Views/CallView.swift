@@ -3,6 +3,7 @@
 
 import SwiftUI
 import LiveKit
+import UIKit
 
 struct CallView: View {
     @ObservedObject var callManager = CallManager.shared
@@ -41,6 +42,7 @@ struct CallView: View {
                 .padding(.top, 54)
 
                 Spacer().frame(height: 20)
+                    .allowsHitTesting(false)
 
                 if let call = callManager.currentCall {
                     if call.callType != .video || call.state != .connected {
@@ -73,16 +75,19 @@ struct CallView: View {
 
                     statusText(call)
                         .padding(.top, 8)
+                        .allowsHitTesting(false)
 
                     if call.groupID != nil && call.state == .connected {
                         Text("\(callManager.remoteParticipantCount + 1) 人通话中")
                             .font(.system(size: 14))
                             .foregroundColor(.white.opacity(0.6))
                             .padding(.top, 4)
+                            .allowsHitTesting(false)
                     }
                 }
 
                 Spacer()
+                    .allowsHitTesting(false)
 
                 if let call = callManager.currentCall {
                     if call.state == .incoming {
@@ -93,9 +98,13 @@ struct CallView: View {
                 }
 
                 Spacer().frame(height: 50)
+                    .allowsHitTesting(false)
             }
         }
         .statusBarHidden(true)
+        .onAppear {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
     }
 
     @ViewBuilder

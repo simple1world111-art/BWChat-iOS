@@ -45,6 +45,14 @@ struct BWChatApp: App {
                     )
                 }
             }
+            .onChange(of: callManager.currentCall?.state) { newState in
+                if newState == .connected {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                }
+            }
         }
     }
 
