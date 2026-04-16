@@ -24,21 +24,22 @@ extension View {
         }
     }
 
-    /// Lightweight tap that reports a normalized tap point within this view (for zoom-from-tap).
+    /// Lightweight tap that reports the tap point as a screen-normalized UnitPoint
+    /// (so the image gallery can zoom from exactly where the user tapped).
     func onTapWithNormalizedAnchor(perform action: @escaping (UnitPoint) -> Void) -> some View {
         background(
             GeometryReader { geo in
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture(minimumDistance: 0)
+                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
                             .onEnded { value in
                                 let t = value.translation
                                 guard hypot(t.width, t.height) < 14 else { return }
                                 let p = value.startLocation
-                                let w = max(geo.size.width, 1)
-                                let h = max(geo.size.height, 1)
-                                action(UnitPoint(x: p.x / w, y: p.y / h))
+                                let screenW = max(UIScreen.main.bounds.width, 1)
+                                let screenH = max(UIScreen.main.bounds.height, 1)
+                                action(UnitPoint(x: p.x / screenW, y: p.y / screenH))
                             }
                     )
             }

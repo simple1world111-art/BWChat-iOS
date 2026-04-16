@@ -18,6 +18,7 @@ struct ChatView: View {
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
     @State private var voiceCancelZone = false
+    @FocusState private var isInputFocused: Bool
 
     private var isSelfChat: Bool {
         contact.userID == AuthManager.shared.currentUser?.userID
@@ -52,17 +53,12 @@ struct ChatView: View {
     }
 
     private func scrollChatToLatest(proxy: ScrollViewProxy) {
-        if let pending = viewModel.pendingMessages.last {
-            DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(pending.id, anchor: .top)
-                }
-            }
-        } else if let last = viewModel.messages.last {
-            DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(last.id, anchor: .top)
-                }
+        let targetID: AnyHashable? = viewModel.pendingMessages.last?.id ?? viewModel.messages.last?.id
+        guard let targetID else { return }
+        // Delay slightly to let SwiftUI finish laying out the new message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(targetID, anchor: .top)
             }
         }
     }
@@ -101,12 +97,12 @@ struct ChatView: View {
                                     isFromMe: isFromMe,
                                     avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
                                     onImageTap: { url, anchor in
-                                        hideKeyboard()
+                                        isInputFocused = false
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
                                         ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
                                     },
                                     onVideoTap: { url, _ in
-                                        hideKeyboard()
+                                        isInputFocused = false
                                         previewVideoURL = url
                                     },
                                     onReply: { msg in viewModel.setReply(to: msg) },
@@ -174,6 +170,9 @@ struct ChatView: View {
         .overlay { voiceRecordingOverlay }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
+        .onChange(of: CallManager.shared.currentCall != nil) { hasCalling in
+            if hasCalling { isInputFocused = false }
+        }
         .fullScreenCover(item: Binding(
             get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
             set: { previewVideoURL = $0?.url }
@@ -204,6 +203,7 @@ struct ChatView: View {
                     TextField("输入消息...", text: $viewModel.inputText, axis: .vertical)
                         .font(.system(size: 16))
                         .lineLimit(1...5)
+                        .focused($isInputFocused)
                         .submitLabel(.send)
                         .onSubmit {
                             Task { await viewModel.sendText() }
@@ -231,7 +231,10 @@ struct ChatView: View {
                         .contentShape(Circle())
                     }
                 } else if !isVoiceMode {
-                    Button { withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() } } label: {
+                    Button {
+                        isInputFocused = false
+                        withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() }
+                    } label: {
                         Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
                             .font(.system(size: 28))
                             .foregroundColor(AppColors.accent)

@@ -285,6 +285,8 @@ class CallManager: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         do {
             if isSpeakerOn {
+                try session.setCategory(.playAndRecord, mode: .videoChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
+                try session.setActive(true)
                 try session.overrideOutputAudioPort(.speaker)
             } else {
                 try session.overrideOutputAudioPort(.none)
@@ -365,17 +367,28 @@ class CallManager: ObservableObject {
             if remoteVideoTrack != nil { break }
         }
 
-        // First remote joined on an outgoing call: now we're truly "connected"
+        // First remote joined on an outgoing call: now we're truly "connected".
+        // Only transition from .outgoing (not .connecting or other states) to avoid
+        // premature timer start. For 1v1 calls also verify at least one remote has
+        // published an audio track, ensuring the callee actually joined media.
         if currentCall?.isOutgoing == true,
-           currentCall?.state != .connected,
+           currentCall?.state == .outgoing,
            !remoteParticipants.isEmpty {
-            stopRingtone()
-            if var call = currentCall {
-                call.state = .connected
-                currentCall = call
+            let hasRemoteAudio = remoteParticipants.contains { p in
+                !p.audioTracks.isEmpty
             }
-            startDurationTimer()
-            dismissKeyboard()
+            // For group calls, any participant joining is enough;
+            // for 1v1, wait until the remote publishes audio
+            let isGroup = currentCall?.groupID != nil
+            if isGroup || hasRemoteAudio {
+                stopRingtone()
+                if var call = currentCall {
+                    call.state = .connected
+                    currentCall = call
+                }
+                startDurationTimer()
+                dismissKeyboard()
+            }
         }
     }
 
@@ -422,7 +435,12 @@ class CallManager: ObservableObject {
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+            // Use .defaultToSpeaker option so speaker is the default output;
+            // .voiceChat mode forces earpiece, so use .videoChat for speaker default.
+            let mode: AVAudioSession.Mode = isSpeakerOn ? .videoChat : .voiceChat
+            var options: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
+            if isSpeakerOn { options.insert(.defaultToSpeaker) }
+            try session.setCategory(.playAndRecord, mode: mode, options: options)
             try session.setActive(true)
             try session.overrideOutputAudioPort(isSpeakerOn ? .speaker : .none)
         } catch {
