@@ -4,33 +4,20 @@
 import SwiftUI
 
 /// Shared controller for the custom bottom tab bar. Detail pages call
-/// `hide()` / `show()` (via environment) to drive the bar's slide-out
-/// animation in sync with their own push/pop, instead of relying on the
-/// native `.toolbar(.hidden, for: .tabBar)` modifier whose re-appear
-/// animation is known to flicker/stutter on iOS 16.
-///
-/// show() is deferred one runloop tick so that when a push goes one
-/// level deeper (parent.onDisappear then child.onAppear fire back-to-back),
-/// the child's hide() can cancel the pending show and the bar never
-/// flashes back in between.
+/// `hide()` / `show()` (via environment) to drive visibility. Both
+/// transitions are synchronous — no deferred show — so returning to a
+/// tab root makes the bar reappear instantly instead of fading in
+/// after a delay.
 @MainActor
 final class TabBarVisibility: ObservableObject {
     @Published var isHidden: Bool = false
-    private var pendingShow: Task<Void, Never>?
 
     func hide() {
-        pendingShow?.cancel()
-        pendingShow = nil
         if !isHidden { isHidden = true }
     }
 
     func show() {
-        pendingShow?.cancel()
-        pendingShow = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 80_000_000)
-            guard !Task.isCancelled else { return }
-            isHidden = false
-        }
+        if isHidden { isHidden = false }
     }
 }
 
@@ -60,11 +47,9 @@ struct MainTabView: View {
             }
             .environmentObject(tabBar)
 
-            CustomTabBar(selectedTab: $selectedTab)
-                .offset(y: tabBar.isHidden ? 120 : 0)
-                .opacity(tabBar.isHidden ? 0 : 1)
-                .allowsHitTesting(!tabBar.isHidden)
-                .animation(.easeOut(duration: 0.22), value: tabBar.isHidden)
+            if !tabBar.isHidden {
+                CustomTabBar(selectedTab: $selectedTab)
+            }
 
             ImageGalleryOverlay()
         }
