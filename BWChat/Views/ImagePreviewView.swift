@@ -87,13 +87,19 @@ struct ImageGalleryOverlay: View {
             }
             .ignoresSafeArea()
             .onAppear {
-                currentIndex = state.initialIndex
-                // Begin the entrance animation on the next runloop tick so the
-                // TabView has laid out once at the collapsed state before the
-                // spring interpolates — otherwise the first frame can render
-                // at full size, producing a visible jump.
+                // Set TabView's page without animation — otherwise the page-
+                // transition animation (from default 0 → initialIndex) runs
+                // simultaneously with the scale/opacity entrance and produces
+                // the visible jitter during the zoom-in.
+                var snap = Transaction()
+                snap.disablesAnimations = true
+                withTransaction(snap) {
+                    currentIndex = state.initialIndex
+                }
+                // Run the entrance with an easeOut curve rather than a spring,
+                // so the zoom-in doesn't overshoot past 1.0 and bounce back.
                 DispatchQueue.main.async {
-                    withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                    withAnimation(.easeOut(duration: 0.26)) {
                         appeared = true
                     }
                 }
