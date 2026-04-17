@@ -230,10 +230,12 @@ class CallManager: ObservableObject {
                 }
             }
 
-            // Outgoing calls: stay "ringing" until at least one remote joins LiveKit;
-            // then mark connected and start the duration timer (avoids green timer before callee answers).
-            let waitForRemote = currentCall?.isOutgoing == true
-            if !waitForRemote {
+            // Outgoing 1v1 calls: stay "ringing" until the callee actually joins
+            // LiveKit and publishes audio — otherwise the green timer starts before
+            // the callee has answered. Group outgoing doesn't wait (the caller is
+            // already "in" the room even if nobody else has joined yet).
+            let isOutgoing1v1 = currentCall?.isOutgoing == true && currentCall?.groupID == nil
+            if !isOutgoing1v1 {
                 stopRingtone()
                 if var call = currentCall {
                     call.state = .connected
