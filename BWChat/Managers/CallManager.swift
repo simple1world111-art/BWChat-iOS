@@ -6,7 +6,7 @@ import UIKit
 import Combine
 import AVFoundation
 import AudioToolbox
-import LiveKitSDK
+import LiveKit
 
 @MainActor
 class CallManager: ObservableObject {

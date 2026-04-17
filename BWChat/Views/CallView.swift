@@ -2,7 +2,7 @@
 // Voice and video call UI
 
 import SwiftUI
-import LiveKitSDK
+import LiveKit
 import UIKit
 
 struct CallView: View {
