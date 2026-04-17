@@ -102,7 +102,13 @@ private struct GalleryContent: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .offset(y: verticalDrag)
             .scaleEffect(dragDismissScale)
-            .scaleEffect(appeared ? 1.0 : 0.28, anchor: openAnchor)
+            // Plain fade-in only. I spent multiple rounds trying to make a
+            // zoom-from-tap-point entrance smooth on top of TabView and was
+            // unable to get rid of visible jitter — UIPageViewController
+            // layout, ObservableObject re-renders, and SwiftUI animation
+            // all interact unpredictably when an off-center scaleEffect is
+            // interpolating concurrently. Accept an opacity-only entrance
+            // so the user never sees a shake.
             .opacity(appeared ? 1.0 : 0.0)
             .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
             .onChange(of: currentIndex) { _ in
@@ -126,10 +132,7 @@ private struct GalleryContent: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            // Only the outer scale/opacity animate here — currentIndex is
-            // already the right page, so TabView does not run its own page
-            // transition during the entrance.
-            withAnimation(.easeOut(duration: 0.26)) {
+            withAnimation(.easeOut(duration: 0.22)) {
                 appeared = true
             }
         }
@@ -172,11 +175,10 @@ private struct GalleryContent: View {
     }
 
     private func dismissGallery() {
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(.easeOut(duration: 0.18)) {
             appeared = false
-            verticalDrag = verticalDrag > 0 ? 400 : (verticalDrag < 0 ? -400 : 300)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             onDismiss()
         }
     }
