@@ -14,6 +14,7 @@ struct GroupChatView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: GroupChatViewModel
     @ObservedObject private var callManager = CallManager.shared
+    @EnvironmentObject private var tabBar: TabBarVisibility
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
@@ -214,7 +215,6 @@ struct GroupChatView: View {
         }
         .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { showGroupDetail = true } label: {
@@ -233,8 +233,14 @@ struct GroupChatView: View {
             }
         }
         .overlay { groupVoiceRecordingOverlay }
-        .onAppear { setActiveGroupChat(true) }
-        .onDisappear { setActiveGroupChat(false) }
+        .onAppear {
+            setActiveGroupChat(true)
+            tabBar.hide()
+        }
+        .onDisappear {
+            setActiveGroupChat(false)
+            tabBar.show()
+        }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false

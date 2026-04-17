@@ -5,6 +5,7 @@ import SwiftUI
 
 struct FriendRequestsView: View {
     @StateObject private var viewModel = FriendsViewModel()
+    @EnvironmentObject private var tabBar: TabBarVisibility
 
     var body: some View {
         Group {
@@ -38,11 +39,12 @@ struct FriendRequestsView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("好友请求")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .task {
             await viewModel.loadFriendRequests()
         }
         .toast(message: $viewModel.successMessage)
+        .onAppear { tabBar.hide() }
+        .onDisappear { tabBar.show() }
     }
 }
 

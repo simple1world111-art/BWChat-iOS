@@ -6,6 +6,7 @@ import SwiftUI
 struct GroupDetailView: View {
     let groupID: Int
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var tabBar: TabBarVisibility
     @State private var detail: GroupDetail?
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -48,7 +49,8 @@ struct GroupDetailView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("群聊信息")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .onAppear { tabBar.hide() }
+        .onDisappear { tabBar.show() }
         .task { await loadDetail() }
         .alert("修改群名", isPresented: $showRenameAlert) {
             TextField("输入新群名", text: $newGroupName)

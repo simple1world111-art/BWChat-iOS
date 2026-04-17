@@ -3,46 +3,72 @@
 
 import SwiftUI
 
+/// Shared controller for the custom bottom tab bar. Detail pages call
+/// `hide()` / `show()` (via environment) to drive the bar's slide-out
+/// animation in sync with their own push/pop, instead of relying on the
+/// native `.toolbar(.hidden, for: .tabBar)` modifier whose re-appear
+/// animation is known to flicker/stutter on iOS 16.
+///
+/// show() is deferred one runloop tick so that when a push goes one
+/// level deeper (parent.onDisappear then child.onAppear fire back-to-back),
+/// the child's hide() can cancel the pending show and the bar never
+/// flashes back in between.
+@MainActor
+final class TabBarVisibility: ObservableObject {
+    @Published var isHidden: Bool = false
+    private var pendingShow: Task<Void, Never>?
+
+    func hide() {
+        pendingShow?.cancel()
+        pendingShow = nil
+        if !isHidden { isHidden = true }
+    }
+
+    func show() {
+        pendingShow?.cancel()
+        pendingShow = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+            isHidden = false
+        }
+    }
+}
+
 struct MainTabView: View {
     @State private var selectedTab = 0
+    @StateObject private var tabBar = TabBarVisibility()
     @ObservedObject private var mediaSaveFeedback = MediaSaveFeedback.shared
 
     var body: some View {
-        ZStack {
-            TabView(selection: $selectedTab) {
-
+        ZStack(alignment: .bottom) {
+            // Keep every tab alive so navigating between them preserves each
+            // NavigationStack's state (same behavior as a native TabView).
+            // Use opacity + allowsHitTesting to switch which one is active.
+            ZStack {
                 ContactListView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-                        Text("消息")
-                    }
-                    .tag(0)
-
+                    .opacity(selectedTab == 0 ? 1 : 0)
+                    .allowsHitTesting(selectedTab == 0)
                 ContactsTabView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 1 ? "person.crop.circle.fill" : "person.crop.circle")
-                        Text("通讯录")
-                    }
-                    .tag(1)
-
+                    .opacity(selectedTab == 1 ? 1 : 0)
+                    .allowsHitTesting(selectedTab == 1)
                 DiscoverView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 2 ? "safari.fill" : "safari")
-                        Text("发现")
-                    }
-                    .tag(2)
-
+                    .opacity(selectedTab == 2 ? 1 : 0)
+                    .allowsHitTesting(selectedTab == 2)
                 ProfileView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 3 ? "gearshape.fill" : "gearshape")
-                        Text("我")
-                    }
-                    .tag(3)
+                    .opacity(selectedTab == 3 ? 1 : 0)
+                    .allowsHitTesting(selectedTab == 3)
             }
-            .tint(AppColors.accent)
+            .environmentObject(tabBar)
+
+            CustomTabBar(selectedTab: $selectedTab)
+                .offset(y: tabBar.isHidden ? 120 : 0)
+                .opacity(tabBar.isHidden ? 0 : 1)
+                .allowsHitTesting(!tabBar.isHidden)
+                .animation(.easeOut(duration: 0.22), value: tabBar.isHidden)
 
             ImageGalleryOverlay()
         }
+        .ignoresSafeArea(.keyboard)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { _ in
             selectedTab = 0
         }
@@ -50,6 +76,57 @@ struct MainTabView: View {
             selectedTab = 0
         }
         .toast(message: $mediaSaveFeedback.toastMessage)
+    }
+}
+
+// MARK: - Custom Tab Bar
+
+private struct CustomTabBar: View {
+    @Binding var selectedTab: Int
+
+    private struct Item {
+        let icon: String
+        let selectedIcon: String
+        let title: String
+    }
+
+    private let items: [Item] = [
+        Item(icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill", title: "消息"),
+        Item(icon: "person.crop.circle", selectedIcon: "person.crop.circle.fill", title: "通讯录"),
+        Item(icon: "safari", selectedIcon: "safari.fill", title: "发现"),
+        Item(icon: "gearshape", selectedIcon: "gearshape.fill", title: "我"),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 0) {
+                ForEach(0..<items.count, id: \.self) { i in
+                    let item = items[i]
+                    let isSelected = selectedTab == i
+                    Button {
+                        if selectedTab != i { selectedTab = i }
+                    } label: {
+                        VStack(spacing: 2) {
+                            Image(systemName: isSelected ? item.selectedIcon : item.icon)
+                                .font(.system(size: 22))
+                            Text(item.title)
+                                .font(.system(size: 10))
+                        }
+                        .foregroundColor(isSelected ? AppColors.accent : AppColors.tertiaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .background(
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea(edges: .bottom)
+        )
     }
 }
 

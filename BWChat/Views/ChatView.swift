@@ -12,6 +12,7 @@ struct ChatView: View {
     var onMarkRead: (() -> Void)?
     @StateObject private var viewModel: ChatViewModel
     @ObservedObject private var callManager = CallManager.shared
+    @EnvironmentObject private var tabBar: TabBarVisibility
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
@@ -169,15 +170,20 @@ struct ChatView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 EmptyView()
             }
         }
         .overlay { voiceRecordingOverlay }
-        .onAppear { setActiveChat(true) }
-        .onDisappear { setActiveChat(false) }
+        .onAppear {
+            setActiveChat(true)
+            tabBar.hide()
+        }
+        .onDisappear {
+            setActiveChat(false)
+            tabBar.show()
+        }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false

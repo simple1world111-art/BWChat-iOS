@@ -106,6 +106,7 @@ struct InAppWebView: View {
     let url: URL
     let title: String
     @State private var isLoading = true
+    @EnvironmentObject private var tabBar: TabBarVisibility
 
     var body: some View {
         ZStack {
@@ -120,7 +121,8 @@ struct InAppWebView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .onAppear { tabBar.hide() }
+        .onDisappear { tabBar.show() }
     }
 }
 
