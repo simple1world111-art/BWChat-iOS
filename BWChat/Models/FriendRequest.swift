@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct FriendRequest: Codable, Identifiable {
+struct FriendRequest: Codable, Identifiable, Equatable {
     let requestID: Int
     let userID: String
     let nickname: String
