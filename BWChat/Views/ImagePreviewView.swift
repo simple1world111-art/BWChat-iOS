@@ -187,6 +187,36 @@ private struct ZoomableImagePage: View {
     @State private var image: UIImage?
     @State private var isLoading = true
 
+    /// Initialise @State from the memory cache synchronously. This is the key
+    /// to a jitter-free entrance: the gallery's zoom-in animation runs on the
+    /// outer container, and if the inner content swaps from a placeholder
+    /// (ProgressView) to a full-screen Image mid-animation the whole thing
+    /// appears to shake. By the time the first frame is committed, the @State
+    /// already holds the cached thumbnail / full-size image, so the content
+    /// the entrance animation zooms in on is stable from frame one.
+    init(
+        imageURL: String,
+        scale: Binding<CGFloat>,
+        lastScale: Binding<CGFloat>,
+        offset: Binding<CGSize>,
+        lastOffset: Binding<CGSize>,
+        onSingleTap: @escaping () -> Void,
+        onDoubleTap: @escaping () -> Void
+    ) {
+        self.imageURL = imageURL
+        self._scale = scale
+        self._lastScale = lastScale
+        self._offset = offset
+        self._lastOffset = lastOffset
+        self.onSingleTap = onSingleTap
+        self.onDoubleTap = onDoubleTap
+
+        let preLoaded: UIImage? = ImageCacheManager.shared.image(for: imageURL)
+            ?? ImageCacheManager.shared.image(for: imageURL + "?thumb=1")
+        self._image = State(initialValue: preLoaded)
+        self._isLoading = State(initialValue: preLoaded == nil)
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
@@ -214,8 +244,14 @@ private struct ZoomableImagePage: View {
                 }
             }
         }
-        .task {
-            image = await ImageCacheManager.shared.loadImage(from: imageURL)
+        .task(id: imageURL) {
+            // Resolve full-size asynchronously. If we're already showing the
+            // cached thumbnail, this silently swaps to the high-res version
+            // (same aspect ratio, no layout shift); if nothing was cached we
+            // replace the placeholder once the bytes arrive.
+            if let loaded = await ImageCacheManager.shared.loadImage(from: imageURL) {
+                image = loaded
+            }
             isLoading = false
         }
     }
