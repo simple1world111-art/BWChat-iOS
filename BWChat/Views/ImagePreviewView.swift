@@ -28,93 +28,90 @@ class ImageGalleryState: ObservableObject {
 struct ImageGalleryOverlay: View {
     @ObservedObject var state = ImageGalleryState.shared
 
-    @State private var currentIndex: Int = 0
+    @State private var currentIndex: Int
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
     @State private var verticalDrag: CGFloat = 0
-    @State private var appeared = false
+
+    /// Seed currentIndex from the state's initialIndex at View-identity creation
+    /// time. The previous approach (default 0, then assigned in onAppear) caused
+    /// TabView/UIPageViewController to run its own page-transition animation
+    /// concurrently with the gallery's scale entrance — two animations fighting
+    /// on the same element is what looked like a shake during the zoom-in.
+    init() {
+        _currentIndex = State(initialValue: ImageGalleryState.shared.initialIndex)
+    }
 
     var body: some View {
-        if state.isPresented {
-            ZStack {
+        ZStack {
+            if state.isPresented {
                 Color.black
                     .ignoresSafeArea()
                     .opacity(backgroundOpacity)
+                    .transition(.opacity)
 
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
-                        ZoomableImagePage(
-                            imageURL: url,
-                            scale: index == currentIndex ? $scale : .constant(1),
-                            lastScale: index == currentIndex ? $lastScale : .constant(1),
-                            offset: index == currentIndex ? $offset : .constant(.zero),
-                            lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                            onSingleTap: { dismissGallery() },
-                            onDoubleTap: { doubleTap() }
-                        )
-                        .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .offset(y: verticalDrag)
-                .scaleEffect(dragDismissScale)
-                // Use state.openAnchor directly — reading @State after onAppear
-                // creates a one-frame window where the anchor is still .center,
-                // which is what produces the visible "jump".
-                .scaleEffect(appeared ? 1.0 : 0.28, anchor: state.openAnchor)
-                .opacity(appeared ? 1.0 : 0.0)
-                .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
-                .onChange(of: currentIndex) { _ in
-                    resetZoom()
-                }
+                galleryContent
+                    .transition(
+                        .scale(scale: 0.28, anchor: state.openAnchor)
+                            .combined(with: .opacity)
+                    )
+            }
+        }
+        .ignoresSafeArea()
+        .animation(.easeOut(duration: 0.26), value: state.isPresented)
+    }
 
-                if state.imageURLs.count > 1 {
-                    VStack {
-                        Text("\(currentIndex + 1) / \(state.imageURLs.count)")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white.opacity(0.9))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
-                            .background(.black.opacity(0.4))
-                            .cornerRadius(14)
-                            .padding(.top, 54)
-                        Spacer()
-                    }
-                    .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
+    @ViewBuilder
+    private var galleryContent: some View {
+        ZStack {
+            TabView(selection: $currentIndex) {
+                ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                    ZoomableImagePage(
+                        imageURL: url,
+                        scale: index == currentIndex ? $scale : .constant(1),
+                        lastScale: index == currentIndex ? $lastScale : .constant(1),
+                        offset: index == currentIndex ? $offset : .constant(.zero),
+                        lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                        onSingleTap: { dismissGallery() },
+                        onDoubleTap: { doubleTap() }
+                    )
+                    .tag(index)
                 }
             }
-            .ignoresSafeArea()
-            .onAppear {
-                // Set TabView's page without animation — otherwise the page-
-                // transition animation (from default 0 → initialIndex) runs
-                // simultaneously with the scale/opacity entrance and produces
-                // the visible jitter during the zoom-in.
-                var snap = Transaction()
-                snap.disablesAnimations = true
-                withTransaction(snap) {
-                    currentIndex = state.initialIndex
-                }
-                // Run the entrance with an easeOut curve rather than a spring,
-                // so the zoom-in doesn't overshoot past 1.0 and bounce back.
-                DispatchQueue.main.async {
-                    withAnimation(.easeOut(duration: 0.26)) {
-                        appeared = true
-                    }
-                }
-            }
-            .onDisappear {
-                appeared = false
-                verticalDrag = 0
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .offset(y: verticalDrag)
+            .scaleEffect(dragDismissScale)
+            .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
+            .onChange(of: currentIndex) { _ in
                 resetZoom()
             }
+
+            if state.imageURLs.count > 1 {
+                VStack {
+                    Text("\(currentIndex + 1) / \(state.imageURLs.count)")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(.black.opacity(0.4))
+                        .cornerRadius(14)
+                        .padding(.top, 54)
+                    Spacer()
+                }
+                .opacity(scale <= 1.05 && verticalDrag == 0 ? 1 : 0)
+            }
+        }
+        .ignoresSafeArea()
+        .onDisappear {
+            verticalDrag = 0
+            resetZoom()
         }
     }
 
     private var backgroundOpacity: Double {
-        guard appeared else { return 0 }
-        return 1.0 - min(abs(verticalDrag) / 250, 0.7)
+        1.0 - min(abs(verticalDrag) / 250, 0.7)
     }
 
     private var dragDismissScale: CGFloat {
@@ -148,13 +145,10 @@ struct ImageGalleryOverlay: View {
     }
 
     private func dismissGallery() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            appeared = false
-            verticalDrag = verticalDrag > 0 ? 400 : (verticalDrag < 0 ? -400 : 300)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            state.isPresented = false
-        }
+        // Flipping isPresented is enough — the .transition on galleryContent
+        // handles the shrink-back animation via the same .easeOut(0.26)
+        // bound by the outer .animation(value: state.isPresented).
+        state.isPresented = false
     }
 
     private func doubleTap() {
