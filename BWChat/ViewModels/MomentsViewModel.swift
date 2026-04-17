@@ -14,8 +14,13 @@ class MomentsViewModel: ObservableObject {
     func loadFeed(refresh: Bool = false) async {
         if refresh { hasMore = true }
         guard !isLoading else { return }
-        isLoading = true
+        // Show the blocking loader only on the very first load or an explicit
+        // refresh — avoid flashing the spinner over an already-populated feed
+        // when the tab reappears after a NavigationStack pop.
+        let showLoader = moments.isEmpty || refresh
+        if showLoader { isLoading = true }
         errorMessage = nil
+        defer { isLoading = false }
 
         do {
             let (items, more): ([Moment], Bool)
@@ -24,13 +29,13 @@ class MomentsViewModel: ObservableObject {
             } else {
                 (items, more) = try await APIService.shared.getMomentsFeed()
             }
-            moments = items
+            if moments != items {
+                moments = items
+            }
             hasMore = more
         } catch {
             if moments.isEmpty { errorMessage = "加载失败" }
         }
-
-        isLoading = false
     }
 
     func loadMore() async {

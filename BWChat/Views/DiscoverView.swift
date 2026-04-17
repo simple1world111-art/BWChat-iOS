@@ -168,8 +168,8 @@ class MomentsNotificationManager: ObservableObject {
     func fetchFromServer() async {
         do {
             let info = try await APIService.shared.getMomentsUnreadInfo()
-            unreadCount = info.unreadCount
-            hasNewMoments = info.hasNewMoments
+            if unreadCount != info.unreadCount { unreadCount = info.unreadCount }
+            if hasNewMoments != info.hasNewMoments { hasNewMoments = info.hasNewMoments }
         } catch { }
     }
 

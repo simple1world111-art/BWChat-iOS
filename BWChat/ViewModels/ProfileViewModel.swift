@@ -29,17 +29,22 @@ class ProfileViewModel: ObservableObject {
     }
 
     func loadProfile() async {
-        isLoading = true
+        // Only show blocking loader on first load — otherwise tab re-appears
+        // would flash a spinner over the already-rendered profile card.
+        let showLoader = profile == nil
+        if showLoader { isLoading = true }
         errorMessage = nil
+        defer { isLoading = false }
         do {
             let user = try await APIService.shared.getMyProfile()
-            profile = user
-            populateEditFields(from: user)
-            AuthManager.shared.updateUser(user)
+            if profile != user {
+                profile = user
+                populateEditFields(from: user)
+                AuthManager.shared.updateUser(user)
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            if profile == nil { errorMessage = error.localizedDescription }
         }
-        isLoading = false
     }
 
     func populateEditFields(from user: User) {

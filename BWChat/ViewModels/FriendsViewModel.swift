@@ -43,21 +43,31 @@ class FriendsViewModel: ObservableObject {
 
     func loadFriendRequests() async {
         do {
-            friendRequests = try await APIService.shared.getFriendRequests()
+            let fetched = try await APIService.shared.getFriendRequests()
+            if friendRequests != fetched {
+                friendRequests = fetched
+            }
         } catch {
             // silently fail
         }
     }
 
     func loadFriends() async {
-        isLoading = true
+        // Only show the blocking loader on the very first load — subsequent
+        // re-runs (e.g. tab re-appears after NavigationStack pop) shouldn't
+        // flash a spinner over an already-populated list.
+        let showLoader = friends.isEmpty
+        if showLoader { isLoading = true }
+        defer { isLoading = false }
         do {
-            friends = try await APIService.shared.getFriendList()
-            UserCacheManager.shared.cacheFriends(friends)
+            let fetched = try await APIService.shared.getFriendList()
+            if friends != fetched {
+                friends = fetched
+                UserCacheManager.shared.cacheFriends(fetched)
+            }
         } catch {
-            errorMessage = "加载好友列表失败"
+            if friends.isEmpty { errorMessage = "加载好友列表失败" }
         }
-        isLoading = false
     }
 
     func sendFriendRequest(to userID: String) async {

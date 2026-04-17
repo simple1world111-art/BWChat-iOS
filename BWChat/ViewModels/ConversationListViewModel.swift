@@ -41,7 +41,12 @@ class ConversationListViewModel: ObservableObject {
 
         do {
             let serverConvs = try await APIService.shared.getConversations()
-            conversations = serverConvs
+            // Avoid visual diff when data is identical — prevents the List from
+            // redrawing (and its avatars from flashing) when the tab reappears
+            // after a NavigationStack pop triggers a silent .task re-run.
+            if conversations != serverConvs {
+                conversations = serverConvs
+            }
             store.saveConversations(serverConvs)
         } catch let error as APIError {
             if case .unauthorized = error {

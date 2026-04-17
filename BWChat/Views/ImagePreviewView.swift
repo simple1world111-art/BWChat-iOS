@@ -35,8 +35,6 @@ struct ImageGalleryOverlay: View {
     @State private var lastOffset: CGSize = .zero
     @State private var verticalDrag: CGFloat = 0
     @State private var appeared = false
-    @State private var layoutReady = false
-    @State private var entranceAnchor: UnitPoint = .center
 
     var body: some View {
         if state.isPresented {
@@ -62,7 +60,10 @@ struct ImageGalleryOverlay: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .offset(y: verticalDrag)
                 .scaleEffect(dragDismissScale)
-                .scaleEffect(appeared ? 1.0 : 0.28, anchor: entranceAnchor)
+                // Use state.openAnchor directly — reading @State after onAppear
+                // creates a one-frame window where the anchor is still .center,
+                // which is what produces the visible "jump".
+                .scaleEffect(appeared ? 1.0 : 0.28, anchor: state.openAnchor)
                 .opacity(appeared ? 1.0 : 0.0)
                 .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
                 .onChange(of: currentIndex) { _ in
@@ -87,10 +88,11 @@ struct ImageGalleryOverlay: View {
             .ignoresSafeArea()
             .onAppear {
                 currentIndex = state.initialIndex
-                entranceAnchor = state.openAnchor
-                // Let TabView finish its initial layout pass before animating in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-                    layoutReady = true
+                // Begin the entrance animation on the next runloop tick so the
+                // TabView has laid out once at the collapsed state before the
+                // spring interpolates — otherwise the first frame can render
+                // at full size, producing a visible jump.
+                DispatchQueue.main.async {
                     withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
                         appeared = true
                     }
@@ -98,7 +100,6 @@ struct ImageGalleryOverlay: View {
             }
             .onDisappear {
                 appeared = false
-                layoutReady = false
                 verticalDrag = 0
                 resetZoom()
             }
