@@ -26,23 +26,16 @@ extension View {
 
     /// Lightweight tap that reports the tap point as a screen-normalized UnitPoint
     /// (so the image gallery can zoom from exactly where the user tapped).
+    /// Uses SpatialTapGesture (iOS 16+) which coexists cleanly with ancestor
+    /// swipe-to-reply DragGestures via .simultaneousGesture.
     func onTapWithNormalizedAnchor(perform action: @escaping (UnitPoint) -> Void) -> some View {
-        background(
-            GeometryReader { geo in
-                Color.clear
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                            .onEnded { value in
-                                let t = value.translation
-                                guard hypot(t.width, t.height) < 14 else { return }
-                                let p = value.startLocation
-                                let screenW = max(UIScreen.main.bounds.width, 1)
-                                let screenH = max(UIScreen.main.bounds.height, 1)
-                                action(UnitPoint(x: p.x / screenW, y: p.y / screenH))
-                            }
-                    )
-            }
+        simultaneousGesture(
+            SpatialTapGesture(coordinateSpace: .global)
+                .onEnded { event in
+                    let w = max(UIScreen.main.bounds.width, 1)
+                    let h = max(UIScreen.main.bounds.height, 1)
+                    action(UnitPoint(x: event.location.x / w, y: event.location.y / h))
+                }
         )
     }
 }
