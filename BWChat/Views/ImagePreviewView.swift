@@ -197,10 +197,7 @@ private struct ZoomableImagePage: View {
                         .simultaneousGesture(scale > 1.05 ? panGesture : nil)
                         .onTapGesture(count: 2) { onDoubleTap() }
                         .onTapGesture { onSingleTap() }
-                        .onLongPressGesture(minimumDuration: 0.5) {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            Task { await MediaLibrarySaver.saveImage(mediaPath: imageURL) }
-                        }
+                        .longPressToSaveImage(url: imageURL)
                 } else if isLoading {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle(tint: .white))

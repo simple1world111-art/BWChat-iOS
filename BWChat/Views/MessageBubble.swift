@@ -130,13 +130,7 @@ struct MessageBubble: View {
             .onTapWithNormalizedAnchor { anchor in
                 onImageTap?(message.content, anchor)
             }
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.5)
-                    .onEnded { _ in
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        Task { await MediaLibrarySaver.saveImage(mediaPath: message.content) }
-                    }
-            )
+            .longPressToSaveImage(url: message.content)
     }
 
     // MARK: - Video Bubble
@@ -157,13 +151,7 @@ struct MessageBubble: View {
         .onTapWithNormalizedAnchor { anchor in
             onVideoTap?(message.content, anchor)
         }
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.5)
-                .onEnded { _ in
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    Task { await MediaLibrarySaver.saveVideo(mediaPath: message.content) }
-                }
-        )
+        .longPressToSaveVideo(url: message.content)
     }
 }
 

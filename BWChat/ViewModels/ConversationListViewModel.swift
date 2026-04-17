@@ -129,6 +129,16 @@ class ConversationListViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // DM contact_update fires on the SENDER too (new_message does not),
+        // so this is how the sender's own conversation list reflects a just-
+        // sent message without waiting for a full /conversations reload.
+        WebSocketService.shared.contactUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] data in
+                self?.handleDMContactUpdate(data)
+            }
+            .store(in: &cancellables)
+
         WebSocketService.shared.chatResetPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
@@ -173,10 +183,63 @@ class ConversationListViewModel: ObservableObject {
                 groupID: nil, memberCount: nil
             )
             conversations[index] = updated
-            conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            sortKeepingSelfPinned()
             store.updateConversation(updated)
         } else {
             Task { await loadConversations() }
+        }
+    }
+
+    /// Fired for DMs the current user SENT (and also received, as a backup).
+    /// Reflects the new preview + timestamp in the list instantly so the
+    /// sender doesn't have to leave the chat and come back to see it move.
+    private func handleDMContactUpdate(_ data: [String: Any]) {
+        guard let senderID = data["sender_id"] as? String,
+              let receiverID = data["receiver_id"] as? String,
+              let lastMessage = data["last_message"] as? String,
+              let lastMessageTime = data["last_message_time"] as? String else { return }
+
+        let myID = AuthManager.shared.currentUser?.userID
+        // For self-chat both ids equal myID — the conversation id is myID.
+        let contactID = (senderID == myID) ? receiverID : senderID
+
+        if let index = conversations.firstIndex(where: { $0.id == contactID && $0.isDM }) {
+            let c = conversations[index]
+            // Don't overwrite a newer preview with a stale one (can happen if
+            // new_message arrived first and contact_update is the late follower).
+            if let existingTime = c.lastMessageTime, existingTime > lastMessageTime { return }
+            let updated = Conversation(
+                type: "dm", id: c.id, name: c.name, avatarURL: c.avatarURL,
+                lastMessage: lastMessage, lastMessageTime: lastMessageTime,
+                unreadCount: c.unreadCount, subtitle: nil,
+                groupID: nil, memberCount: nil
+            )
+            conversations[index] = updated
+            sortKeepingSelfPinned()
+            store.updateConversation(updated)
+        } else {
+            Task { await loadConversations() }
+        }
+    }
+
+    /// Sort by last_message_time desc while keeping the self-chat row pinned at
+    /// the top (mirrors the backend's get_conversations behavior).
+    private func sortKeepingSelfPinned() {
+        let myID = AuthManager.shared.currentUser?.userID
+        var self_entry: Conversation?
+        var rest: [Conversation] = []
+        for c in conversations {
+            if c.isDM, c.id == myID {
+                self_entry = c
+            } else {
+                rest.append(c)
+            }
+        }
+        rest.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+        if let s = self_entry {
+            conversations = [s] + rest
+        } else {
+            conversations = rest
         }
     }
 
@@ -210,7 +273,7 @@ class ConversationListViewModel: ObservableObject {
                 groupID: c.groupID, memberCount: c.memberCount
             )
             conversations[index] = updated
-            conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            sortKeepingSelfPinned()
             store.updateConversation(updated)
         } else {
             Task { await loadConversations() }
@@ -244,7 +307,7 @@ class ConversationListViewModel: ObservableObject {
                 groupID: c.groupID, memberCount: c.memberCount
             )
             conversations[index] = updated
-            conversations.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            sortKeepingSelfPinned()
             store.updateConversation(updated)
         } else {
             Task { await loadConversations() }

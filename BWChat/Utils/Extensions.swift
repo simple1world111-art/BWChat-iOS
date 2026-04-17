@@ -26,17 +26,64 @@ extension View {
 
     /// Lightweight tap that reports the tap point as a screen-normalized UnitPoint
     /// (so the image gallery can zoom from exactly where the user tapped).
-    /// Uses SpatialTapGesture (iOS 16+) which coexists cleanly with ancestor
-    /// swipe-to-reply DragGestures via .simultaneousGesture.
+    /// Implemented as a zero-distance DragGesture in .simultaneousGesture: it
+    /// coexists cleanly with ancestor swipe-to-reply DragGestures, and the
+    /// `CoordinateSpace.global` enum is well-defined in iOS 16 (unlike
+    /// SpatialTapGesture's coordinateSpace parameter, whose protocol-based
+    /// overload can silently resolve to local coordinates on older OSes).
     func onTapWithNormalizedAnchor(perform action: @escaping (UnitPoint) -> Void) -> some View {
         simultaneousGesture(
-            SpatialTapGesture(coordinateSpace: .global)
-                .onEnded { event in
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onEnded { value in
+                    let t = value.translation
+                    guard hypot(t.width, t.height) < 14 else { return }
+                    let p = value.startLocation
                     let w = max(UIScreen.main.bounds.width, 1)
                     let h = max(UIScreen.main.bounds.height, 1)
-                    action(UnitPoint(x: event.location.x / w, y: event.location.y / h))
+                    action(UnitPoint(x: p.x / w, y: p.y / h))
                 }
         )
+    }
+
+    /// Long-press to show a "保存到相册 / 取消" confirmation before saving media.
+    /// Uses .simultaneousGesture so it coexists with ancestor DragGestures
+    /// (e.g. swipe-to-reply on MessageBubble) without being swallowed.
+    func longPressToSaveImage(url: String) -> some View {
+        modifier(LongPressSaveMediaModifier(url: url, kind: .image))
+    }
+
+    func longPressToSaveVideo(url: String) -> some View {
+        modifier(LongPressSaveMediaModifier(url: url, kind: .video))
+    }
+}
+
+private struct LongPressSaveMediaModifier: ViewModifier {
+    enum Kind { case image, video }
+    let url: String
+    let kind: Kind
+    @State private var showConfirmation = false
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.5)
+                    .onEnded { _ in
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        showConfirmation = true
+                    }
+            )
+            .confirmationDialog("", isPresented: $showConfirmation, titleVisibility: .hidden) {
+                Button(kind == .image ? "保存图片到相册" : "保存视频到相册") {
+                    let u = url
+                    Task {
+                        switch kind {
+                        case .image: await MediaLibrarySaver.saveImage(mediaPath: u)
+                        case .video: await MediaLibrarySaver.saveVideo(mediaPath: u)
+                        }
+                    }
+                }
+                Button("取消", role: .cancel) {}
+            }
     }
 }
 
