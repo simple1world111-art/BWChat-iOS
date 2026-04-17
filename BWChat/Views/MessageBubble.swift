@@ -374,6 +374,8 @@ struct CachedAsyncImage: View {
     @State private var image: UIImage?
     @State private var isLoading = true
 
+    private var thumbCacheKey: String { url + "?thumb=1" }
+
     var body: some View {
         Group {
             if let image = image {
@@ -400,8 +402,16 @@ struct CachedAsyncImage: View {
                     )
             }
         }
+        .onAppear {
+            if image == nil, let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
+                image = cached
+                isLoading = false
+            }
+        }
         .task(id: url) {
-            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            if image == nil {
+                image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            }
             isLoading = false
         }
     }

@@ -567,6 +567,8 @@ struct MomentSingleImage: View {
     @State private var image: UIImage?
     @State private var isLoading = true
 
+    private var thumbCacheKey: String { url + "?thumb=1" }
+
     var body: some View {
         Group {
             if let image = image {
@@ -594,8 +596,16 @@ struct MomentSingleImage: View {
                     )
             }
         }
+        .onAppear {
+            if image == nil, let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
+                image = cached
+                isLoading = false
+            }
+        }
         .task(id: url) {
-            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            if image == nil {
+                image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            }
             isLoading = false
         }
     }
@@ -608,6 +618,8 @@ struct MomentImageCell: View {
     let size: CGFloat
     @State private var image: UIImage?
     @State private var isLoading = true
+
+    private var thumbCacheKey: String { url + "?thumb=1" }
 
     var body: some View {
         Group {
@@ -637,8 +649,16 @@ struct MomentImageCell: View {
                     )
             }
         }
+        .onAppear {
+            if image == nil, let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
+                image = cached
+                isLoading = false
+            }
+        }
         .task(id: url) {
-            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            if image == nil {
+                image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            }
             isLoading = false
         }
     }
@@ -1001,6 +1021,8 @@ struct CommentImageView: View {
     @State private var image: UIImage?
     @State private var isLoading = true
 
+    private var thumbCacheKey: String { url + "?thumb=1" }
+
     var body: some View {
         Group {
             if let image = image {
@@ -1022,8 +1044,16 @@ struct CommentImageView: View {
             }
         }
         .padding(.top, 2)
+        .onAppear {
+            if image == nil, let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
+                image = cached
+                isLoading = false
+            }
+        }
         .task(id: url) {
-            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            if image == nil {
+                image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+            }
             isLoading = false
         }
     }

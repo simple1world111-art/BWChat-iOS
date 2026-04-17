@@ -13,6 +13,7 @@ struct GroupChatView: View {
     var onMarkRead: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: GroupChatViewModel
+    @ObservedObject private var callManager = CallManager.shared
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
@@ -62,6 +63,9 @@ struct GroupChatView: View {
                 proxy.scrollTo(targetID, anchor: .top)
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            proxy.scrollTo(targetID, anchor: .top)
+        }
     }
 
     private func previousTimestamp(for message: GroupMessage) -> String? {
@@ -100,11 +104,13 @@ struct GroupChatView: View {
                                     myAvatarURL: myAvatarURL,
                                     onImageTap: { url, anchor in
                                         isInputFocused = false
+                                        hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
                                         ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
                                     },
                                     onVideoTap: { url, _ in
                                         isInputFocused = false
+                                        hideKeyboard()
                                         previewVideoURL = url
                                     },
                                     onReply: { msg in viewModel.setReply(to: msg) },
@@ -229,8 +235,17 @@ struct GroupChatView: View {
         .overlay { groupVoiceRecordingOverlay }
         .onAppear { setActiveGroupChat(true) }
         .onDisappear { setActiveGroupChat(false) }
-        .onChange(of: CallManager.shared.currentCall != nil) { hasCalling in
-            if hasCalling { isInputFocused = false }
+        .onChange(of: callManager.currentCall != nil) { hasCalling in
+            if hasCalling {
+                isInputFocused = false
+                hideKeyboard()
+            }
+        }
+        .onChange(of: callManager.currentCall?.state) { newState in
+            if newState == .connected || newState == .connecting {
+                isInputFocused = false
+                hideKeyboard()
+            }
         }
         .onReceive(WebSocketService.shared.groupRemovedPublisher) { removedID in
             if removedID == group.groupID {

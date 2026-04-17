@@ -11,6 +11,7 @@ struct ChatView: View {
     let contact: Contact
     var onMarkRead: (() -> Void)?
     @StateObject private var viewModel: ChatViewModel
+    @ObservedObject private var callManager = CallManager.shared
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
@@ -55,11 +56,16 @@ struct ChatView: View {
     private func scrollChatToLatest(proxy: ScrollViewProxy) {
         let targetID: AnyHashable? = viewModel.pendingMessages.last?.id ?? viewModel.messages.last?.id
         guard let targetID else { return }
-        // Delay slightly to let SwiftUI finish laying out the new message
+        // First attempt (quick): usually works when cell is already laid out.
+        // Second attempt (longer delay): safety net for freshly-appended cells
+        // in the flipped LazyVStack that need an extra layout pass.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(targetID, anchor: .top)
             }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            proxy.scrollTo(targetID, anchor: .top)
         }
     }
 
@@ -98,11 +104,13 @@ struct ChatView: View {
                                     avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
                                     onImageTap: { url, anchor in
                                         isInputFocused = false
+                                        hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
                                         ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
                                     },
                                     onVideoTap: { url, _ in
                                         isInputFocused = false
+                                        hideKeyboard()
                                         previewVideoURL = url
                                     },
                                     onReply: { msg in viewModel.setReply(to: msg) },
@@ -170,8 +178,17 @@ struct ChatView: View {
         .overlay { voiceRecordingOverlay }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
-        .onChange(of: CallManager.shared.currentCall != nil) { hasCalling in
-            if hasCalling { isInputFocused = false }
+        .onChange(of: callManager.currentCall != nil) { hasCalling in
+            if hasCalling {
+                isInputFocused = false
+                hideKeyboard()
+            }
+        }
+        .onChange(of: callManager.currentCall?.state) { newState in
+            if newState == .connected || newState == .connecting {
+                isInputFocused = false
+                hideKeyboard()
+            }
         }
         .fullScreenCover(item: Binding(
             get: { previewVideoURL.map { VideoPreviewItem(url: $0) } },
