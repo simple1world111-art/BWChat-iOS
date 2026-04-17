@@ -1,5 +1,5 @@
 // BWChat/Views/ImagePreviewView.swift
-// Full-screen image gallery with center-zoom, swipe/tap to dismiss
+// Full-screen image gallery with zoom-from-tap-point entrance.
 
 import SwiftUI
 import UIKit
@@ -14,60 +14,79 @@ class ImageGalleryState: ObservableObject {
     @Published var initialIndex: Int = 0
     /// Normalized tap point on the thumbnail (for zoom-from-tap entrance animation).
     @Published var openAnchor: UnitPoint = .center
+    /// Incremented on every show() so the overlay can force a fresh GalleryContent
+    /// view identity even when the same image is tapped twice in a row.
+    @Published var openToken: Int = 0
 
     func show(urls: [String], index: Int, tapAnchor: UnitPoint = .center) {
         imageURLs = urls
         initialIndex = index
         openAnchor = tapAnchor
+        openToken &+= 1
         isPresented = true
     }
 }
 
-// MARK: - Gallery Overlay (attach at root to cover tab bar)
+// MARK: - Overlay (always in the tree; only renders when isPresented)
 
 struct ImageGalleryOverlay: View {
     @ObservedObject var state = ImageGalleryState.shared
 
+    var body: some View {
+        ZStack {
+            if state.isPresented {
+                // Key insight: GalleryContent is recreated each time openToken
+                // changes, so its @State currentIndex is seeded fresh from
+                // initialIndex inside its init() BEFORE the first render.
+                // This lets TabView start on the right page from frame 1 —
+                // otherwise UIPageViewController animates a horizontal page
+                // transition (0 → initialIndex) concurrently with the outer
+                // scale-in, which is the shake the user was seeing.
+                GalleryContent(
+                    imageURLs: state.imageURLs,
+                    initialIndex: state.initialIndex,
+                    openAnchor: state.openAnchor,
+                    onDismiss: { state.isPresented = false }
+                )
+                .id(state.openToken)
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+// MARK: - Gallery Content (fresh instance per open)
+
+private struct GalleryContent: View {
+    let imageURLs: [String]
+    let initialIndex: Int
+    let openAnchor: UnitPoint
+    let onDismiss: () -> Void
+
     @State private var currentIndex: Int
+    @State private var appeared: Bool = false
     @State private var scale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
     @State private var verticalDrag: CGFloat = 0
 
-    /// Seed currentIndex from the state's initialIndex at View-identity creation
-    /// time. The previous approach (default 0, then assigned in onAppear) caused
-    /// TabView/UIPageViewController to run its own page-transition animation
-    /// concurrently with the gallery's scale entrance — two animations fighting
-    /// on the same element is what looked like a shake during the zoom-in.
-    init() {
-        _currentIndex = State(initialValue: ImageGalleryState.shared.initialIndex)
+    init(imageURLs: [String], initialIndex: Int, openAnchor: UnitPoint, onDismiss: @escaping () -> Void) {
+        self.imageURLs = imageURLs
+        self.initialIndex = initialIndex
+        self.openAnchor = openAnchor
+        self.onDismiss = onDismiss
+        self._currentIndex = State(initialValue: initialIndex)
     }
 
     var body: some View {
         ZStack {
-            if state.isPresented {
-                Color.black
-                    .ignoresSafeArea()
-                    .opacity(backgroundOpacity)
-                    .transition(.opacity)
+            Color.black
+                .ignoresSafeArea()
+                .opacity(appeared ? backgroundOpacity : 0)
 
-                galleryContent
-                    .transition(
-                        .scale(scale: 0.28, anchor: state.openAnchor)
-                            .combined(with: .opacity)
-                    )
-            }
-        }
-        .ignoresSafeArea()
-        .animation(.easeOut(duration: 0.26), value: state.isPresented)
-    }
-
-    @ViewBuilder
-    private var galleryContent: some View {
-        ZStack {
             TabView(selection: $currentIndex) {
-                ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
                     ZoomableImagePage(
                         imageURL: url,
                         scale: index == currentIndex ? $scale : .constant(1),
@@ -83,14 +102,16 @@ struct ImageGalleryOverlay: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .offset(y: verticalDrag)
             .scaleEffect(dragDismissScale)
+            .scaleEffect(appeared ? 1.0 : 0.28, anchor: openAnchor)
+            .opacity(appeared ? 1.0 : 0.0)
             .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
             .onChange(of: currentIndex) { _ in
                 resetZoom()
             }
 
-            if state.imageURLs.count > 1 {
+            if imageURLs.count > 1 {
                 VStack {
-                    Text("\(currentIndex + 1) / \(state.imageURLs.count)")
+                    Text("\(currentIndex + 1) / \(imageURLs.count)")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white.opacity(0.9))
                         .padding(.horizontal, 12)
@@ -100,15 +121,21 @@ struct ImageGalleryOverlay: View {
                         .padding(.top, 54)
                     Spacer()
                 }
-                .opacity(scale <= 1.05 && verticalDrag == 0 ? 1 : 0)
+                .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
             }
         }
         .ignoresSafeArea()
-        .onDisappear {
-            verticalDrag = 0
-            resetZoom()
+        .onAppear {
+            // Only the outer scale/opacity animate here — currentIndex is
+            // already the right page, so TabView does not run its own page
+            // transition during the entrance.
+            withAnimation(.easeOut(duration: 0.26)) {
+                appeared = true
+            }
         }
     }
+
+    // MARK: - Derived visuals
 
     private var backgroundOpacity: Double {
         1.0 - min(abs(verticalDrag) / 250, 0.7)
@@ -120,13 +147,13 @@ struct ImageGalleryOverlay: View {
         return max(1.0 - drag / 800, 0.6)
     }
 
+    // MARK: - Gestures
+
     private var verticalDismissGesture: some Gesture {
         DragGesture(minimumDistance: 6)
             .onChanged { value in
                 let h = value.translation.height
                 let w = value.translation.width
-                // Very permissive: any drag with even a small vertical component
-                // triggers dismiss (roughly >6° from pure horizontal)
                 if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
                     verticalDrag = h
                 }
@@ -145,10 +172,13 @@ struct ImageGalleryOverlay: View {
     }
 
     private func dismissGallery() {
-        // Flipping isPresented is enough — the .transition on galleryContent
-        // handles the shrink-back animation via the same .easeOut(0.26)
-        // bound by the outer .animation(value: state.isPresented).
-        state.isPresented = false
+        withAnimation(.easeOut(duration: 0.2)) {
+            appeared = false
+            verticalDrag = verticalDrag > 0 ? 400 : (verticalDrag < 0 ? -400 : 300)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            onDismiss()
+        }
     }
 
     private func doubleTap() {
@@ -179,15 +209,8 @@ private struct ZoomableImagePage: View {
     var onDoubleTap: () -> Void
 
     @State private var image: UIImage?
-    @State private var isLoading = true
+    @State private var isLoading: Bool
 
-    /// Initialise @State from the memory cache synchronously. This is the key
-    /// to a jitter-free entrance: the gallery's zoom-in animation runs on the
-    /// outer container, and if the inner content swaps from a placeholder
-    /// (ProgressView) to a full-screen Image mid-animation the whole thing
-    /// appears to shake. By the time the first frame is committed, the @State
-    /// already holds the cached thumbnail / full-size image, so the content
-    /// the entrance animation zooms in on is stable from frame one.
     init(
         imageURL: String,
         scale: Binding<CGFloat>,
@@ -205,6 +228,8 @@ private struct ZoomableImagePage: View {
         self.onSingleTap = onSingleTap
         self.onDoubleTap = onDoubleTap
 
+        // Seed from memory cache before the first render so the entrance
+        // animation zooms a stable image, not a placeholder-then-image swap.
         let preLoaded: UIImage? = ImageCacheManager.shared.image(for: imageURL)
             ?? ImageCacheManager.shared.image(for: imageURL + "?thumb=1")
         self._image = State(initialValue: preLoaded)
@@ -239,10 +264,6 @@ private struct ZoomableImagePage: View {
             }
         }
         .task(id: imageURL) {
-            // Resolve full-size asynchronously. If we're already showing the
-            // cached thumbnail, this silently swaps to the high-res version
-            // (same aspect ratio, no layout shift); if nothing was cached we
-            // replace the placeholder once the bytes arrive.
             if let loaded = await ImageCacheManager.shared.loadImage(from: imageURL) {
                 image = loaded
             }
