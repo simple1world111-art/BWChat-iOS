@@ -42,10 +42,16 @@ extension UINavigationController {
     }()
 
     @objc func bwchat_swizzled_pushViewController(_ viewController: UIViewController, animated: Bool) {
-        // Only engage UIKit's hide-bottom-bar machinery if this nav
-        // controller is actually nested inside a tab bar controller —
-        // so we don't perturb unrelated nav stacks.
-        if self.tabBarController != nil {
+        // Set the flag on any pushed UIHostingController. We used to
+        // scope this to nav controllers already inside a
+        // UITabBarController, but `self.tabBarController` can be nil
+        // at push time depending on when SwiftUI parents the nav
+        // controller, which meant the flag never got set and the bar
+        // never hid. Broadening to "any pushed HostingController":
+        // if the nav stack isn't under a tab bar controller, UIKit
+        // simply ignores the flag — no harm.
+        let typeName = String(describing: type(of: viewController))
+        if typeName.contains("HostingController") {
             viewController.hidesBottomBarWhenPushed = true
         }
         // After exchange, this selector routes to the ORIGINAL
