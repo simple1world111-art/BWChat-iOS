@@ -16,11 +16,29 @@ class ImageGalleryState: ObservableObject {
     /// view identity even when the same image is tapped twice in a row.
     @Published var openToken: Int = 0
 
-    func show(urls: [String], index: Int) {
+    /// Optional loader invoked when the gallery's current index approaches
+    /// the leftmost image (oldest). The loader should fetch more older
+    /// messages, prepend the newly-discovered image URLs to
+    /// `imageURLs`, and return the number prepended so the gallery can
+    /// shift its currentIndex and keep the user on the same image
+    /// visually. Returning 0 signals "no more older images" and the
+    /// gallery will stop retrying until the user reopens it.
+    var loadMoreOlder: (() async -> Int)?
+
+    func show(urls: [String], index: Int, loadMoreOlder: (() async -> Int)? = nil) {
         imageURLs = urls
         initialIndex = index
+        self.loadMoreOlder = loadMoreOlder
         openToken &+= 1
         isPresented = true
+    }
+
+    /// Call instead of setting isPresented = false directly so the
+    /// loadMoreOlder closure (which may retain a chat view-model) is
+    /// released when the gallery closes.
+    func dismiss() {
+        isPresented = false
+        loadMoreOlder = nil
     }
 }
 
@@ -40,9 +58,8 @@ struct ImageGalleryOverlay: View {
                 // transition (0 → initialIndex) concurrently with the outer
                 // scale-in, which is the shake the user was seeing.
                 GalleryContent(
-                    imageURLs: state.imageURLs,
-                    initialIndex: state.initialIndex,
-                    onDismiss: { state.isPresented = false }
+                    state: state,
+                    onDismiss: { state.dismiss() }
                 )
                 .id(state.openToken)
             }
@@ -54,8 +71,10 @@ struct ImageGalleryOverlay: View {
 // MARK: - Gallery Content (fresh instance per open)
 
 private struct GalleryContent: View {
-    let imageURLs: [String]
-    let initialIndex: Int
+    /// Observing the shared state directly (not a snapshot prop) lets
+    /// the TabView pick up new pages when `loadMoreOlder` prepends
+    /// older image URLs mid-gallery.
+    @ObservedObject var state: ImageGalleryState
     let onDismiss: () -> Void
 
     @State private var currentIndex: Int
@@ -65,12 +84,15 @@ private struct GalleryContent: View {
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
     @State private var verticalDrag: CGFloat = 0
+    @State private var isLoadingMore: Bool = false
+    /// Once the loader returns 0 added, stop retrying so we don't
+    /// hammer the backend while the user sits at the first image.
+    @State private var reachedEnd: Bool = false
 
-    init(imageURLs: [String], initialIndex: Int, onDismiss: @escaping () -> Void) {
-        self.imageURLs = imageURLs
-        self.initialIndex = initialIndex
+    init(state: ImageGalleryState, onDismiss: @escaping () -> Void) {
+        self.state = state
         self.onDismiss = onDismiss
-        self._currentIndex = State(initialValue: initialIndex)
+        self._currentIndex = State(initialValue: state.initialIndex)
     }
 
     var body: some View {
@@ -80,7 +102,7 @@ private struct GalleryContent: View {
                 .opacity(appeared ? backgroundOpacity : 0)
 
             TabView(selection: $currentIndex) {
-                ForEach(Array(imageURLs.enumerated()), id: \.offset) { index, url in
+                ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
                     ZoomableImagePage(
                         imageURL: url,
                         scale: index == currentIndex ? $scale : .constant(1),
@@ -107,13 +129,18 @@ private struct GalleryContent: View {
             // firing when the image is zoomed: conditional-nil attachment
             // turned out to be unreliable, so we gate inside the callback.
             .simultaneousGesture(verticalDismissGesture)
-            .onChange(of: currentIndex) { _ in
+            .onChange(of: currentIndex) { newIndex in
                 resetZoom()
+                // Near the leftmost image and a loader exists → try
+                // paging in more older chat history.
+                if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
+                    Task { await loadMoreIfNeeded() }
+                }
             }
 
-            if imageURLs.count > 1 {
+            if state.imageURLs.count > 1 {
                 VStack {
-                    Text("\(currentIndex + 1) / \(imageURLs.count)")
+                    Text("\(currentIndex + 1) / \(state.imageURLs.count)")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.white.opacity(0.9))
                         .padding(.horizontal, 12)
@@ -217,6 +244,24 @@ private struct GalleryContent: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
             onDismiss()
+        }
+    }
+
+    /// Call the chat view's loader to fetch older images. If it adds
+    /// any URLs to `state.imageURLs` (prepended), shift currentIndex
+    /// by the added count so the user stays on the same image visually
+    /// — SwiftUI batches the imageURLs and currentIndex updates in the
+    /// same render pass, so no intermediate frame shows the wrong page.
+    @MainActor
+    private func loadMoreIfNeeded() async {
+        guard !isLoadingMore, let loader = state.loadMoreOlder else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        let added = await loader()
+        if added > 0 {
+            currentIndex += added
+        } else {
+            reachedEnd = true
         }
     }
 

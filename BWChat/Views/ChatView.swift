@@ -106,7 +106,24 @@ struct ChatView: View {
                                         isInputFocused = false
                                         hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
+                                        ImageGalleryState.shared.show(
+                                            urls: allImages,
+                                            index: allImages.firstIndex(of: url) ?? 0,
+                                            loadMoreOlder: {
+                                                // When the gallery nears its leftmost image,
+                                                // page in more chat history and tell the gallery
+                                                // how many NEW older image URLs that added.
+                                                let before = viewModel.messages.filter(\.isImage).map(\.content).count
+                                                await viewModel.loadMoreMessages()
+                                                let after = viewModel.messages.filter(\.isImage).map(\.content)
+                                                let added = after.count - before
+                                                if added > 0 {
+                                                    let newOlder = Array(after.prefix(added))
+                                                    ImageGalleryState.shared.imageURLs.insert(contentsOf: newOlder, at: 0)
+                                                }
+                                                return added
+                                            }
+                                        )
                                     },
                                     onVideoTap: { url in
                                         isInputFocused = false
