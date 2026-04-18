@@ -173,19 +173,25 @@ private final class BridgeController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // The hide is handled correctly by `.toolbar(.hidden, for: .tabBar)`
-        // but SwiftUI snaps the bar back IN at the end of the pop
-        // transition instead of sliding it in during the transition.
-        // Smooth that by driving the slide ourselves: on pop, pre-position
-        // the tab bar below the screen and animate it to identity
-        // alongside the current transition coordinator. The animation
-        // ends exactly when SwiftUI makes the bar visible, so the snap
-        // becomes a slide.
+        // SwiftUI's .toolbar(.hidden, for: .tabBar) handles the hide
+        // and safe-area correctly, but on pop it snaps the bar back IN
+        // AFTER the transition ends — the user sees a ~0.5s delay then
+        // a sudden appearance. Our previous attempt to animate the
+        // transform alongside the pop transition didn't show because
+        // the tab bar was still .isHidden=true during the transition,
+        // so our transform was invisible.
+        //
+        // Force the bar visible RIGHT NOW (isHidden=false, alpha=1),
+        // pre-position it below the screen, and animate the transform
+        // back to identity alongside the pop. Now the slide is visible
+        // during the transition and the SwiftUI snap is redundant.
         guard isBeingPopped() else { return }
         guard let tabBar = findTabBar() else { return }
         guard let coord = findTransitionCoordinator() else { return }
 
         let height = tabBar.frame.height
+        tabBar.isHidden = false
+        tabBar.alpha = 1.0
         tabBar.transform = CGAffineTransform(translationX: 0, y: height)
         coord.animate(alongsideTransition: { _ in
             tabBar.transform = .identity
