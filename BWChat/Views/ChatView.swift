@@ -145,7 +145,10 @@ struct ChatView: View {
                 .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
                 .onTapGesture { hideKeyboard() }
-                .onChange(of: viewModel.messages.count) { _ in scrollChatToLatest(proxy: proxy) }
+                // Only scroll to latest when a NEW message arrives at the
+                // end of the list (last.id changes). Watching messages.count
+                // also fires when loadMoreMessages prepends older history,
+                // yanking the user back to the bottom mid-scroll.
                 .onChange(of: viewModel.messages.last?.id) { _ in scrollChatToLatest(proxy: proxy) }
                 .onChange(of: viewModel.pendingMessages.count) { _ in scrollChatToLatest(proxy: proxy) }
                 .task {
