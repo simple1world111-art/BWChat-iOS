@@ -173,19 +173,16 @@ private final class BridgeController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // Two previous attempts failed to sync with SwiftUI's snap:
-        //   - transitionCoordinator.alongsideTransition runs DURING the
-        //     pop but the bar is still isHidden=true, so nothing draws.
-        //   - Forcing isHidden=false + alongsideTransition animation
-        //     also gets reverted by SwiftUI's internal state.
-        //
-        // Different strategy: don't try to sync with SwiftUI's snap.
-        // MASK it by running a longer UIView.animate that ends roughly
-        // when SwiftUI finally shows the bar. We start from offscreen
-        // and slide to identity; by the time SwiftUI's ~0.5s-delayed
-        // snap to visible happens, our transform is already at
-        // identity, so the snap lands on "already-in-place" and is
-        // invisible. The user only sees our slide-in.
+        // Previous attempts to set isHidden=false once failed because
+        // SwiftUI continuously resets isHidden=true during the pop
+        // transition (that's why the bar stays invisible until the
+        // end, producing the "snap" the user sees). The only way to
+        // keep the bar visible through the pop is to fight SwiftUI
+        // every frame: a CADisplayLink that forces isHidden=false
+        // and alpha=1 for the duration of the pop. Underneath, our
+        // UIView.animate drives the transform from offscreen to
+        // identity — now actually visible because we've held the
+        // bar non-hidden.
         guard isBeingPopped() else { return }
         guard let tabBar = findTabBar() else { return }
 
@@ -195,18 +192,18 @@ private final class BridgeController: UIViewController {
         tabBar.transform = CGAffineTransform(translationX: 0, y: height)
 
         UIView.animate(
-            withDuration: 0.5,
+            withDuration: 0.35,
             delay: 0,
             options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
             animations: {
                 tabBar.transform = .identity
             },
             completion: { _ in
-                // Defensive: ensure transform is cleared even if the
-                // animation is interrupted.
                 tabBar.transform = .identity
             }
         )
+
+        TabBarVisibilityForcer.start(tabBar: tabBar, duration: 0.55)
     }
 
     private func isBeingPopped() -> Bool {
@@ -248,6 +245,59 @@ private final class BridgeController: UIViewController {
             vc = current.parent
         }
         return nil
+    }
+}
+
+/// SwiftUI appears to write `tabBar.isHidden = true` and `alpha = 0`
+/// every frame during a pop transition; setting them to visible once
+/// in `viewWillDisappear` gets overwritten before the next render, so
+/// a transform-based slide-in animation never becomes visible and the
+/// bar finally appears only after SwiftUI releases its grip — the
+/// "snap" the user kept reporting.
+///
+/// This class fights back: a CADisplayLink that forces `isHidden=false`
+/// and `alpha=1` on every frame for a short duration (long enough to
+/// cover the pop transition). While the link is running, our transform
+/// animation renders properly and the bar actually slides up.
+@MainActor
+private final class TabBarVisibilityForcer {
+    private static var current: TabBarVisibilityForcer?
+
+    private weak var tabBar: UITabBar?
+    private let endTime: CFTimeInterval
+    private var displayLink: CADisplayLink?
+
+    static func start(tabBar: UITabBar, duration: CFTimeInterval) {
+        // Replace any existing forcer — the new pop wants its own window.
+        current?.stop()
+        let forcer = TabBarVisibilityForcer(tabBar: tabBar, duration: duration)
+        current = forcer
+        forcer.begin()
+    }
+
+    private init(tabBar: UITabBar, duration: CFTimeInterval) {
+        self.tabBar = tabBar
+        self.endTime = CACurrentMediaTime() + duration
+    }
+
+    private func begin() {
+        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        guard let tabBar else { stop(); return }
+        // Override SwiftUI's per-frame hide.
+        if tabBar.isHidden { tabBar.isHidden = false }
+        if tabBar.alpha < 1.0 { tabBar.alpha = 1.0 }
+        if CACurrentMediaTime() >= endTime { stop() }
+    }
+
+    private func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+        if Self.current === self { Self.current = nil }
     }
 }
 
