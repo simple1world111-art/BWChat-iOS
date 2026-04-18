@@ -141,182 +141,48 @@ extension Data {
 
 extension View {
     /// Hide the enclosing UITabBar while this view is visible on a
-    /// NavigationStack — the bar slides off during push and back during
-    /// pop, in sync with the transition. Bridges to UIKit:
-    ///   - find the UITabBar via the parent chain
-    ///   - apply a CGAffineTransform translation
-    ///   - animate alongside the current transitionCoordinator
+    /// NavigationStack. Bridges to UIKit's native
+    /// `hidesBottomBarWhenPushed`:
+    ///   - In `willMove(toParent:)` we walk up to find the
+    ///     UIHostingController SwiftUI just built for this pushed view.
+    ///   - We set its `hidesBottomBarWhenPushed = true` BEFORE SwiftUI
+    ///     calls `pushViewController` on it.
+    ///   - UIKit then handles the whole transition: tab bar animates
+    ///     off during push, safe-area insets adjust automatically so
+    ///     content fills the freed space (no blank strip under the
+    ///     input bar), and the bar slides back on pop.
     ///
-    /// Why not `.toolbar(.hidden, for: .tabBar)`? That modifier flickers
-    /// on push/pop in iOS 16 — SwiftUI re-evaluates the toolbar state
-    /// mid-transition and the tab bar reappears briefly at animation
-    /// end. Driving the tab bar directly through UIKit avoids that
-    /// because it's the same mechanism UINavigationController uses
-    /// when `hidesBottomBarWhenPushed` is set: a single continuous
-    /// animation on the bar's transform.
+    /// Why not the transform / additionalSafeAreaInsets approach we
+    /// tried before? `additionalSafeAreaInsets` rejects negative
+    /// values (Apple's docs: "The property must not contain any
+    /// negative values."), so cancelling the tab bar's contribution
+    /// silently no-op'd and left the blank strip.
     func hidesTabBarOnPush() -> some View {
-        background(TabBarHidingBridge())
+        background(HidesTabBarBridge())
     }
 }
 
-private struct TabBarHidingBridge: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> TabBarHidingController { TabBarHidingController() }
-    func updateUIViewController(_ uiViewController: TabBarHidingController, context: Context) {}
+private struct HidesTabBarBridge: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> BridgeController { BridgeController() }
+    func updateUIViewController(_ uiViewController: BridgeController, context: Context) {}
 }
 
-/// Global ref-counted tab-bar visibility. Each detail view's hosting
-/// bridge increments on appear and decrements on disappear; the bar is
-/// hidden exactly when count > 0. This sidesteps the need to detect
-/// "am I being popped vs covered?" — push, pop, tab-switch, and
-/// repeated appear/disappear all balance out arithmetically because
-/// every vWA is paired with a vWD over a VC instance's lifetime, and
-/// isCounted keeps it 1:1 per instance.
-@MainActor
-private final class TabBarState {
-    static let shared = TabBarState()
-    private var count = 0
-
-    func increment() { count += 1 }
-    func decrement() { count = max(0, count - 1) }
-
-    func apply(coord: UIViewControllerTransitionCoordinator?) {
-        guard let tabBar = Self.findTabBar() else { return }
-        let hidden = count > 0
-        // Fall back to 49pt (standard tab bar height) if bounds.height
-        // is 0 in some lifecycle corner — otherwise translation(0, 0)
-        // would equal identity and the "hide" would silently no-op.
-        let height = max(tabBar.bounds.height, 49)
-        let target: CGAffineTransform = hidden
-            ? CGAffineTransform(translationX: 0, y: height)
-            : .identity
-        guard tabBar.transform != target else { return }
-
-        if let coord {
-            coord.animate(alongsideTransition: { _ in
-                tabBar.transform = target
-            })
-        } else {
-            tabBar.transform = target
-        }
-    }
-
-    /// Current tab bar's rendered height (or 49pt fallback). Used by the
-    /// detail-view hosting controller to cancel the tab bar's safe-area
-    /// contribution when hiding, so chat content (input bar, list) can
-    /// extend into the tab bar's former slot.
-    func tabBarHeight() -> CGFloat {
-        max(Self.findTabBar()?.bounds.height ?? 49, 49)
-    }
-
-    // Walk the application's window tree to find the UITabBar. Works
-    // even if the caller's VC ancestor chain has detached during a
-    // disappear.
-    static func findTabBar() -> UITabBar? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        for scene in scenes {
-            for window in scene.windows {
-                if let root = window.rootViewController, let bar = locate(in: root) {
-                    return bar
-                }
-            }
-        }
-        return nil
-    }
-
-    private static func locate(in vc: UIViewController) -> UITabBar? {
-        if let tbc = vc as? UITabBarController { return tbc.tabBar }
-        for child in vc.children {
-            if let found = locate(in: child) { return found }
-        }
-        if let presented = vc.presentedViewController {
-            return locate(in: presented)
-        }
-        return nil
-    }
-}
-
-private final class TabBarHidingController: UIViewController {
-    private var isCounted = false
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        if !isCounted {
-            isCounted = true
-            TabBarState.shared.increment()
-        }
-        let coord = transitionCoordinator_()
-        TabBarState.shared.apply(coord: coord)
-        // Cancel the tab bar's safe-area contribution on this detail
-        // view's hosting controller so its SwiftUI content (input bar,
-        // message list) extends into the space the tab bar used to
-        // occupy. Without this there's an empty strip under the input
-        // bar equal to the tab bar's height.
-        adjustHostInset(cancelingTabBar: true, coord: coord)
-    }
-
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        if isCounted {
-            isCounted = false
-            TabBarState.shared.decrement()
-        }
-        // Apply AFTER decrementing: on pop-to-root the count reaches 0
-        // and the bar re-shows alongside the pop animation. On
-        // push-cover the new VC's viewWillAppear re-increments
-        // alongside the same transition and the net target stays
-        // hidden (last-set wins in alongsideTransition animations).
-        let coord = transitionCoordinator_()
-        TabBarState.shared.apply(coord: coord)
-        adjustHostInset(cancelingTabBar: false, coord: coord)
-    }
-
-    // Safety net: if a VC is torn down without a viewWillDisappear
-    // (shouldn't happen, but defend against SwiftUI weirdness).
-    deinit {
-        if isCounted {
-            Task { @MainActor in
-                TabBarState.shared.decrement()
-                TabBarState.shared.apply(coord: nil)
-            }
-        }
-    }
-
-    private func transitionCoordinator_() -> UIViewControllerTransitionCoordinator? {
+private final class BridgeController: UIViewController {
+    override func willMove(toParent parent: UIViewController?) {
+        super.willMove(toParent: parent)
+        // SwiftUI adds us as a child of the destination's hosting
+        // controller during that hosting controller's construction —
+        // which happens BEFORE SwiftUI pushes it onto the underlying
+        // UINavigationController. Setting the flag here means UIKit
+        // sees it at push time and animates the tab bar off natively.
+        guard let parent else { return }
         var vc: UIViewController? = parent
         while let current = vc {
-            if let coord = current.transitionCoordinator { return coord }
-            vc = current.parent
-        }
-        return nil
-    }
-
-    private func hostingControllerAncestor() -> UIViewController? {
-        var vc: UIViewController? = parent
-        while let current = vc {
-            // Match both UIHostingController and any subclass by name —
-            // SwiftUI uses generic UIHostingController<ContentView>
-            // whose exact type varies per-view.
             if String(describing: type(of: current)).contains("HostingController") {
-                return current
+                current.hidesBottomBarWhenPushed = true
+                return
             }
             vc = current.parent
-        }
-        return nil
-    }
-
-    private func adjustHostInset(cancelingTabBar: Bool, coord: UIViewControllerTransitionCoordinator?) {
-        guard let host = hostingControllerAncestor() else { return }
-        let target: CGFloat = cancelingTabBar ? -TabBarState.shared.tabBarHeight() : 0
-        guard host.additionalSafeAreaInsets.bottom != target else { return }
-
-        if let coord {
-            coord.animate(alongsideTransition: { _ in
-                host.additionalSafeAreaInsets.bottom = target
-                host.view.setNeedsLayout()
-                host.view.layoutIfNeeded()
-            })
-        } else {
-            host.additionalSafeAreaInsets.bottom = target
         }
     }
 }
