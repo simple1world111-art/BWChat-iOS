@@ -140,7 +140,7 @@ private struct CustomTabBar: View {
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TabBarPressStyle())
             }
         }
         .padding(.horizontal, 6)
@@ -154,6 +154,23 @@ private struct CustomTabBar: View {
         // Smaller bottom margin so the pill sits closer to the home
         // indicator, matching the reference screenshot's position.
         .padding(.bottom, 2)
+    }
+}
+
+/// Press-feedback style for tab bar buttons. On press, fades in a
+/// subtle gray fill behind the button and scales it down slightly —
+/// gives the tactile "button" feel the user wanted, matching the
+/// transient highlight iOS shows on a list-row press.
+private struct TabBarPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.black.opacity(configuration.isPressed ? 0.08 : 0))
+                    .padding(4)
+            }
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 
