@@ -2,6 +2,17 @@
 // Main tab bar: Messages (unified), Contacts, Discover, Profile
 
 import SwiftUI
+import UIKit
+
+/// Native UITabBar's background is UIBlurEffect(.systemChromeMaterial).
+/// SwiftUI's `.bar` / `.ultraThinMaterial` approximate but don't exactly
+/// match, so we bridge UIBlurEffect directly.
+private struct SystemChromeBlur: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    }
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
+}
 
 // The selected-tab binding is injected into the environment so each tab's
 // root can attach the bottom bar via `.withBottomTabBar()` from inside its
@@ -124,12 +135,11 @@ private struct CustomTabBar: View {
                 }
             }
         }
-        // `.bar` is SwiftUI's semantic material for tab/tool bars — the
-        // translucent blurred background used by native UITabBar. Extended
-        // past the bottom safe area so the blur runs under the home bar.
+        // UIBlurEffect(.systemChromeMaterial) is the exact effect native
+        // UITabBar renders. Extended past the bottom safe area so the blur
+        // runs under the home indicator.
         .background {
-            Rectangle()
-                .fill(.bar)
+            SystemChromeBlur()
                 .ignoresSafeArea(edges: .bottom)
         }
     }
