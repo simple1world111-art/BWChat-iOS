@@ -94,7 +94,13 @@ private struct GalleryContent: View {
                         offset: index == currentIndex ? $offset : .constant(.zero),
                         lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
                         onSingleTap: { dismissByTap() },
-                        onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
+                        onDoubleTap: { centerDelta in doubleTap(at: centerDelta) },
+                        onVerticalDragChanged: { translation in
+                            handleDismissDragChanged(translation)
+                        },
+                        onVerticalDragEnded: { translation, predictedEnd in
+                            handleDismissDragEnded(translation: translation, predictedEnd: predictedEnd)
+                        }
                     )
                     .tag(index)
                 }
@@ -108,7 +114,10 @@ private struct GalleryContent: View {
             // center scale here is stable and matches what WeChat does.
             .scaleEffect(entranceScale * dragDismissScale)
             .opacity(appeared ? 1.0 : 0.0)
-            .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
+            // Drag handling lives on each page (pan vs dismiss is decided
+            // there based on `scale`) so the two modes can't step on each
+            // other the way a parent-level dismiss gesture and a child
+            // pan gesture did before.
             .onChange(of: currentIndex) { _ in
                 resetZoom()
             }
@@ -152,41 +161,42 @@ private struct GalleryContent: View {
         return max(1.0 - drag / 900, 0.55)
     }
 
-    // MARK: - Gestures
+    // MARK: - Drag handlers (called from ZoomableImagePage when scale ≈ 1)
 
-    private var verticalDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                let h = value.translation.height
-                let w = value.translation.width
-                // Loose angle check (matches the prior diagonal-tolerant
-                // behavior); the actual "commit to dismiss" threshold lives
-                // in onEnded so a tiny drag can't accidentally dismiss.
-                if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
-                    verticalDrag = h
-                }
-            }
-            .onEnded { value in
-                let h = abs(value.translation.height)
-                let predictedH = abs(value.predictedEndTranslation.height)
-                // Higher threshold so a small accidental drag doesn't
-                // dismiss — only a deliberate downward swipe does.
-                if h > 110 || predictedH > 450 {
-                    dismissBySwipe(direction: value.translation.height)
-                } else {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        verticalDrag = 0
-                    }
-                }
-            }
+    private func handleDismissDragChanged(_ translation: CGSize) {
+        let h = translation.height
+        let w = translation.width
+        // Loose angle check (matches the prior diagonal-tolerant behavior);
+        // the commit-to-dismiss threshold lives in the end handler so a
+        // tiny drag can't accidentally dismiss.
+        if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
+            verticalDrag = h
+        }
     }
 
-    /// Tap-to-dismiss: simple zoom-out + fade in place, no offset continuation.
+    private func handleDismissDragEnded(translation: CGSize, predictedEnd: CGSize) {
+        let h = abs(translation.height)
+        let predictedH = abs(predictedEnd.height)
+        if h > 110 || predictedH > 450 {
+            dismissBySwipe(direction: translation.height)
+        } else {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                verticalDrag = 0
+            }
+        }
+    }
+
+    /// Tap-to-dismiss. When the user taps while zoomed, we animate scale
+    /// and offset back to rest alongside the fade — otherwise the image
+    /// freezes at 2.5× while opacity drops, which feels abrupt (the
+    /// "hitch" the user was seeing).
     private func dismissByTap() {
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(.easeOut(duration: 0.24)) {
+            scale = 1; lastScale = 1
+            offset = .zero; lastOffset = .zero
             appeared = false
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
             onDismiss()
         }
     }
@@ -247,6 +257,14 @@ private struct ZoomableImagePage: View {
     /// Receives the double-tap location expressed as a delta from the
     /// image view's center. GalleryContent uses this to zoom-from-tap.
     var onDoubleTap: (CGPoint) -> Void
+    /// Called while the user is dragging at ≈1× scale (the single drag
+    /// gesture on this view decides whether a drag is a pan or a dismiss
+    /// based on `scale`, so the parent only sees the dismiss half).
+    var onVerticalDragChanged: (CGSize) -> Void
+    /// Called when the user releases a dismiss-intent drag. Passes both
+    /// the final translation and the predicted-end translation so the
+    /// parent can use velocity for its fling threshold.
+    var onVerticalDragEnded: (CGSize, CGSize) -> Void
 
     @State private var image: UIImage?
     @State private var isLoading: Bool
@@ -258,7 +276,9 @@ private struct ZoomableImagePage: View {
         offset: Binding<CGSize>,
         lastOffset: Binding<CGSize>,
         onSingleTap: @escaping () -> Void,
-        onDoubleTap: @escaping (CGPoint) -> Void
+        onDoubleTap: @escaping (CGPoint) -> Void,
+        onVerticalDragChanged: @escaping (CGSize) -> Void,
+        onVerticalDragEnded: @escaping (CGSize, CGSize) -> Void
     ) {
         self.imageURL = imageURL
         self._scale = scale
@@ -267,6 +287,8 @@ private struct ZoomableImagePage: View {
         self._lastOffset = lastOffset
         self.onSingleTap = onSingleTap
         self.onDoubleTap = onDoubleTap
+        self.onVerticalDragChanged = onVerticalDragChanged
+        self.onVerticalDragEnded = onVerticalDragEnded
 
         // Seed from memory cache before the first render so the entrance
         // animation zooms a stable image, not a placeholder-then-image swap.
@@ -289,7 +311,12 @@ private struct ZoomableImagePage: View {
                         .scaleEffect(scale)
                         .offset(x: offset.width, y: offset.height)
                         .gesture(pinchGesture)
-                        .simultaneousGesture(scale > 1.05 ? panGesture : nil)
+                        // Single drag gesture that branches on `scale`:
+                        // zoomed → pan the image; at rest → feed dismiss.
+                        // Splitting this across parent+child before left
+                        // a gap where both could fire, so a zoomed drag
+                        // was still triggering dismiss.
+                        .simultaneousGesture(dragGesture)
                         // SpatialTapGesture provides the tap location so we
                         // can zoom from the tapped point. The single-tap
                         // follows afterward — SwiftUI disambiguates via the
@@ -335,16 +362,27 @@ private struct ZoomableImagePage: View {
             }
     }
 
-    private var panGesture: some Gesture {
-        DragGesture()
+    /// Unified drag: pan when zoomed, dismiss-drive when at rest.
+    /// Both modes live on the same gesture so they can't both fire at
+    /// the same time on a given drag.
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
             .onChanged { value in
-                offset = CGSize(
-                    width: lastOffset.width + value.translation.width,
-                    height: lastOffset.height + value.translation.height
-                )
+                if scale > 1.05 {
+                    offset = CGSize(
+                        width: lastOffset.width + value.translation.width,
+                        height: lastOffset.height + value.translation.height
+                    )
+                } else {
+                    onVerticalDragChanged(value.translation)
+                }
             }
-            .onEnded { _ in
-                lastOffset = offset
+            .onEnded { value in
+                if scale > 1.05 {
+                    lastOffset = offset
+                } else {
+                    onVerticalDragEnded(value.translation, value.predictedEndTranslation)
+                }
             }
     }
 }
