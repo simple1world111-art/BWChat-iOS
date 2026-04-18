@@ -173,31 +173,40 @@ private final class BridgeController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // SwiftUI's .toolbar(.hidden, for: .tabBar) handles the hide
-        // and safe-area correctly, but on pop it snaps the bar back IN
-        // AFTER the transition ends — the user sees a ~0.5s delay then
-        // a sudden appearance. Our previous attempt to animate the
-        // transform alongside the pop transition didn't show because
-        // the tab bar was still .isHidden=true during the transition,
-        // so our transform was invisible.
+        // Two previous attempts failed to sync with SwiftUI's snap:
+        //   - transitionCoordinator.alongsideTransition runs DURING the
+        //     pop but the bar is still isHidden=true, so nothing draws.
+        //   - Forcing isHidden=false + alongsideTransition animation
+        //     also gets reverted by SwiftUI's internal state.
         //
-        // Force the bar visible RIGHT NOW (isHidden=false, alpha=1),
-        // pre-position it below the screen, and animate the transform
-        // back to identity alongside the pop. Now the slide is visible
-        // during the transition and the SwiftUI snap is redundant.
+        // Different strategy: don't try to sync with SwiftUI's snap.
+        // MASK it by running a longer UIView.animate that ends roughly
+        // when SwiftUI finally shows the bar. We start from offscreen
+        // and slide to identity; by the time SwiftUI's ~0.5s-delayed
+        // snap to visible happens, our transform is already at
+        // identity, so the snap lands on "already-in-place" and is
+        // invisible. The user only sees our slide-in.
         guard isBeingPopped() else { return }
         guard let tabBar = findTabBar() else { return }
-        guard let coord = findTransitionCoordinator() else { return }
 
         let height = tabBar.frame.height
         tabBar.isHidden = false
         tabBar.alpha = 1.0
         tabBar.transform = CGAffineTransform(translationX: 0, y: height)
-        coord.animate(alongsideTransition: { _ in
-            tabBar.transform = .identity
-        }, completion: { _ in
-            tabBar.transform = .identity
-        })
+
+        UIView.animate(
+            withDuration: 0.5,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
+            animations: {
+                tabBar.transform = .identity
+            },
+            completion: { _ in
+                // Defensive: ensure transform is cleared even if the
+                // animation is interrupted.
+                tabBar.transform = .identity
+            }
+        )
     }
 
     private func isBeingPopped() -> Bool {
