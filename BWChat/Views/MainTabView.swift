@@ -2,17 +2,6 @@
 // Main tab bar: Messages (unified), Contacts, Discover, Profile
 
 import SwiftUI
-import UIKit
-
-/// Native UITabBar's background is UIBlurEffect(.systemChromeMaterial).
-/// SwiftUI's `.bar` / `.ultraThinMaterial` approximate but don't exactly
-/// match, so we bridge UIBlurEffect directly.
-private struct SystemChromeBlur: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    }
-    func updateUIView(_ uiView: UIVisualEffectView, context: Context) {}
-}
 
 // The selected-tab binding is injected into the environment so each tab's
 // root can attach the bottom bar via `.withBottomTabBar()` from inside its
@@ -59,10 +48,11 @@ private struct BottomTabBarInsetModifier: ViewModifier {
             }
     }
 
-    /// Approximate rendered height of the bar's content (icon + label +
-    /// padding + separator). The bar's background extends past this
-    /// into the bottom safe area via its own ignoresSafeArea.
-    static let barHeight: CGFloat = 49
+    /// Approximate rendered height of the floating pill bar (pill
+    /// content + vertical padding + bottom floating margin). Content
+    /// above gets this much bottom inset so at-rest scroll positions
+    /// don't hide items behind the pill.
+    static let barHeight: CGFloat = 75
 }
 
 struct MainTabView: View {
@@ -120,43 +110,44 @@ private struct CustomTabBar: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Native UITabBar uses a hairline separator, not a full Divider.
-            Rectangle()
-                .fill(Color(uiColor: .separator))
-                .frame(height: 0.5)
-            HStack(spacing: 0) {
-                ForEach(0..<items.count, id: \.self) { i in
-                    let item = items[i]
-                    let isSelected = selectedTab == i
-                    Button {
-                        if selectedTab != i { selectedTab = i }
-                    } label: {
-                        VStack(spacing: 3) {
+        HStack(spacing: 0) {
+            ForEach(0..<items.count, id: \.self) { i in
+                let item = items[i]
+                let isSelected = selectedTab == i
+                Button {
+                    if selectedTab != i { selectedTab = i }
+                } label: {
+                    VStack(spacing: 3) {
+                        ZStack {
+                            if isSelected {
+                                Capsule()
+                                    .fill(AppColors.accent.opacity(0.16))
+                                    .frame(width: 56, height: 32)
+                            }
                             Image(systemName: isSelected ? item.selectedIcon : item.icon)
-                                .font(.system(size: 24))
-                            Text(item.title)
-                                .font(.system(size: 10))
+                                .font(.system(size: 20, weight: .regular))
+                                .foregroundColor(isSelected ? AppColors.accent : Color(uiColor: .label))
                         }
-                        // `.secondaryLabel` is what UITabBar uses for
-                        // unselected items — matches the native look.
-                        .foregroundColor(isSelected ? AppColors.accent : Color(uiColor: .secondaryLabel))
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 6)
-                        .padding(.bottom, 2)
-                        .contentShape(Rectangle())
+                        .frame(height: 32)
+                        Text(item.title)
+                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                            .foregroundColor(isSelected ? AppColors.accent : Color(uiColor: .label))
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
         }
-        // UIBlurEffect(.systemChromeMaterial) is the exact effect native
-        // UITabBar renders. Extended past the bottom safe area so the blur
-        // runs under the home indicator.
-        .background {
-            SystemChromeBlur()
-                .ignoresSafeArea(edges: .bottom)
-        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(Color(uiColor: .systemBackground))
+                .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 4)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
     }
 }
 
