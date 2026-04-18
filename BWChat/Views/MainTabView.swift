@@ -32,9 +32,9 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Attach the custom bottom tab bar as a bottom safe-area inset.
-    /// Apply this *inside* a NavigationStack root so pushed detail views
-    /// (which live inside the same NavigationStack) cover the bar.
+    /// Attach the custom bottom tab bar. Apply this *inside* a
+    /// NavigationStack root so pushed detail views (which live inside
+    /// the same NavigationStack) cover the bar.
     func withBottomTabBar() -> some View {
         modifier(BottomTabBarInsetModifier())
     }
@@ -44,10 +44,25 @@ private struct BottomTabBarInsetModifier: ViewModifier {
     @Environment(\.selectedTabBinding) private var selectedTab
 
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .bottom, spacing: 0) {
-            CustomTabBar(selectedTab: selectedTab)
-        }
+        content
+            // Reserve content inset equal to the bar's height without
+            // rendering anything here; the actual bar is drawn as an
+            // overlay so that scroll content can pass behind its
+            // translucent blur — the "floating" feel of a native
+            // UITabBar comes from seeing blurred content through the
+            // bar, which an opaque safe-area inset couldn't do.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear.frame(height: Self.barHeight)
+            }
+            .overlay(alignment: .bottom) {
+                CustomTabBar(selectedTab: selectedTab)
+            }
     }
+
+    /// Approximate rendered height of the bar's content (icon + label +
+    /// padding + separator). The bar's background extends past this
+    /// into the bottom safe area via its own ignoresSafeArea.
+    static let barHeight: CGFloat = 49
 }
 
 struct MainTabView: View {
