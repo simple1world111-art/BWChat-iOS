@@ -103,10 +103,14 @@ private struct CustomTabBar: View {
     }
 
     private let items: [Item] = [
-        Item(icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill", title: "消息"),
-        Item(icon: "person.crop.circle", selectedIcon: "person.crop.circle.fill", title: "通讯录"),
-        Item(icon: "safari", selectedIcon: "safari.fill", title: "发现"),
-        Item(icon: "gearshape", selectedIcon: "gearshape.fill", title: "我"),
+        // Same fill variant in both states; only the color + pill
+        // background differentiate selected vs unselected. That matches
+        // the reference screenshot where unselected icons are solid
+        // black rather than outlined.
+        Item(icon: "bubble.left.and.bubble.right.fill", selectedIcon: "bubble.left.and.bubble.right.fill", title: "消息"),
+        Item(icon: "person.crop.circle.fill", selectedIcon: "person.crop.circle.fill", title: "通讯录"),
+        Item(icon: "safari.fill", selectedIcon: "safari.fill", title: "发现"),
+        Item(icon: "gearshape.fill", selectedIcon: "gearshape.fill", title: "我"),
     ]
 
     var body: some View {
@@ -121,17 +125,17 @@ private struct CustomTabBar: View {
                         ZStack {
                             if isSelected {
                                 Capsule()
-                                    .fill(AppColors.accent.opacity(0.16))
-                                    .frame(width: 56, height: 32)
+                                    .fill(AppColors.accent.opacity(0.14))
+                                    .frame(width: 60, height: 32)
                             }
                             Image(systemName: isSelected ? item.selectedIcon : item.icon)
                                 .font(.system(size: 20, weight: .regular))
-                                .foregroundColor(isSelected ? AppColors.accent : Color(uiColor: .label))
+                                .foregroundColor(isSelected ? AppColors.accent : .black)
                         }
                         .frame(height: 32)
                         Text(item.title)
                             .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                            .foregroundColor(isSelected ? AppColors.accent : Color(uiColor: .label))
+                            .foregroundColor(isSelected ? AppColors.accent : .black)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(Rectangle())
