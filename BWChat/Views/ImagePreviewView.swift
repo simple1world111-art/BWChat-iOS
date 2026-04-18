@@ -94,13 +94,7 @@ private struct GalleryContent: View {
                         offset: index == currentIndex ? $offset : .constant(.zero),
                         lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
                         onSingleTap: { dismissByTap() },
-                        onDoubleTap: { centerDelta in doubleTap(at: centerDelta) },
-                        onVerticalDragChanged: { translation in
-                            handleDismissDragChanged(translation)
-                        },
-                        onVerticalDragEnded: { translation, predictedEnd in
-                            handleDismissDragEnded(translation: translation, predictedEnd: predictedEnd)
-                        }
+                        onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
                     )
                     .tag(index)
                 }
@@ -109,15 +103,16 @@ private struct GalleryContent: View {
             .offset(y: verticalDrag)
             // Centered scale: entrance is a subtle spring from 0.88 → 1.0
             // and a swipe-drag adds a further shrink (dragDismissScale).
-            // Zoom-from-tap-point was removed previously because its
-            // off-center anchor interacted badly with TabView layout — the
-            // center scale here is stable and matches what WeChat does.
             .scaleEffect(entranceScale * dragDismissScale)
             .opacity(appeared ? 1.0 : 0.0)
-            // Drag handling lives on each page (pan vs dismiss is decided
-            // there based on `scale`) so the two modes can't step on each
-            // other the way a parent-level dismiss gesture and a child
-            // pan gesture did before.
+            // Dismiss-drag lives on the TabView as a simultaneousGesture so
+            // UIPageViewController's horizontal page-swipe recognizer can
+            // still fire alongside (that's how multi-image left/right swipe
+            // keeps working). The scale check inside the gesture — not on
+            // the attachment — is what actually prevents dismiss from
+            // firing when the image is zoomed: conditional-nil attachment
+            // turned out to be unreliable, so we gate inside the callback.
+            .simultaneousGesture(verticalDismissGesture)
             .onChange(of: currentIndex) { _ in
                 resetZoom()
             }
@@ -161,29 +156,36 @@ private struct GalleryContent: View {
         return max(1.0 - drag / 900, 0.55)
     }
 
-    // MARK: - Drag handlers (called from ZoomableImagePage when scale ≈ 1)
+    // MARK: - Dismiss gesture (on the TabView, simultaneous with paging)
 
-    private func handleDismissDragChanged(_ translation: CGSize) {
-        let h = translation.height
-        let w = translation.width
-        // Loose angle check (matches the prior diagonal-tolerant behavior);
-        // the commit-to-dismiss threshold lives in the end handler so a
-        // tiny drag can't accidentally dismiss.
-        if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
-            verticalDrag = h
-        }
-    }
-
-    private func handleDismissDragEnded(translation: CGSize, predictedEnd: CGSize) {
-        let h = abs(translation.height)
-        let predictedH = abs(predictedEnd.height)
-        if h > 110 || predictedH > 450 {
-            dismissBySwipe(direction: translation.height)
-        } else {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                verticalDrag = 0
+    private var verticalDismissGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                // Gate inside the callback. If we're zoomed in, the pan
+                // gesture on the Image is the one that should track the
+                // finger — do not drive dismiss state.
+                guard scale <= 1.05 else { return }
+                let h = value.translation.height
+                let w = value.translation.width
+                // Loose angle check so diagonal-down drags still count as
+                // a dismiss intent; horizontal drags fall through and
+                // UIPageViewController's page-swipe handles them.
+                if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
+                    verticalDrag = h
+                }
             }
-        }
+            .onEnded { value in
+                guard scale <= 1.05 else { return }
+                let h = abs(value.translation.height)
+                let predictedH = abs(value.predictedEndTranslation.height)
+                if h > 110 || predictedH > 450 {
+                    dismissBySwipe(direction: value.translation.height)
+                } else {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        verticalDrag = 0
+                    }
+                }
+            }
     }
 
     /// Tap-to-dismiss. When the user taps while zoomed, we animate scale
@@ -257,14 +259,6 @@ private struct ZoomableImagePage: View {
     /// Receives the double-tap location expressed as a delta from the
     /// image view's center. GalleryContent uses this to zoom-from-tap.
     var onDoubleTap: (CGPoint) -> Void
-    /// Called while the user is dragging at ≈1× scale (the single drag
-    /// gesture on this view decides whether a drag is a pan or a dismiss
-    /// based on `scale`, so the parent only sees the dismiss half).
-    var onVerticalDragChanged: (CGSize) -> Void
-    /// Called when the user releases a dismiss-intent drag. Passes both
-    /// the final translation and the predicted-end translation so the
-    /// parent can use velocity for its fling threshold.
-    var onVerticalDragEnded: (CGSize, CGSize) -> Void
 
     @State private var image: UIImage?
     @State private var isLoading: Bool
@@ -276,9 +270,7 @@ private struct ZoomableImagePage: View {
         offset: Binding<CGSize>,
         lastOffset: Binding<CGSize>,
         onSingleTap: @escaping () -> Void,
-        onDoubleTap: @escaping (CGPoint) -> Void,
-        onVerticalDragChanged: @escaping (CGSize) -> Void,
-        onVerticalDragEnded: @escaping (CGSize, CGSize) -> Void
+        onDoubleTap: @escaping (CGPoint) -> Void
     ) {
         self.imageURL = imageURL
         self._scale = scale
@@ -287,8 +279,6 @@ private struct ZoomableImagePage: View {
         self._lastOffset = lastOffset
         self.onSingleTap = onSingleTap
         self.onDoubleTap = onDoubleTap
-        self.onVerticalDragChanged = onVerticalDragChanged
-        self.onVerticalDragEnded = onVerticalDragEnded
 
         // Seed from memory cache before the first render so the entrance
         // animation zooms a stable image, not a placeholder-then-image swap.
@@ -311,12 +301,12 @@ private struct ZoomableImagePage: View {
                         .scaleEffect(scale)
                         .offset(x: offset.width, y: offset.height)
                         .gesture(pinchGesture)
-                        // Single drag gesture that branches on `scale`:
-                        // zoomed → pan the image; at rest → feed dismiss.
-                        // Splitting this across parent+child before left
-                        // a gap where both could fire, so a zoomed drag
-                        // was still triggering dismiss.
-                        .simultaneousGesture(dragGesture)
+                        // Pan is attached ONLY while zoomed. At rest scale,
+                        // no drag gesture on the image — UIPageViewController
+                        // sees the touches and left/right paging works. When
+                        // zoomed, pan takes over (dismiss is gated off at
+                        // scale > 1.05 inside its own handler).
+                        .simultaneousGesture(scale > 1.05 ? panGesture : nil)
                         // SpatialTapGesture provides the tap location so we
                         // can zoom from the tapped point. The single-tap
                         // follows afterward — SwiftUI disambiguates via the
@@ -362,27 +352,19 @@ private struct ZoomableImagePage: View {
             }
     }
 
-    /// Unified drag: pan when zoomed, dismiss-drive when at rest.
-    /// Both modes live on the same gesture so they can't both fire at
-    /// the same time on a given drag.
-    private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
+    /// Pan the zoomed image. Only attached while `scale > 1.05` so at
+    /// rest the image view doesn't consume touches that should go to
+    /// UIPageViewController for horizontal paging.
+    private var panGesture: some Gesture {
+        DragGesture()
             .onChanged { value in
-                if scale > 1.05 {
-                    offset = CGSize(
-                        width: lastOffset.width + value.translation.width,
-                        height: lastOffset.height + value.translation.height
-                    )
-                } else {
-                    onVerticalDragChanged(value.translation)
-                }
+                offset = CGSize(
+                    width: lastOffset.width + value.translation.width,
+                    height: lastOffset.height + value.translation.height
+                )
             }
-            .onEnded { value in
-                if scale > 1.05 {
-                    lastOffset = offset
-                } else {
-                    onVerticalDragEnded(value.translation, value.predictedEndTranslation)
-                }
+            .onEnded { _ in
+                lastOffset = offset
             }
     }
 }
