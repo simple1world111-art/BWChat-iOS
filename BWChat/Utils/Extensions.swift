@@ -2,6 +2,7 @@
 // Swift type extensions
 
 import SwiftUI
+import UIKit
 
 // MARK: - View Extensions
 
@@ -154,5 +155,69 @@ extension Data {
     /// Convert to hex string (for device token)
     var hexString: String {
         map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - Navigation Pop Detection
+
+extension View {
+    /// Fires at the START of a NavigationStack pop (when the view is being
+    /// removed from the stack), unlike .onDisappear which fires AFTER the pop
+    /// animation completes. Does NOT fire when the view is simply covered
+    /// by a subsequent push.
+    func onWillPop(_ action: @escaping () -> Void) -> some View {
+        background(WillPopDetector(action: action))
+    }
+
+    /// Hide the tab bar while this view is visible. Uses `onWillPop` so the
+    /// bar reappears *as* the pop animation begins, matching WeChat's feel —
+    /// the bar is present throughout the return transition instead of
+    /// flashing in at the very end.
+    func hidesTabBar() -> some View {
+        modifier(HidesTabBarModifier())
+    }
+}
+
+private struct WillPopDetector: UIViewControllerRepresentable {
+    let action: () -> Void
+
+    func makeUIViewController(context: Context) -> Handler {
+        let h = Handler()
+        h.action = action
+        return h
+    }
+
+    func updateUIViewController(_ handler: Handler, context: Context) {
+        handler.action = action
+    }
+
+    final class Handler: UIViewController {
+        var action: (() -> Void)?
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            // viewWillDisappear fires on BOTH pop (removal) and push (covering).
+            // Walk up the VC chain: the SwiftUI hosting controller — not this
+            // embedded handler — is what actually moves during navigation.
+            var vc: UIViewController? = self
+            while let candidate = vc {
+                if candidate.isMovingFromParent || candidate.isBeingDismissed {
+                    action?()
+                    return
+                }
+                vc = candidate.parent
+            }
+        }
+    }
+}
+
+private struct HidesTabBarModifier: ViewModifier {
+    @EnvironmentObject private var tabBar: TabBarVisibility
+    @State private var id = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { tabBar.hide(id) }
+            .onWillPop { tabBar.show(id) }
     }
 }

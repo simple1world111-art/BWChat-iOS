@@ -14,7 +14,6 @@ struct GroupChatView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: GroupChatViewModel
     @ObservedObject private var callManager = CallManager.shared
-    @EnvironmentObject private var tabBar: TabBarVisibility
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
@@ -233,14 +232,9 @@ struct GroupChatView: View {
             }
         }
         .overlay { groupVoiceRecordingOverlay }
-        .onAppear {
-            setActiveGroupChat(true)
-            tabBar.hide()
-        }
-        .onDisappear {
-            setActiveGroupChat(false)
-            tabBar.show()
-        }
+        .onAppear { setActiveGroupChat(true) }
+        .onDisappear { setActiveGroupChat(false) }
+        .hidesTabBar()
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false

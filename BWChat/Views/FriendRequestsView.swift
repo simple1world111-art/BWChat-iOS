@@ -5,7 +5,6 @@ import SwiftUI
 
 struct FriendRequestsView: View {
     @StateObject private var viewModel = FriendsViewModel()
-    @EnvironmentObject private var tabBar: TabBarVisibility
 
     var body: some View {
         Group {
@@ -43,8 +42,7 @@ struct FriendRequestsView: View {
             await viewModel.loadFriendRequests()
         }
         .toast(message: $viewModel.successMessage)
-        .onAppear { tabBar.hide() }
-        .onDisappear { tabBar.show() }
+        .hidesTabBar()
     }
 }
 

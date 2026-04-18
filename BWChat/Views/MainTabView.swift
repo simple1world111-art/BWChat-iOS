@@ -3,21 +3,34 @@
 
 import SwiftUI
 
-/// Shared controller for the custom bottom tab bar. Detail pages call
-/// `hide()` / `show()` (via environment) to drive visibility. Both
-/// transitions are synchronous — no deferred show — so returning to a
-/// tab root makes the bar reappear instantly instead of fading in
-/// after a delay.
+/// Shared controller for the custom bottom tab bar. Detail pages register
+/// via `hide(id)` and release via `show(id)` (usually through the
+/// `.hidesTabBar()` modifier, which calls these on appear + pop-start so
+/// the bar re-emerges in sync with the pop animation — matching
+/// UITabBarController's native feel instead of flashing in at
+/// animation-end). Tracking a Set lets nested detail views layer
+/// correctly: GroupChatView → GroupDetailView → back keeps the bar hidden
+/// until GroupChatView itself pops.
 @MainActor
 final class TabBarVisibility: ObservableObject {
     @Published var isHidden: Bool = false
+    private var hiders: Set<UUID> = []
 
-    func hide() {
-        if !isHidden { isHidden = true }
+    func hide(_ id: UUID) {
+        hiders.insert(id)
+        setHidden(true)
     }
 
-    func show() {
-        if isHidden { isHidden = false }
+    func show(_ id: UUID) {
+        hiders.remove(id)
+        if hiders.isEmpty { setHidden(false) }
+    }
+
+    private func setHidden(_ value: Bool) {
+        guard isHidden != value else { return }
+        var txn = Transaction()
+        txn.disablesAnimations = true
+        withTransaction(txn) { isHidden = value }
     }
 }
 

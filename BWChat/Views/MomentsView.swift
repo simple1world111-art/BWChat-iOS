@@ -8,7 +8,6 @@ struct MomentsView: View {
 
     @StateObject private var viewModel = MomentsViewModel()
     @StateObject private var momentsNotif = MomentsNotificationManager.shared
-    @EnvironmentObject private var tabBar: TabBarVisibility
     @State private var showCreateMoment = false
     @State private var showNotificationList = false
     @State private var commentText = ""
@@ -103,8 +102,7 @@ struct MomentsView: View {
             await viewModel.loadFeed(refresh: true)
             await momentsNotif.fetchFromServer()
         }
-        .onAppear { tabBar.hide() }
-        .onDisappear { tabBar.show() }
+        .hidesTabBar()
     }
 
     private var notificationBanner: some View {
@@ -666,7 +664,6 @@ struct MomentsNotificationListView: View {
     @State private var notifications: [MomentsNotification] = []
     @State private var isLoading = true
     @State private var selectedMomentID: Int?
-    @EnvironmentObject private var tabBar: TabBarVisibility
 
     var body: some View {
         Group {
@@ -712,8 +709,7 @@ struct MomentsNotificationListView: View {
             } catch { }
             isLoading = false
         }
-        .onAppear { tabBar.hide() }
-        .onDisappear { tabBar.show() }
+        .hidesTabBar()
     }
 }
 
@@ -774,7 +770,6 @@ struct MomentsNotificationRow: View {
 
 struct MomentDetailView: View {
     let momentID: Int
-    @EnvironmentObject private var tabBar: TabBarVisibility
     @State private var moment: Moment?
     @State private var isLoading = true
     @State private var commentText = ""
@@ -831,8 +826,7 @@ struct MomentDetailView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("动态详情")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { tabBar.hide() }
-        .onDisappear { tabBar.show() }
+        .hidesTabBar()
         .task { await loadMoment() }
     }
 
