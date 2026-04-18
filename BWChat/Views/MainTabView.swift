@@ -95,22 +95,18 @@ struct MainTabView: View {
 
 private struct CustomTabBar: View {
     @Binding var selectedTab: Int
+    @Namespace private var bubbleNS
 
     private struct Item {
         let icon: String
-        let selectedIcon: String
         let title: String
     }
 
     private let items: [Item] = [
-        // Same fill variant in both states; only the color + pill
-        // background differentiate selected vs unselected. That matches
-        // the reference screenshot where unselected icons are solid
-        // black rather than outlined.
-        Item(icon: "bubble.left.and.bubble.right.fill", selectedIcon: "bubble.left.and.bubble.right.fill", title: "消息"),
-        Item(icon: "person.crop.circle.fill", selectedIcon: "person.crop.circle.fill", title: "通讯录"),
-        Item(icon: "safari.fill", selectedIcon: "safari.fill", title: "发现"),
-        Item(icon: "gearshape.fill", selectedIcon: "gearshape.fill", title: "我"),
+        Item(icon: "bubble.left.and.bubble.right.fill", title: "消息"),
+        Item(icon: "person.crop.circle.fill", title: "通讯录"),
+        Item(icon: "safari.fill", title: "发现"),
+        Item(icon: "gearshape.fill", title: "我"),
     ]
 
     var body: some View {
@@ -122,40 +118,86 @@ private struct CustomTabBar: View {
                     if selectedTab != i { selectedTab = i }
                 } label: {
                     VStack(spacing: 4) {
+                        // Icon zone. When selected, the icon sits inside
+                        // a small filled blue circle (iOS 26-style).
                         ZStack {
                             if isSelected {
-                                Capsule()
-                                    .fill(AppColors.accent.opacity(0.14))
-                                    .frame(width: 66, height: 38)
+                                Circle()
+                                    .fill(AppColors.accent)
+                                    .frame(width: 32, height: 32)
                             }
-                            Image(systemName: isSelected ? item.selectedIcon : item.icon)
-                                .font(.system(size: 24, weight: .regular))
-                                .foregroundColor(isSelected ? AppColors.accent : .black)
+                            Image(systemName: item.icon)
+                                .font(.system(size: isSelected ? 16 : 24,
+                                              weight: isSelected ? .semibold : .regular))
+                                .foregroundColor(isSelected ? .white : .black)
                         }
-                        .frame(height: 38)
+                        .frame(height: 36)
+
                         Text(item.title)
                             .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                             .foregroundColor(isSelected ? AppColors.accent : .black)
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background {
+                        // Selected tab gets a translucent "liquid glass"
+                        // bubble wrapping icon + label. matchedGeometry
+                        // makes the bubble morph from one tab to the
+                        // next instead of disappearing and reappearing.
+                        // Negative vertical padding extends the bubble
+                        // a few points past the pill's top & bottom
+                        // edges so it reads as "adhered" rather than
+                        // contained — the iOS 26 suction feel.
+                        if isSelected {
+                            GlassTabBubble()
+                                .padding(.vertical, -3)
+                                .matchedGeometryEffect(id: "tabBubble", in: bubbleNS)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(TabBarPressStyle())
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 12)
+        .padding(.vertical, 8)
         .background(
             Capsule()
                 .fill(Color(uiColor: .systemBackground))
                 .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 4)
         )
+        // The spring animation drives the matchedGeometry bubble
+        // migration when selectedTab changes.
+        .animation(.spring(response: 0.42, dampingFraction: 0.82), value: selectedTab)
         .padding(.horizontal, 12)
-        // Flush against the safe area bottom. The bigger pill + smaller
-        // horizontal margin closes the visual gap at the bottom; the
-        // pill itself is now tall enough that the remaining safe-area
-        // space doesn't feel empty.
         .padding(.bottom, 0)
+    }
+}
+
+/// Translucent glass capsule rendered behind the selected tab item.
+/// Combines UIBlurEffect-backed ultra-thin material with a subtle
+/// accent tint and a hairline highlight stroke to get the "iOS 26
+/// liquid glass" look: looks like a bubble adhered to the pill bar.
+private struct GlassTabBubble: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(AppColors.accent.opacity(0.14))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.55), Color.white.opacity(0.08)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.8
+                    )
+            }
+            .shadow(color: AppColors.accent.opacity(0.22), radius: 8, x: 0, y: 3)
     }
 }
 
