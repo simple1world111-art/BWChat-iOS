@@ -52,7 +52,7 @@ private struct BottomTabBarInsetModifier: ViewModifier {
     /// content + vertical padding + bottom floating margin). Content
     /// above gets this much bottom inset so at-rest scroll positions
     /// don't hide items behind the pill.
-    static let barHeight: CGFloat = 67
+    static let barHeight: CGFloat = 82
 }
 
 struct MainTabView: View {
@@ -121,20 +121,20 @@ private struct CustomTabBar: View {
                 Button {
                     if selectedTab != i { selectedTab = i }
                 } label: {
-                    VStack(spacing: 3) {
+                    VStack(spacing: 4) {
                         ZStack {
                             if isSelected {
                                 Capsule()
                                     .fill(AppColors.accent.opacity(0.14))
-                                    .frame(width: 60, height: 32)
+                                    .frame(width: 66, height: 38)
                             }
                             Image(systemName: isSelected ? item.selectedIcon : item.icon)
-                                .font(.system(size: 20, weight: .regular))
+                                .font(.system(size: 24, weight: .regular))
                                 .foregroundColor(isSelected ? AppColors.accent : .black)
                         }
-                        .frame(height: 32)
+                        .frame(height: 38)
                         Text(item.title)
-                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
                             .foregroundColor(isSelected ? AppColors.accent : .black)
                     }
                     .frame(maxWidth: .infinity)
@@ -143,17 +143,19 @@ private struct CustomTabBar: View {
                 .buttonStyle(TabBarPressStyle())
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
         .background(
             Capsule()
                 .fill(Color(uiColor: .systemBackground))
                 .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 4)
         )
-        .padding(.horizontal, 16)
-        // Smaller bottom margin so the pill sits closer to the home
-        // indicator, matching the reference screenshot's position.
-        .padding(.bottom, 2)
+        .padding(.horizontal, 12)
+        // Flush against the safe area bottom. The bigger pill + smaller
+        // horizontal margin closes the visual gap at the bottom; the
+        // pill itself is now tall enough that the remaining safe-area
+        // space doesn't feel empty.
+        .padding(.bottom, 0)
     }
 }
 
