@@ -93,7 +93,7 @@ private struct GalleryContent: View {
                         lastScale: index == currentIndex ? $lastScale : .constant(1),
                         offset: index == currentIndex ? $offset : .constant(.zero),
                         lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                        onSingleTap: { dismissGallery() },
+                        onSingleTap: { dismissByTap() },
                         onDoubleTap: { doubleTap() }
                     )
                     .tag(index)
@@ -101,14 +101,12 @@ private struct GalleryContent: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .offset(y: verticalDrag)
-            .scaleEffect(dragDismissScale)
-            // Plain fade-in only. I spent multiple rounds trying to make a
-            // zoom-from-tap-point entrance smooth on top of TabView and was
-            // unable to get rid of visible jitter — UIPageViewController
-            // layout, ObservableObject re-renders, and SwiftUI animation
-            // all interact unpredictably when an off-center scaleEffect is
-            // interpolating concurrently. Accept an opacity-only entrance
-            // so the user never sees a shake.
+            // Centered scale: entrance is a subtle spring from 0.88 → 1.0
+            // and a swipe-drag adds a further shrink (dragDismissScale).
+            // Zoom-from-tap-point was removed previously because its
+            // off-center anchor interacted badly with TabView layout — the
+            // center scale here is stable and matches what WeChat does.
+            .scaleEffect(entranceScale * dragDismissScale)
             .opacity(appeared ? 1.0 : 0.0)
             .gesture(scale <= 1.05 ? verticalDismissGesture : nil)
             .onChange(of: currentIndex) { _ in
@@ -132,7 +130,7 @@ private struct GalleryContent: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            withAnimation(.easeOut(duration: 0.22)) {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                 appeared = true
             }
         }
@@ -140,23 +138,30 @@ private struct GalleryContent: View {
 
     // MARK: - Derived visuals
 
+    private var entranceScale: CGFloat {
+        appeared ? 1.0 : 0.88
+    }
+
     private var backgroundOpacity: Double {
-        1.0 - min(abs(verticalDrag) / 250, 0.7)
+        1.0 - min(abs(verticalDrag) / 320, 0.75)
     }
 
     private var dragDismissScale: CGFloat {
         let drag = abs(verticalDrag)
-        if drag < 10 { return 1.0 }
-        return max(1.0 - drag / 800, 0.6)
+        if drag < 8 { return 1.0 }
+        return max(1.0 - drag / 900, 0.55)
     }
 
     // MARK: - Gestures
 
     private var verticalDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 6)
+        DragGesture(minimumDistance: 8)
             .onChanged { value in
                 let h = value.translation.height
                 let w = value.translation.width
+                // Loose angle check (matches the prior diagonal-tolerant
+                // behavior); the actual "commit to dismiss" threshold lives
+                // in onEnded so a tiny drag can't accidentally dismiss.
                 if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
                     verticalDrag = h
                 }
@@ -164,21 +169,38 @@ private struct GalleryContent: View {
             .onEnded { value in
                 let h = abs(value.translation.height)
                 let predictedH = abs(value.predictedEndTranslation.height)
-                if h > 40 || predictedH > 200 {
-                    dismissGallery()
+                // Higher threshold so a small accidental drag doesn't
+                // dismiss — only a deliberate downward swipe does.
+                if h > 110 || predictedH > 450 {
+                    dismissBySwipe(direction: value.translation.height)
                 } else {
-                    withAnimation(.easeOut(duration: 0.2)) {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         verticalDrag = 0
                     }
                 }
             }
     }
 
-    private func dismissGallery() {
-        withAnimation(.easeOut(duration: 0.18)) {
+    /// Tap-to-dismiss: simple zoom-out + fade in place, no offset continuation.
+    private func dismissByTap() {
+        withAnimation(.easeOut(duration: 0.22)) {
             appeared = false
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            onDismiss()
+        }
+    }
+
+    /// Swipe-to-dismiss: continue the drag direction off-screen while
+    /// fading so the release feels like a natural follow-through instead
+    /// of a sudden cut.
+    private func dismissBySwipe(direction: CGFloat) {
+        let sign: CGFloat = direction >= 0 ? 1 : -1
+        withAnimation(.easeOut(duration: 0.28)) {
+            verticalDrag = 900 * sign
+            appeared = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
             onDismiss()
         }
     }
