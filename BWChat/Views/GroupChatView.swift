@@ -102,13 +102,13 @@ struct GroupChatView: View {
                                     message: message,
                                     isFromMe: isFromMe,
                                     myAvatarURL: myAvatarURL,
-                                    onImageTap: { url, anchor in
+                                    onImageTap: { url in
                                         isInputFocused = false
                                         hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
+                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
                                     },
-                                    onVideoTap: { url, _ in
+                                    onVideoTap: { url in
                                         isInputFocused = false
                                         hideKeyboard()
                                         previewVideoURL = url
@@ -506,8 +506,8 @@ struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
     var myAvatarURL: String = ""
-    var onImageTap: ((String, UnitPoint) -> Void)?
-    var onVideoTap: ((String, UnitPoint) -> Void)?
+    var onImageTap: ((String) -> Void)?
+    var onVideoTap: ((String) -> Void)?
     var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
     var onMention: ((String, String) -> Void)?
@@ -559,8 +559,8 @@ struct GroupMessageBubble: View {
 
                 if message.isImage {
                     CachedAsyncImage(url: message.content)
-                        .onTapWithNormalizedAnchor { anchor in
-                            onImageTap?(message.content, anchor)
+                        .onTapGesture {
+                            onImageTap?(message.content)
                         }
                         .longPressToSaveImage(url: message.content)
                 } else if message.isVideo {
@@ -575,8 +575,8 @@ struct GroupMessageBubble: View {
                             .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
                     }
                     .cornerRadius(16)
-                    .onTapWithNormalizedAnchor { anchor in
-                        onVideoTap?(message.content, anchor)
+                    .onTapGesture {
+                        onVideoTap?(message.content)
                     }
                     .longPressToSaveVideo(url: message.content)
                 } else if message.isVoice {

@@ -25,27 +25,6 @@ extension View {
         }
     }
 
-    /// Lightweight tap that reports the tap point as a screen-normalized UnitPoint
-    /// (so the image gallery can zoom from exactly where the user tapped).
-    /// Implemented as a zero-distance DragGesture in .simultaneousGesture: it
-    /// coexists cleanly with ancestor swipe-to-reply DragGestures, and the
-    /// `CoordinateSpace.global` enum is well-defined in iOS 16 (unlike
-    /// SpatialTapGesture's coordinateSpace parameter, whose protocol-based
-    /// overload can silently resolve to local coordinates on older OSes).
-    func onTapWithNormalizedAnchor(perform action: @escaping (UnitPoint) -> Void) -> some View {
-        simultaneousGesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onEnded { value in
-                    let t = value.translation
-                    guard hypot(t.width, t.height) < 14 else { return }
-                    let p = value.startLocation
-                    let w = max(UIScreen.main.bounds.width, 1)
-                    let h = max(UIScreen.main.bounds.height, 1)
-                    action(UnitPoint(x: p.x / w, y: p.y / h))
-                }
-        )
-    }
-
     /// Long-press to show a "保存到相册 / 取消" confirmation before saving media.
     /// Uses .simultaneousGesture so it coexists with ancestor DragGestures
     /// (e.g. swipe-to-reply on MessageBubble) without being swallowed.

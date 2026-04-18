@@ -102,13 +102,13 @@ struct ChatView: View {
                                     message: message,
                                     isFromMe: isFromMe,
                                     avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
-                                    onImageTap: { url, anchor in
+                                    onImageTap: { url in
                                         isInputFocused = false
                                         hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0, tapAnchor: anchor)
+                                        ImageGalleryState.shared.show(urls: allImages, index: allImages.firstIndex(of: url) ?? 0)
                                     },
-                                    onVideoTap: { url, _ in
+                                    onVideoTap: { url in
                                         isInputFocused = false
                                         hideKeyboard()
                                         previewVideoURL = url

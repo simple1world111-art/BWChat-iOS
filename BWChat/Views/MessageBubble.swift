@@ -9,8 +9,8 @@ struct MessageBubble: View {
     let message: Message
     let isFromMe: Bool
     var avatarURL: String = ""
-    var onImageTap: ((String, UnitPoint) -> Void)?
-    var onVideoTap: ((String, UnitPoint) -> Void)?
+    var onImageTap: ((String) -> Void)?
+    var onVideoTap: ((String) -> Void)?
     var onReply: ((Message) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
 
@@ -127,8 +127,8 @@ struct MessageBubble: View {
     private var imageBubble: some View {
         CachedAsyncImage(url: message.content)
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-            .onTapWithNormalizedAnchor { anchor in
-                onImageTap?(message.content, anchor)
+            .onTapGesture {
+                onImageTap?(message.content)
             }
             .longPressToSaveImage(url: message.content)
     }
@@ -148,8 +148,8 @@ struct MessageBubble: View {
         }
         .cornerRadius(14)
         .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-        .onTapWithNormalizedAnchor { anchor in
-            onVideoTap?(message.content, anchor)
+        .onTapGesture {
+            onVideoTap?(message.content)
         }
         .longPressToSaveVideo(url: message.content)
     }

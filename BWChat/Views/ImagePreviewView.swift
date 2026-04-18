@@ -12,16 +12,13 @@ class ImageGalleryState: ObservableObject {
     @Published var isPresented = false
     @Published var imageURLs: [String] = []
     @Published var initialIndex: Int = 0
-    /// Normalized tap point on the thumbnail (for zoom-from-tap entrance animation).
-    @Published var openAnchor: UnitPoint = .center
     /// Incremented on every show() so the overlay can force a fresh GalleryContent
     /// view identity even when the same image is tapped twice in a row.
     @Published var openToken: Int = 0
 
-    func show(urls: [String], index: Int, tapAnchor: UnitPoint = .center) {
+    func show(urls: [String], index: Int) {
         imageURLs = urls
         initialIndex = index
-        openAnchor = tapAnchor
         openToken &+= 1
         isPresented = true
     }
@@ -45,7 +42,6 @@ struct ImageGalleryOverlay: View {
                 GalleryContent(
                     imageURLs: state.imageURLs,
                     initialIndex: state.initialIndex,
-                    openAnchor: state.openAnchor,
                     onDismiss: { state.isPresented = false }
                 )
                 .id(state.openToken)
@@ -60,7 +56,6 @@ struct ImageGalleryOverlay: View {
 private struct GalleryContent: View {
     let imageURLs: [String]
     let initialIndex: Int
-    let openAnchor: UnitPoint
     let onDismiss: () -> Void
 
     @State private var currentIndex: Int
@@ -71,10 +66,9 @@ private struct GalleryContent: View {
     @State private var lastOffset: CGSize = .zero
     @State private var verticalDrag: CGFloat = 0
 
-    init(imageURLs: [String], initialIndex: Int, openAnchor: UnitPoint, onDismiss: @escaping () -> Void) {
+    init(imageURLs: [String], initialIndex: Int, onDismiss: @escaping () -> Void) {
         self.imageURLs = imageURLs
         self.initialIndex = initialIndex
-        self.openAnchor = openAnchor
         self.onDismiss = onDismiss
         self._currentIndex = State(initialValue: initialIndex)
     }
