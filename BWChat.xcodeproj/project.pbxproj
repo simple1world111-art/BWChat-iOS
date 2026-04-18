@@ -31,6 +31,7 @@
 		A10022 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022; };
 		A10023 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023; };
 		A10110 /* UIKitNav.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10110; };
+		A10111 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10111; };
 		A10024 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10025 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10030 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
@@ -123,6 +124,7 @@
 		B10022 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		B10023 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		B10110 /* UIKitNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIKitNav.swift; sourceTree = "<group>"; };
+		B10111 /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
 		B10024 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		B10025 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -265,6 +267,7 @@
 				B10049 /* MainTabView.swift */,
 				B10050 /* VideoPlayerView.swift */,
 				B10070 /* ProfileView.swift */,
+				B10111 /* WalletView.swift */,
 				B10071 /* EditProfileView.swift */,
 				B10092 /* CallView.swift */,
 				B10096 /* GroupCallView.swift */,
@@ -467,6 +470,7 @@
 				A10022 /* Constants.swift in Sources */,
 				A10023 /* Extensions.swift in Sources */,
 				A10110 /* UIKitNav.swift in Sources */,
+				A10111 /* WalletView.swift in Sources */,
 				A10024 /* KeychainHelper.swift in Sources */,
 				A10040 /* Group.swift in Sources */,
 				A10041 /* FriendRequest.swift in Sources */,

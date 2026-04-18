@@ -14,6 +14,8 @@ struct ProfileView: View {
             VStack(spacing: 0) {
                 profileHeaderCard
 
+                walletSection
+
                 myMomentsSection
 
                 profileInfoSection
@@ -100,7 +102,52 @@ struct ProfileView: View {
         .padding(.top, 12)
     }
 
-    // MARK: - My Moments (right after header)
+    // MARK: - Wallet (right after header)
+
+    private var walletSection: some View {
+        Button {
+            navigator.push(WalletView())
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "FFD54A"), Color(hex: "F0A020")],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "pawprint.fill")
+                        .font(.system(size: 17))
+                        .foregroundColor(.white)
+                }
+
+                Text("钱包")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(AppColors.primaryText)
+
+                Spacer()
+
+                Text("0 猫粮")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppColors.tertiaryText)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+        }
+        .background(AppColors.cardBackground)
+        .cornerRadius(14)
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+    }
+
+    // MARK: - My Moments
 
     private var myMomentsSection: some View {
         Button {
