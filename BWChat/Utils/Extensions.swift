@@ -164,10 +164,10 @@ extension View {
     /// the two concerns lets each mechanism do its one job cleanly.
     func hidesTabBarOnPush() -> some View {
         self
-            // Small breathing room so the input bar doesn't sit right on
-            // top of the home indicator. Applied BEFORE ignoresSafeArea
-            // so the padding lands inside the extended content area.
-            .padding(.bottom, 8)
+            // Breathing room so the input bar doesn't sit right on top
+            // of the home indicator. Applied BEFORE ignoresSafeArea so
+            // the padding lands inside the extended content area.
+            .padding(.bottom, 16)
             .ignoresSafeArea(.container, edges: .bottom)
             .background(HidesTabBarBridge())
     }
@@ -179,6 +179,41 @@ private struct HidesTabBarBridge: UIViewControllerRepresentable {
 }
 
 private final class BridgeController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // Our bridge view is placed as a SwiftUI `.background` so it
+        // sits behind the detail view's content. A default
+        // UIViewController's view has isUserInteractionEnabled = true,
+        // which can occasionally swallow the first tap that should
+        // focus the chat's input field. Disable it — we only need the
+        // VC for lifecycle hooks, not for UI.
+        view.isUserInteractionEnabled = false
+
+        // When the app comes back from background we need to re-apply
+        // our tab bar transform. iOS can reset transforms during the
+        // background → foreground trip, and since viewWillAppear is
+        // NOT re-called on app resume, we'd be left with a visible
+        // tab bar sitting on top of the detail view (what the user
+        // saw in the app-switcher screenshots).
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func appDidBecomeActive() {
+        // Only re-hide if this detail view is the one currently visible
+        // (its view is in a window and not itself hidden).
+        guard view.window != nil else { return }
+        animateTabBar(slidingOff: true)
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         // On push: slide the bar off. Also runs when we re-appear
