@@ -234,7 +234,6 @@ struct GroupChatView: View {
         .overlay { groupVoiceRecordingOverlay }
         .onAppear { setActiveGroupChat(true) }
         .onDisappear { setActiveGroupChat(false) }
-        .hidesTabBar()
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false

@@ -102,7 +102,6 @@ struct MomentsView: View {
             await viewModel.loadFeed(refresh: true)
             await momentsNotif.fetchFromServer()
         }
-        .hidesTabBar()
     }
 
     private var notificationBanner: some View {
@@ -709,7 +708,6 @@ struct MomentsNotificationListView: View {
             } catch { }
             isLoading = false
         }
-        .hidesTabBar()
     }
 }
 
@@ -826,7 +824,6 @@ struct MomentDetailView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("动态详情")
         .navigationBarTitleDisplayMode(.inline)
-        .hidesTabBar()
         .task { await loadMoment() }
     }
 

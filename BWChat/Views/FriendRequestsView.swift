@@ -42,7 +42,6 @@ struct FriendRequestsView: View {
             await viewModel.loadFriendRequests()
         }
         .toast(message: $viewModel.successMessage)
-        .hidesTabBar()
     }
 }
 

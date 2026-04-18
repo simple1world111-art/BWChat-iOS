@@ -45,6 +45,7 @@ struct ProfileView: View {
             .refreshable {
                 await viewModel.loadProfile()
             }
+            .withBottomTabBar()
         }
     }
 

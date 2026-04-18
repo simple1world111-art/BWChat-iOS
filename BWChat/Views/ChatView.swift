@@ -177,7 +177,6 @@ struct ChatView: View {
         .overlay { voiceRecordingOverlay }
         .onAppear { setActiveChat(true) }
         .onDisappear { setActiveChat(false) }
-        .hidesTabBar()
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false

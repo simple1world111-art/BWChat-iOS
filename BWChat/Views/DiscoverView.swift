@@ -96,6 +96,7 @@ struct DiscoverView: View {
             .task(id: AuthManager.shared.currentUser?.userID ?? "") {
                 await momentsNotif.fetchFromServer()
             }
+            .withBottomTabBar()
         }
     }
 }
@@ -120,7 +121,6 @@ struct InAppWebView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .hidesTabBar()
     }
 }
 

@@ -3,69 +3,67 @@
 
 import SwiftUI
 
-/// Shared controller for the custom bottom tab bar. Detail pages register
-/// via `hide(id)` and release via `show(id)` (usually through the
-/// `.hidesTabBar()` modifier, which calls these on appear + pop-start so
-/// the bar re-emerges in sync with the pop animation — matching
-/// UITabBarController's native feel instead of flashing in at
-/// animation-end). Tracking a Set lets nested detail views layer
-/// correctly: GroupChatView → GroupDetailView → back keeps the bar hidden
-/// until GroupChatView itself pops.
-@MainActor
-final class TabBarVisibility: ObservableObject {
-    @Published var isHidden: Bool = false
-    private var hiders: Set<UUID> = []
+// The selected-tab binding is injected into the environment so each tab's
+// root can attach the bottom bar via `.withBottomTabBar()` from inside its
+// own NavigationStack. The bar becomes part of the stack's root view, so
+// a pushed detail naturally covers it during push and uncovers it during
+// pop — identical to UITabBarController's native behavior, with the bar
+// visible throughout the pop animation rather than flashing in at the end.
+private struct SelectedTabKey: EnvironmentKey {
+    static let defaultValue: Binding<Int> = .constant(0)
+}
 
-    func hide(_ id: UUID) {
-        hiders.insert(id)
-        setHidden(true)
+extension EnvironmentValues {
+    var selectedTabBinding: Binding<Int> {
+        get { self[SelectedTabKey.self] }
+        set { self[SelectedTabKey.self] = newValue }
     }
+}
 
-    func show(_ id: UUID) {
-        hiders.remove(id)
-        if hiders.isEmpty { setHidden(false) }
+extension View {
+    /// Attach the custom bottom tab bar as a bottom safe-area inset.
+    /// Apply this *inside* a NavigationStack root so pushed detail views
+    /// (which live inside the same NavigationStack) cover the bar.
+    func withBottomTabBar() -> some View {
+        modifier(BottomTabBarInsetModifier())
     }
+}
 
-    private func setHidden(_ value: Bool) {
-        guard isHidden != value else { return }
-        var txn = Transaction()
-        txn.disablesAnimations = true
-        withTransaction(txn) { isHidden = value }
+private struct BottomTabBarInsetModifier: ViewModifier {
+    @Environment(\.selectedTabBinding) private var selectedTab
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            CustomTabBar(selectedTab: selectedTab)
+        }
     }
 }
 
 struct MainTabView: View {
     @State private var selectedTab = 0
-    @StateObject private var tabBar = TabBarVisibility()
     @ObservedObject private var mediaSaveFeedback = MediaSaveFeedback.shared
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             // Keep every tab alive so navigating between them preserves each
             // NavigationStack's state (same behavior as a native TabView).
             // Use opacity + allowsHitTesting to switch which one is active.
-            ZStack {
-                ContactListView()
-                    .opacity(selectedTab == 0 ? 1 : 0)
-                    .allowsHitTesting(selectedTab == 0)
-                ContactsTabView()
-                    .opacity(selectedTab == 1 ? 1 : 0)
-                    .allowsHitTesting(selectedTab == 1)
-                DiscoverView()
-                    .opacity(selectedTab == 2 ? 1 : 0)
-                    .allowsHitTesting(selectedTab == 2)
-                ProfileView()
-                    .opacity(selectedTab == 3 ? 1 : 0)
-                    .allowsHitTesting(selectedTab == 3)
-            }
-            .environmentObject(tabBar)
-
-            if !tabBar.isHidden {
-                CustomTabBar(selectedTab: $selectedTab)
-            }
+            ContactListView()
+                .opacity(selectedTab == 0 ? 1 : 0)
+                .allowsHitTesting(selectedTab == 0)
+            ContactsTabView()
+                .opacity(selectedTab == 1 ? 1 : 0)
+                .allowsHitTesting(selectedTab == 1)
+            DiscoverView()
+                .opacity(selectedTab == 2 ? 1 : 0)
+                .allowsHitTesting(selectedTab == 2)
+            ProfileView()
+                .opacity(selectedTab == 3 ? 1 : 0)
+                .allowsHitTesting(selectedTab == 3)
 
             ImageGalleryOverlay()
         }
+        .environment(\.selectedTabBinding, $selectedTab)
         .ignoresSafeArea(.keyboard)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { _ in
             selectedTab = 0
@@ -277,6 +275,7 @@ struct ContactsTabView: View {
                 await viewModel.loadFriends()
                 await viewModel.loadFriendRequests()
             }
+            .withBottomTabBar()
         }
     }
 }
