@@ -141,28 +141,19 @@ extension Data {
 
 extension View {
     /// Hide the enclosing UITabBar while this view is visible on a
-    /// NavigationStack. Bridges to UIKit's native
-    /// `hidesBottomBarWhenPushed`:
-    ///   - In `willMove(toParent:)` we walk up to find the
-    ///     UIHostingController SwiftUI just built for this pushed view.
-    ///   - We set its `hidesBottomBarWhenPushed = true` BEFORE SwiftUI
-    ///     calls `pushViewController` on it.
-    ///   - UIKit then handles the whole transition: tab bar animates
-    ///     off during push, safe-area insets adjust automatically so
-    ///     content fills the freed space (no blank strip under the
-    ///     input bar), and the bar slides back on pop.
-    ///
-    /// Why not the transform / additionalSafeAreaInsets approach we
-    /// tried before? `additionalSafeAreaInsets` rejects negative
-    /// values (Apple's docs: "The property must not contain any
-    /// negative values."), so cancelling the tab bar's contribution
-    /// silently no-op'd and left the blank strip.
+    /// NavigationStack. Uses SwiftUI's native modifier — it correctly
+    /// updates safe-area insets so content fills the tab bar's slot
+    /// (no blank strip). Also sets UIKit's hidesBottomBarWhenPushed on
+    /// the hosting controller as a parallel path, in case the SwiftUI
+    /// modifier's timing behaves differently on a given iOS version.
     func hidesTabBarOnPush() -> some View {
-        background(HidesTabBarBridge())
+        self
+            .toolbar(.hidden, for: .tabBar)
+            .background(HidesTabBarUIKitBridge())
     }
 }
 
-private struct HidesTabBarBridge: UIViewControllerRepresentable {
+private struct HidesTabBarUIKitBridge: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> BridgeController { BridgeController() }
     func updateUIViewController(_ uiViewController: BridgeController, context: Context) {}
 }
@@ -170,17 +161,14 @@ private struct HidesTabBarBridge: UIViewControllerRepresentable {
 private final class BridgeController: UIViewController {
     override func willMove(toParent parent: UIViewController?) {
         super.willMove(toParent: parent)
-        // SwiftUI adds us as a child of the destination's hosting
-        // controller during that hosting controller's construction —
-        // which happens BEFORE SwiftUI pushes it onto the underlying
-        // UINavigationController. Setting the flag here means UIKit
-        // sees it at push time and animates the tab bar off natively.
         guard let parent else { return }
+        // Set the flag on every UIHostingController ancestor we find,
+        // not just the first. SwiftUI sometimes nests hosting
+        // controllers and hitting the right one matters.
         var vc: UIViewController? = parent
         while let current = vc {
             if String(describing: type(of: current)).contains("HostingController") {
                 current.hidesBottomBarWhenPushed = true
-                return
             }
             vc = current.parent
         }
