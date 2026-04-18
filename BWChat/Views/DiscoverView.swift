@@ -120,6 +120,7 @@ struct InAppWebView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
     }
 }
 

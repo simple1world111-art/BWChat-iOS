@@ -48,6 +48,7 @@ struct GroupDetailView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("群聊信息")
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .task { await loadDetail() }
         .alert("修改群名", isPresented: $showRenameAlert) {
             TextField("输入新群名", text: $newGroupName)

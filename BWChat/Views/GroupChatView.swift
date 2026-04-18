@@ -234,6 +234,7 @@ struct GroupChatView: View {
         }
         .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { showGroupDetail = true } label: {

@@ -38,6 +38,7 @@ struct FriendRequestsView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("好友请求")
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .task {
             await viewModel.loadFriendRequests()
         }

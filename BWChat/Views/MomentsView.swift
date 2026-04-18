@@ -70,6 +70,7 @@ struct MomentsView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle(pageTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { showCreateMoment = true } label: {
@@ -694,6 +695,7 @@ struct MomentsNotificationListView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("消息")
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .navigationDestination(isPresented: Binding(
             get: { selectedMomentID != nil },
             set: { if !$0 { selectedMomentID = nil } }
@@ -823,6 +825,7 @@ struct MomentDetailView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle("动态详情")
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .task { await loadMoment() }
     }
 

@@ -189,6 +189,7 @@ struct ChatView: View {
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 EmptyView()
