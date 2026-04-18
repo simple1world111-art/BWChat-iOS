@@ -96,7 +96,6 @@ struct DiscoverView: View {
             .task(id: AuthManager.shared.currentUser?.userID ?? "") {
                 await momentsNotif.fetchFromServer()
             }
-            .withBottomTabBar()
         }
     }
 }

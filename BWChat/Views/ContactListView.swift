@@ -61,7 +61,6 @@ struct ContactListView: View {
                     Task { await viewModel.loadConversations() }
                 }
             }
-            .withBottomTabBar()
         }
         .task(id: AuthManager.shared.currentUser?.userID ?? "") {
             await viewModel.loadConversations()

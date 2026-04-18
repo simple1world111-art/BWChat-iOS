@@ -3,83 +3,45 @@
 
 import SwiftUI
 
-// The selected-tab binding is injected into the environment so each tab's
-// root can attach the bottom bar via `.withBottomTabBar()` from inside its
-// own NavigationStack. The bar becomes part of the stack's root view, so
-// a pushed detail naturally covers it during push and uncovers it during
-// pop — identical to UITabBarController's native behavior, with the bar
-// visible throughout the pop animation rather than flashing in at the end.
-private struct SelectedTabKey: EnvironmentKey {
-    static let defaultValue: Binding<Int> = .constant(0)
-}
-
-extension EnvironmentValues {
-    var selectedTabBinding: Binding<Int> {
-        get { self[SelectedTabKey.self] }
-        set { self[SelectedTabKey.self] = newValue }
-    }
-}
-
-extension View {
-    /// Attach the custom bottom tab bar. Apply this *inside* a
-    /// NavigationStack root so pushed detail views (which live inside
-    /// the same NavigationStack) cover the bar.
-    func withBottomTabBar() -> some View {
-        modifier(BottomTabBarInsetModifier())
-    }
-}
-
-private struct BottomTabBarInsetModifier: ViewModifier {
-    @Environment(\.selectedTabBinding) private var selectedTab
-
-    func body(content: Content) -> some View {
-        content
-            // Reserve content inset equal to the bar's height without
-            // rendering anything here; the actual bar is drawn as an
-            // overlay so that scroll content can pass behind its
-            // translucent blur — the "floating" feel of a native
-            // UITabBar comes from seeing blurred content through the
-            // bar, which an opaque safe-area inset couldn't do.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: Self.barHeight)
-            }
-            .overlay(alignment: .bottom) {
-                CustomTabBar(selectedTab: selectedTab)
-            }
-    }
-
-    /// Approximate rendered height of the floating pill bar (pill
-    /// content + vertical padding + bottom floating margin). Content
-    /// above gets this much bottom inset so at-rest scroll positions
-    /// don't hide items behind the pill.
-    static let barHeight: CGFloat = 82
-}
-
 struct MainTabView: View {
     @State private var selectedTab = 0
     @ObservedObject private var mediaSaveFeedback = MediaSaveFeedback.shared
 
     var body: some View {
         ZStack {
-            // Keep every tab alive so navigating between them preserves each
-            // NavigationStack's state (same behavior as a native TabView).
-            // Use opacity + allowsHitTesting to switch which one is active.
-            ContactListView()
-                .opacity(selectedTab == 0 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 0)
-            ContactsTabView()
-                .opacity(selectedTab == 1 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 1)
-            DiscoverView()
-                .opacity(selectedTab == 2 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 2)
-            ProfileView()
-                .opacity(selectedTab == 3 ? 1 : 0)
-                .allowsHitTesting(selectedTab == 3)
+            TabView(selection: $selectedTab) {
+                ContactListView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
+                        Text("消息")
+                    }
+                    .tag(0)
+
+                ContactsTabView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 1 ? "person.crop.circle.fill" : "person.crop.circle")
+                        Text("通讯录")
+                    }
+                    .tag(1)
+
+                DiscoverView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 2 ? "safari.fill" : "safari")
+                        Text("发现")
+                    }
+                    .tag(2)
+
+                ProfileView()
+                    .tabItem {
+                        Image(systemName: selectedTab == 3 ? "gearshape.fill" : "gearshape")
+                        Text("我")
+                    }
+                    .tag(3)
+            }
+            .tint(AppColors.accent)
 
             ImageGalleryOverlay()
         }
-        .environment(\.selectedTabBinding, $selectedTab)
         .ignoresSafeArea(.keyboard)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { _ in
             selectedTab = 0
@@ -88,133 +50,6 @@ struct MainTabView: View {
             selectedTab = 0
         }
         .toast(message: $mediaSaveFeedback.toastMessage)
-    }
-}
-
-// MARK: - Custom Tab Bar
-
-private struct CustomTabBar: View {
-    @Binding var selectedTab: Int
-    @Namespace private var bubbleNS
-
-    private struct Item {
-        let icon: String
-        let title: String
-    }
-
-    private let items: [Item] = [
-        Item(icon: "bubble.left.and.bubble.right.fill", title: "消息"),
-        Item(icon: "person.crop.circle.fill", title: "通讯录"),
-        Item(icon: "safari.fill", title: "发现"),
-        Item(icon: "gearshape.fill", title: "我"),
-    ]
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<items.count, id: \.self) { i in
-                let item = items[i]
-                let isSelected = selectedTab == i
-                Button {
-                    if selectedTab != i { selectedTab = i }
-                } label: {
-                    VStack(spacing: 4) {
-                        // Icon zone. When selected, the icon sits inside
-                        // a small filled blue circle (iOS 26-style).
-                        ZStack {
-                            if isSelected {
-                                Circle()
-                                    .fill(AppColors.accent)
-                                    .frame(width: 32, height: 32)
-                            }
-                            Image(systemName: item.icon)
-                                .font(.system(size: isSelected ? 16 : 24,
-                                              weight: isSelected ? .semibold : .regular))
-                                .foregroundColor(isSelected ? .white : .black)
-                        }
-                        .frame(height: 36)
-
-                        Text(item.title)
-                            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                            .foregroundColor(isSelected ? AppColors.accent : .black)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background {
-                        // Selected tab gets a translucent "liquid glass"
-                        // bubble wrapping icon + label. matchedGeometry
-                        // makes the bubble morph from one tab to the
-                        // next instead of disappearing and reappearing.
-                        // Negative vertical padding extends the bubble
-                        // a few points past the pill's top & bottom
-                        // edges so it reads as "adhered" rather than
-                        // contained — the iOS 26 suction feel.
-                        if isSelected {
-                            GlassTabBubble()
-                                .padding(.vertical, -3)
-                                .matchedGeometryEffect(id: "tabBubble", in: bubbleNS)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(TabBarPressStyle())
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(Color(uiColor: .systemBackground))
-                .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 4)
-        )
-        // The spring animation drives the matchedGeometry bubble
-        // migration when selectedTab changes.
-        .animation(.spring(response: 0.42, dampingFraction: 0.82), value: selectedTab)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 0)
-    }
-}
-
-/// Translucent glass capsule rendered behind the selected tab item.
-/// Combines UIBlurEffect-backed ultra-thin material with a subtle
-/// accent tint and a hairline highlight stroke to get the "iOS 26
-/// liquid glass" look: looks like a bubble adhered to the pill bar.
-private struct GlassTabBubble: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(AppColors.accent.opacity(0.14))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.55), Color.white.opacity(0.08)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        lineWidth: 0.8
-                    )
-            }
-            .shadow(color: AppColors.accent.opacity(0.22), radius: 8, x: 0, y: 3)
-    }
-}
-
-/// Press-feedback style for tab bar buttons. On press, fades in a
-/// subtle gray fill behind the button and scales it down slightly —
-/// gives the tactile "button" feel the user wanted, matching the
-/// transient highlight iOS shows on a list-row press.
-private struct TabBarPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.black.opacity(configuration.isPressed ? 0.08 : 0))
-                    .padding(4)
-            }
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 
@@ -367,7 +202,6 @@ struct ContactsTabView: View {
                 await viewModel.loadFriends()
                 await viewModel.loadFriendRequests()
             }
-            .withBottomTabBar()
         }
     }
 }
