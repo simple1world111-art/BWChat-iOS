@@ -141,78 +141,77 @@ extension Data {
 
 extension View {
     /// Hide the enclosing UITabBar while this view is visible on a
-    /// NavigationStack. Uses SwiftUI's native modifier — it correctly
-    /// updates safe-area insets so content fills the tab bar's slot
-    /// (no blank strip). Also sets UIKit's hidesBottomBarWhenPushed on
-    /// the hosting controller as a parallel path, in case the SwiftUI
-    /// modifier's timing behaves differently on a given iOS version.
+    /// NavigationStack. Two pieces working independently (neither
+    /// fighting the other):
+    ///
+    ///   1. `.ignoresSafeArea(.container, edges: .bottom)` tells
+    ///      SwiftUI the content should extend past the tab bar's
+    ///      safe-area contribution. `.container` excludes the
+    ///      device-level safe area (home indicator), so the chat
+    ///      input bar sits just above the home indicator — no blank
+    ///      strip below it.
+    ///   2. A UIKit bridge animates UITabBar's transform alongside
+    ///      the push/pop transition. Without SwiftUI's
+    ///      `.toolbar(.hidden, for: .tabBar)` in the mix, SwiftUI
+    ///      never writes isHidden/alpha on the bar, so our transform
+    ///      animation actually renders — bar slides down during
+    ///      push, up during pop.
+    ///
+    /// The mistake in earlier attempts: using `.toolbar(.hidden,
+    /// for: .tabBar)` to handle safe-area AND expecting a custom
+    /// animation to work. SwiftUI's modifier also takes over the
+    /// bar's visibility per-frame, masking our animation. Separating
+    /// the two concerns lets each mechanism do its one job cleanly.
     func hidesTabBarOnPush() -> some View {
         self
-            .toolbar(.hidden, for: .tabBar)
-            .background(HidesTabBarUIKitBridge())
+            .ignoresSafeArea(.container, edges: .bottom)
+            .background(HidesTabBarBridge())
     }
 }
 
-private struct HidesTabBarUIKitBridge: UIViewControllerRepresentable {
+private struct HidesTabBarBridge: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> BridgeController { BridgeController() }
     func updateUIViewController(_ uiViewController: BridgeController, context: Context) {}
 }
 
 private final class BridgeController: UIViewController {
-    override func willMove(toParent parent: UIViewController?) {
-        super.willMove(toParent: parent)
-        guard let parent else { return }
-        var vc: UIViewController? = parent
-        while let current = vc {
-            if String(describing: type(of: current)).contains("HostingController") {
-                current.hidesBottomBarWhenPushed = true
-            }
-            vc = current.parent
-        }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // On push: slide the bar off. Also runs when we re-appear
+        // after a sub-push is popped — idempotent since we animate
+        // to the same offscreen target.
+        animateTabBar(slidingOff: true)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // Previous attempts to set isHidden=false once failed because
-        // SwiftUI continuously resets isHidden=true during the pop
-        // transition (that's why the bar stays invisible until the
-        // end, producing the "snap" the user sees). The only way to
-        // keep the bar visible through the pop is to fight SwiftUI
-        // every frame: a CADisplayLink that forces isHidden=false
-        // and alpha=1 for the duration of the pop. Underneath, our
-        // UIView.animate drives the transform from offscreen to
-        // identity — now actually visible because we've held the
-        // bar non-hidden.
-        guard isBeingPopped() else { return }
-        guard let tabBar = findTabBar() else { return }
-
-        let height = tabBar.frame.height
-        tabBar.isHidden = false
-        tabBar.alpha = 1.0
-        tabBar.transform = CGAffineTransform(translationX: 0, y: height)
-
-        UIView.animate(
-            withDuration: 0.35,
-            delay: 0,
-            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-            animations: {
-                tabBar.transform = .identity
-            },
-            completion: { _ in
-                tabBar.transform = .identity
-            }
-        )
-
-        TabBarVisibilityForcer.start(tabBar: tabBar, duration: 0.55)
+        // Always schedule "slide back on" alongside the transition.
+        // For push-cover (another detail pushed on top of us), the new
+        // detail's viewWillAppear schedules "slide off" on the same
+        // transition coordinator — alongsideTransition composes and
+        // the last-set transform wins, so net effect is bar stays
+        // off. For actual pop, no second schedule overrides us, and
+        // the bar slides back in sync with the pop.
+        animateTabBar(slidingOff: false)
     }
 
-    private func isBeingPopped() -> Bool {
-        var vc: UIViewController? = self
-        while let current = vc {
-            if current.isMovingFromParent || current.isBeingDismissed { return true }
-            vc = current.parent
+    private func animateTabBar(slidingOff: Bool) {
+        guard let tabBar = findTabBar() else { return }
+        let height = tabBar.frame.height
+        let target: CGAffineTransform = slidingOff
+            ? CGAffineTransform(translationX: 0, y: height)
+            : .identity
+        if tabBar.transform == target { return }
+
+        if let coord = findTransitionCoordinator() {
+            coord.animate(alongsideTransition: { _ in
+                tabBar.transform = target
+            }, completion: { _ in
+                tabBar.transform = target
+            })
+        } else {
+            tabBar.transform = target
         }
-        return false
     }
 
     private func findTabBar() -> UITabBar? {
@@ -245,59 +244,6 @@ private final class BridgeController: UIViewController {
             vc = current.parent
         }
         return nil
-    }
-}
-
-/// SwiftUI appears to write `tabBar.isHidden = true` and `alpha = 0`
-/// every frame during a pop transition; setting them to visible once
-/// in `viewWillDisappear` gets overwritten before the next render, so
-/// a transform-based slide-in animation never becomes visible and the
-/// bar finally appears only after SwiftUI releases its grip — the
-/// "snap" the user kept reporting.
-///
-/// This class fights back: a CADisplayLink that forces `isHidden=false`
-/// and `alpha=1` on every frame for a short duration (long enough to
-/// cover the pop transition). While the link is running, our transform
-/// animation renders properly and the bar actually slides up.
-@MainActor
-private final class TabBarVisibilityForcer {
-    private static var current: TabBarVisibilityForcer?
-
-    private weak var tabBar: UITabBar?
-    private let endTime: CFTimeInterval
-    private var displayLink: CADisplayLink?
-
-    static func start(tabBar: UITabBar, duration: CFTimeInterval) {
-        // Replace any existing forcer — the new pop wants its own window.
-        current?.stop()
-        let forcer = TabBarVisibilityForcer(tabBar: tabBar, duration: duration)
-        current = forcer
-        forcer.begin()
-    }
-
-    private init(tabBar: UITabBar, duration: CFTimeInterval) {
-        self.tabBar = tabBar
-        self.endTime = CACurrentMediaTime() + duration
-    }
-
-    private func begin() {
-        let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-    }
-
-    @objc private func tick(_ link: CADisplayLink) {
-        guard let tabBar else { stop(); return }
-        // Override SwiftUI's per-frame hide.
-        if tabBar.isHidden { tabBar.isHidden = false }
-        if tabBar.alpha < 1.0 { tabBar.alpha = 1.0 }
-        if CACurrentMediaTime() >= endTime { stop() }
-    }
-
-    private func stop() {
-        displayLink?.invalidate()
-        displayLink = nil
-        if Self.current === self { Self.current = nil }
     }
 }
 
