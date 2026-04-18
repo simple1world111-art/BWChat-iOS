@@ -164,6 +164,10 @@ extension View {
     /// the two concerns lets each mechanism do its one job cleanly.
     func hidesTabBarOnPush() -> some View {
         self
+            // Small breathing room so the input bar doesn't sit right on
+            // top of the home indicator. Applied BEFORE ignoresSafeArea
+            // so the padding lands inside the extended content area.
+            .padding(.bottom, 8)
             .ignoresSafeArea(.container, edges: .bottom)
             .background(HidesTabBarBridge())
     }
