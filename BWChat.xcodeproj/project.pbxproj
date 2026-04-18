@@ -30,6 +30,7 @@
 		A10021 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
 		A10022 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022; };
 		A10023 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023; };
+		A10099 /* UINavigationController+HidesBottomBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10099; };
 		A10024 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
 		A10025 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10025; };
 		A10030 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
@@ -121,6 +122,7 @@
 		B10060 /* VideoThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailView.swift; sourceTree = "<group>"; };
 		B10022 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		B10023 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		B10099 /* UINavigationController+HidesBottomBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UINavigationController+HidesBottomBar.swift"; sourceTree = "<group>"; };
 		B10024 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		B10025 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -316,6 +318,7 @@
 				B10022 /* Constants.swift */,
 				B10023 /* Extensions.swift */,
 				B10024 /* KeychainHelper.swift */,
+				B10099 /* UINavigationController+HidesBottomBar.swift */,
 			);
 			path = Utils;
 			sourceTree = "<group>";
@@ -463,6 +466,7 @@
 				A10021 /* ToastView.swift in Sources */,
 				A10022 /* Constants.swift in Sources */,
 				A10023 /* Extensions.swift in Sources */,
+				A10099 /* UINavigationController+HidesBottomBar.swift in Sources */,
 				A10024 /* KeychainHelper.swift in Sources */,
 				A10040 /* Group.swift in Sources */,
 				A10041 /* FriendRequest.swift in Sources */,

@@ -10,6 +10,14 @@ struct BWChatApp: App {
 
     @ObservedObject private var callManager = CallManager.shared
 
+    init() {
+        // Install UINavigationController.pushViewController swizzle so
+        // detail views pushed inside the tab bar's nav stacks engage
+        // UIKit's native hidesBottomBarWhenPushed machinery.
+        // See UINavigationController+HidesBottomBar.swift for why.
+        _ = UINavigationController.installHidesBottomBarSwizzle
+    }
+
     var body: some Scene {
         WindowGroup {
             ZStack {
