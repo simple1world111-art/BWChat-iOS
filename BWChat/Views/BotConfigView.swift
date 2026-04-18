@@ -1,7 +1,7 @@
 // BWChat/Views/BotConfigView.swift
 // Create-or-edit form for a bot (智能体). Two modes:
 //   .create  — shown as a sheet, Save dismisses via @Environment(\.dismiss)
-//   .edit    — pushed onto UIKitNav, saved inline and the page stays
+//   .edit    — pushed onto UIKitNav, Save persists and pops back to chat
 
 import SwiftUI
 
@@ -20,6 +20,12 @@ struct BotConfigView: View {
     @State private var draft: BotConfig
     @State private var showAdvanced = false
     @State private var showDeleteAlert = false
+    @State private var showClearHistoryAlert = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case emoji, name, persona, system
+    }
 
     init(mode: Mode) {
         self.mode = mode
@@ -58,90 +64,19 @@ struct BotConfigView: View {
     @ViewBuilder
     private var form: some View {
         Form {
-            Section("基础信息") {
-                HStack {
-                    Text("头像")
-                    Spacer()
-                    TextField("🤖", text: $draft.emoji)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 80)
-                }
-                HStack {
-                    Text("名字")
-                    Spacer()
-                    TextField("例如：林悦", text: $draft.name)
-                        .multilineTextAlignment(.trailing)
-                }
-            }
+            basicsSection
+            personaSection
+            paramsSection
+            advancedSection
 
-            Section {
-                TextField("你是林悦，25岁的上海女孩，说话温柔带点撒娇……", text: $draft.persona, axis: .vertical)
-                    .lineLimit(3...8)
-            } header: {
-                Text("人设 (Persona)")
-            } footer: {
-                Text("描述这个智能体的角色、性格、说话风格。后端会基于此构造 system prompt。")
-            }
-
-            Section("生成参数") {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("创造性 (temperature)")
-                        Spacer()
-                        Text(String(format: "%.2f", draft.temperature))
-                            .foregroundColor(AppColors.secondaryText)
-                            .font(.system(size: 14, design: .monospaced))
-                    }
-                    Slider(value: $draft.temperature, in: 0.1...1.5, step: 0.05)
-                }
-
-                Picker("回复长度", selection: $draft.maxTokens) {
-                    Text("短 (200)").tag(200)
-                    Text("中 (400)").tag(400)
-                    Text("长 (800)").tag(800)
-                }
-            }
-
-            Section {
-                DisclosureGroup("高级参数", isExpanded: $showAdvanced) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("聚焦度 (top_p)")
-                            Spacer()
-                            Text(String(format: "%.2f", draft.topP))
-                                .foregroundColor(AppColors.secondaryText)
-                                .font(.system(size: 14, design: .monospaced))
-                        }
-                        Slider(value: $draft.topP, in: 0.1...1.0, step: 0.05)
-                    }
-
-                    Toggle("思考模式 (enable_thinking)", isOn: $draft.enableThinking)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("完整 System Prompt（可选）")
-                            .font(.system(size: 13))
-                            .foregroundColor(AppColors.secondaryText)
-                        TextField("如果填写，将覆盖 Persona", text: $draft.systemPrompt, axis: .vertical)
-                            .lineLimit(2...6)
-                            .font(.system(size: 14))
-                    }
-                }
-            }
-
-            if !isCreate, draft.id != BotConfig.defaultGirlfriend.id {
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteAlert = true
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Text("删除该智能体")
-                            Spacer()
-                        }
-                    }
+            if !isCreate {
+                clearHistorySection
+                if draft.id != BotConfig.defaultGirlfriend.id {
+                    deleteSection
                 }
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(isCreate ? "创建智能体" : "智能体设置")
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
@@ -155,6 +90,10 @@ struct BotConfigView: View {
                 Button(isCreate ? "创建" : "保存") { save() }
                     .disabled(!canSave)
             }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完成") { focusedField = nil }
+            }
         }
         .alert("删除该智能体？", isPresented: $showDeleteAlert) {
             Button("取消", role: .cancel) {}
@@ -165,9 +104,132 @@ struct BotConfigView: View {
         } message: {
             Text("聊天记录也会一并清除。")
         }
+        .alert("清空聊天记录？", isPresented: $showClearHistoryAlert) {
+            Button("取消", role: .cancel) {}
+            Button("清空", role: .destructive) {
+                store.clearMessages(for: draft.id)
+            }
+        } message: {
+            Text("此操作不可恢复。")
+        }
+    }
+
+    private var basicsSection: some View {
+        Section("基础信息") {
+            HStack {
+                Text("头像")
+                Spacer()
+                TextField("🤖", text: $draft.emoji)
+                    .focused($focusedField, equals: .emoji)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 80)
+            }
+            HStack {
+                Text("名字")
+                Spacer()
+                TextField("例如：林悦", text: $draft.name)
+                    .focused($focusedField, equals: .name)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    private var personaSection: some View {
+        Section {
+            TextField(
+                "你是林悦，25岁的上海女孩，说话温柔带点撒娇……",
+                text: $draft.persona,
+                axis: .vertical
+            )
+            .focused($focusedField, equals: .persona)
+            .lineLimit(3...8)
+        } header: {
+            Text("人设 (Persona)")
+        } footer: {
+            Text("描述这个智能体的角色、性格、说话风格。后端会基于此构造 system prompt。")
+        }
+    }
+
+    private var paramsSection: some View {
+        Section("生成参数") {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("创造性 (temperature)")
+                    Spacer()
+                    Text(String(format: "%.2f", draft.temperature))
+                        .foregroundColor(AppColors.secondaryText)
+                        .font(.system(size: 14, design: .monospaced))
+                }
+                Slider(value: $draft.temperature, in: 0.1...1.5, step: 0.05)
+            }
+
+            Picker("回复长度", selection: $draft.maxTokens) {
+                Text("短 (200)").tag(200)
+                Text("中 (400)").tag(400)
+                Text("长 (800)").tag(800)
+            }
+        }
+    }
+
+    private var advancedSection: some View {
+        Section {
+            DisclosureGroup("高级参数", isExpanded: $showAdvanced) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("聚焦度 (top_p)")
+                        Spacer()
+                        Text(String(format: "%.2f", draft.topP))
+                            .foregroundColor(AppColors.secondaryText)
+                            .font(.system(size: 14, design: .monospaced))
+                    }
+                    Slider(value: $draft.topP, in: 0.1...1.0, step: 0.05)
+                }
+
+                Toggle("思考模式 (enable_thinking)", isOn: $draft.enableThinking)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("完整 System Prompt（可选）")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.secondaryText)
+                    TextField("如果填写，将覆盖 Persona", text: $draft.systemPrompt, axis: .vertical)
+                        .focused($focusedField, equals: .system)
+                        .lineLimit(2...6)
+                        .font(.system(size: 14))
+                }
+            }
+        }
+    }
+
+    private var clearHistorySection: some View {
+        Section {
+            Button(role: .destructive) {
+                showClearHistoryAlert = true
+            } label: {
+                HStack {
+                    Spacer()
+                    Text("清空聊天记录")
+                    Spacer()
+                }
+            }
+        }
+    }
+
+    private var deleteSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showDeleteAlert = true
+            } label: {
+                HStack {
+                    Spacer()
+                    Text("删除该智能体")
+                    Spacer()
+                }
+            }
+        }
     }
 
     private func save() {
+        focusedField = nil
         var bot = draft
         bot.name = bot.name.trimmingCharacters(in: .whitespaces)
         bot.emoji = bot.emoji.trimmingCharacters(in: .whitespaces)
@@ -175,6 +237,8 @@ struct BotConfigView: View {
         store.addOrUpdate(bot)
         if isCreate {
             dismiss()
+        } else {
+            navigator.pop()
         }
     }
 }

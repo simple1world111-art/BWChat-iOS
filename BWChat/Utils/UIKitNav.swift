@@ -4,19 +4,13 @@
 // Why not SwiftUI NavigationStack + TabView?
 // SwiftUI's `.toolbar(.hidden, for: .tabBar)` removes the hidden state only
 // AFTER the pop transition completes, producing a visible snap-in of the tab
-// bar on swipe-back. Various hacks (transforms, swizzles, CADisplayLink
-// forcing isHidden=false) all lost to SwiftUI's internal tab-bar state
-// machine. UIKit's native UINavigationController + `hidesBottomBarWhenPushed`
-// has animated the tab bar in perfect sync with push/pop since iOS 3 — so
-// we defer to it.
-//
-// On top of `hidesBottomBarWhenPushed`, we register a
-// `UINavigationControllerDelegate` that re-pins the tab bar's transform to
-// `transitionCoordinator.animate(alongsideTransition:)`. During interactive
-// swipe-back, UIKit's built-in animation can occasionally "snap" the bar to
-// fully visible instead of tracking the gesture percentage; piggy-backing on
-// the coordinator guarantees the tab bar's transform is interpolated frame-
-// by-frame in sync with the pop gesture.
+// bar on swipe-back. UIKit's native UINavigationController +
+// `hidesBottomBarWhenPushed` has animated the tab bar in perfect sync with
+// push/pop since iOS 3 — so we defer to it entirely. Do NOT install a
+// UINavigationControllerDelegate to "help" with the tab bar transform;
+// a previous attempt (TabBarSyncDelegate) caused UIKit's own animation to
+// fight our transform, leaving the bar at a wrong position on the first
+// interactive pop and breaking the first-push for some root VCs.
 
 import SwiftUI
 import UIKit
@@ -46,43 +40,6 @@ final class UIKitNavigator: ObservableObject {
     }
 }
 
-// MARK: - Tab Bar sync delegate
-
-/// Drives the tab bar's transform off `transitionCoordinator.animate(...)`,
-/// which UIKit interpolates in step with the interactive pop gesture. This
-/// replaces UIKit's default tab bar animation (which can snap to fully
-/// visible mid-gesture) with a transform that strictly tracks the swipe.
-final class TabBarSyncDelegate: NSObject, UINavigationControllerDelegate {
-    func navigationController(
-        _ navigationController: UINavigationController,
-        willShow viewController: UIViewController,
-        animated: Bool
-    ) {
-        guard let tabBar = navigationController.tabBarController?.tabBar else { return }
-        let isRoot = viewController === navigationController.viewControllers.first
-        // bounds.height already includes the home-indicator safe-area slot.
-        let hidden = CGAffineTransform(translationX: 0, y: tabBar.bounds.height)
-        let target: CGAffineTransform = isRoot ? .identity : hidden
-
-        guard animated, let coord = navigationController.transitionCoordinator else {
-            tabBar.transform = target
-            return
-        }
-
-        coord.animate(
-            alongsideTransition: { _ in
-                tabBar.transform = target
-            },
-            completion: { ctx in
-                if ctx.isCancelled {
-                    // Interactive pop released before threshold — restore prior state.
-                    tabBar.transform = isRoot ? hidden : .identity
-                }
-            }
-        )
-    }
-}
-
 // MARK: - Tab Bar Controller
 
 struct MainTabController: UIViewControllerRepresentable {
@@ -102,29 +59,25 @@ struct MainTabController: UIViewControllerRepresentable {
                 root: ContactListView(),
                 title: "消息",
                 image: "bubble.left.and.bubble.right",
-                selected: "bubble.left.and.bubble.right.fill",
-                syncDelegate: context.coordinator.tabBarSync
+                selected: "bubble.left.and.bubble.right.fill"
             ),
             Self.makeTab(
                 root: ContactsTabView(),
                 title: "通讯录",
                 image: "person.crop.circle",
-                selected: "person.crop.circle.fill",
-                syncDelegate: context.coordinator.tabBarSync
+                selected: "person.crop.circle.fill"
             ),
             Self.makeTab(
                 root: DiscoverView(),
                 title: "发现",
                 image: "safari",
-                selected: "safari.fill",
-                syncDelegate: context.coordinator.tabBarSync
+                selected: "safari.fill"
             ),
             Self.makeTab(
                 root: ProfileView(),
                 title: "我",
                 image: "gearshape",
-                selected: "gearshape.fill",
-                syncDelegate: context.coordinator.tabBarSync
+                selected: "gearshape.fill"
             ),
         ]
         tb.selectedIndex = selectedIndex
@@ -141,15 +94,11 @@ struct MainTabController: UIViewControllerRepresentable {
         root: V,
         title: String,
         image: String,
-        selected: String,
-        syncDelegate: TabBarSyncDelegate
+        selected: String
     ) -> UIViewController {
         let navigator = UIKitNavigator()
         let nav = UINavigationController()
         nav.navigationBar.prefersLargeTitles = true
-        // UINavigationController.delegate is weak — the Coordinator owns the
-        // TabBarSyncDelegate, so it outlives the nav controller.
-        nav.delegate = syncDelegate
         navigator.navigationController = nav
 
         let host = UIHostingController(rootView: AnyView(root.environmentObject(navigator)))
@@ -164,7 +113,6 @@ struct MainTabController: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UITabBarControllerDelegate {
         var selectedIndex: Binding<Int>
-        let tabBarSync = TabBarSyncDelegate()
 
         init(selectedIndex: Binding<Int>) {
             self.selectedIndex = selectedIndex

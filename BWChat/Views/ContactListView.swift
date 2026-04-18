@@ -78,7 +78,7 @@ struct ContactListView: View {
             navigator.popToRoot()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 if let conv = viewModel.conversations.first(where: { $0.isDM && $0.id == senderID }) {
-                    navigator.push(chatView(for: conv))
+                    openConversation(conv)
                 } else {
                     let user = UserCacheManager.shared.getUser(senderID)
                     let conv = Conversation(
@@ -93,7 +93,7 @@ struct ContactListView: View {
                         groupID: nil,
                         memberCount: nil
                     )
-                    navigator.push(chatView(for: conv))
+                    openConversation(conv)
                 }
             }
         }
@@ -102,27 +102,22 @@ struct ContactListView: View {
             navigator.popToRoot()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 if let conv = viewModel.conversations.first(where: { $0.groupID == groupID }) {
-                    navigator.push(chatView(for: conv))
+                    openConversation(conv)
                 }
             }
         }
     }
 
-    @ViewBuilder
-    private func chatView(for conv: Conversation) -> some View {
-        if conv.isDM {
-            ChatView(contact: Contact(
-                userID: conv.id,
-                nickname: conv.name,
-                avatarURL: conv.avatarURL,
-                lastMessage: conv.lastMessage,
-                lastMessageTime: conv.lastMessageTime,
-                unreadCount: conv.unreadCount
-            )) {
-                viewModel.markAsRead(conversationID: conv.id)
-            }
-        } else if let gid = conv.groupID {
-            GroupChatView(group: ChatGroup(
+    /// Push directly into the right concrete destination view. Earlier we
+    /// funneled this through a `@ViewBuilder` helper returning `some View`,
+    /// but the resulting `_ConditionalContent` wrapper + environmentObject
+    /// injection inside `UIKitNavigator.push` produced an intermittent
+    /// breakage where DM rows wouldn't push (groups and bots still did).
+    /// Calling `navigator.push` with a concrete `ChatView`/`GroupChatView`
+    /// value side-steps the type-erasure mismatch.
+    private func openConversation(_ conv: Conversation) {
+        if let gid = conv.groupID, conv.isGroup {
+            let group = ChatGroup(
                 groupID: gid,
                 name: conv.name,
                 avatarURL: conv.avatarURL,
@@ -132,9 +127,22 @@ struct ContactListView: View {
                 lastMessageTime: conv.lastMessageTime,
                 lastMessageSender: conv.subtitle,
                 unreadCount: conv.unreadCount
-            )) {
+            )
+            navigator.push(GroupChatView(group: group) {
                 viewModel.markGroupAsRead(groupID: gid)
-            }
+            })
+        } else {
+            let contact = Contact(
+                userID: conv.id,
+                nickname: conv.name,
+                avatarURL: conv.avatarURL,
+                lastMessage: conv.lastMessage,
+                lastMessageTime: conv.lastMessageTime,
+                unreadCount: conv.unreadCount
+            )
+            navigator.push(ChatView(contact: contact) {
+                viewModel.markAsRead(conversationID: conv.id)
+            })
         }
     }
 
@@ -154,7 +162,7 @@ struct ContactListView: View {
 
             ForEach(viewModel.conversations) { conv in
                 Button {
-                    navigator.push(chatView(for: conv))
+                    openConversation(conv)
                 } label: {
                     ConversationRow(conversation: conv)
                 }

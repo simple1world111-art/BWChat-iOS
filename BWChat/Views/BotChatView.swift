@@ -37,9 +37,10 @@ struct BotChatView: View {
                 }
             }
             .onAppear {
-                if messages.isEmpty {
-                    messages = store.loadMessages(for: bot.id)
-                }
+                // Reload unconditionally so changes made in BotConfigView
+                // (cleared history, edited persona) show up when we pop
+                // back to the chat.
+                messages = store.loadMessages(for: bot.id)
             }
             .onDisappear {
                 streamingTask?.cancel()

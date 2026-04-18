@@ -105,6 +105,11 @@ final class BotStore: ObservableObject {
         }
     }
 
+    func clearMessages(for botID: String) {
+        UserDefaults.standard.removeObject(forKey: msgsKey(botID))
+        objectWillChange.send()
+    }
+
     func lastMessage(for botID: String) -> BotChatMessage? {
         loadMessages(for: botID).last
     }
