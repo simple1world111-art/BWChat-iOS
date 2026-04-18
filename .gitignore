@@ -12,7 +12,7 @@ xcuserdata/
 .swiftpm/
 Packages/
 Package.pins
-Package.resolved
+# Package.resolved  # 保留此文件以确保团队包版本一致
 
 # CocoaPods (本项目不用，但预防)
 Pods/

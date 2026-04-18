@@ -10,13 +10,6 @@ struct BWChatApp: App {
 
     @ObservedObject private var callManager = CallManager.shared
 
-    init() {
-        // Install UINavigationController.pushViewController swizzle so
-        // detail views pushed inside the tab bar's nav stacks engage
-        // UIKit's native hidesBottomBarWhenPushed machinery.
-        // See UINavigationController+HidesBottomBar.swift for why.
-        _ = UINavigationController.installHidesBottomBarSwizzle
-    }
 
     var body: some Scene {
         WindowGroup {
@@ -94,12 +87,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Install the UINavigationController.pushViewController swizzle
-        // here as well as in BWChatApp.init() — static-let access in
-        // the App's init is sometimes elided/deferred by SwiftUI, and
-        // this path is guaranteed to run before any UI.
-        _ = UINavigationController.installHidesBottomBarSwizzle
-
         UNUserNotificationCenter.current().delegate = self
 
         // Register for remote notifications EARLY — iOS returns a device token
