@@ -161,20 +161,29 @@ private struct GalleryContent: View {
                 guard scale <= 1.05 else { return }
                 let h = value.translation.height
                 let w = value.translation.width
-                // Loose angle check so diagonal-down drags still count as
-                // a dismiss intent; horizontal drags fall through and
-                // UIPageViewController's page-swipe handles them.
-                if abs(h) > abs(w) * 0.1 || abs(verticalDrag) > 0 {
+                // Require a clearly-vertical drag (≥45° off horizontal)
+                // before we shift the image. A looser angle check made
+                // the gallery jitter up-and-down when the user was
+                // actually trying to swipe left/right between images —
+                // even a tiny vertical wobble in a horizontal swipe kept
+                // updating verticalDrag. If the drag is horizontal-
+                // dominant, do not update — UIPageViewController's page
+                // recognizer handles the paging.
+                if abs(h) > abs(w) {
                     verticalDrag = h
                 }
             }
             .onEnded { value in
                 guard scale <= 1.05 else { return }
                 let h = abs(value.translation.height)
+                let w = abs(value.translation.width)
                 let predictedH = abs(value.predictedEndTranslation.height)
-                if h > 110 || predictedH > 450 {
+                // Only dismiss if the release was vertical-dominant; a
+                // mostly-horizontal fling should fall through to paging
+                // and spring any stray verticalDrag back to zero.
+                if h > w && (h > 110 || predictedH > 450) {
                     dismissBySwipe(direction: value.translation.height)
-                } else {
+                } else if verticalDrag != 0 {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         verticalDrag = 0
                     }
