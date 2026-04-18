@@ -95,7 +95,10 @@ private struct CustomTabBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Divider()
+            // Native UITabBar uses a hairline separator, not a full Divider.
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 0.5)
             HStack(spacing: 0) {
                 ForEach(0..<items.count, id: \.self) { i in
                     let item = items[i]
@@ -103,26 +106,32 @@ private struct CustomTabBar: View {
                     Button {
                         if selectedTab != i { selectedTab = i }
                     } label: {
-                        VStack(spacing: 2) {
+                        VStack(spacing: 3) {
                             Image(systemName: isSelected ? item.selectedIcon : item.icon)
-                                .font(.system(size: 22))
+                                .font(.system(size: 24))
                             Text(item.title)
                                 .font(.system(size: 10))
                         }
-                        .foregroundColor(isSelected ? AppColors.accent : AppColors.tertiaryText)
+                        // `.secondaryLabel` is what UITabBar uses for
+                        // unselected items — matches the native look.
+                        .foregroundColor(isSelected ? AppColors.accent : Color(uiColor: .secondaryLabel))
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
+                        .padding(.top, 6)
+                        .padding(.bottom, 2)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
-        .background(
-            Color(uiColor: .systemBackground)
+        // `.bar` is SwiftUI's semantic material for tab/tool bars — the
+        // translucent blurred background used by native UITabBar. Extended
+        // past the bottom safe area so the blur runs under the home bar.
+        .background {
+            Rectangle()
+                .fill(.bar)
                 .ignoresSafeArea(edges: .bottom)
-        )
+        }
     }
 }
 
