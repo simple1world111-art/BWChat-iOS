@@ -16,6 +16,10 @@ enum AppConfig {
     static let appName = "BWChat"
     static let messagePageSize = 30
     static let wsHeartbeatInterval: TimeInterval = 15
+
+    // Chatbot API (Qwen3-32B via Cloudflare tunnel).
+    // Quick Tunnel URL; update when the tunnel is restarted.
+    static let chatbotBaseURL = "https://helicopter-industry-regions-cams.trycloudflare.com"
 }
 
 // MARK: - Premium Color Palette

@@ -3,15 +3,15 @@ import SwiftUI
 struct ContactListView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = ConversationListViewModel()
+    @ObservedObject private var botStore = BotStore.shared
     @State private var showCreateGroup = false
-    @State private var showComposeMenu = false
     @State private var showAddFriendSheet = false
     @State private var showScannerComingSoon = false
-    @State private var showAgentComingSoon = false
+    @State private var showCreateBot = false
 
     var body: some View {
         Group {
-            if viewModel.conversations.isEmpty && !viewModel.isLoading {
+            if viewModel.conversations.isEmpty && botStore.bots.isEmpty && !viewModel.isLoading {
                 emptyStateView
             } else {
                 conversationListView
@@ -21,8 +21,27 @@ struct ContactListView: View {
         .navigationTitle("消息")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showComposeMenu = true
+                Menu {
+                    Button {
+                        showCreateGroup = true
+                    } label: {
+                        Label("发起群聊", systemImage: "bubble.left.and.bubble.right")
+                    }
+                    Button {
+                        showAddFriendSheet = true
+                    } label: {
+                        Label("添加朋友", systemImage: "person.badge.plus")
+                    }
+                    Button {
+                        showScannerComingSoon = true
+                    } label: {
+                        Label("扫一扫", systemImage: "qrcode.viewfinder")
+                    }
+                    Button {
+                        showCreateBot = true
+                    } label: {
+                        Label("创建智能体", systemImage: "sparkles")
+                    }
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 20))
@@ -32,13 +51,6 @@ struct ContactListView: View {
                 }
             }
         }
-        .confirmationDialog("", isPresented: $showComposeMenu, titleVisibility: .hidden) {
-            Button("发起群聊") { showCreateGroup = true }
-            Button("添加朋友") { showAddFriendSheet = true }
-            Button("扫一扫") { showScannerComingSoon = true }
-            Button("创建智能体") { showAgentComingSoon = true }
-            Button("取消", role: .cancel) {}
-        }
         .sheet(isPresented: $showAddFriendSheet) {
             AddFriendView()
         }
@@ -47,10 +59,8 @@ struct ContactListView: View {
         } message: {
             Text("功能开发中，敬请期待。")
         }
-        .alert("创建智能体", isPresented: $showAgentComingSoon) {
-            Button("好的", role: .cancel) {}
-        } message: {
-            Text("智能体功能开发中，敬请期待。")
+        .sheet(isPresented: $showCreateBot) {
+            BotConfigView(mode: .create)
         }
         .refreshable {
             await viewModel.loadConversations()
@@ -130,6 +140,18 @@ struct ContactListView: View {
 
     private var conversationListView: some View {
         List {
+            ForEach(botStore.bots) { bot in
+                Button {
+                    navigator.push(BotChatView(botID: bot.id))
+                } label: {
+                    BotConversationRow(bot: bot)
+                }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
+            }
+
             ForEach(viewModel.conversations) { conv in
                 Button {
                     navigator.push(chatView(for: conv))
@@ -165,6 +187,55 @@ struct ContactListView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Bot row in conversation list
+
+struct BotConversationRow: View {
+    let bot: BotConfig
+    @ObservedObject private var store = BotStore.shared
+
+    private var lastMessage: BotChatMessage? {
+        store.lastMessage(for: bot.id)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            BotAvatar(emoji: bot.emoji)
+                .frame(width: 50, height: 50)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(bot.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(1)
+                    Text("智能体")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(AppColors.accentLight)
+                        .cornerRadius(4)
+                }
+
+                if let msg = lastMessage {
+                    Text((msg.role == "user" ? "我: " : "") + msg.content)
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(1)
+                } else {
+                    Text(bot.persona)
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.tertiaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.vertical, 6)
     }
 }
 
