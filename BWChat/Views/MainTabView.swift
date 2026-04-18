@@ -52,7 +52,7 @@ private struct BottomTabBarInsetModifier: ViewModifier {
     /// content + vertical padding + bottom floating margin). Content
     /// above gets this much bottom inset so at-rest scroll positions
     /// don't hide items behind the pill.
-    static let barHeight: CGFloat = 75
+    static let barHeight: CGFloat = 67
 }
 
 struct MainTabView: View {
@@ -151,7 +151,9 @@ private struct CustomTabBar: View {
                 .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 4)
         )
         .padding(.horizontal, 16)
-        .padding(.bottom, 10)
+        // Smaller bottom margin so the pill sits closer to the home
+        // indicator, matching the reference screenshot's position.
+        .padding(.bottom, 2)
     }
 }
 
