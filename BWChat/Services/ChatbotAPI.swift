@@ -121,11 +121,11 @@ final class ChatbotAPI {
 
                 let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                 guard let http = resp as? HTTPURLResponse else {
-                    await onFinish(ChatbotError.network("无响应"))
+                    onFinish(ChatbotError.network("无响应"))
                     return
                 }
                 if !(200..<300).contains(http.statusCode) {
-                    await onFinish(ChatbotError.http(http.statusCode, "stream 请求失败"))
+                    onFinish(ChatbotError.http(http.statusCode, "stream 请求失败"))
                     return
                 }
 
@@ -138,21 +138,21 @@ final class ChatbotAPI {
                     else { continue }
 
                     if let err = obj["error"] as? String {
-                        await onFinish(ChatbotError.streamEnded(err))
+                        onFinish(ChatbotError.streamEnded(err))
                         return
                     }
                     if let delta = obj["delta"] as? String, !delta.isEmpty {
-                        await onDelta(delta)
+                        onDelta(delta)
                     }
                     if obj["done"] as? Bool == true {
-                        await onFinish(nil)
+                        onFinish(nil)
                         return
                     }
                 }
-                await onFinish(nil)
+                onFinish(nil)
             } catch {
                 if (error as? CancellationError) != nil { return }
-                await onFinish(error)
+                onFinish(error)
             }
         }
     }

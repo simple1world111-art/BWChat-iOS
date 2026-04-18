@@ -20,76 +20,81 @@ struct BotChatView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 12) {
-                        if messages.isEmpty {
-                            emptyHint
-                                .padding(.top, 60)
-                        }
-                        ForEach(messages) { msg in
-                            MessageBubble(message: msg, bot: bot)
-                                .id(msg.id)
-                        }
-                        if isStreaming, let last = messages.last, last.role == "assistant", last.content.isEmpty {
-                            HStack {
-                                TypingDots()
-                                    .padding(.leading, 54)
-                                Spacer()
-                            }
-                        }
-                        Color.clear.frame(height: 8).id("bottom")
+        content
+            .background(AppColors.secondaryBackground)
+            .navigationTitle(bot.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .hidesTabBarOnPush()
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        navigator.push(BotConfigView(mode: .edit(bot)))
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(AppColors.accent)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
-                }
-                .background(AppColors.secondaryBackground)
-                .onChange(of: messages.count) { _ in
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onChange(of: messages.last?.content) { _ in
-                    proxy.scrollTo("bottom", anchor: .bottom)
                 }
             }
+            .onAppear {
+                if messages.isEmpty {
+                    messages = store.loadMessages(for: bot.id)
+                }
+            }
+            .onDisappear {
+                streamingTask?.cancel()
+                store.saveMessages(messages, for: bot.id)
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        VStack(spacing: 0) {
+            messagesList
 
             if let err = errorMessage {
-                Text(err)
-                    .font(.system(size: 12))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.red.opacity(0.85))
-                    .cornerRadius(8)
-                    .padding(.bottom, 6)
+                errorBanner(err)
             }
 
             inputBar
         }
-        .background(AppColors.secondaryBackground)
-        .navigationTitle(bot.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .hidesTabBarOnPush()
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    navigator.push(BotConfigView(mode: .edit(bot)))
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppColors.accent)
+    }
+
+    private var messagesList: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 12) {
+                    if messages.isEmpty {
+                        emptyHint.padding(.top, 60)
+                    }
+                    ForEach(messages) { msg in
+                        BotMessageBubble(message: msg, botEmoji: bot.emoji)
+                            .id(msg.id)
+                    }
+                    Color.clear.frame(height: 8).id("bottom")
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            }
+            .background(AppColors.secondaryBackground)
+            .onChange(of: messages.count) { _ in
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: messages.last?.content) { _ in
+                proxy.scrollTo("bottom", anchor: .bottom)
             }
         }
-        .onAppear {
-            if messages.isEmpty {
-                messages = store.loadMessages(for: bot.id)
-            }
-        }
-        .onDisappear {
-            streamingTask?.cancel()
-            store.saveMessages(messages, for: bot.id)
-        }
+    }
+
+    private func errorBanner(_ err: String) -> some View {
+        Text(err)
+            .font(.system(size: 12))
+            .foregroundColor(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.red.opacity(0.85))
+            .cornerRadius(8)
+            .padding(.bottom, 6)
     }
 
     private var emptyHint: some View {
@@ -107,34 +112,37 @@ struct BotChatView: View {
         VStack(spacing: 0) {
             Divider().opacity(0.3)
             HStack(alignment: .bottom, spacing: 10) {
-                HStack(alignment: .bottom, spacing: 4) {
-                    TextField("", text: $inputText, axis: .vertical)
-                        .font(.system(size: 16))
-                        .focused($inputFocused)
-                        .lineLimit(1...5)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 12)
-                }
-                .background(Color(hex: "F4F4F8"))
-                .cornerRadius(18)
+                TextField("", text: $inputText, axis: .vertical)
+                    .font(.system(size: 16))
+                    .focused($inputFocused)
+                    .lineLimit(1...5)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(Color(hex: "F4F4F8"))
+                    .cornerRadius(18)
 
-                Button {
-                    send()
-                } label: {
-                    Image(systemName: isStreaming ? "stop.circle.fill" : "paperplane.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(
-                            isStreaming
-                                ? AppColors.errorColor
-                                : (inputText.isBlank ? AppColors.tertiaryText : AppColors.accent)
-                        )
-                }
-                .disabled(!isStreaming && inputText.isBlank)
+                sendButton
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color.white)
         }
+    }
+
+    private var sendButton: some View {
+        Button {
+            send()
+        } label: {
+            Image(systemName: isStreaming ? "stop.circle.fill" : "paperplane.fill")
+                .font(.system(size: 22))
+                .foregroundColor(sendIconColor)
+        }
+        .disabled(!isStreaming && inputText.isBlank)
+    }
+
+    private var sendIconColor: Color {
+        if isStreaming { return AppColors.errorColor }
+        return inputText.isBlank ? AppColors.tertiaryText : AppColors.accent
     }
 
     private func send() {
@@ -189,40 +197,50 @@ struct BotChatView: View {
     }
 }
 
-// MARK: - Bubble
+// MARK: - Bubble (prefixed to avoid clash with project-wide MessageBubble)
 
-private struct MessageBubble: View {
+private struct BotMessageBubble: View {
     let message: BotChatMessage
-    let bot: BotConfig
+    let botEmoji: String
 
     var body: some View {
         if message.role == "user" {
-            HStack(alignment: .bottom, spacing: 8) {
-                Spacer(minLength: 44)
-                Text(message.content)
-                    .font(.system(size: 16))
-                    .foregroundColor(AppColors.sentBubbleText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(AppColors.sentBubble)
-                    .cornerRadius(18)
-            }
+            userBubble
         } else {
-            HStack(alignment: .bottom, spacing: 8) {
-                BotAvatar(emoji: bot.emoji)
-                    .frame(width: 36, height: 36)
-                Text(message.content.isEmpty ? " " : message.content)
-                    .font(.system(size: 16))
-                    .foregroundColor(AppColors.receivedBubbleText)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(AppColors.receivedBubble)
-                    .cornerRadius(18)
-                Spacer(minLength: 44)
-            }
+            assistantBubble
+        }
+    }
+
+    private var userBubble: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Spacer(minLength: 44)
+            Text(message.content)
+                .font(.system(size: 16))
+                .foregroundColor(AppColors.sentBubbleText)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(AppColors.sentBubble)
+                .cornerRadius(18)
+        }
+    }
+
+    private var assistantBubble: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            BotAvatar(emoji: botEmoji)
+                .frame(width: 36, height: 36)
+            Text(message.content.isEmpty ? "…" : message.content)
+                .font(.system(size: 16))
+                .foregroundColor(AppColors.receivedBubbleText)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(AppColors.receivedBubble)
+                .cornerRadius(18)
+            Spacer(minLength: 44)
         }
     }
 }
+
+// MARK: - Avatar (used here and in the conversation-list bot row)
 
 struct BotAvatar: View {
     let emoji: String
@@ -237,27 +255,6 @@ struct BotAvatar: View {
             .clipShape(Circle())
             Text(emoji.isEmpty ? "🤖" : emoji)
                 .font(.system(size: 20))
-        }
-    }
-}
-
-// MARK: - Typing dots
-
-private struct TypingDots: View {
-    @State private var phase: CGFloat = 0
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3) { i in
-                Circle()
-                    .fill(AppColors.tertiaryText)
-                    .frame(width: 6, height: 6)
-                    .opacity(phase == CGFloat(i) ? 1 : 0.3)
-            }
-        }
-        .onAppear {
-            Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { _ in
-                phase = (phase + 1).truncatingRemainder(dividingBy: 3)
-            }
         }
     }
 }
