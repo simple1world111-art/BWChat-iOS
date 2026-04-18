@@ -99,16 +99,14 @@ struct VideoPlayerView: View {
                 let w = abs(value.translation.width)
                 let predictedH = abs(value.predictedEndTranslation.height)
                 if h > w && (h > 110 || predictedH > 450) {
-                    // Let the verticalDrag animate a bit further so the
-                    // release feels like a continuation; fullScreenCover's
-                    // own slide-out covers the final exit.
-                    let sign: CGFloat = value.translation.height >= 0 ? 1 : -1
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        verticalDrag = 260 * sign
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                        dismiss()
-                    }
+                    // Dismiss directly. fullScreenCover's own slide-out
+                    // animates the view FROM its current visual state
+                    // (current verticalDrag / scale) off the bottom —
+                    // that's smooth on its own. Running another
+                    // withAnimation on verticalDrag in parallel made the
+                    // two animations fight and produced the hitch the
+                    // user was seeing.
+                    dismiss()
                 } else if verticalDrag != 0 {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
                         verticalDrag = 0
