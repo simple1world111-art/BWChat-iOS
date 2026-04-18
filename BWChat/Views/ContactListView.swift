@@ -1,65 +1,63 @@
 import SwiftUI
 
 struct ContactListView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = ConversationListViewModel()
     @State private var showCreateGroup = false
     @State private var showComposeMenu = false
     @State private var showAddFriendSheet = false
     @State private var showScannerComingSoon = false
     @State private var showAgentComingSoon = false
-    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            Group {
-                if viewModel.conversations.isEmpty && !viewModel.isLoading {
-                    emptyStateView
-                } else {
-                    conversationListView
+        Group {
+            if viewModel.conversations.isEmpty && !viewModel.isLoading {
+                emptyStateView
+            } else {
+                conversationListView
+            }
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("消息")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showComposeMenu = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(AppColors.accentGradient)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
                 }
             }
-            .background(AppColors.secondaryBackground)
-            .navigationTitle("消息")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showComposeMenu = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundStyle(AppColors.accentGradient)
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                }
-            }
-            .confirmationDialog("", isPresented: $showComposeMenu, titleVisibility: .hidden) {
-                Button("发起群聊") { showCreateGroup = true }
-                Button("添加朋友") { showAddFriendSheet = true }
-                Button("扫一扫") { showScannerComingSoon = true }
-                Button("创建智能体") { showAgentComingSoon = true }
-                Button("取消", role: .cancel) {}
-            }
-            .sheet(isPresented: $showAddFriendSheet) {
-                AddFriendView()
-            }
-            .alert("扫一扫", isPresented: $showScannerComingSoon) {
-                Button("好的", role: .cancel) {}
-            } message: {
-                Text("功能开发中，敬请期待。")
-            }
-            .alert("创建智能体", isPresented: $showAgentComingSoon) {
-                Button("好的", role: .cancel) {}
-            } message: {
-                Text("智能体功能开发中，敬请期待。")
-            }
-            .refreshable {
-                await viewModel.loadConversations()
-            }
-            .sheet(isPresented: $showCreateGroup) {
-                CreateGroupView {
-                    Task { await viewModel.loadConversations() }
-                }
+        }
+        .confirmationDialog("", isPresented: $showComposeMenu, titleVisibility: .hidden) {
+            Button("发起群聊") { showCreateGroup = true }
+            Button("添加朋友") { showAddFriendSheet = true }
+            Button("扫一扫") { showScannerComingSoon = true }
+            Button("创建智能体") { showAgentComingSoon = true }
+            Button("取消", role: .cancel) {}
+        }
+        .sheet(isPresented: $showAddFriendSheet) {
+            AddFriendView()
+        }
+        .alert("扫一扫", isPresented: $showScannerComingSoon) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text("功能开发中，敬请期待。")
+        }
+        .alert("创建智能体", isPresented: $showAgentComingSoon) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text("智能体功能开发中，敬请期待。")
+        }
+        .refreshable {
+            await viewModel.loadConversations()
+        }
+        .sheet(isPresented: $showCreateGroup) {
+            CreateGroupView {
+                Task { await viewModel.loadConversations() }
             }
         }
         .task(id: AuthManager.shared.currentUser?.userID ?? "") {
@@ -67,37 +65,65 @@ struct ContactListView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { notif in
             guard let senderID = notif.userInfo?["sender_id"] as? String else { return }
-            navigationPath = NavigationPath()
-            if let conv = viewModel.conversations.first(where: { $0.isDM && $0.id == senderID }) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    navigationPath.append(conv)
-                }
-            } else {
-                let user = UserCacheManager.shared.getUser(senderID)
-                let conv = Conversation(
-                    type: "dm",
-                    id: senderID,
-                    name: user?.nickname ?? senderID,
-                    avatarURL: user?.avatarURL ?? "",
-                    lastMessage: nil,
-                    lastMessageTime: nil,
-                    unreadCount: 0,
-                    subtitle: nil,
-                    groupID: nil,
-                    memberCount: nil
-                )
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    navigationPath.append(conv)
+            navigator.popToRoot()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let conv = viewModel.conversations.first(where: { $0.isDM && $0.id == senderID }) {
+                    navigator.push(chatView(for: conv))
+                } else {
+                    let user = UserCacheManager.shared.getUser(senderID)
+                    let conv = Conversation(
+                        type: "dm",
+                        id: senderID,
+                        name: user?.nickname ?? senderID,
+                        avatarURL: user?.avatarURL ?? "",
+                        lastMessage: nil,
+                        lastMessageTime: nil,
+                        unreadCount: 0,
+                        subtitle: nil,
+                        groupID: nil,
+                        memberCount: nil
+                    )
+                    navigator.push(chatView(for: conv))
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openGroupChat"))) { notif in
             guard let groupID = notif.userInfo?["group_id"] as? Int else { return }
-            navigationPath = NavigationPath()
-            if let conv = viewModel.conversations.first(where: { $0.groupID == groupID }) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    navigationPath.append(conv)
+            navigator.popToRoot()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let conv = viewModel.conversations.first(where: { $0.groupID == groupID }) {
+                    navigator.push(chatView(for: conv))
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chatView(for conv: Conversation) -> some View {
+        if conv.isDM {
+            ChatView(contact: Contact(
+                userID: conv.id,
+                nickname: conv.name,
+                avatarURL: conv.avatarURL,
+                lastMessage: conv.lastMessage,
+                lastMessageTime: conv.lastMessageTime,
+                unreadCount: conv.unreadCount
+            )) {
+                viewModel.markAsRead(conversationID: conv.id)
+            }
+        } else if let gid = conv.groupID {
+            GroupChatView(group: ChatGroup(
+                groupID: gid,
+                name: conv.name,
+                avatarURL: conv.avatarURL,
+                creatorID: "",
+                memberCount: conv.memberCount ?? 0,
+                lastMessage: conv.lastMessage,
+                lastMessageTime: conv.lastMessageTime,
+                lastMessageSender: conv.subtitle,
+                unreadCount: conv.unreadCount
+            )) {
+                viewModel.markGroupAsRead(groupID: gid)
             }
         }
     }
@@ -105,52 +131,18 @@ struct ContactListView: View {
     private var conversationListView: some View {
         List {
             ForEach(viewModel.conversations) { conv in
-                if conv.isDM {
-                    NavigationLink(value: conv) {
-                        ConversationRow(conversation: conv)
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                    .listRowBackground(Color.clear)
-                } else {
-                    NavigationLink(value: conv) {
-                        ConversationRow(conversation: conv)
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                    .listRowBackground(Color.clear)
+                Button {
+                    navigator.push(chatView(for: conv))
+                } label: {
+                    ConversationRow(conversation: conv)
                 }
+                .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
-        .navigationDestination(for: Conversation.self) { conv in
-            if conv.isDM {
-                ChatView(contact: Contact(
-                    userID: conv.id,
-                    nickname: conv.name,
-                    avatarURL: conv.avatarURL,
-                    lastMessage: conv.lastMessage,
-                    lastMessageTime: conv.lastMessageTime,
-                    unreadCount: conv.unreadCount
-                )) {
-                    viewModel.markAsRead(conversationID: conv.id)
-                }
-            } else if let gid = conv.groupID {
-                GroupChatView(group: ChatGroup(
-                    groupID: gid,
-                    name: conv.name,
-                    avatarURL: conv.avatarURL,
-                    creatorID: "",
-                    memberCount: conv.memberCount ?? 0,
-                    lastMessage: conv.lastMessage,
-                    lastMessageTime: conv.lastMessageTime,
-                    lastMessageSender: conv.subtitle,
-                    unreadCount: conv.unreadCount
-                )) {
-                    viewModel.markGroupAsRead(groupID: gid)
-                }
-            }
-        }
     }
 
     private var emptyStateView: some View {

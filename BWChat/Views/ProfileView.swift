@@ -4,47 +4,45 @@
 import SwiftUI
 
 struct ProfileView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = ProfileViewModel()
     @State private var showEditProfile = false
     @State private var showLogoutAlert = false
-    
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    profileHeaderCard
+        ScrollView {
+            VStack(spacing: 0) {
+                profileHeaderCard
 
-                    myMomentsSection
+                myMomentsSection
 
-                    profileInfoSection
+                profileInfoSection
 
-                    actionSection
+                actionSection
+            }
+            .padding(.bottom, 30)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("我")
+        .sheet(isPresented: $showEditProfile) {
+            EditProfileView(viewModel: viewModel)
+        }
+        .alert("确认退出登录", isPresented: $showLogoutAlert) {
+            Button("取消", role: .cancel) {}
+            Button("退出", role: .destructive) {
+                Task {
+                    try? await APIService.shared.logout()
+                    AuthManager.shared.logout()
                 }
-                .padding(.bottom, 30)
             }
-            .background(AppColors.secondaryBackground)
-            .navigationTitle("我")
-            .sheet(isPresented: $showEditProfile) {
-                EditProfileView(viewModel: viewModel)
-            }
-            .alert("确认退出登录", isPresented: $showLogoutAlert) {
-                Button("取消", role: .cancel) {}
-                Button("退出", role: .destructive) {
-                    Task {
-                        try? await APIService.shared.logout()
-                        AuthManager.shared.logout()
-                    }
-                }
-            } message: {
-                Text("退出后将无法接收新消息")
-            }
-            .task(id: AuthManager.shared.currentUser?.userID ?? "") {
-                await viewModel.loadProfile()
-            }
-            .refreshable {
-                await viewModel.loadProfile()
-            }
+        } message: {
+            Text("退出后将无法接收新消息")
+        }
+        .task(id: AuthManager.shared.currentUser?.userID ?? "") {
+            await viewModel.loadProfile()
+        }
+        .refreshable {
+            await viewModel.loadProfile()
         }
     }
 
@@ -105,11 +103,11 @@ struct ProfileView: View {
     // MARK: - My Moments (right after header)
 
     private var myMomentsSection: some View {
-        NavigationLink {
-            MomentsView(
+        Button {
+            navigator.push(MomentsView(
                 filterUserID: AuthManager.shared.currentUser?.userID,
                 pageTitle: "我的朋友圈"
-            )
+            ))
         } label: {
             HStack(spacing: 12) {
                 ZStack {

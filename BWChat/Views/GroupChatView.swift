@@ -12,6 +12,7 @@ struct GroupChatView: View {
     let group: ChatGroup
     var onMarkRead: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel: GroupChatViewModel
     @ObservedObject private var callManager = CallManager.shared
     @State private var selectedMediaItems: [PhotosPickerItem] = []
@@ -250,9 +251,12 @@ struct GroupChatView: View {
         .sheet(isPresented: $showAddMembers) {
             AddGroupMembersView(groupID: group.groupID)
         }
-        .navigationDestination(isPresented: $showGroupDetail) {
-            GroupDetailView(groupID: group.groupID) {
-                shouldPopToRoot = true
+        .onChange(of: showGroupDetail) { show in
+            if show {
+                showGroupDetail = false
+                navigator.push(GroupDetailView(groupID: group.groupID) {
+                    shouldPopToRoot = true
+                })
             }
         }
         .overlay { groupVoiceRecordingOverlay }

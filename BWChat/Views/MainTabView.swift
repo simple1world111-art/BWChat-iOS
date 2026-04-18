@@ -9,36 +9,8 @@ struct MainTabView: View {
 
     var body: some View {
         ZStack {
-            TabView(selection: $selectedTab) {
-                ContactListView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 0 ? "bubble.left.and.bubble.right.fill" : "bubble.left.and.bubble.right")
-                        Text("消息")
-                    }
-                    .tag(0)
-
-                ContactsTabView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 1 ? "person.crop.circle.fill" : "person.crop.circle")
-                        Text("通讯录")
-                    }
-                    .tag(1)
-
-                DiscoverView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 2 ? "safari.fill" : "safari")
-                        Text("发现")
-                    }
-                    .tag(2)
-
-                ProfileView()
-                    .tabItem {
-                        Image(systemName: selectedTab == 3 ? "gearshape.fill" : "gearshape")
-                        Text("我")
-                    }
-                    .tag(3)
-            }
-            .tint(AppColors.accent)
+            MainTabController(selectedIndex: $selectedTab)
+                .ignoresSafeArea()
 
             ImageGalleryOverlay()
         }
@@ -56,152 +28,151 @@ struct MainTabView: View {
 // MARK: - Contacts Tab (Friends + Requests)
 
 struct ContactsTabView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = FriendsViewModel()
     @State private var showAddFriend = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
+        ScrollView {
+            VStack(spacing: 0) {
+                // Quick actions - friend requests link
                 VStack(spacing: 0) {
-                    // Quick actions - friend requests link
-                    VStack(spacing: 0) {
-                        NavigationLink {
-                            FriendRequestsView()
-                        } label: {
-                            HStack(spacing: 12) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(AppColors.warningColor.opacity(0.12))
-                                        .frame(width: 40, height: 40)
-                                    Image(systemName: "person.crop.circle.badge.clock")
-                                        .font(.system(size: 17))
-                                        .foregroundColor(AppColors.warningColor)
-                                }
-
-                                Text("好友请求")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(AppColors.primaryText)
-
-                                Spacer()
-
-                                if !viewModel.friendRequests.isEmpty {
-                                    Text("\(viewModel.friendRequests.count)")
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(AppColors.unreadBadge)
-                                        .cornerRadius(10)
-                                }
-
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(AppColors.tertiaryText)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .contentShape(Rectangle())
-                        }
-                    }
-                    .background(AppColors.cardBackground)
-                    .cornerRadius(14)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-
-                    // Friends list
-                    if viewModel.friends.isEmpty && !viewModel.isLoading {
-                        VStack(spacing: 14) {
-                            Image(systemName: "person.2.slash")
-                                .font(.system(size: 36))
-                                .foregroundColor(AppColors.tertiaryText)
-                            Text("还没有好友")
-                                .font(.system(size: 15))
-                                .foregroundColor(AppColors.secondaryText)
-                            Text("点击右上角添加好友吧")
-                                .font(.system(size: 13))
-                                .foregroundColor(AppColors.tertiaryText)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
-                    } else {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("好友 (\(viewModel.friends.count))")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(AppColors.secondaryText)
-                                .textCase(.uppercase)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 20)
-                                .padding(.bottom, 8)
-
-                            VStack(spacing: 0) {
-                                ForEach(viewModel.friends) { friend in
-                                    NavigationLink {
-                                        ChatView(contact: Contact(
-                                            userID: friend.userID,
-                                            nickname: friend.nickname,
-                                            avatarURL: friend.avatarURL,
-                                            lastMessage: nil,
-                                            lastMessageTime: nil,
-                                            unreadCount: 0
-                                        ))
-                                    } label: {
-                                        HStack(spacing: 12) {
-                                            AvatarView(url: friend.avatarURL, size: 42)
-
-                                            Text(friend.nickname)
-                                                .font(.system(size: 16, weight: .medium))
-                                                .foregroundColor(AppColors.primaryText)
-
-                                            Spacer()
-
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 13, weight: .semibold))
-                                                .foregroundColor(AppColors.tertiaryText)
-                                        }
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 10)
-                                        .contentShape(Rectangle())
-                                    }
-
-                                    if friend.id != viewModel.friends.last?.id {
-                                        Divider().padding(.leading, 70)
-                                    }
-                                }
-                            }
-                            .background(AppColors.cardBackground)
-                            .cornerRadius(14)
-                            .padding(.horizontal, 16)
-                        }
-                    }
-                }
-                .padding(.bottom, 20)
-            }
-            .background(AppColors.secondaryBackground)
-            .navigationTitle("通讯录")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showAddFriend = true
+                        navigator.push(FriendRequestsView())
                     } label: {
-                        Image(systemName: "person.badge.plus")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(AppColors.warningColor.opacity(0.12))
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "person.crop.circle.badge.clock")
+                                    .font(.system(size: 17))
+                                    .foregroundColor(AppColors.warningColor)
+                            }
+
+                            Text("好友请求")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(AppColors.primaryText)
+
+                            Spacer()
+
+                            if !viewModel.friendRequests.isEmpty {
+                                Text("\(viewModel.friendRequests.count)")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(AppColors.unreadBadge)
+                                    .cornerRadius(10)
+                            }
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(AppColors.tertiaryText)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                }
+                .background(AppColors.cardBackground)
+                .cornerRadius(14)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+
+                // Friends list
+                if viewModel.friends.isEmpty && !viewModel.isLoading {
+                    VStack(spacing: 14) {
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 36))
+                            .foregroundColor(AppColors.tertiaryText)
+                        Text("还没有好友")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppColors.secondaryText)
+                        Text("点击右上角添加好友吧")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.tertiaryText)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("好友 (\(viewModel.friends.count))")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(AppColors.secondaryText)
+                            .textCase(.uppercase)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 20)
+                            .padding(.bottom, 8)
+
+                        VStack(spacing: 0) {
+                            ForEach(viewModel.friends) { friend in
+                                Button {
+                                    navigator.push(ChatView(contact: Contact(
+                                        userID: friend.userID,
+                                        nickname: friend.nickname,
+                                        avatarURL: friend.avatarURL,
+                                        lastMessage: nil,
+                                        lastMessageTime: nil,
+                                        unreadCount: 0
+                                    )))
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        AvatarView(url: friend.avatarURL, size: 42)
+
+                                        Text(friend.nickname)
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(AppColors.primaryText)
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(AppColors.tertiaryText)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+
+                                if friend.id != viewModel.friends.last?.id {
+                                    Divider().padding(.leading, 70)
+                                }
+                            }
+                        }
+                        .background(AppColors.cardBackground)
+                        .cornerRadius(14)
+                        .padding(.horizontal, 16)
                     }
                 }
             }
-            .sheet(isPresented: $showAddFriend) {
-                AddFriendView()
+            .padding(.bottom, 20)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("通讯录")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showAddFriend = true
+                } label: {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
             }
-            .task(id: AuthManager.shared.currentUser?.userID ?? "") {
-                await viewModel.loadFriends()
-                await viewModel.loadFriendRequests()
-            }
-            .refreshable {
-                await viewModel.loadFriends()
-                await viewModel.loadFriendRequests()
-            }
+        }
+        .sheet(isPresented: $showAddFriend) {
+            AddFriendView()
+        }
+        .task(id: AuthManager.shared.currentUser?.userID ?? "") {
+            await viewModel.loadFriends()
+            await viewModel.loadFriendRequests()
+        }
+        .refreshable {
+            await viewModel.loadFriends()
+            await viewModel.loadFriendRequests()
         }
     }
 }

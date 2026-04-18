@@ -6,6 +6,7 @@ struct MomentsView: View {
     var filterUserID: String? = nil
     var pageTitle: String = "朋友圈"
 
+    @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = MomentsViewModel()
     @StateObject private var momentsNotif = MomentsNotificationManager.shared
     @State private var showCreateMoment = false
@@ -92,8 +93,11 @@ struct MomentsView: View {
                 commentInputBar
             }
         }
-        .navigationDestination(isPresented: $showNotificationList) {
-            MomentsNotificationListView()
+        .onChange(of: showNotificationList) { show in
+            if show {
+                showNotificationList = false
+                navigator.push(MomentsNotificationListView())
+            }
         }
         .task(id: "\(AuthManager.shared.currentUser?.userID ?? "")|\(filterUserID ?? "")") {
             viewModel.filterUserID = filterUserID
@@ -661,9 +665,9 @@ struct MomentImageCell: View {
 // MARK: - Moments Notification List
 
 struct MomentsNotificationListView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
     @State private var notifications: [MomentsNotification] = []
     @State private var isLoading = true
-    @State private var selectedMomentID: Int?
 
     var body: some View {
         Group {
@@ -683,7 +687,7 @@ struct MomentsNotificationListView: View {
             } else {
                 List(notifications) { notif in
                     Button {
-                        selectedMomentID = notif.momentID
+                        navigator.push(MomentDetailView(momentID: notif.momentID))
                     } label: {
                         MomentsNotificationRow(notification: notif)
                     }
@@ -696,14 +700,6 @@ struct MomentsNotificationListView: View {
         .navigationTitle("消息")
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
-        .navigationDestination(isPresented: Binding(
-            get: { selectedMomentID != nil },
-            set: { if !$0 { selectedMomentID = nil } }
-        )) {
-            if let momentID = selectedMomentID {
-                MomentDetailView(momentID: momentID)
-            }
-        }
         .task {
             do {
                 notifications = try await APIService.shared.getMomentsNotifications()

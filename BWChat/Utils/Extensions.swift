@@ -140,24 +140,12 @@ extension Data {
 // MARK: - Tab Bar Hide During Push
 
 extension View {
-    /// Hide the tab bar on detail views. SwiftUI's
-    /// `.toolbar(.hidden, for: .tabBar)` reliably hides the bar and
-    /// adjusts safe area (no blank strip), at the cost of a snap-in
-    /// on pop instead of a smooth slide. Our attempts to replace that
-    /// via UIKit swizzling all failed — SwiftUI's NavigationStack
-    /// doesn't honor `hidesBottomBarWhenPushed` (Apple's own sample
-    /// code uses `.toolbar(.hidden, for: .tabBar)`, confirming
-    /// this is the intended SwiftUI API).
-    ///
-    /// `.ignoresSafeArea(.container, edges: .bottom)` lets content
-    /// extend past the tab bar's safe-area slot so there's no empty
-    /// strip above the input bar; `.container` preserves home-indicator
-    /// safe area so the input bar doesn't sit under it.
+    /// No-op. UIKit handles tab bar hide/show natively via
+    /// `hidesBottomBarWhenPushed = true`, set on each pushed
+    /// UIHostingController in `UIKitNavigator.push`. Kept as a
+    /// call-site no-op so existing detail-view code compiles.
     func hidesTabBarOnPush() -> some View {
         self
-            .padding(.bottom, 16)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .toolbar(.hidden, for: .tabBar)
     }
 }
 
