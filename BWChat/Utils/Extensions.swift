@@ -164,49 +164,50 @@ private struct TabBarHidingBridge: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: TabBarHidingController, context: Context) {}
 }
 
-private final class TabBarHidingController: UIViewController {
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        setTabBar(hidden: true, animated: animated)
-    }
+/// Global ref-counted tab-bar visibility. Each detail view's hosting
+/// bridge increments on appear and decrements on disappear; the bar is
+/// hidden exactly when count > 0. This sidesteps the need to detect
+/// "am I being popped vs covered?" — push, pop, tab-switch, and
+/// repeated appear/disappear all balance out arithmetically because
+/// every vWA is paired with a vWD over a VC instance's lifetime, and
+/// isCounted keeps it 1:1 per instance.
+@MainActor
+private final class TabBarState {
+    static let shared = TabBarState()
+    private var count = 0
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        // Only reveal on actual pop/dismiss — a push covering us means
-        // another detail view is appearing and the bar should stay
-        // hidden. Check the whole ancestor chain (not just a specific
-        // UINavigationController parent) because SwiftUI wraps the
-        // view in several intermediate controllers and the nav-parent
-        // check turned out too strict: it could return nothing, so
-        // nothing ever re-showed the bar.
-        guard isAncestorBeingRemoved() else { return }
-        setTabBar(hidden: false, animated: animated)
-    }
+    func increment() { count += 1 }
+    func decrement() { count = max(0, count - 1) }
 
-    private func isAncestorBeingRemoved() -> Bool {
-        var vc: UIViewController? = self
-        while let current = vc {
-            if current.isMovingFromParent || current.isBeingDismissed { return true }
-            vc = current.parent
+    func apply(coord: UIViewControllerTransitionCoordinator?) {
+        guard let tabBar = Self.findTabBar() else { return }
+        let hidden = count > 0
+        // Fall back to 49pt (standard tab bar height) if bounds.height
+        // is 0 in some lifecycle corner — otherwise translation(0, 0)
+        // would equal identity and the "hide" would silently no-op.
+        let height = max(tabBar.bounds.height, 49)
+        let target: CGAffineTransform = hidden
+            ? CGAffineTransform(translationX: 0, y: height)
+            : .identity
+        guard tabBar.transform != target else { return }
+
+        if let coord {
+            coord.animate(alongsideTransition: { _ in
+                tabBar.transform = target
+            })
+        } else {
+            tabBar.transform = target
         }
-        return false
     }
 
-    private func tabBar() -> UITabBar? {
-        // Walk up the VC chain first — works during a live push/pop when
-        // the hosting controller is still attached to the nav stack.
-        var vc: UIViewController? = parent
-        while let current = vc {
-            if let tbc = current.tabBarController { return tbc.tabBar }
-            vc = current.parent
-        }
-        // Fallback: find the UITabBarController by walking the window's
-        // VC tree. This catches the case where our ancestor chain has
-        // detached during viewWillDisappear.
+    // Walk the application's window tree to find the UITabBar. Works
+    // even if the caller's VC ancestor chain has detached during a
+    // disappear.
+    private static func findTabBar() -> UITabBar? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         for scene in scenes {
             for window in scene.windows {
-                if let root = window.rootViewController, let bar = findTabBar(in: root) {
+                if let root = window.rootViewController, let bar = locate(in: root) {
                     return bar
                 }
             }
@@ -214,15 +215,53 @@ private final class TabBarHidingController: UIViewController {
         return nil
     }
 
-    private func findTabBar(in vc: UIViewController) -> UITabBar? {
+    private static func locate(in vc: UIViewController) -> UITabBar? {
         if let tbc = vc as? UITabBarController { return tbc.tabBar }
         for child in vc.children {
-            if let found = findTabBar(in: child) { return found }
+            if let found = locate(in: child) { return found }
         }
         if let presented = vc.presentedViewController {
-            return findTabBar(in: presented)
+            return locate(in: presented)
         }
         return nil
+    }
+}
+
+private final class TabBarHidingController: UIViewController {
+    private var isCounted = false
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if !isCounted {
+            isCounted = true
+            TabBarState.shared.increment()
+        }
+        TabBarState.shared.apply(coord: transitionCoordinator_())
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isCounted {
+            isCounted = false
+            TabBarState.shared.decrement()
+        }
+        // Apply AFTER decrementing: on pop-to-root the count reaches 0
+        // and the bar re-shows alongside the pop animation. On
+        // push-cover the new VC's viewWillAppear re-increments
+        // alongside the same transition and the net target stays
+        // hidden (last-set wins in alongsideTransition animations).
+        TabBarState.shared.apply(coord: transitionCoordinator_())
+    }
+
+    // Safety net: if a VC is torn down without a viewWillDisappear
+    // (shouldn't happen, but defend against SwiftUI weirdness).
+    deinit {
+        if isCounted {
+            Task { @MainActor in
+                TabBarState.shared.decrement()
+                TabBarState.shared.apply(coord: nil)
+            }
+        }
     }
 
     private func transitionCoordinator_() -> UIViewControllerTransitionCoordinator? {
@@ -232,36 +271,6 @@ private final class TabBarHidingController: UIViewController {
             vc = current.parent
         }
         return nil
-    }
-
-    private func setTabBar(hidden: Bool, animated: Bool) {
-        guard let tabBar = tabBar() else { return }
-        // If bounds.height is 0 (tab bar hasn't laid out yet in some
-        // lifecycle corner) we fall back to the standard 49pt so we
-        // don't end up with translation(0, 0) which leaves the bar
-        // visible — that was the "push the second time doesn't hide"
-        // symptom: the transform we applied was effectively identity.
-        let height = max(tabBar.bounds.height, 49)
-        // Using a transform (not frame) keeps UIKit's own layout pass
-        // from resetting our change; the bar is visually translated
-        // down but its "real" frame is untouched.
-        let targetTransform: CGAffineTransform = hidden
-            ? CGAffineTransform(translationX: 0, y: height)
-            : .identity
-
-        // Skip if already at the target transform — prevents a
-        // redundant no-op animation if viewWillAppear fires again
-        // for a view that's already in its hidden state (e.g. during
-        // rapid tab-switch or pop-then-push sequences).
-        if tabBar.transform == targetTransform { return }
-
-        if animated, let coord = transitionCoordinator_() {
-            coord.animate(alongsideTransition: { _ in
-                tabBar.transform = targetTransform
-            })
-        } else {
-            tabBar.transform = targetTransform
-        }
     }
 }
 
