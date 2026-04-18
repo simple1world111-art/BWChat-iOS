@@ -3,18 +3,23 @@
 
 import SwiftUI
 import UIKit
+import os.lock
 
 /// Non-main-actor so disk reads and image decoding don't block the UI
 /// thread — previously the whole class was @MainActor, which meant
 /// `Data(contentsOf:)` and `UIImage(data:)` ran on main and caused
 /// visible scroll jank in the Moments feed. NSCache is already
-/// thread-safe; we guard only the loadingTasks dictionary with a lock.
+/// thread-safe; we guard only the loadingTasks dictionary with a
+/// lock. We use `OSAllocatedUnfairLock` (not `NSLock`) because in
+/// Swift 6 `NSLock.lock()/unlock()` is unavailable in async contexts;
+/// the closure-based `withLock` is safe to call from inside async
+/// functions and enforces that we don't hold the lock across
+/// suspensions.
 final class ImageCacheManager: @unchecked Sendable {
     static let shared = ImageCacheManager()
 
     private let memoryCache = NSCache<NSString, UIImage>()
-    private let tasksLock = NSLock()
-    private var loadingTasks: [String: Task<UIImage?, Never>] = [:]
+    private let loadingTasks = OSAllocatedUnfairLock<[String: Task<UIImage?, Never>]>(initialState: [:])
     private let diskCacheURL: URL
 
     private init() {
@@ -45,65 +50,65 @@ final class ImageCacheManager: @unchecked Sendable {
             return cached
         }
 
-        // 2. Dedupe concurrent loads for the same key
-        tasksLock.lock()
-        if let existing = loadingTasks[cacheKey] {
-            tasksLock.unlock()
-            return await existing.value
-        }
-
+        // 2. Get-or-create the in-flight Task inside the lock so two
+        //    concurrent callers end up awaiting the same Task rather
+        //    than racing two network loads for the same key.
         let memoryCache = self.memoryCache
         let diskCacheURL = self.diskCacheURL
-        let task = Task.detached(priority: .userInitiated) { [weak self] () -> UIImage? in
-            // 2a. Disk cache — read + decode OFF the main thread
-            let diskURL = Self.diskFileURL(in: diskCacheURL, for: cacheKey)
-            if let data = try? Data(contentsOf: diskURL),
-               let prepared = Self.decodeAndPrepare(data: data) {
-                memoryCache.setObject(prepared, forKey: cacheKey as NSString, cost: data.count)
-                return prepared
+        let task: Task<UIImage?, Never> = loadingTasks.withLock { tasks in
+            if let existing = tasks[cacheKey] {
+                return existing
             }
-
-            // 2b. Network — decode OFF the main thread too
-            do {
-                let data = try await APIService.shared.loadImage(path: loadPath)
-                if let prepared = Self.decodeAndPrepare(data: data) {
+            let newTask = Task.detached(priority: .userInitiated) { [weak self] () -> UIImage? in
+                // 2a. Disk cache — read + decode OFF the main thread
+                let diskURL = Self.diskFileURL(in: diskCacheURL, for: cacheKey)
+                if let data = try? Data(contentsOf: diskURL),
+                   let prepared = Self.decodeAndPrepare(data: data) {
                     memoryCache.setObject(prepared, forKey: cacheKey as NSString, cost: data.count)
-                    self?.saveToDisk(data: data, urlPath: cacheKey)
                     return prepared
                 }
-            } catch {
-                print("[ImageCache] Failed to load image: \(error)")
-            }
-            return nil
-        }
 
-        loadingTasks[cacheKey] = task
-        tasksLock.unlock()
+                // 2b. Network — decode OFF the main thread too
+                do {
+                    let data = try await APIService.shared.loadImage(path: loadPath)
+                    if let prepared = Self.decodeAndPrepare(data: data) {
+                        memoryCache.setObject(prepared, forKey: cacheKey as NSString, cost: data.count)
+                        self?.saveToDisk(data: data, urlPath: cacheKey)
+                        return prepared
+                    }
+                } catch {
+                    print("[ImageCache] Failed to load image: \(error)")
+                }
+                return nil
+            }
+            tasks[cacheKey] = newTask
+            return newTask
+        }
 
         let result = await task.value
 
-        tasksLock.lock()
-        loadingTasks.removeValue(forKey: cacheKey)
-        tasksLock.unlock()
+        loadingTasks.withLock { tasks in
+            tasks.removeValue(forKey: cacheKey)
+        }
 
         return result
     }
 
     func clearCache() {
         memoryCache.removeAllObjects()
-        tasksLock.lock()
-        loadingTasks.values.forEach { $0.cancel() }
-        loadingTasks.removeAll()
-        tasksLock.unlock()
+        loadingTasks.withLock { tasks in
+            tasks.values.forEach { $0.cancel() }
+            tasks.removeAll()
+        }
         try? FileManager.default.removeItem(at: diskCacheURL)
         try? FileManager.default.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
     }
 
     func removeImage(for urlPath: String) {
         memoryCache.removeObject(forKey: urlPath as NSString)
-        tasksLock.lock()
-        loadingTasks.removeValue(forKey: urlPath)
-        tasksLock.unlock()
+        loadingTasks.withLock { tasks in
+            tasks.removeValue(forKey: urlPath)
+        }
         let fileURL = Self.diskFileURL(in: diskCacheURL, for: urlPath)
         try? FileManager.default.removeItem(at: fileURL)
     }

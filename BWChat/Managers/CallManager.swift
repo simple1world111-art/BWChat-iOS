@@ -328,7 +328,7 @@ class CallManager: ObservableObject {
                   let cameraCapturer = localTrack.capturer as? CameraCapturer else {
                 return
             }
-            try? await cameraCapturer.switchCameraPosition()
+            _ = try? await cameraCapturer.switchCameraPosition()
             isFrontCamera.toggle()
         }
     }

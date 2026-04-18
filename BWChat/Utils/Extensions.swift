@@ -162,9 +162,6 @@ private final class BridgeController: UIViewController {
     override func willMove(toParent parent: UIViewController?) {
         super.willMove(toParent: parent)
         guard let parent else { return }
-        // Set the flag on every UIHostingController ancestor we find,
-        // not just the first. SwiftUI sometimes nests hosting
-        // controllers and hitting the right one matters.
         var vc: UIViewController? = parent
         while let current = vc {
             if String(describing: type(of: current)).contains("HostingController") {
@@ -172,6 +169,70 @@ private final class BridgeController: UIViewController {
             }
             vc = current.parent
         }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // The hide is handled correctly by `.toolbar(.hidden, for: .tabBar)`
+        // but SwiftUI snaps the bar back IN at the end of the pop
+        // transition instead of sliding it in during the transition.
+        // Smooth that by driving the slide ourselves: on pop, pre-position
+        // the tab bar below the screen and animate it to identity
+        // alongside the current transition coordinator. The animation
+        // ends exactly when SwiftUI makes the bar visible, so the snap
+        // becomes a slide.
+        guard isBeingPopped() else { return }
+        guard let tabBar = findTabBar() else { return }
+        guard let coord = findTransitionCoordinator() else { return }
+
+        let height = tabBar.frame.height
+        tabBar.transform = CGAffineTransform(translationX: 0, y: height)
+        coord.animate(alongsideTransition: { _ in
+            tabBar.transform = .identity
+        }, completion: { _ in
+            tabBar.transform = .identity
+        })
+    }
+
+    private func isBeingPopped() -> Bool {
+        var vc: UIViewController? = self
+        while let current = vc {
+            if current.isMovingFromParent || current.isBeingDismissed { return true }
+            vc = current.parent
+        }
+        return false
+    }
+
+    private func findTabBar() -> UITabBar? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in scenes {
+            for window in scene.windows {
+                if let root = window.rootViewController, let bar = Self.locate(in: root) {
+                    return bar
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func locate(in vc: UIViewController) -> UITabBar? {
+        if let tbc = vc as? UITabBarController { return tbc.tabBar }
+        for child in vc.children {
+            if let found = locate(in: child) { return found }
+        }
+        if let presented = vc.presentedViewController {
+            return locate(in: presented)
+        }
+        return nil
+    }
+
+    private func findTransitionCoordinator() -> UIViewControllerTransitionCoordinator? {
+        var vc: UIViewController? = self
+        while let current = vc {
+            if let coord = current.transitionCoordinator { return coord }
+            vc = current.parent
+        }
+        return nil
     }
 }
 
