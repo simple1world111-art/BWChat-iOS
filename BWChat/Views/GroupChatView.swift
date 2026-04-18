@@ -164,7 +164,10 @@ struct GroupChatView: View {
                 .scaleEffect(x: -1, y: 1, anchor: .center)
                 .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
-                .onTapGesture { hideKeyboard() }
+                // See ChatView for the rationale: simultaneousGesture
+                // keeps the dismiss-on-background-tap behavior without
+                // blocking the first tap on the input field.
+                .simultaneousGesture(TapGesture().onEnded { hideKeyboard() })
                 // Only scroll to latest when a NEW message arrives at the
                 // end of the list (last.id changes). Watching messages.count
                 // also fires when loadMoreMessages prepends older history,

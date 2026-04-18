@@ -161,7 +161,15 @@ struct ChatView: View {
                 .scaleEffect(x: -1, y: 1, anchor: .center)
                 .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
-                .onTapGesture { hideKeyboard() }
+                // simultaneousGesture instead of onTapGesture: the
+                // latter was consuming the gesture phase and the first
+                // tap on the input field (which is a sibling in this
+                // VStack but sometimes wins the SwiftUI gesture race
+                // under the flipped coord system) was getting swallowed
+                // before it reached the TextField. Simultaneous lets
+                // both handlers fire — keyboard still dismisses on
+                // background tap, and TextField focus is not blocked.
+                .simultaneousGesture(TapGesture().onEnded { hideKeyboard() })
                 // Only scroll to latest when a NEW message arrives at the
                 // end of the list (last.id changes). Watching messages.count
                 // also fires when loadMoreMessages prepends older history,
