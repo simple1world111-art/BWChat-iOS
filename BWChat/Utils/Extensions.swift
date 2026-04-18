@@ -200,10 +200,18 @@ private final class TabBarState {
         }
     }
 
+    /// Current tab bar's rendered height (or 49pt fallback). Used by the
+    /// detail-view hosting controller to cancel the tab bar's safe-area
+    /// contribution when hiding, so chat content (input bar, list) can
+    /// extend into the tab bar's former slot.
+    func tabBarHeight() -> CGFloat {
+        max(Self.findTabBar()?.bounds.height ?? 49, 49)
+    }
+
     // Walk the application's window tree to find the UITabBar. Works
     // even if the caller's VC ancestor chain has detached during a
     // disappear.
-    private static func findTabBar() -> UITabBar? {
+    static func findTabBar() -> UITabBar? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         for scene in scenes {
             for window in scene.windows {
@@ -236,7 +244,14 @@ private final class TabBarHidingController: UIViewController {
             isCounted = true
             TabBarState.shared.increment()
         }
-        TabBarState.shared.apply(coord: transitionCoordinator_())
+        let coord = transitionCoordinator_()
+        TabBarState.shared.apply(coord: coord)
+        // Cancel the tab bar's safe-area contribution on this detail
+        // view's hosting controller so its SwiftUI content (input bar,
+        // message list) extends into the space the tab bar used to
+        // occupy. Without this there's an empty strip under the input
+        // bar equal to the tab bar's height.
+        adjustHostInset(cancelingTabBar: true, coord: coord)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -250,7 +265,9 @@ private final class TabBarHidingController: UIViewController {
         // push-cover the new VC's viewWillAppear re-increments
         // alongside the same transition and the net target stays
         // hidden (last-set wins in alongsideTransition animations).
-        TabBarState.shared.apply(coord: transitionCoordinator_())
+        let coord = transitionCoordinator_()
+        TabBarState.shared.apply(coord: coord)
+        adjustHostInset(cancelingTabBar: false, coord: coord)
     }
 
     // Safety net: if a VC is torn down without a viewWillDisappear
@@ -271,6 +288,36 @@ private final class TabBarHidingController: UIViewController {
             vc = current.parent
         }
         return nil
+    }
+
+    private func hostingControllerAncestor() -> UIViewController? {
+        var vc: UIViewController? = parent
+        while let current = vc {
+            // Match both UIHostingController and any subclass by name —
+            // SwiftUI uses generic UIHostingController<ContentView>
+            // whose exact type varies per-view.
+            if String(describing: type(of: current)).contains("HostingController") {
+                return current
+            }
+            vc = current.parent
+        }
+        return nil
+    }
+
+    private func adjustHostInset(cancelingTabBar: Bool, coord: UIViewControllerTransitionCoordinator?) {
+        guard let host = hostingControllerAncestor() else { return }
+        let target: CGFloat = cancelingTabBar ? -TabBarState.shared.tabBarHeight() : 0
+        guard host.additionalSafeAreaInsets.bottom != target else { return }
+
+        if let coord {
+            coord.animate(alongsideTransition: { _ in
+                host.additionalSafeAreaInsets.bottom = target
+                host.view.setNeedsLayout()
+                host.view.layoutIfNeeded()
+            })
+        } else {
+            host.additionalSafeAreaInsets.bottom = target
+        }
     }
 }
 
