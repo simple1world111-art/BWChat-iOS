@@ -7,8 +7,10 @@ struct GroupDetailView: View {
     let groupID: Int
     @Environment(\.dismiss) private var dismiss
     @State private var detail: GroupDetail?
-    @State private var isLoading = true
+    @State private var isLoading = false
     @State private var errorMessage: String?
+
+    private var cacheKey: String { "group_detail_\(groupID)" }
     @State private var showRenameAlert = false
     @State private var newGroupName = ""
     @State private var showAddMembers = false
@@ -49,7 +51,15 @@ struct GroupDetailView: View {
         .navigationTitle("群聊信息")
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
-        .task { await loadDetail() }
+        .task {
+            // Render from cache immediately (no spinner) while we refresh
+            // from the server in the background. Only first-ever open
+            // blocks on the network.
+            if detail == nil, let cached = LocalCache.load(GroupDetail.self, key: cacheKey) {
+                detail = cached
+            }
+            await loadDetail()
+        }
         .alert("修改群名", isPresented: $showRenameAlert) {
             TextField("输入新群名", text: $newGroupName)
             Button("取消", role: .cancel) {}
@@ -350,13 +360,21 @@ struct GroupDetailView: View {
     // MARK: - Actions
 
     private func loadDetail() async {
-        isLoading = true
+        // Only block the UI on the very first open (no cache hit). Otherwise
+        // refresh silently so the user doesn't see a spinner over data that
+        // was already drawn from the cache.
+        let showLoader = detail == nil
+        if showLoader { isLoading = true }
+        defer { isLoading = false }
         do {
-            detail = try await APIService.shared.getGroupDetail(groupID: groupID)
+            let fetched = try await APIService.shared.getGroupDetail(groupID: groupID)
+            if detail != fetched {
+                detail = fetched
+            }
+            LocalCache.save(fetched, key: cacheKey)
         } catch {
-            errorMessage = "加载群信息失败"
+            if detail == nil { errorMessage = "加载群信息失败" }
         }
-        isLoading = false
     }
 
     private func renameGroup() async {

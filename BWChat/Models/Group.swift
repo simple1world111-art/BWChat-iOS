@@ -56,7 +56,7 @@ struct ChatGroup: Codable, Identifiable, Equatable, Hashable {
     }
 }
 
-struct GroupDetail: Codable {
+struct GroupDetail: Codable, Equatable {
     let groupID: Int
     let name: String
     let avatarURL: String
