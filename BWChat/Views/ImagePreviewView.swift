@@ -109,8 +109,7 @@ private struct GalleryContent: View {
                         lastScale: index == currentIndex ? $lastScale : .constant(1),
                         offset: index == currentIndex ? $offset : .constant(.zero),
                         lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                        onSingleTap: { dismissByTap() },
-                        onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
+                        onSingleTap: { dismissByTap() }
                     )
                     .tag(index)
                 }
@@ -155,7 +154,7 @@ private struct GalleryContent: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+            withAnimation(.easeOut(duration: 0.22)) {
                 appeared = true
             }
         }
@@ -220,15 +219,14 @@ private struct GalleryContent: View {
 
     /// Tap-to-dismiss. When the user taps while zoomed, we animate scale
     /// and offset back to rest alongside the fade — otherwise the image
-    /// freezes at 2.5× while opacity drops, which feels abrupt (the
-    /// "hitch" the user was seeing).
+    /// freezes at 2.5× while opacity drops, which feels abrupt.
     private func dismissByTap() {
-        withAnimation(.easeOut(duration: 0.24)) {
+        withAnimation(.easeOut(duration: 0.16)) {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
             appeared = false
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
             onDismiss()
         }
     }
@@ -265,30 +263,6 @@ private struct GalleryContent: View {
         }
     }
 
-    /// Double-tap zoom. `centerDelta` is the tap point expressed as an
-    /// offset from the image view's center (in the view's own coordinate
-    /// space). Zooming in adjusts `offset` so the tapped point stays put
-    /// under the finger — `scaleEffect` scales around the center, so a
-    /// point at (dx, dy) from center would naturally move to (k·dx, k·dy)
-    /// after a scale of k; compensating with offset = -(k-1)·(dx, dy)
-    /// keeps that point stationary.
-    private func doubleTap(at centerDelta: CGPoint) {
-        withAnimation(.easeInOut(duration: 0.26)) {
-            if scale > 1 {
-                resetZoom()
-            } else {
-                let newScale: CGFloat = 2.5
-                scale = newScale
-                lastScale = newScale
-                offset = CGSize(
-                    width: -centerDelta.x * (newScale - 1),
-                    height: -centerDelta.y * (newScale - 1)
-                )
-                lastOffset = offset
-            }
-        }
-    }
-
     private func resetZoom() {
         scale = 1; lastScale = 1
         offset = .zero; lastOffset = .zero
@@ -304,9 +278,6 @@ private struct ZoomableImagePage: View {
     @Binding var offset: CGSize
     @Binding var lastOffset: CGSize
     var onSingleTap: () -> Void
-    /// Receives the double-tap location expressed as a delta from the
-    /// image view's center. GalleryContent uses this to zoom-from-tap.
-    var onDoubleTap: (CGPoint) -> Void
 
     @State private var image: UIImage?
     @State private var isLoading: Bool
@@ -317,8 +288,7 @@ private struct ZoomableImagePage: View {
         lastScale: Binding<CGFloat>,
         offset: Binding<CGSize>,
         lastOffset: Binding<CGSize>,
-        onSingleTap: @escaping () -> Void,
-        onDoubleTap: @escaping (CGPoint) -> Void
+        onSingleTap: @escaping () -> Void
     ) {
         self.imageURL = imageURL
         self._scale = scale
@@ -326,7 +296,6 @@ private struct ZoomableImagePage: View {
         self._offset = offset
         self._lastOffset = lastOffset
         self.onSingleTap = onSingleTap
-        self.onDoubleTap = onDoubleTap
 
         // Seed from memory cache before the first render so the entrance
         // animation zooms a stable image, not a placeholder-then-image swap.
@@ -355,18 +324,12 @@ private struct ZoomableImagePage: View {
                         // zoomed, pan takes over (dismiss is gated off at
                         // scale > 1.05 inside its own handler).
                         .simultaneousGesture(scale > 1.05 ? panGesture : nil)
-                        // SpatialTapGesture provides the tap location so we
-                        // can zoom from the tapped point. The single-tap
-                        // follows afterward — SwiftUI disambiguates via the
-                        // count parameter like the built-in `.onTapGesture`.
-                        .gesture(
-                            SpatialTapGesture(count: 2)
-                                .onEnded { event in
-                                    let dx = event.location.x - geo.size.width / 2
-                                    let dy = event.location.y - geo.size.height / 2
-                                    onDoubleTap(CGPoint(x: dx, y: dy))
-                                }
-                        )
+                        // Single-tap to dismiss. Removed the double-tap-
+                        // zoom gesture that used to coexist here — SwiftUI
+                        // waits ~300ms after a single tap to see if a
+                        // second tap arrives before firing the single-tap
+                        // handler, and users perceived that as lag on
+                        // close. Pinch still zooms.
                         .onTapGesture { onSingleTap() }
                         .longPressToSaveImage(url: imageURL)
                 } else if isLoading {
