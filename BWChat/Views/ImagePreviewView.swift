@@ -16,6 +16,12 @@ class ImageGalleryState: ObservableObject {
     /// view identity even when the same image is tapped twice in a row.
     @Published var openToken: Int = 0
 
+    /// Global-coordinate frame of the thumbnail that was tapped. Used for
+    /// the WeChat-style "image flies from its chat position to full-screen"
+    /// hero animation. `.zero` means callers didn't provide a frame —
+    /// GalleryContent then falls back to a center scale-in.
+    @Published var sourceFrame: CGRect = .zero
+
     /// Optional loader invoked when the gallery's current index approaches
     /// the leftmost image (oldest). The loader should fetch more older
     /// messages, prepend the newly-discovered image URLs to
@@ -25,9 +31,15 @@ class ImageGalleryState: ObservableObject {
     /// gallery will stop retrying until the user reopens it.
     var loadMoreOlder: (() async -> Int)?
 
-    func show(urls: [String], index: Int, loadMoreOlder: (() async -> Int)? = nil) {
+    func show(
+        urls: [String],
+        index: Int,
+        sourceFrame: CGRect = .zero,
+        loadMoreOlder: (() async -> Int)? = nil
+    ) {
         imageURLs = urls
         initialIndex = index
+        self.sourceFrame = sourceFrame
         self.loadMoreOlder = loadMoreOlder
         openToken &+= 1
         isPresented = true
@@ -39,6 +51,37 @@ class ImageGalleryState: ObservableObject {
     func dismiss() {
         isPresented = false
         loadMoreOlder = nil
+    }
+}
+
+// MARK: - Tap + global-frame capture helper
+//
+// Image thumbnails use this modifier to surface their global-coordinate
+// frame at the moment of tap — callers pass it to `ImageGalleryState.show`
+// so the full-screen gallery animates from that exact position.
+
+extension View {
+    func onTapCaptureFrame(perform action: @escaping (CGRect) -> Void) -> some View {
+        modifier(OnTapCaptureFrameModifier(action: action))
+    }
+}
+
+private struct OnTapCaptureFrameModifier: ViewModifier {
+    let action: (CGRect) -> Void
+    @State private var frame: CGRect = .zero
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { frame = geo.frame(in: .global) }
+                        .onChange(of: geo.frame(in: .global)) { newFrame in
+                            frame = newFrame
+                        }
+                }
+            )
+            .onTapGesture { action(frame) }
     }
 }
 
@@ -96,75 +139,97 @@ private struct GalleryContent: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
-                .opacity(appeared ? backgroundOpacity : 0)
+        GeometryReader { outer in
+            let screenSize = outer.size
+            let src = state.sourceFrame
+            // A meaningful source frame (thumbnail was captured at tap time)
+            // drives the WeChat-style grow-from-thumbnail entrance. If the
+            // caller didn't supply one we fall back to the old center
+            // scale-in (0.88 → 1.0) so existing call sites keep working.
+            let hasSrc = src.width > 1 && src.height > 1
+            let heroScale: CGFloat = hasSrc ? max(src.width / screenSize.width, 0.1) : 0.88
+            let heroDx: CGFloat = hasSrc ? src.midX - screenSize.width / 2 : 0
+            let heroDy: CGFloat = hasSrc ? src.midY - screenSize.height / 2 : 0
 
-            TabView(selection: $currentIndex) {
-                ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
-                    ZoomableImagePage(
-                        imageURL: url,
-                        scale: index == currentIndex ? $scale : .constant(1),
-                        lastScale: index == currentIndex ? $lastScale : .constant(1),
-                        offset: index == currentIndex ? $offset : .constant(.zero),
-                        lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                        onSingleTap: { dismissByTap() }
-                    )
-                    .tag(index)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .offset(y: verticalDrag)
-            // Centered scale: entrance is a subtle spring from 0.88 → 1.0
-            // and a swipe-drag adds a further shrink (dragDismissScale).
-            .scaleEffect(entranceScale * dragDismissScale)
-            .opacity(appeared ? 1.0 : 0.0)
-            // Dismiss-drag lives on the TabView as a simultaneousGesture so
-            // UIPageViewController's horizontal page-swipe recognizer can
-            // still fire alongside (that's how multi-image left/right swipe
-            // keeps working). The scale check inside the gesture — not on
-            // the attachment — is what actually prevents dismiss from
-            // firing when the image is zoomed: conditional-nil attachment
-            // turned out to be unreliable, so we gate inside the callback.
-            .simultaneousGesture(verticalDismissGesture)
-            .onChange(of: currentIndex) { newIndex in
-                resetZoom()
-                // Near the leftmost image and a loader exists → try
-                // paging in more older chat history.
-                if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
-                    Task { await loadMoreIfNeeded() }
-                }
-            }
+            ZStack {
+                Color.black
+                    .ignoresSafeArea()
+                    .opacity(appeared ? backgroundOpacity : 0)
 
-            if state.imageURLs.count > 1 {
-                VStack {
-                    Text("\(currentIndex + 1) / \(state.imageURLs.count)")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
-                        .background(.black.opacity(0.4))
-                        .cornerRadius(14)
-                        .padding(.top, 54)
-                    Spacer()
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                        ZoomableImagePage(
+                            imageURL: url,
+                            scale: index == currentIndex ? $scale : .constant(1),
+                            lastScale: index == currentIndex ? $lastScale : .constant(1),
+                            offset: index == currentIndex ? $offset : .constant(.zero),
+                            lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                            onSingleTap: { dismissByTap() },
+                            onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
+                        )
+                        .tag(index)
+                    }
                 }
-                .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                // Hero transform: at rest (appeared=false) the TabView sits
+                // at the tapped thumbnail's frame; when `appeared` flips
+                // true the withAnimation below interpolates the scale and
+                // offset to full-screen identity. On dismissByTap/Swipe we
+                // flip `appeared` back to false so the image shrinks back
+                // to its source frame for the close animation.
+                .scaleEffect(
+                    appeared ? dragDismissScale : heroScale,
+                    anchor: .center
+                )
+                .offset(
+                    x: appeared ? 0 : heroDx,
+                    y: (appeared ? verticalDrag : heroDy)
+                )
+                // Dismiss-drag lives on the TabView as a simultaneousGesture so
+                // UIPageViewController's horizontal page-swipe recognizer can
+                // still fire alongside (that's how multi-image left/right swipe
+                // keeps working). The scale check inside the gesture — not on
+                // the attachment — is what actually prevents dismiss from
+                // firing when the image is zoomed: conditional-nil attachment
+                // turned out to be unreliable, so we gate inside the callback.
+                .simultaneousGesture(verticalDismissGesture)
+                .onChange(of: currentIndex) { newIndex in
+                    resetZoom()
+                    // Near the leftmost image and a loader exists → try
+                    // paging in more older chat history.
+                    if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
+                        Task { await loadMoreIfNeeded() }
+                    }
+                }
+
+                if state.imageURLs.count > 1 {
+                    VStack {
+                        Text("\(currentIndex + 1) / \(state.imageURLs.count)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.4))
+                            .cornerRadius(14)
+                            .padding(.top, 54)
+                        Spacer()
+                    }
+                    .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
+                }
             }
+            .ignoresSafeArea()
         }
         .ignoresSafeArea()
         .onAppear {
-            withAnimation(.easeOut(duration: 0.22)) {
+            // Spring gives the hero a gentle overshoot at the end, which is
+            // what WeChat's image-tap animation feels like. Duration ≈ 0.3s.
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                 appeared = true
             }
         }
     }
 
     // MARK: - Derived visuals
-
-    private var entranceScale: CGFloat {
-        appeared ? 1.0 : 0.88
-    }
 
     private var backgroundOpacity: Double {
         1.0 - min(abs(verticalDrag) / 320, 0.75)
@@ -217,23 +282,25 @@ private struct GalleryContent: View {
             }
     }
 
-    /// Tap-to-dismiss. When the user taps while zoomed, we animate scale
-    /// and offset back to rest alongside the fade — otherwise the image
-    /// freezes at 2.5× while opacity drops, which feels abrupt.
+    /// Tap-to-dismiss. Shrinks back to the source-frame thumbnail position
+    /// (WeChat-style) by flipping `appeared` to false — the scaleEffect /
+    /// offset in body() interpolate to the hero transform automatically.
+    /// Also resets any manual pinch-zoom so the shrink starts from 1×.
     private func dismissByTap() {
-        withAnimation(.easeOut(duration: 0.16)) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
             appeared = false
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32) {
             onDismiss()
         }
     }
 
     /// Swipe-to-dismiss: continue the drag direction off-screen while
     /// fading so the release feels like a natural follow-through instead
-    /// of a sudden cut.
+    /// of a sudden cut. When a source frame is known we still shrink back
+    /// toward it; swipe distance adds an extra flick via verticalDrag.
     private func dismissBySwipe(direction: CGFloat) {
         let sign: CGFloat = direction >= 0 ? 1 : -1
         withAnimation(.easeOut(duration: 0.28)) {
@@ -267,6 +334,26 @@ private struct GalleryContent: View {
         scale = 1; lastScale = 1
         offset = .zero; lastOffset = .zero
     }
+
+    /// Double-tap zoom. `centerDelta` is the tap point expressed as an
+    /// offset from the image view's center. Adjust `offset` so the
+    /// tapped point stays under the finger after scaling.
+    func doubleTap(at centerDelta: CGPoint) {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            if scale > 1 {
+                resetZoom()
+            } else {
+                let newScale: CGFloat = 2.5
+                scale = newScale
+                lastScale = newScale
+                offset = CGSize(
+                    width: -centerDelta.x * (newScale - 1),
+                    height: -centerDelta.y * (newScale - 1)
+                )
+                lastOffset = offset
+            }
+        }
+    }
 }
 
 // MARK: - Zoomable Image Page
@@ -278,9 +365,17 @@ private struct ZoomableImagePage: View {
     @Binding var offset: CGSize
     @Binding var lastOffset: CGSize
     var onSingleTap: () -> Void
+    /// Receives the double-tap location as a delta from the image view's
+    /// center. GalleryContent uses it for zoom-from-tap-point.
+    var onDoubleTap: (CGPoint) -> Void
 
     @State private var image: UIImage?
     @State private var isLoading: Bool
+    /// Scheduled work item that fires the single-tap action after a short
+    /// debounce window. A second tap cancels it and triggers the double-tap
+    /// path instead — this is how we keep single-tap dismiss snappy while
+    /// still disambiguating against double-tap zoom.
+    @State private var pendingSingleTap: DispatchWorkItem?
 
     init(
         imageURL: String,
@@ -288,7 +383,8 @@ private struct ZoomableImagePage: View {
         lastScale: Binding<CGFloat>,
         offset: Binding<CGSize>,
         lastOffset: Binding<CGSize>,
-        onSingleTap: @escaping () -> Void
+        onSingleTap: @escaping () -> Void,
+        onDoubleTap: @escaping (CGPoint) -> Void
     ) {
         self.imageURL = imageURL
         self._scale = scale
@@ -296,6 +392,7 @@ private struct ZoomableImagePage: View {
         self._offset = offset
         self._lastOffset = lastOffset
         self.onSingleTap = onSingleTap
+        self.onDoubleTap = onDoubleTap
 
         // Seed from memory cache before the first render so the entrance
         // animation zooms a stable image, not a placeholder-then-image swap.
@@ -324,13 +421,34 @@ private struct ZoomableImagePage: View {
                         // zoomed, pan takes over (dismiss is gated off at
                         // scale > 1.05 inside its own handler).
                         .simultaneousGesture(scale > 1.05 ? panGesture : nil)
-                        // Single-tap to dismiss. Removed the double-tap-
-                        // zoom gesture that used to coexist here — SwiftUI
-                        // waits ~300ms after a single tap to see if a
-                        // second tap arrives before firing the single-tap
-                        // handler, and users perceived that as lag on
-                        // close. Pinch still zooms.
-                        .onTapGesture { onSingleTap() }
+                        // Double-tap runs simultaneously with the single-tap
+                        // recognizer below; when it fires it cancels any
+                        // scheduled single-tap action so we don't dismiss
+                        // AND zoom on a double-tap.
+                        .simultaneousGesture(
+                            SpatialTapGesture(count: 2)
+                                .onEnded { event in
+                                    pendingSingleTap?.cancel()
+                                    pendingSingleTap = nil
+                                    let dx = event.location.x - geo.size.width / 2
+                                    let dy = event.location.y - geo.size.height / 2
+                                    onDoubleTap(CGPoint(x: dx, y: dy))
+                                }
+                        )
+                        // Debounced single-tap: schedule the action after a
+                        // short window, cancelled if a second tap arrives.
+                        // 180ms keeps dismiss snappy (vs iOS's default ~300ms
+                        // waiting for a second tap) while still leaving
+                        // enough time for an intentional double-tap.
+                        .onTapGesture {
+                            let task = DispatchWorkItem {
+                                onSingleTap()
+                                pendingSingleTap = nil
+                            }
+                            pendingSingleTap?.cancel()
+                            pendingSingleTap = task
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: task)
+                        }
                         .longPressToSaveImage(url: imageURL)
                 } else if isLoading {
                     ProgressView()

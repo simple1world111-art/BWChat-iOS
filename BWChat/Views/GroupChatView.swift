@@ -112,13 +112,14 @@ struct GroupChatView: View {
                                     message: message,
                                     isFromMe: isFromMe,
                                     myAvatarURL: myAvatarURL,
-                                    onImageTap: { url in
+                                    onImageTap: { url, frame in
                                         isInputFocused = false
                                         hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
                                         ImageGalleryState.shared.show(
                                             urls: allImages,
                                             index: allImages.firstIndex(of: url) ?? 0,
+                                            sourceFrame: frame,
                                             loadMoreOlder: {
                                                 // When the gallery nears its leftmost image,
                                                 // page in more group history and tell the gallery
@@ -545,7 +546,9 @@ struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
     var myAvatarURL: String = ""
-    var onImageTap: ((String) -> Void)?
+    /// Second arg: the thumbnail's global-coordinate frame at tap time
+    /// (used by the full-screen gallery for a hero grow-from-thumbnail).
+    var onImageTap: ((String, CGRect) -> Void)?
     var onVideoTap: ((String) -> Void)?
     var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
@@ -598,8 +601,8 @@ struct GroupMessageBubble: View {
 
                 if message.isImage {
                     CachedAsyncImage(url: message.content)
-                        .onTapGesture {
-                            onImageTap?(message.content)
+                        .onTapCaptureFrame { frame in
+                            onImageTap?(message.content, frame)
                         }
                         .longPressToSaveImage(url: message.content)
                 } else if message.isVideo {

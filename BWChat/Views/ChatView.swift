@@ -102,13 +102,14 @@ struct ChatView: View {
                                     message: message,
                                     isFromMe: isFromMe,
                                     avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
-                                    onImageTap: { url in
+                                    onImageTap: { url, frame in
                                         isInputFocused = false
                                         hideKeyboard()
                                         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
                                         ImageGalleryState.shared.show(
                                             urls: allImages,
                                             index: allImages.firstIndex(of: url) ?? 0,
+                                            sourceFrame: frame,
                                             loadMoreOlder: {
                                                 // When the gallery nears its leftmost image,
                                                 // page in more chat history and tell the gallery

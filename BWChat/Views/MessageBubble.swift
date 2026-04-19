@@ -9,7 +9,10 @@ struct MessageBubble: View {
     let message: Message
     let isFromMe: Bool
     var avatarURL: String = ""
-    var onImageTap: ((String) -> Void)?
+    /// Second arg is the thumbnail's global-coordinate frame at tap time,
+    /// so the caller can pass it to the full-screen gallery for a
+    /// WeChat-style grow-from-thumbnail animation.
+    var onImageTap: ((String, CGRect) -> Void)?
     var onVideoTap: ((String) -> Void)?
     var onReply: ((Message) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
@@ -127,8 +130,8 @@ struct MessageBubble: View {
     private var imageBubble: some View {
         CachedAsyncImage(url: message.content)
             .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-            .onTapGesture {
-                onImageTap?(message.content)
+            .onTapCaptureFrame { frame in
+                onImageTap?(message.content, frame)
             }
             .longPressToSaveImage(url: message.content)
     }
