@@ -59,13 +59,25 @@ final class UIKitNavigator: ObservableObject {
 final class TabBarAlphaFixDelegate: NSObject, UINavigationControllerDelegate {
     func navigationController(
         _ nc: UINavigationController,
-        didShow vc: UIViewController,
+        willShow vc: UIViewController,
         animated: Bool
     ) {
-        // Only relevant when we just settled on a pushed VC (stack > 1).
-        // Root's tab bar stays at alpha=1 as usual.
-        guard nc.viewControllers.count > 1 else { return }
-        nc.tabBarController?.tabBar.alpha = 0
+        // Schedule the alpha normalisation to run AFTER UIKit's own transition
+        // completion. Timing order (empirically verified on-device):
+        //
+        //   1. alongsideTransition block — alpha = 0 during animation
+        //   2. `didShow(:animated:)`       — alpha still 0
+        //   3. coord.animate completion    — alpha has been restored to 1 by UIKit
+        //
+        // Setting alpha=0 in didShow is too early — UIKit overwrites it back to
+        // 1 after we run. Piggy-backing on transitionCoordinator.animate's
+        // completion runs after that, so our alpha=0 sticks and the next
+        // pop animates 0→1 naturally.
+        guard let coord = nc.transitionCoordinator else { return }
+        coord.animate(alongsideTransition: nil, completion: { _ in
+            guard nc.viewControllers.count > 1 else { return }
+            nc.tabBarController?.tabBar.alpha = 0
+        })
     }
 }
 
