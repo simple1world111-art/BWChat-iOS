@@ -19,7 +19,7 @@ struct GroupChatView: View {
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
     @State private var showGroupDetail = false
-    @State private var memberCount: Int = 0
+    @State private var memberCount: Int
     @State private var shouldPopToRoot = false
     @State private var showPlusMenu = false
     @State private var highlightedMessageID: Int?
@@ -36,6 +36,15 @@ struct GroupChatView: View {
         self.group = group
         self.onMarkRead = onMarkRead
         _viewModel = StateObject(wrappedValue: GroupChatViewModel(group: group))
+
+        // Seed member count from whatever we already know: the freshest value
+        // is the cached GroupDetail (written by GroupDetailView), then the
+        // ChatGroup we were pushed with (from the conversation row). Zero
+        // only if neither source has anything — in which case .task will
+        // fill it in shortly.
+        let cached = LocalCache.load(GroupDetail.self, key: "group_detail_\(group.groupID)")
+        let seed = cached?.members.count ?? group.memberCount
+        _memberCount = State(initialValue: seed)
     }
 
     private func setActiveGroupChat(_ active: Bool) {
@@ -181,6 +190,8 @@ struct GroupChatView: View {
                     await messagesTask
                     if let detail = try? await detailTask {
                         memberCount = detail.members.count
+                        // Persist for the next open + for GroupDetailView.
+                        LocalCache.save(detail, key: "group_detail_\(group.groupID)")
                     }
                     onMarkRead?()
                 }
