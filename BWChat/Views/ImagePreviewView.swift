@@ -209,6 +209,16 @@ private struct GalleryContent: View {
                             width: appeared ? screen.width : src.width,
                             height: appeared ? screen.height : src.height
                         )
+                        // Match the chat thumbnail's 14pt rounded corners so
+                        // the first frame of the hero exactly overlays the
+                        // source thumbnail. Without this, the hero's square
+                        // edges stick out past the thumbnail's rounded
+                        // corners — the "jitter" on open was the thumbnail's
+                        // corner pixels being revealed/re-covered one frame
+                        // apart. At full-screen size 14pt is invisible so
+                        // we leave the clipShape on through the whole
+                        // animation.
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                         .position(
                             x: appeared ? screen.width / 2 : src.midX,
                             y: appeared ? screen.height / 2 : src.midY
