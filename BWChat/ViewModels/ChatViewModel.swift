@@ -70,10 +70,22 @@ class ChatViewModel: ObservableObject {
                 }
                 hasMore = store.localMessageCount(userID: myID, contactID: contact.userID) >= 30
             } else {
-                let (msgs, more) = try await APIService.shared.getMessages(contactID: contact.userID)
+                // First visit to this DM on this device (no local cache).
+                // Pull the latest page so the UI renders fast, then silently
+                // backfill every older page the server still has (100-day
+                // retention) so future launches / reinstalls show the full
+                // history without needing to scroll up.
+                let (msgs, more) = try await APIService.shared.getMessages(
+                    contactID: contact.userID, limit: 100
+                )
                 store.saveMessages(msgs)
                 messages = msgs
-                hasMore = more
+                hasMore = false
+                if more {
+                    Task { [weak self] in
+                        await self?.backfillOlderMessages()
+                    }
+                }
             }
         } catch let error as APIError {
             if case .unauthorized = error {
@@ -83,6 +95,31 @@ class ChatViewModel: ObservableObject {
         } catch {
             if messages.isEmpty { errorMessage = "加载消息失败" }
         }
+    }
+
+    /// Paginate through every older page on the server and persist them to
+    /// local storage. Runs once on first visit to a DM; for subsequent
+    /// launches the incremental `afterID` sync in `loadMessages` takes over.
+    private func backfillOlderMessages() async {
+        let maxPages = 50  // 50 * 100 = 5000 messages safety cap
+        var cursor = messages.first?.id
+        for _ in 0..<maxPages {
+            guard let before = cursor else { return }
+            do {
+                let (older, hasOlder) = try await APIService.shared.getMessages(
+                    contactID: contact.userID, beforeID: before, limit: 100
+                )
+                if older.isEmpty { return }
+                store.saveMessages(older)
+                messages.insert(contentsOf: older, at: 0)
+                cursor = older.first?.id
+                if !hasOlder { return }
+            } catch {
+                hasMore = true
+                return
+            }
+        }
+        hasMore = true
     }
 
     func loadMoreMessages() async {

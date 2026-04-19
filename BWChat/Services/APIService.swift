@@ -357,7 +357,7 @@ class APIService {
         let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/groups/create", body: body)
     }
 
-    func getGroupMessages(groupID: Int, beforeID: Int? = nil, afterID: Int? = nil) async throws -> ([GroupMessage], Bool) {
+    func getGroupMessages(groupID: Int, beforeID: Int? = nil, afterID: Int? = nil, limit: Int = 30) async throws -> ([GroupMessage], Bool) {
         struct GroupMessagesData: Decodable {
             let messages: [GroupMessage]
             let hasMore: Bool
@@ -375,6 +375,7 @@ class APIService {
         if let afterID = afterID {
             queryItems.append(URLQueryItem(name: "after_id", value: "\(afterID)"))
         }
+        queryItems.append(URLQueryItem(name: "limit", value: "\(limit)"))
 
         let response: APIResponseWrapper<GroupMessagesData> = try await get(
             path: "/groups/\(groupID)/messages",

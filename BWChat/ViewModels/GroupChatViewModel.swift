@@ -66,14 +66,57 @@ class GroupChatViewModel: ObservableObject {
                     }
                 }
             } else {
-                let (msgs, more) = try await APIService.shared.getGroupMessages(groupID: group.groupID)
+                // First visit to this group on this device (no local cache).
+                // Pull the latest page so the UI renders fast, then silently
+                // backfill every older page the server still has (100-day
+                // retention) so future launches / reinstalls show the full
+                // history without needing to scroll up.
+                let (msgs, more) = try await APIService.shared.getGroupMessages(
+                    groupID: group.groupID, limit: 100
+                )
                 store.saveGroupMessages(msgs)
                 messages = msgs
-                hasMore = more
+                // Suppress the scroll-up trigger while backfill runs — we're
+                // prepending older pages from the background task, and the
+                // manual loadMore path would race with it.
+                hasMore = false
+                if more {
+                    Task { [weak self] in
+                        await self?.backfillOlderMessages()
+                    }
+                }
             }
         } catch {
             if messages.isEmpty { errorMessage = "加载消息失败" }
         }
+    }
+
+    /// Paginate through every older page on the server and persist them to
+    /// local storage. Runs once on first visit to a group; for subsequent
+    /// launches the incremental `afterID` sync in `loadMessages` takes over.
+    private func backfillOlderMessages() async {
+        let maxPages = 50  // 50 * 100 = 5000 messages safety cap
+        var cursor = messages.first?.id
+        for _ in 0..<maxPages {
+            guard let before = cursor else { return }
+            do {
+                let (older, hasOlder) = try await APIService.shared.getGroupMessages(
+                    groupID: group.groupID, beforeID: before, limit: 100
+                )
+                if older.isEmpty { return }
+                store.saveGroupMessages(older)
+                messages.insert(contentsOf: older, at: 0)
+                cursor = older.first?.id
+                if !hasOlder { return }
+            } catch {
+                // Give up silently; surface the manual scroll-up path so
+                // the user can retry later.
+                hasMore = true
+                return
+            }
+        }
+        // Hit the safety cap — leave scroll-up enabled for older history.
+        hasMore = true
     }
 
     func loadMoreMessages() async {
