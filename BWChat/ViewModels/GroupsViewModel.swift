@@ -7,15 +7,22 @@ import UIKit
 
 @MainActor
 class GroupsViewModel: ObservableObject {
-    @Published var groups: [ChatGroup] = []
+    @Published var groups: [ChatGroup]
     @Published var isLoading = false
     @Published var errorMessage: String?
 
     private var cancellables = Set<AnyCancellable>()
+    private static let cacheKey = "groups"
 
     init() {
+        // Seed from disk before any network call — avoids empty-state flash.
+        groups = LocalCache.load([ChatGroup].self, key: Self.cacheKey) ?? []
         setupWebSocketListeners()
         setupForegroundReload()
+    }
+
+    private func persist() {
+        LocalCache.save(groups, key: Self.cacheKey)
     }
 
     /// Reload groups whenever app returns to foreground to pick up any
@@ -30,13 +37,20 @@ class GroupsViewModel: ObservableObject {
     }
 
     func loadGroups() async {
-        isLoading = true
+        // Only block the UI on first load; subsequent refreshes happen
+        // silently in the background with the cached list still visible.
+        let showLoader = groups.isEmpty
+        if showLoader { isLoading = true }
+        defer { isLoading = false }
         do {
-            groups = try await APIService.shared.getGroups()
+            let fetched = try await APIService.shared.getGroups()
+            if groups != fetched {
+                groups = fetched
+            }
+            persist()
         } catch {
-            errorMessage = "加载群聊失败"
+            if groups.isEmpty { errorMessage = "加载群聊失败" }
         }
-        isLoading = false
     }
 
     func createGroup(name: String, memberIDs: [String]) async -> Bool {
@@ -69,6 +83,7 @@ class GroupsViewModel: ObservableObject {
                     unreadCount: 0
                 )
                 groups[index] = updated
+                persist()
             }
         }
         // Tell server in background + sync app icon badge
@@ -105,6 +120,7 @@ class GroupsViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] groupID in
                 self?.groups.removeAll { $0.groupID == groupID }
+                self?.persist()
             }
             .store(in: &cancellables)
 
@@ -125,6 +141,7 @@ class GroupsViewModel: ObservableObject {
                         lastMessageSender: g.lastMessageSender,
                         unreadCount: g.unreadCount
                     )
+                    self.persist()
                 }
             }
             .store(in: &cancellables)
@@ -163,6 +180,7 @@ class GroupsViewModel: ObservableObject {
             )
             groups[index] = updated
             groups.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            persist()
         } else {
             // New group not yet in list — reload to pick it up
             Task { await loadGroups() }

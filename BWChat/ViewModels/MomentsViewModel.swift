@@ -9,9 +9,26 @@ class MomentsViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     /// nil = public feed (friends+self); non-nil = single user's moments
-    var filterUserID: String?
+    var filterUserID: String? {
+        didSet { seedFromCacheIfNeeded() }
+    }
+
+    private static let feedCacheKey = "moments_feed"
+    private var didSeedCache = false
+
+    /// Prime `moments` from disk on first read, once we know whether this
+    /// VM is rendering the public feed or a filtered user page. Only the
+    /// public feed is cached — per-user pages are rare enough to skip.
+    private func seedFromCacheIfNeeded() {
+        guard !didSeedCache, filterUserID == nil, moments.isEmpty else { return }
+        didSeedCache = true
+        if let cached = LocalCache.load([Moment].self, key: Self.feedCacheKey) {
+            moments = cached
+        }
+    }
 
     func loadFeed(refresh: Bool = false) async {
+        seedFromCacheIfNeeded()
         if refresh { hasMore = true }
         guard !isLoading else { return }
         // Show the blocking loader only on the very first load or an explicit
@@ -33,6 +50,9 @@ class MomentsViewModel: ObservableObject {
                 moments = items
             }
             hasMore = more
+            if filterUserID == nil {
+                LocalCache.save(items, key: Self.feedCacheKey)
+            }
         } catch {
             if moments.isEmpty { errorMessage = "加载失败" }
         }

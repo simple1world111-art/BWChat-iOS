@@ -8,14 +8,24 @@ import Combine
 class FriendsViewModel: ObservableObject {
     @Published var searchText: String = ""
     @Published var searchResults: [SearchUser] = []
-    @Published var friendRequests: [FriendRequest] = []
-    @Published var friends: [FriendInfo] = []
+    @Published var friendRequests: [FriendRequest]
+    @Published var friends: [FriendInfo]
     @Published var isSearching = false
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
 
     private var searchTask: Task<Void, Never>?
+
+    private static let friendsKey = "friends"
+    private static let requestsKey = "friend_requests"
+
+    init() {
+        // Seed from local cache so the contacts tab renders instantly on
+        // launch / tab switch. Network refresh will overwrite if different.
+        friends = LocalCache.load([FriendInfo].self, key: Self.friendsKey) ?? []
+        friendRequests = LocalCache.load([FriendRequest].self, key: Self.requestsKey) ?? []
+    }
 
     func searchUsers() async {
         let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -47,8 +57,9 @@ class FriendsViewModel: ObservableObject {
             if friendRequests != fetched {
                 friendRequests = fetched
             }
+            LocalCache.save(fetched, key: Self.requestsKey)
         } catch {
-            // silently fail
+            // silently fail — cached list keeps rendering
         }
     }
 
@@ -65,6 +76,7 @@ class FriendsViewModel: ObservableObject {
                 friends = fetched
                 UserCacheManager.shared.cacheFriends(fetched)
             }
+            LocalCache.save(fetched, key: Self.friendsKey)
         } catch {
             if friends.isEmpty { errorMessage = "加载好友列表失败" }
         }

@@ -65,6 +65,7 @@ class AuthManager: ObservableObject {
         UserCacheManager.shared.clearCache()
         ImageCacheManager.shared.clearCache()
         MessageStore.shared.clearAll()
+        LocalCache.clear()
         WebSocketService.shared.disconnect()
     }
 
