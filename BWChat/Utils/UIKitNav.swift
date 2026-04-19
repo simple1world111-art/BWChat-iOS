@@ -28,9 +28,7 @@ final class UIKitNavigator: ObservableObject {
     func push<V: View>(_ view: V) {
         let host = UIHostingController(rootView: view.environmentObject(self))
         host.hidesBottomBarWhenPushed = true
-        NavDebug.snapshot(tag: "push BEFORE \(V.self)", nav: navigationController)
         navigationController?.pushViewController(host, animated: true)
-        NavDebug.snapshot(tag: "push AFTER \(V.self)", nav: navigationController)
     }
 
     func pop() {
@@ -42,41 +40,32 @@ final class UIKitNavigator: ObservableObject {
     }
 }
 
-// MARK: - Debug logging (remove after diagnosing first-swipe tab bar glitch)
+// MARK: - Tab bar alpha normalisation
+//
+// iOS 18 UITabBarController bug, confirmed by logging:
+//   push complete:  isHidden=true  alpha=1.0    <- alpha stays at 1
+//   next pop start: UIKit flips isHidden=false, alpha still 1
+//                   → tab bar appears FULLY VISIBLE immediately, no reveal
+//
+// The cancel path of an interactive pop, by contrast, ends with
+// alpha=0 — which is why the SECOND swipe-back looks correct (alpha
+// animates 0→1 during the transition).
+//
+// Fix: after every push completes, normalise tab bar alpha to 0. UIKit
+// still treats it as hidden (isHidden=true), but the next pop's
+// alongsideTransition will now animate alpha 0→1 naturally, matching
+// the post-cancel behaviour on every subsequent swipe.
 
-enum NavDebug {
-    static func snapshot(tag: String, nav: UINavigationController?) {
-        let tb = nav?.tabBarController?.tabBar
-        let stack = nav?.viewControllers.count ?? -1
-        let frame = tb?.frame ?? .zero
-        let t = tb?.transform ?? .identity
-        let hidden = tb?.isHidden ?? false
-        let alpha = tb?.alpha ?? -1
-        print("[NavDebug] \(tag) | stack=\(stack) tbFrame=\(frame) transform=(\(t.tx),\(t.ty)) hidden=\(hidden) alpha=\(alpha)")
-    }
-}
-
-final class NavLoggingDelegate: NSObject, UINavigationControllerDelegate {
-    func navigationController(_ nc: UINavigationController, willShow vc: UIViewController, animated: Bool) {
-        NavDebug.snapshot(tag: "willShow \(type(of: vc)) animated=\(animated)", nav: nc)
-
-        guard let coord = nc.transitionCoordinator else { return }
-        let fromVC = coord.viewController(forKey: .from)
-        let toVC = coord.viewController(forKey: .to)
-        print("[NavDebug]   coord: from=\(fromVC.map { String(describing: type(of: $0)) } ?? "nil") to=\(toVC.map { String(describing: type(of: $0)) } ?? "nil") duration=\(coord.transitionDuration) interactive=\(coord.isInteractive)")
-
-        coord.notifyWhenInteractionChanges { ctx in
-            NavDebug.snapshot(tag: "interaction changed isCancelled=\(ctx.isCancelled) complete=\(ctx.percentComplete)", nav: nc)
-        }
-        coord.animate(alongsideTransition: { _ in
-            NavDebug.snapshot(tag: "alongsideTransition tick", nav: nc)
-        }, completion: { ctx in
-            NavDebug.snapshot(tag: "transition completed isCancelled=\(ctx.isCancelled)", nav: nc)
-        })
-    }
-
-    func navigationController(_ nc: UINavigationController, didShow vc: UIViewController, animated: Bool) {
-        NavDebug.snapshot(tag: "didShow \(type(of: vc))", nav: nc)
+final class TabBarAlphaFixDelegate: NSObject, UINavigationControllerDelegate {
+    func navigationController(
+        _ nc: UINavigationController,
+        didShow vc: UIViewController,
+        animated: Bool
+    ) {
+        // Only relevant when we just settled on a pushed VC (stack > 1).
+        // Root's tab bar stays at alpha=1 as usual.
+        guard nc.viewControllers.count > 1 else { return }
+        nc.tabBarController?.tabBar.alpha = 0
     }
 }
 
@@ -110,28 +99,28 @@ struct MainTabController: UIViewControllerRepresentable {
                 title: "消息",
                 image: "bubble.left.and.bubble.right",
                 selected: "bubble.left.and.bubble.right.fill",
-                navDelegate: context.coordinator.navLogger
+                navDelegate: context.coordinator.tabBarAlphaFix
             ),
             Self.makeTab(
                 root: ContactsTabView(),
                 title: "通讯录",
                 image: "person.crop.circle",
                 selected: "person.crop.circle.fill",
-                navDelegate: context.coordinator.navLogger
+                navDelegate: context.coordinator.tabBarAlphaFix
             ),
             Self.makeTab(
                 root: DiscoverView(),
                 title: "发现",
                 image: "safari",
                 selected: "safari.fill",
-                navDelegate: context.coordinator.navLogger
+                navDelegate: context.coordinator.tabBarAlphaFix
             ),
             Self.makeTab(
                 root: ProfileView(),
                 title: "我",
                 image: "gearshape",
                 selected: "gearshape.fill",
-                navDelegate: context.coordinator.navLogger
+                navDelegate: context.coordinator.tabBarAlphaFix
             ),
         ]
         tb.selectedIndex = selectedIndex
@@ -169,7 +158,7 @@ struct MainTabController: UIViewControllerRepresentable {
 
     final class Coordinator: NSObject, UITabBarControllerDelegate {
         var selectedIndex: Binding<Int>
-        let navLogger = NavLoggingDelegate()
+        let tabBarAlphaFix = TabBarAlphaFixDelegate()
 
         init(selectedIndex: Binding<Int>) {
             self.selectedIndex = selectedIndex
