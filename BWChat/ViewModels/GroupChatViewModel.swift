@@ -23,6 +23,24 @@ class GroupChatViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let store = MessageStore.shared
 
+    // Per-group "we've already backfilled the full server history" flag.
+    // Persisted across launches so we only do the one-time backfill once
+    // per group per install. Cleared on logout via LocalCache.clear().
+    private static let backfilledKey = "bwchat.group_backfilled"
+
+    private var isBackfilled: Bool {
+        let ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [Int] ?? []
+        return ids.contains(group.groupID)
+    }
+
+    private func markBackfilled() {
+        var ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [Int] ?? []
+        if !ids.contains(group.groupID) {
+            ids.append(group.groupID)
+            UserDefaults.standard.set(ids, forKey: Self.backfilledKey)
+        }
+    }
+
     init(group: ChatGroup) {
         self.group = group
         let initial = store.loadGroupMessages(groupID: group.groupID)
@@ -67,23 +85,26 @@ class GroupChatViewModel: ObservableObject {
                 }
             } else {
                 // First visit to this group on this device (no local cache).
-                // Pull the latest page so the UI renders fast, then silently
-                // backfill every older page the server still has (100-day
-                // retention) so future launches / reinstalls show the full
-                // history without needing to scroll up.
-                let (msgs, more) = try await APIService.shared.getGroupMessages(
+                // Pull the latest page so the UI renders fast; backfill below.
+                let (msgs, _) = try await APIService.shared.getGroupMessages(
                     groupID: group.groupID, limit: 100
                 )
                 store.saveGroupMessages(msgs)
                 messages = msgs
-                // Suppress the scroll-up trigger while backfill runs — we're
-                // prepending older pages from the background task, and the
-                // manual loadMore path would race with it.
                 hasMore = false
-                if more {
-                    Task { [weak self] in
-                        await self?.backfillOlderMessages()
-                    }
+            }
+
+            // Whichever branch ran, if we haven't yet pulled the full server
+            // history for this group on this device, kick off the backfill.
+            // Handles both the fresh-install case and the "user had a tiny
+            // cache from a prior broken build" case that used to leave them
+            // stuck at 30 messages.
+            if !isBackfilled {
+                // Suppress manual scroll-up trigger during backfill so it
+                // doesn't race with our background pagination.
+                hasMore = false
+                Task { [weak self] in
+                    await self?.backfillOlderMessages()
                 }
             }
         } catch {
@@ -92,30 +113,42 @@ class GroupChatViewModel: ObservableObject {
     }
 
     /// Paginate through every older page on the server and persist them to
-    /// local storage. Runs once on first visit to a group; for subsequent
-    /// launches the incremental `afterID` sync in `loadMessages` takes over.
+    /// local storage. Runs once per group per install (guarded by the
+    /// `isBackfilled` flag). Marks the group as backfilled only on clean
+    /// completion (server said no more, or earliest message reached).
     private func backfillOlderMessages() async {
         let maxPages = 50  // 50 * 100 = 5000 messages safety cap
         var cursor = messages.first?.id
         for _ in 0..<maxPages {
-            guard let before = cursor else { return }
+            guard let before = cursor else {
+                markBackfilled()
+                return
+            }
             do {
                 let (older, hasOlder) = try await APIService.shared.getGroupMessages(
                     groupID: group.groupID, beforeID: before, limit: 100
                 )
-                if older.isEmpty { return }
+                if older.isEmpty {
+                    markBackfilled()
+                    return
+                }
                 store.saveGroupMessages(older)
                 messages.insert(contentsOf: older, at: 0)
                 cursor = older.first?.id
-                if !hasOlder { return }
+                if !hasOlder {
+                    markBackfilled()
+                    return
+                }
             } catch {
                 // Give up silently; surface the manual scroll-up path so
-                // the user can retry later.
+                // the user can retry later. Don't mark as backfilled so
+                // next app open will retry.
                 hasMore = true
                 return
             }
         }
         // Hit the safety cap — leave scroll-up enabled for older history.
+        // Don't mark as backfilled; next open may pick up more history.
         hasMore = true
     }
 

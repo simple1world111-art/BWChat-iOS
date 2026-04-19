@@ -66,6 +66,8 @@ class AuthManager: ObservableObject {
         ImageCacheManager.shared.clearCache()
         MessageStore.shared.clearAll()
         LocalCache.clear()
+        UserDefaults.standard.removeObject(forKey: "bwchat.group_backfilled")
+        UserDefaults.standard.removeObject(forKey: "bwchat.dm_backfilled")
         WebSocketService.shared.disconnect()
     }
 

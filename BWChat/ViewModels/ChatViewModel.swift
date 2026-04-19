@@ -23,6 +23,23 @@ class ChatViewModel: ObservableObject {
     private let store = MessageStore.shared
     private var myID: String { AuthManager.shared.currentUser?.userID ?? "" }
 
+    // Per-DM "full server history pulled" flag. See GroupChatViewModel for
+    // the rationale.
+    private static let backfilledKey = "bwchat.dm_backfilled"
+
+    private var isBackfilled: Bool {
+        let ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [String] ?? []
+        return ids.contains(contact.userID)
+    }
+
+    private func markBackfilled() {
+        var ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [String] ?? []
+        if !ids.contains(contact.userID) {
+            ids.append(contact.userID)
+            UserDefaults.standard.set(ids, forKey: Self.backfilledKey)
+        }
+    }
+
     init(contact: Contact) {
         self.contact = contact
         let uid = AuthManager.shared.currentUser?.userID ?? ""
@@ -71,20 +88,22 @@ class ChatViewModel: ObservableObject {
                 hasMore = store.localMessageCount(userID: myID, contactID: contact.userID) >= 30
             } else {
                 // First visit to this DM on this device (no local cache).
-                // Pull the latest page so the UI renders fast, then silently
-                // backfill every older page the server still has (100-day
-                // retention) so future launches / reinstalls show the full
-                // history without needing to scroll up.
-                let (msgs, more) = try await APIService.shared.getMessages(
+                let (msgs, _) = try await APIService.shared.getMessages(
                     contactID: contact.userID, limit: 100
                 )
                 store.saveMessages(msgs)
                 messages = msgs
                 hasMore = false
-                if more {
-                    Task { [weak self] in
-                        await self?.backfillOlderMessages()
-                    }
+            }
+
+            // If this install hasn't yet pulled the full server history for
+            // this DM, backfill in the background regardless of which branch
+            // above ran. Handles the "had a partial cache from a prior build"
+            // case that would otherwise stay stuck at the incremental tail.
+            if !isBackfilled {
+                hasMore = false
+                Task { [weak self] in
+                    await self?.backfillOlderMessages()
                 }
             }
         } catch let error as APIError {
@@ -98,22 +117,31 @@ class ChatViewModel: ObservableObject {
     }
 
     /// Paginate through every older page on the server and persist them to
-    /// local storage. Runs once on first visit to a DM; for subsequent
-    /// launches the incremental `afterID` sync in `loadMessages` takes over.
+    /// local storage. Runs once per DM per install (guarded by
+    /// `isBackfilled`). Marks backfilled only on clean completion.
     private func backfillOlderMessages() async {
         let maxPages = 50  // 50 * 100 = 5000 messages safety cap
         var cursor = messages.first?.id
         for _ in 0..<maxPages {
-            guard let before = cursor else { return }
+            guard let before = cursor else {
+                markBackfilled()
+                return
+            }
             do {
                 let (older, hasOlder) = try await APIService.shared.getMessages(
                     contactID: contact.userID, beforeID: before, limit: 100
                 )
-                if older.isEmpty { return }
+                if older.isEmpty {
+                    markBackfilled()
+                    return
+                }
                 store.saveMessages(older)
                 messages.insert(contentsOf: older, at: 0)
                 cursor = older.first?.id
-                if !hasOlder { return }
+                if !hasOlder {
+                    markBackfilled()
+                    return
+                }
             } catch {
                 hasMore = true
                 return
