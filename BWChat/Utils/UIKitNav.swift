@@ -54,6 +54,16 @@ struct MainTabController: UIViewControllerRepresentable {
         tb.delegate = context.coordinator
         tb.tabBar.tintColor = UIColor(AppColors.accent)
 
+        // Force a classic opaque tab bar appearance.
+        // iOS 18 defaults to a minimizable/floating pill bar whose transition
+        // animation on interactive pop occasionally snaps to fully-visible on
+        // the first swipe (users see "two layers" before it settles). Opaque
+        // + explicit appearance is the only reliably-in-sync variant.
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        tb.tabBar.standardAppearance = appearance
+        tb.tabBar.scrollEdgeAppearance = appearance
+
         tb.viewControllers = [
             Self.makeTab(
                 root: ContactListView(),
