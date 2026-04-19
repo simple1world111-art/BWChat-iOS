@@ -105,6 +105,14 @@ struct ImageGalleryOverlay: View {
                     onDismiss: { state.dismiss() }
                 )
                 .id(state.openToken)
+                // Default conditional-view transition is `.opacity` with an
+                // ambient animation; on insertion it fades in the whole
+                // GalleryContent over ~0.35s, concurrently with our own
+                // hero-grow animation. The two overlapping curves produce a
+                // directional jitter (down on open, up on close) exactly in
+                // line with the hero direction. Kill the transition so our
+                // hero animation is the only motion the user perceives.
+                .transition(.identity)
             }
         }
         .ignoresSafeArea()
@@ -190,6 +198,11 @@ private struct GalleryContent: View {
                 .scaleEffect(dragDismissScale)
                 .opacity(inHeroPhase ? 0 : 1)
                 .allowsHitTesting(!inHeroPhase)
+                // Lock the horizontal page swipe once the user commits to a
+                // vertical drag — otherwise you can swipe left/right to
+                // change photos WHILE dragging one down, which WeChat
+                // doesn't allow and feels wrong.
+                .scrollDisabled(verticalDrag != 0)
                 .simultaneousGesture(verticalDismissGesture)
                 .onChange(of: currentIndex) { newIndex in
                     resetZoom()
@@ -211,17 +224,18 @@ private struct GalleryContent: View {
                         )
                         // Match the chat thumbnail's 14pt rounded corners so
                         // the first frame of the hero exactly overlays the
-                        // source thumbnail. Without this, the hero's square
-                        // edges stick out past the thumbnail's rounded
-                        // corners — the "jitter" on open was the thumbnail's
-                        // corner pixels being revealed/re-covered one frame
-                        // apart. At full-screen size 14pt is invisible so
-                        // we leave the clipShape on through the whole
-                        // animation.
+                        // source thumbnail.
                         .clipShape(RoundedRectangle(cornerRadius: 14))
+                        // Mirror the TabView's drag-transforms so on
+                        // swipe-to-dismiss, when we hide the TabView and
+                        // reveal the hero, it already sits at the exact
+                        // position/scale the TabView was showing — then the
+                        // withAnimation in dismissBySwipe can shrink it
+                        // smoothly back to src.
+                        .scaleEffect(appeared ? dragDismissScale : 1.0, anchor: .center)
                         .position(
                             x: appeared ? screen.width / 2 : src.midX,
-                            y: appeared ? screen.height / 2 : src.midY
+                            y: appeared ? screen.height / 2 + verticalDrag : src.midY
                         )
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
@@ -302,10 +316,10 @@ private struct GalleryContent: View {
                 let h = abs(value.translation.height)
                 let w = abs(value.translation.width)
                 let predictedH = abs(value.predictedEndTranslation.height)
-                // Only dismiss if the release was vertical-dominant; a
-                // mostly-horizontal fling should fall through to paging
-                // and spring any stray verticalDrag back to zero.
-                if h > w && (h > 110 || predictedH > 450) {
+                // Lower thresholds to match WeChat's touch: ~60pt drag or a
+                // confident flick commits dismiss. Previous 110/450 made
+                // users drag the photo nearly halfway down the screen.
+                if h > w && (h > 60 || predictedH > 250) {
                     dismissBySwipe(direction: value.translation.height)
                 } else if verticalDrag != 0 {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
@@ -347,16 +361,33 @@ private struct GalleryContent: View {
         }
     }
 
-    /// Swipe-to-dismiss: continue the drag direction off-screen while
-    /// fading so the release feels like a natural follow-through.
+    /// Swipe-to-dismiss. If we have a source frame, reuse the hero path:
+    /// swap TabView for hero (which now inherits the drag transforms and
+    /// therefore matches the TabView's visible state on handoff), then
+    /// animate the hero back to the source thumbnail frame. If no source
+    /// frame was supplied, fall back to the old slide-off-bottom style.
     private func dismissBySwipe(direction: CGFloat) {
-        let sign: CGFloat = direction >= 0 ? 1 : -1
-        withAnimation(.easeOut(duration: 0.26)) {
-            verticalDrag = 900 * sign
-            appeared = false
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
-            onDismiss()
+        let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
+        if hasSrc {
+            scale = 1; lastScale = 1
+            offset = .zero; lastOffset = .zero
+            inHeroPhase = true
+            withAnimation(.easeOut(duration: 0.24)) {
+                appeared = false
+                verticalDrag = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                onDismiss()
+            }
+        } else {
+            let sign: CGFloat = direction >= 0 ? 1 : -1
+            withAnimation(.easeOut(duration: 0.26)) {
+                verticalDrag = 900 * sign
+                appeared = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                onDismiss()
+            }
         }
     }
 
