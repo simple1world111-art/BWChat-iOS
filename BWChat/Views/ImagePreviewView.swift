@@ -163,44 +163,47 @@ private struct GalleryContent: View {
                     .ignoresSafeArea()
                     .opacity(appeared ? backgroundOpacity : 0)
 
-                // Real gallery — only shown after the entrance hero completes
-                // (and hidden again during the dismiss hero). Keeping the
-                // TabView stable avoids UIPageViewController re-layout
-                // spam during the transition.
-                if !inHeroPhase {
-                    TabView(selection: $currentIndex) {
-                        ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
-                            ZoomableImagePage(
-                                imageURL: url,
-                                scale: index == currentIndex ? $scale : .constant(1),
-                                lastScale: index == currentIndex ? $lastScale : .constant(1),
-                                offset: index == currentIndex ? $offset : .constant(.zero),
-                                lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                                onSingleTap: { dismissByTap() },
-                                onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
-                            )
-                            .tag(index)
-                        }
+                // Both the hero image AND the real gallery stay mounted in
+                // the tree — we just swap which one is visible via opacity.
+                // Mounting/unmounting caused a blank frame at the handoff
+                // (open → full-screen, dismiss → shrink) that registered as
+                // a visible jitter. Keeping both mounted lets SwiftUI
+                // cross-fade instantly without a render-tree reshape.
+
+                // Real gallery (gestures, paging, pinch-zoom).
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                        ZoomableImagePage(
+                            imageURL: url,
+                            scale: index == currentIndex ? $scale : .constant(1),
+                            lastScale: index == currentIndex ? $lastScale : .constant(1),
+                            offset: index == currentIndex ? $offset : .constant(.zero),
+                            lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                            onSingleTap: { dismissByTap() },
+                            onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
+                        )
+                        .tag(index)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .offset(y: verticalDrag)
-                    .scaleEffect(dragDismissScale)
-                    .simultaneousGesture(verticalDismissGesture)
-                    .onChange(of: currentIndex) { newIndex in
-                        resetZoom()
-                        if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
-                            Task { await loadMoreIfNeeded() }
-                        }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .offset(y: verticalDrag)
+                .scaleEffect(dragDismissScale)
+                .opacity(inHeroPhase ? 0 : 1)
+                .allowsHitTesting(!inHeroPhase)
+                .simultaneousGesture(verticalDismissGesture)
+                .onChange(of: currentIndex) { newIndex in
+                    resetZoom()
+                    if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
+                        Task { await loadMoreIfNeeded() }
                     }
                 }
 
-                // Hero image — a plain SwiftUI Image whose frame/position
-                // animate between `src` (thumbnail) and the full-screen
-                // aspect-fit rect. Rendered INSTEAD of the TabView during
-                // open and close so we never have to animate that heavy
-                // control. Falls back to a simple scale-in when the caller
-                // didn't supply a source frame.
-                if inHeroPhase, hasSrc {
+                // Hero image — plain SwiftUI Image whose frame/position
+                // animate between the source thumbnail rect and the full-
+                // screen rect. Only visible while `inHeroPhase` is true.
+                // When it's not visible, sitting underneath the opaque
+                // TabView at the same full-screen state costs nothing.
+                if hasSrc {
                     HeroImageView(url: currentURL)
                         .frame(
                             width: appeared ? screen.width : src.width,
@@ -210,6 +213,7 @@ private struct GalleryContent: View {
                             x: appeared ? screen.width / 2 : src.midX,
                             y: appeared ? screen.height / 2 : src.midY
                         )
+                        .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
                 }
 
@@ -301,28 +305,24 @@ private struct GalleryContent: View {
             }
     }
 
-    /// Tap-to-dismiss. Swap the real TabView for a hero Image view FIRST,
-    /// then animate `appeared` back to false so the hero image shrinks
-    /// back to the source thumbnail frame. Same trick as the open path:
-    /// never animate the TabView itself, because that throws UIKit into
-    /// re-layout thrashing.
+    /// Tap-to-dismiss. Hero image is already mounted at full-screen
+    /// (underneath the opaque TabView), so we just toggle `inHeroPhase`
+    /// to reveal it AND start the shrink animation in the same frame.
+    /// No async dispatch — removes the one-tick lag that users felt as
+    /// a slow response.
     private func dismissByTap() {
         let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
         if hasSrc {
-            // Reset any user zoom synchronously (no animation) so the hero
-            // image's transform is identity when it takes over rendering.
+            // Any user pinch-zoom goes back to identity synchronously so
+            // the swap to hero (which renders at scale 1) doesn't pop.
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
             inHeroPhase = true
-            // One runloop tick so the hero Image has a frame to animate FROM
-            // (at full-screen size, because `appeared` is still true).
-            DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.22)) {
-                    appeared = false
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
-                    onDismiss()
-                }
+            withAnimation(.easeOut(duration: 0.22)) {
+                appeared = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.23) {
+                onDismiss()
             }
         } else {
             // No source frame — old behavior: fade + shrink in place.
