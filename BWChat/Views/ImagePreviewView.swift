@@ -276,12 +276,17 @@ private struct GalleryContent: View {
         .ignoresSafeArea()
         .onAppear {
             GalleryDbg.log("onAppear", "inHeroPhase=\(inHeroPhase)")
-            withAnimation(.easeOut(duration: 0.25)) {
+            // easeInOut (not easeOut): symmetric curve, gentle deceleration
+            // near the end eliminates the perceived "bounce" the user saw
+            // as a directional jitter at the very end of the animation.
+            withAnimation(.easeInOut(duration: 0.28)) {
                 GalleryDbg.log("withAnim(appeared=true) START")
                 appeared = true
             }
             if inHeroPhase {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.27) {
+                // +20ms buffer after animation duration so the hero has
+                // definitely settled before we hand off to the TabView.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
                     GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
                     inHeroPhase = false
                 }
@@ -357,10 +362,10 @@ private struct GalleryContent: View {
             offset = .zero; lastOffset = .zero
             inHeroPhase = true
             GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
-            withAnimation(.easeOut(duration: 0.22)) {
+            withAnimation(.easeInOut(duration: 0.18)) {
                 appeared = false
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.23) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.19) {
                 GalleryDbg.log("  onDismiss() (post-animation)")
                 onDismiss()
             }
@@ -388,11 +393,11 @@ private struct GalleryContent: View {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
             inHeroPhase = true
-            withAnimation(.easeOut(duration: 0.24)) {
+            withAnimation(.easeInOut(duration: 0.22)) {
                 appeared = false
                 verticalDrag = 0
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.23) {
                 onDismiss()
             }
         } else {
@@ -533,11 +538,12 @@ private struct ZoomableImagePage: View {
                         )
                         // Debounced single-tap: schedule the action after a
                         // short window, cancelled if a second tap arrives.
-                        // 180ms keeps dismiss snappy (vs iOS's default ~300ms
-                        // waiting for a second tap) while still leaving
-                        // enough time for an intentional double-tap.
+                        // 100ms keeps dismiss snappy (vs iOS's default ~300ms
+                        // and our previous 180ms) — tight but still enough
+                        // for a typical double-tap (~100-200ms between taps
+                        // for most users).
                         .onTapGesture {
-                            GalleryDbg.log("single-tap scheduled (180ms debounce)")
+                            GalleryDbg.log("single-tap scheduled (100ms debounce)")
                             let task = DispatchWorkItem {
                                 GalleryDbg.log("single-tap fires (after debounce)")
                                 onSingleTap()
@@ -545,7 +551,7 @@ private struct ZoomableImagePage: View {
                             }
                             pendingSingleTap?.cancel()
                             pendingSingleTap = task
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: task)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10, execute: task)
                         }
                         .longPressToSaveImage(url: imageURL)
                 } else if isLoading {
