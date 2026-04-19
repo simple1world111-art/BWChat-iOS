@@ -4,6 +4,18 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Debug logging (remove after diagnosing open/close jitter + lag)
+
+enum GalleryDbg {
+    /// Monotonic clock seconds since the first call — easier to read than
+    /// wall-clock times when diagnosing animation frame timing.
+    private static let origin = Date()
+    static func log(_ tag: String, _ fields: String = "") {
+        let t = Date().timeIntervalSince(origin)
+        print(String(format: "[GalleryDbg %8.3f] %@ %@", t, tag, fields))
+    }
+}
+
 // MARK: - Shared state so overlay can live at root level (above tab bar)
 
 @MainActor
@@ -37,6 +49,7 @@ class ImageGalleryState: ObservableObject {
         sourceFrame: CGRect = .zero,
         loadMoreOlder: (() async -> Int)? = nil
     ) {
+        GalleryDbg.log("show()", "src=\(sourceFrame)")
         imageURLs = urls
         initialIndex = index
         self.sourceFrame = sourceFrame
@@ -49,6 +62,7 @@ class ImageGalleryState: ObservableObject {
     /// loadMoreOlder closure (which may retain a chat view-model) is
     /// released when the gallery closes.
     func dismiss() {
+        GalleryDbg.log("state.dismiss()")
         isPresented = false
         loadMoreOlder = nil
     }
@@ -155,6 +169,7 @@ private struct GalleryContent: View {
         // frame. Otherwise we fall back to the old center scale-in on the
         // TabView, which is a tiny transform that doesn't choke UIKit.
         self._inHeroPhase = State(initialValue: state.sourceFrame.width > 1 && state.sourceFrame.height > 1)
+        GalleryDbg.log("GalleryContent.init", "srcFrame=\(state.sourceFrame) inHeroPhase=\(_inHeroPhase.wrappedValue)")
     }
 
     var body: some View {
@@ -260,16 +275,14 @@ private struct GalleryContent: View {
         }
         .ignoresSafeArea()
         .onAppear {
-            // Drive both background-fade and (if in hero phase) the
-            // hero image's frame/position to their "open" targets.
+            GalleryDbg.log("onAppear", "inHeroPhase=\(inHeroPhase)")
             withAnimation(.easeOut(duration: 0.25)) {
+                GalleryDbg.log("withAnim(appeared=true) START")
                 appeared = true
             }
-            // Swap hero image for real TabView once the entrance animation
-            // has finished settling. Tiny extra buffer beyond the 0.25s
-            // curve so we don't tear on the last frame.
             if inHeroPhase {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.27) {
+                    GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
                     inHeroPhase = false
                 }
             }
@@ -335,6 +348,7 @@ private struct GalleryContent: View {
     /// No async dispatch — removes the one-tick lag that users felt as
     /// a slow response.
     private func dismissByTap() {
+        GalleryDbg.log("dismissByTap()")
         let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
         if hasSrc {
             // Any user pinch-zoom goes back to identity synchronously so
@@ -342,10 +356,12 @@ private struct GalleryContent: View {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
             inHeroPhase = true
+            GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
             withAnimation(.easeOut(duration: 0.22)) {
                 appeared = false
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.23) {
+                GalleryDbg.log("  onDismiss() (post-animation)")
                 onDismiss()
             }
         } else {
@@ -507,6 +523,7 @@ private struct ZoomableImagePage: View {
                         .simultaneousGesture(
                             SpatialTapGesture(count: 2)
                                 .onEnded { event in
+                                    GalleryDbg.log("double-tap detected")
                                     pendingSingleTap?.cancel()
                                     pendingSingleTap = nil
                                     let dx = event.location.x - geo.size.width / 2
@@ -520,7 +537,9 @@ private struct ZoomableImagePage: View {
                         // waiting for a second tap) while still leaving
                         // enough time for an intentional double-tap.
                         .onTapGesture {
+                            GalleryDbg.log("single-tap scheduled (180ms debounce)")
                             let task = DispatchWorkItem {
+                                GalleryDbg.log("single-tap fires (after debounce)")
                                 onSingleTap()
                                 pendingSingleTap = nil
                             }
