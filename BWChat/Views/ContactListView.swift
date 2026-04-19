@@ -149,27 +149,25 @@ struct ContactListView: View {
     private var conversationListView: some View {
         List {
             ForEach(botStore.bots) { bot in
-                Button {
-                    navigator.push(BotChatView(botID: bot.id))
-                } label: {
-                    BotConversationRow(bot: bot)
-                }
-                .buttonStyle(.plain)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color.clear)
+                BotConversationRow(bot: bot)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        navigator.push(BotChatView(botID: bot.id))
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
             }
 
             ForEach(viewModel.conversations) { conv in
-                Button {
-                    openConversation(conv)
-                } label: {
-                    ConversationRow(conversation: conv)
-                }
-                .buttonStyle(.plain)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .listRowBackground(Color.clear)
+                ConversationRow(conversation: conv)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        openConversation(conv)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
