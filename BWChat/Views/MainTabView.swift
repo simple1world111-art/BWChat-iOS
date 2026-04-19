@@ -5,28 +5,16 @@ import SwiftUI
 
 struct MainTabView: View {
     @State private var selectedTab = 0
-    @StateObject private var tabBarVisibility = TabBarVisibility()
     @ObservedObject private var mediaSaveFeedback = MediaSaveFeedback.shared
 
     var body: some View {
         ZStack {
-            // The UITabBarController's native bar is hidden; pushed/root VCs
-            // fill full height. Our SwiftUI tab bar rides on .safeAreaInset
-            // so root content insets above it, and slides off on detail push.
-            MainTabController(
-                selectedIndex: $selectedTab,
-                visibility: tabBarVisibility
-            )
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !tabBarVisibility.isHidden {
-                    CustomTabBar(selectedIndex: $selectedTab)
-                        .transition(.move(edge: .bottom))
-                }
-            }
-            .ignoresSafeArea(.keyboard)
+            MainTabController(selectedIndex: $selectedTab)
+                .ignoresSafeArea()
 
             ImageGalleryOverlay()
         }
+        .ignoresSafeArea(.keyboard)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { _ in
             selectedTab = 0
         }
