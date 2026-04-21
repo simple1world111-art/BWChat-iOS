@@ -692,7 +692,11 @@ class APIService {
             addAuthHeader(&request)
         }
 
-        return try await perform(request)
+        // For unauthenticated endpoints (login, refresh) a 401 is genuine —
+        // trying to "fix" it by running attemptTokenRefresh would recurse
+        // into the same endpoint and deadlock on `isRefreshing`. Only let
+        // authenticated requests go through the retry-with-refresh path.
+        return try await perform(request, allowRetry: auth)
     }
 
     private func putJSON<T: Decodable>(
@@ -713,7 +717,7 @@ class APIService {
             addAuthHeader(&request)
         }
 
-        return try await perform(request)
+        return try await perform(request, allowRetry: auth)
     }
 
     private func uploadImage<T: Decodable>(
