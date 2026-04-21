@@ -444,6 +444,16 @@ class WebSocketService: ObservableObject {
     }
 
     private func handleDisconnect() {
+        // Capture the close code + reason from the stale task BEFORE we
+        // tear it down. The server sends close code 4001 with reason
+        // "Invalid token" when the access token has expired — that's our
+        // signal to refresh rather than just reconnect with the same
+        // expired token (which would loop forever).
+        let staleTask = webSocketTask
+        let closeCodeRaw = staleTask?.closeCode.rawValue ?? 0
+        let reasonStr = staleTask?.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let tokenRejected = closeCodeRaw == 4001 || reasonStr.localizedCaseInsensitiveContains("token")
+
         isConnected = false
         isConnecting = false
         heartbeatTask?.cancel()
@@ -451,11 +461,19 @@ class WebSocketService: ObservableObject {
         healthCheckTask?.cancel()
         healthCheckTask = nil
 
-        let staleTask = webSocketTask
         webSocketTask = nil
         staleTask?.cancel(with: .goingAway, reason: nil)
 
         guard !isManuallyDisconnected else { return }
+
+        if tokenRejected {
+            print("[WS] server rejected token (code=\(closeCodeRaw) reason=\(reasonStr)) — refreshing")
+            reconnectTask?.cancel()
+            reconnectTask = Task { [weak self] in
+                await self?.refreshTokenAndReconnect()
+            }
+            return
+        }
 
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
@@ -465,6 +483,27 @@ class WebSocketService: ObservableObject {
             guard !Task.isCancelled else { return }
             self.reconnectDelay = min(self.reconnectDelay * 2, self.maxReconnectDelay)
             self.connect()
+        }
+    }
+
+    /// Called when the WS server signals an expired/invalid token. Use the
+    /// refresh token to obtain a new access token (same as the HTTP path's
+    /// `attemptTokenRefresh`), persist it, then reconnect. If refresh fails
+    /// (e.g. refresh token also expired), log the user out so the UI
+    /// returns to the login screen instead of looping on dead tokens.
+    @MainActor
+    private func refreshTokenAndReconnect() async {
+        do {
+            let (newToken, newRefresh, user) = try await APIService.shared.refreshTokens()
+            AuthManager.shared.token = newToken
+            AuthManager.shared.refreshToken = newRefresh
+            AuthManager.shared.updateUser(user)
+            print("[WS] token refreshed, reconnecting")
+            reconnectDelay = 1
+            connect()
+        } catch {
+            print("[WS] token refresh failed: \(error) — logging out")
+            AuthManager.shared.logout()
         }
     }
 }
