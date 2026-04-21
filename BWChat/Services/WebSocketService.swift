@@ -61,6 +61,13 @@ class WebSocketService: ObservableObject {
     private let maxReconnectDelay: TimeInterval = 30
     private var isManuallyDisconnected = false
     private var isConnecting = false
+    /// True once we've asked APIService to refresh the token in response to
+    /// the current disconnect cycle. Reset to false on every successful
+    /// connect (first received message). Prevents an infinite refresh loop
+    /// when the server keeps rejecting for a non-token reason — after one
+    /// failed refresh attempt, we fall through to the normal reconnect
+    /// backoff so a transient server issue doesn't spam /auth/refresh.
+    private var tokenRefreshAttempted = false
     private let networkMonitor = NWPathMonitor()
     private var lastPathStatus: NWPath.Status?
     private var isNetworkSatisfied = true
@@ -166,12 +173,17 @@ class WebSocketService: ObservableObject {
                         self.isConnecting = false
                         self.startHeartbeat()
                         self.startHealthCheck()
+                        // A successful receive means this session made it
+                        // past the handshake; any previous refresh attempt
+                        // is forgiven so the next disconnect can try
+                        // again if it needs to.
+                        self.tokenRefreshAttempted = false
                     }
                     self.lastMessageReceivedAt = Date()
                     self.handleMessage(message)
                     self.startListening()
-                case .failure:
-                    self.handleDisconnect()
+                case .failure(let error):
+                    self.handleDisconnect(error: error)
                 }
             }
         }
@@ -443,16 +455,29 @@ class WebSocketService: ObservableObject {
         }
     }
 
-    private func handleDisconnect() {
-        // Capture the close code + reason from the stale task BEFORE we
-        // tear it down. The server sends close code 4001 with reason
-        // "Invalid token" when the access token has expired — that's our
-        // signal to refresh rather than just reconnect with the same
-        // expired token (which would loop forever).
+    private func handleDisconnect(error: Error? = nil) {
+        // Capture signals for token-rejection BEFORE we tear the task down.
+        //
+        //  closeCode 4001 / closeReason "Invalid token"
+        //     → server had accepted the connection, then closed it with a
+        //       custom close code. Only set on a *successful* handshake
+        //       that is later closed.
+        //
+        //  NSURLErrorDomain -1011 (bad server response)
+        //     → handshake itself failed. Server returned a non-101 HTTP
+        //       status (403 for expired token, 404/500 for other reasons).
+        //       closeCode is NOT populated in this case, so we have to
+        //       detect it via the URLSession error.
         let staleTask = webSocketTask
         let closeCodeRaw = staleTask?.closeCode.rawValue ?? 0
         let reasonStr = staleTask?.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        let tokenRejected = closeCodeRaw == 4001 || reasonStr.localizedCaseInsensitiveContains("token")
+        let nsError = error as NSError?
+        let handshakeFailure = nsError?.domain == NSURLErrorDomain && nsError?.code == NSURLErrorBadServerResponse
+
+        let tokenLikelyInvalid =
+            closeCodeRaw == 4001 ||
+            reasonStr.localizedCaseInsensitiveContains("token") ||
+            handshakeFailure
 
         isConnected = false
         isConnecting = false
@@ -466,8 +491,15 @@ class WebSocketService: ObservableObject {
 
         guard !isManuallyDisconnected else { return }
 
-        if tokenRejected {
-            print("[WS] server rejected token (code=\(closeCodeRaw) reason=\(reasonStr)) — refreshing")
+        // First disconnect that looks like a token issue → try refresh once.
+        // The tokenRefreshAttempted flag resets on the next successful
+        // connect (first received message), so subsequent token rejections
+        // will refresh again — but a repeated refresh without ever
+        // connecting falls through to normal backoff reconnect to avoid
+        // hammering /auth/refresh.
+        if tokenLikelyInvalid && !tokenRefreshAttempted {
+            tokenRefreshAttempted = true
+            print("[WS] handshake/token failure (code=\(closeCodeRaw) reason=\(reasonStr) err=\(nsError?.code ?? 0)) — attempting refresh")
             reconnectTask?.cancel()
             reconnectTask = Task { [weak self] in
                 await self?.refreshTokenAndReconnect()
