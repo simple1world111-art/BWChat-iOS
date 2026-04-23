@@ -237,17 +237,6 @@ private struct GalleryContent: View {
                 // When it's not visible, sitting underneath the opaque
                 // TabView at the same full-screen state costs nothing.
                 if hasSrc {
-                    // Hero's layout frame is ALWAYS full-screen — never
-                    // animated. We transform it with scaleEffect + offset
-                    // to visually place it at the source thumbnail at
-                    // rest. Pure transforms are GPU-accelerated and
-                    // monotonic; animating `.frame` earlier caused the
-                    // HeroImageView's internal aspectRatio(.fit) to
-                    // re-compute rendering each frame and the image's
-                    // visible size crossed a non-linear hump (the
-                    // "overshoot → return" users kept seeing) whenever
-                    // the frame aspect ratio passed the image's intrinsic
-                    // aspect mid-animation.
                     let restScale = min(src.width / screen.width,
                                          src.height / screen.height)
                     let restOffsetX = src.midX - screen.width / 2
@@ -266,6 +255,9 @@ private struct GalleryContent: View {
                         )
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
+                        .onAppear {
+                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) restScale=\(restScale) restOffset=(\(restOffsetX),\(restOffsetY))")
+                        }
                 }
 
                 if !inHeroPhase, state.imageURLs.count > 1 {
