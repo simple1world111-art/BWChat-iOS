@@ -259,7 +259,18 @@ private struct GalleryContent: View {
 
                     HeroImageView(url: currentURL)
                         .frame(width: screen.width, height: screen.height)
-                        .clipShape(RoundedRectangle(cornerRadius: appeared ? 0 : 14))
+                        // Lock cornerRadius at 14 throughout. Previously it
+                        // animated 14 → 0 alongside the scale/offset; the
+                        // shrinking clip radius means the visible area of
+                        // the image was GROWING slightly even after the
+                        // main scale animation completed, and that
+                        // edge-expansion read as a small size overshoot
+                        // right at the end of the animation. Matching
+                        // ZoomableImagePage's clipShape (also 14 now)
+                        // keeps the visible bounds identical from source
+                        // thumbnail to hero to TabView so there's no
+                        // last-frame edge reveal.
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                         .scaleEffect(
                             appeared ? dragDismissScale : restScale,
                             anchor: .center
@@ -387,13 +398,18 @@ private struct GalleryContent: View {
             offset = .zero; lastOffset = .zero
             inHeroPhase = true
             GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
-            // easeOut: the image leaps toward the thumbnail position
-            // immediately after the tap, decelerating to rest. Total
-            // tap→gone ≈ 80ms debounce + 140ms animation = 220ms.
-            withAnimation(.easeOut(duration: 0.14)) {
-                appeared = false
+            // Same defer trick as onAppear: the hero just mounted via
+            // inHeroPhase=true; let SwiftUI commit that mount at the
+            // current appeared=true fullscreen state before we fire the
+            // shrink animation. Without the defer, SwiftUI batches the
+            // mount and state-change into one transaction and the close
+            // visibly overshoots at the start of the shrink.
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.14)) {
+                    appeared = false
+                }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
                 GalleryDbg.log("  onDismiss() (post-animation)")
                 onDismiss()
             }
@@ -540,6 +556,11 @@ private struct ZoomableImagePage: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: geo.size.width, height: geo.size.height)
+                        // Match the hero's cornerRadius(14) so the visible
+                        // clip bounds are IDENTICAL when the hero hands
+                        // off to this view. Prevents a last-frame edge
+                        // reveal that read as a small size overshoot.
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                         .scaleEffect(scale)
                         .offset(x: offset.width, y: offset.height)
                         .gesture(pinchGesture)
