@@ -234,11 +234,35 @@ private struct GalleryContent: View {
         }
         let targetRect = Self.fitRect(aspect: imgAspect, in: screen)
 
-        // Hero animates a single rectangle from src (thumbnail) to targetRect
-        // (on-screen fit). Width, height, and center are all plain CGFloats, so
-        // withAnimation interpolates them smoothly — no scaleEffect, no offset
-        // tricks, no aspectRatio re-computation mid-animation.
-        let baseRect: CGRect = appeared ? targetRect : src
+        // Hero's REST rect is the image's actual displayed rect inside the
+        // source bubble — NOT the bubble container's rect. The captured
+        // sourceFrame is the bubble (aspect ~0.77), but the image inside is
+        // aspect-fitted with its own aspect; if the two differ, the bubble
+        // has transparent letterbox around the image. Starting the hero at
+        // the bubble's rect means the hero's interior letterbox (40pt on
+        // each side for a tall portrait in a square-ish bubble) would
+        // animate away at the same time the rect is translating — users
+        // read that as "enlarges, then shrinks to target". Instead, start
+        // at the image's real rect inside the bubble: hero and chat image
+        // overlap exactly at t=0, no letterbox at any frame.
+        let srcRect: CGRect
+        if hasSrc {
+            let fit = Self.fitRect(aspect: imgAspect, in: CGSize(width: src.width, height: src.height))
+            srcRect = CGRect(
+                x: src.minX + fit.minX,
+                y: src.minY + fit.minY,
+                width: fit.width,
+                height: fit.height
+            )
+        } else {
+            srcRect = src
+        }
+
+        // Hero animates a single rectangle from srcRect (image's real rect in
+        // the bubble) to targetRect (on-screen fit). Both have the image's
+        // aspect, so the rect's aspect is constant throughout — no mid-
+        // animation letterbox changes, no scaleEffect/offset tricks.
+        let baseRect: CGRect = appeared ? targetRect : srcRect
         let dragK = dragDismissScale
         let heroW = max(baseRect.width * dragK, 0)
         let heroH = max(baseRect.height * dragK, 0)
@@ -298,7 +322,7 @@ private struct GalleryContent: View {
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
                         .onAppear {
-                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) src=\(src) target=\(targetRect)")
+                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) src=\(src) srcRect=\(srcRect) target=\(targetRect) imgAspect=\(imgAspect)")
                         }
                 }
 
