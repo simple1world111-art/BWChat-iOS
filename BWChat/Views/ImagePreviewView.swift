@@ -237,10 +237,13 @@ private struct GalleryContent: View {
                             width: appeared ? screen.width : src.width,
                             height: appeared ? screen.height : src.height
                         )
-                        // Match the chat thumbnail's 14pt rounded corners so
-                        // the first frame of the hero exactly overlays the
-                        // source thumbnail.
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        // Animate cornerRadius 14 → 0 alongside the frame.
+                        // At thumbnail size we need 14pt to cover the chat
+                        // bubble's rounded edges; at full screen we want 0
+                        // so that when the TabView fades in (which clips at
+                        // 0) the visual edges coincide and there's no
+                        // perceived size-jump at the hero→TabView handoff.
+                        .clipShape(RoundedRectangle(cornerRadius: appeared ? 0 : 14))
                         // Mirror the TabView's drag-transforms so on
                         // swipe-to-dismiss, when we hide the TabView and
                         // reveal the hero, it already sits at the exact
