@@ -195,6 +195,18 @@ private struct GalleryContent: View {
         )
     }
 
+    /// Pull the image's natural size out of the memory cache. The gallery
+    /// uses this to compute the on-screen target rect with the image's REAL
+    /// aspect ratio (the captured sourceFrame may be a bubble container, not
+    /// the image itself, so its aspect cannot be trusted).
+    private static func cachedImageSize(for url: String) -> CGSize? {
+        let cache = ImageCacheManager.shared
+        if let img = cache.image(for: url) ?? cache.image(for: url + "?thumb=1") {
+            return img.size
+        }
+        return nil
+    }
+
     var body: some View {
         // Use UIScreen.main.bounds for screen size instead of GeometryReader —
         // UIScreen gives a synchronous, stable size with no first-frame race.
@@ -205,11 +217,22 @@ private struct GalleryContent: View {
             ? state.imageURLs[currentIndex]
             : (state.imageURLs.first ?? "")
 
-        // Full-screen aspect-fit rect for the image. Thumbnails use scaledToFit,
-        // so src's aspect == image's aspect; we can derive the on-screen target
-        // rect without waiting for the full-resolution image to load.
-        let srcAspect: CGFloat = hasSrc ? src.width / src.height : screen.width / screen.height
-        let targetRect = Self.fitRect(aspect: srcAspect, in: screen)
+        // Full-screen aspect-fit rect for the image. Prefer the image's real
+        // intrinsic aspect (from memory cache) — sourceFrame may be the bubble
+        // container, not the image's displayed rect, so its aspect is not
+        // trustworthy. Fall back to src aspect only when the image isn't yet
+        // cached. Also: Image uses .aspectRatio(.fit) so a stale fallback aspect
+        // degrades to letterbox, never to a stretched image.
+        let cachedSize = Self.cachedImageSize(for: currentURL)
+        let imgAspect: CGFloat
+        if let s = cachedSize, s.width > 0, s.height > 0 {
+            imgAspect = s.width / s.height
+        } else if hasSrc {
+            imgAspect = src.width / src.height
+        } else {
+            imgAspect = screen.width / screen.height
+        }
+        let targetRect = Self.fitRect(aspect: imgAspect, in: screen)
 
         // Hero animates a single rectangle from src (thumbnail) to targetRect
         // (on-screen fit). Width, height, and center are all plain CGFloats, so
@@ -557,9 +580,12 @@ private struct ZoomableImagePage: View {
             if let image = image {
                 Image(uiImage: image)
                     .resizable()
-                    // Since imageRect IS the aspect-fit rect (its aspect == the
-                    // image's aspect), plain .resizable() fill == aspect-fit.
-                    // No .aspectRatio() — removes mid-animation re-computation.
+                    // aspectRatio(.fit) guarantees the image is never stretched
+                    // inside the frame, even if imageRect's aspect doesn't
+                    // perfectly match the image's aspect (e.g., sourceFrame was
+                    // a bubble container instead of the image's displayed rect).
+                    // Worst case: letterbox bars. Never distortion.
+                    .aspectRatio(contentMode: .fit)
                     .frame(width: imageRect.width, height: imageRect.height)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .scaleEffect(scale, anchor: .center)
@@ -671,13 +697,13 @@ private struct HeroImageView: View {
     var body: some View {
         Group {
             if let image = image {
-                // No .aspectRatio(.fit) — the parent frame is already the
-                // aspect-fit rect (derived from the thumbnail's aspect, which
-                // equals the image's aspect). Plain .resizable() fills the
-                // frame exactly, so there is no letterbox area to animate
-                // through and no mid-animation aspect recalculation.
+                // aspectRatio(.fit) keeps the image at its natural aspect even
+                // when the outer frame's aspect differs — prevents ugly
+                // stretching when sourceFrame's aspect doesn't match the
+                // image's aspect.
                 Image(uiImage: image)
                     .resizable()
+                    .aspectRatio(contentMode: .fit)
             } else {
                 Color.black.opacity(0.001)
             }
