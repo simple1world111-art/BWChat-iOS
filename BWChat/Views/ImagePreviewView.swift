@@ -173,15 +173,21 @@ private struct GalleryContent: View {
     }
 
     var body: some View {
-        GeometryReader { outer in
-            let screen = outer.size
-            let src = state.sourceFrame
-            let hasSrc = src.width > 1 && src.height > 1
-            let currentURL = currentIndex >= 0 && currentIndex < state.imageURLs.count
-                ? state.imageURLs[currentIndex]
-                : (state.imageURLs.first ?? "")
+        // Use UIScreen.main.bounds for screen size instead of GeometryReader.
+        // GeometryReader's first layout pass can report (0, 0) before the
+        // real size settles, and our rest-transform math was dividing by
+        // that — producing a one-frame `scale = +∞` that rendered the hero
+        // at an absurdly huge size, which users saw as "jumps past target
+        // then shrinks back" on open. UIScreen gives a synchronous, stable
+        // size with no first-frame race.
+        let screen = UIScreen.main.bounds.size
+        let src = state.sourceFrame
+        let hasSrc = src.width > 1 && src.height > 1
+        let currentURL = currentIndex >= 0 && currentIndex < state.imageURLs.count
+            ? state.imageURLs[currentIndex]
+            : (state.imageURLs.first ?? "")
 
-            ZStack {
+        return ZStack {
                 Color.black
                     .ignoresSafeArea()
                     .opacity(appeared ? backgroundOpacity : 0)
@@ -237,10 +243,19 @@ private struct GalleryContent: View {
                 // When it's not visible, sitting underneath the opaque
                 // TabView at the same full-screen state costs nothing.
                 if hasSrc {
-                    let restScale = min(src.width / screen.width,
-                                         src.height / screen.height)
-                    let restOffsetX = src.midX - screen.width / 2
-                    let restOffsetY = src.midY - screen.height / 2
+                    // Guard against GeometryReader's first pass reporting
+                    // (0, 0) — a division by zero made restScale = +∞ for
+                    // one frame and the hero rendered at an absurdly huge
+                    // size, visibly "jumping past target then shrinking
+                    // back" (exactly the overshoot users kept reporting).
+                    // Fall back to identity transform until the geometry
+                    // settles.
+                    let geomReady = screen.width > 1 && screen.height > 1
+                    let restScale: CGFloat = geomReady
+                        ? min(src.width / screen.width, src.height / screen.height)
+                        : 1
+                    let restOffsetX: CGFloat = geomReady ? src.midX - screen.width / 2 : 0
+                    let restOffsetY: CGFloat = geomReady ? src.midY - screen.height / 2 : 0
 
                     HeroImageView(url: currentURL)
                         .frame(width: screen.width, height: screen.height)
@@ -273,9 +288,7 @@ private struct GalleryContent: View {
                         Spacer()
                     }
                     .opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)
-                }
             }
-            .ignoresSafeArea()
         }
         .ignoresSafeArea()
         .onAppear {
