@@ -274,40 +274,43 @@ private struct GalleryContent: View {
                     .ignoresSafeArea()
                     .opacity(appeared ? backgroundOpacity : 0)
 
-                // Real gallery (paging, pinch-zoom). Only mounted while NOT in
-                // hero phase — its internal UIPageViewController runs layout
-                // passes that produce 1206x0 slots if left mounted during the
-                // grow animation.
-                if !inHeroPhase {
-                    TabView(selection: $currentIndex) {
-                        ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
-                            ZoomableImagePage(
-                                imageURL: url,
-                                imageRect: targetRect,
-                                screenSize: screen,
-                                scale: index == currentIndex ? $scale : .constant(1),
-                                lastScale: index == currentIndex ? $lastScale : .constant(1),
-                                offset: index == currentIndex ? $offset : .constant(.zero),
-                                lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                                onSingleTap: { dismissByTap() },
-                                onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
-                            )
-                            .tag(index)
-                        }
+                // Real gallery (paging, pinch-zoom). Mounted from t=0 so its
+                // UIPageViewController is fully laid out by the time the hero
+                // hands off — avoids a blank/half-rendered frame at the swap.
+                // The old 1206x0 layout failure came from applying a shrinking
+                // scaleEffect directly to TabView during the hero grow; in the
+                // current architecture TabView's frame is fixed (screenSize)
+                // and its image renders at a fixed imageRect, so its internal
+                // layout is stable even while hidden behind the hero.
+                TabView(selection: $currentIndex) {
+                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                        ZoomableImagePage(
+                            imageURL: url,
+                            imageRect: targetRect,
+                            screenSize: screen,
+                            scale: index == currentIndex ? $scale : .constant(1),
+                            lastScale: index == currentIndex ? $lastScale : .constant(1),
+                            offset: index == currentIndex ? $offset : .constant(.zero),
+                            lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                            onSingleTap: { dismissByTap() },
+                            onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
+                        )
+                        .tag(index)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
-                    .offset(y: verticalDrag)
-                    .scaleEffect(dragDismissScale)
-                    .scrollDisabled(verticalDrag != 0)
-                    .simultaneousGesture(verticalDismissGesture)
-                    .onChange(of: currentIndex) { newIndex in
-                        resetZoom()
-                        if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
-                            Task { await loadMoreIfNeeded() }
-                        }
-                    }
-                    .transition(.identity)
                 }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .offset(y: verticalDrag)
+                .scaleEffect(dragDismissScale)
+                .scrollDisabled(verticalDrag != 0)
+                .simultaneousGesture(verticalDismissGesture)
+                .onChange(of: currentIndex) { newIndex in
+                    resetZoom()
+                    if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
+                        Task { await loadMoreIfNeeded() }
+                    }
+                }
+                .opacity(inHeroPhase ? 0 : 1)
+                .allowsHitTesting(!inHeroPhase)
 
                 // Hero image — rendered at heroRect (src→targetRect animated).
                 // Since targetRect is a screen-aspect-fit of src's aspect, the
@@ -364,7 +367,14 @@ private struct GalleryContent: View {
                 // Includes the extra async-dispatch tick above (~1 frame).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
                     GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
-                    inHeroPhase = false
+                    // Short crossfade instead of an instant toggle: TabView is
+                    // already mounted and fully laid out underneath, so the
+                    // 80ms fade is invisible when hero and TabView render the
+                    // same pixels at the same rect — but it saves us from any
+                    // single-frame misalignment.
+                    withAnimation(.easeInOut(duration: 0.08)) {
+                        inHeroPhase = false
+                    }
                 }
             }
         }
@@ -436,7 +446,13 @@ private struct GalleryContent: View {
             // the swap to hero (which renders at scale 1) doesn't pop.
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
-            inHeroPhase = true
+            // Short crossfade for the TabView→Hero swap. Both render the same
+            // pixels at the same rect, so the fade window is visually a no-op,
+            // but it prevents any single-frame gap between the TabView
+            // disappearing and the hero becoming opaque.
+            withAnimation(.easeInOut(duration: 0.08)) {
+                inHeroPhase = true
+            }
             GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
             // Same defer trick as onAppear: the hero just mounted via
             // inHeroPhase=true; let SwiftUI commit that mount at the
@@ -476,7 +492,9 @@ private struct GalleryContent: View {
         if hasSrc {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
-            inHeroPhase = true
+            withAnimation(.easeInOut(duration: 0.08)) {
+                inHeroPhase = true
+            }
             withAnimation(.easeOut(duration: 0.18)) {
                 appeared = false
                 verticalDrag = 0
