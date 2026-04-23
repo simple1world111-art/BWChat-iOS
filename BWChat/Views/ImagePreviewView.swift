@@ -172,14 +172,32 @@ private struct GalleryContent: View {
         GalleryDbg.log("GalleryContent.init", "srcFrame=\(state.sourceFrame) inHeroPhase=\(_inHeroPhase.wrappedValue)")
     }
 
+    /// Aspect-fit rect of `aspect` (w/h) inside `bounds`, centered.
+    private static func fitRect(aspect: CGFloat, in bounds: CGSize) -> CGRect {
+        guard aspect > 0, bounds.width > 0, bounds.height > 0 else {
+            return CGRect(origin: .zero, size: bounds)
+        }
+        let boundsAspect = bounds.width / bounds.height
+        let w: CGFloat
+        let h: CGFloat
+        if aspect >= boundsAspect {
+            w = bounds.width
+            h = bounds.width / aspect
+        } else {
+            h = bounds.height
+            w = bounds.height * aspect
+        }
+        return CGRect(
+            x: (bounds.width - w) / 2,
+            y: (bounds.height - h) / 2,
+            width: w,
+            height: h
+        )
+    }
+
     var body: some View {
-        // Use UIScreen.main.bounds for screen size instead of GeometryReader.
-        // GeometryReader's first layout pass can report (0, 0) before the
-        // real size settles, and our rest-transform math was dividing by
-        // that — producing a one-frame `scale = +∞` that rendered the hero
-        // at an absurdly huge size, which users saw as "jumps past target
-        // then shrinks back" on open. UIScreen gives a synchronous, stable
-        // size with no first-frame race.
+        // Use UIScreen.main.bounds for screen size instead of GeometryReader —
+        // UIScreen gives a synchronous, stable size with no first-frame race.
         let screen = UIScreen.main.bounds.size
         let src = state.sourceFrame
         let hasSrc = src.width > 1 && src.height > 1
@@ -187,32 +205,39 @@ private struct GalleryContent: View {
             ? state.imageURLs[currentIndex]
             : (state.imageURLs.first ?? "")
 
+        // Full-screen aspect-fit rect for the image. Thumbnails use scaledToFit,
+        // so src's aspect == image's aspect; we can derive the on-screen target
+        // rect without waiting for the full-resolution image to load.
+        let srcAspect: CGFloat = hasSrc ? src.width / src.height : screen.width / screen.height
+        let targetRect = Self.fitRect(aspect: srcAspect, in: screen)
+
+        // Hero animates a single rectangle from src (thumbnail) to targetRect
+        // (on-screen fit). Width, height, and center are all plain CGFloats, so
+        // withAnimation interpolates them smoothly — no scaleEffect, no offset
+        // tricks, no aspectRatio re-computation mid-animation.
+        let baseRect: CGRect = appeared ? targetRect : src
+        let dragK = dragDismissScale
+        let heroW = max(baseRect.width * dragK, 0)
+        let heroH = max(baseRect.height * dragK, 0)
+        let heroCX = baseRect.midX
+        let heroCY = baseRect.midY + verticalDrag
+
         return ZStack {
                 Color.black
                     .ignoresSafeArea()
                     .opacity(appeared ? backgroundOpacity : 0)
 
-                // Both the hero image AND the real gallery stay mounted in
-                // the tree — we just swap which one is visible via opacity.
-                // Mounting/unmounting caused a blank frame at the handoff
-                // (open → full-screen, dismiss → shrink) that registered as
-                // a visible jitter. Keeping both mounted lets SwiftUI
-                // cross-fade instantly without a render-tree reshape.
-
-                // Real gallery (gestures, paging, pinch-zoom).
-                // Only mount while NOT in hero phase. Previously we kept
-                // TabView mounted with opacity 0 during hero, but its
-                // internal UIPageViewController still ran layout passes —
-                // one intermediate pass produced a 1206x0 layer (visible
-                // as "Failed to create 1206x0 image slot" in the log),
-                // and the eventual opacity swap into the post-layout
-                // state showed a slight size jump that users read as
-                // "enlarges past target, then shrinks back".
+                // Real gallery (paging, pinch-zoom). Only mounted while NOT in
+                // hero phase — its internal UIPageViewController runs layout
+                // passes that produce 1206x0 slots if left mounted during the
+                // grow animation.
                 if !inHeroPhase {
                     TabView(selection: $currentIndex) {
                         ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
                             ZoomableImagePage(
                                 imageURL: url,
+                                imageRect: targetRect,
+                                screenSize: screen,
                                 scale: index == currentIndex ? $scale : .constant(1),
                                 lastScale: index == currentIndex ? $lastScale : .constant(1),
                                 offset: index == currentIndex ? $offset : .constant(.zero),
@@ -237,52 +262,20 @@ private struct GalleryContent: View {
                     .transition(.identity)
                 }
 
-                // Hero image — plain SwiftUI Image whose frame/position
-                // animate between the source thumbnail rect and the full-
-                // screen rect. Only visible while `inHeroPhase` is true.
-                // When it's not visible, sitting underneath the opaque
-                // TabView at the same full-screen state costs nothing.
+                // Hero image — rendered at heroRect (src→targetRect animated).
+                // Since targetRect is a screen-aspect-fit of src's aspect, the
+                // Hero and the TabView's image land at the exact same pixel
+                // rect when the hero animation completes. The handoff swap is
+                // visually a no-op — no "enlarge then shrink" flicker.
                 if hasSrc {
-                    // Guard against GeometryReader's first pass reporting
-                    // (0, 0) — a division by zero made restScale = +∞ for
-                    // one frame and the hero rendered at an absurdly huge
-                    // size, visibly "jumping past target then shrinking
-                    // back" (exactly the overshoot users kept reporting).
-                    // Fall back to identity transform until the geometry
-                    // settles.
-                    let geomReady = screen.width > 1 && screen.height > 1
-                    let restScale: CGFloat = geomReady
-                        ? min(src.width / screen.width, src.height / screen.height)
-                        : 1
-                    let restOffsetX: CGFloat = geomReady ? src.midX - screen.width / 2 : 0
-                    let restOffsetY: CGFloat = geomReady ? src.midY - screen.height / 2 : 0
-
                     HeroImageView(url: currentURL)
-                        .frame(width: screen.width, height: screen.height)
-                        // Lock cornerRadius at 14 throughout. Previously it
-                        // animated 14 → 0 alongside the scale/offset; the
-                        // shrinking clip radius means the visible area of
-                        // the image was GROWING slightly even after the
-                        // main scale animation completed, and that
-                        // edge-expansion read as a small size overshoot
-                        // right at the end of the animation. Matching
-                        // ZoomableImagePage's clipShape (also 14 now)
-                        // keeps the visible bounds identical from source
-                        // thumbnail to hero to TabView so there's no
-                        // last-frame edge reveal.
+                        .frame(width: heroW, height: heroH)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .scaleEffect(
-                            appeared ? dragDismissScale : restScale,
-                            anchor: .center
-                        )
-                        .offset(
-                            x: appeared ? 0 : restOffsetX,
-                            y: appeared ? verticalDrag : restOffsetY
-                        )
+                        .position(x: heroCX, y: heroCY)
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
                         .onAppear {
-                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) restScale=\(restScale) restOffset=(\(restOffsetX),\(restOffsetY))")
+                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) src=\(src) target=\(targetRect)")
                         }
                 }
 
@@ -504,6 +497,13 @@ private struct GalleryContent: View {
 
 private struct ZoomableImagePage: View {
     let imageURL: String
+    /// Precomputed on-screen rect where the image renders at rest (no pinch,
+    /// no drag). Matches the hero's final animation rect exactly, so the
+    /// hero→TabView handoff is pixel-identical.
+    let imageRect: CGRect
+    /// Full page size (UIScreen bounds), used to size the cell so TabView
+    /// doesn't fall back to GeometryReader's size report.
+    let screenSize: CGSize
     @Binding var scale: CGFloat
     @Binding var lastScale: CGFloat
     @Binding var offset: CGSize
@@ -523,6 +523,8 @@ private struct ZoomableImagePage: View {
 
     init(
         imageURL: String,
+        imageRect: CGRect,
+        screenSize: CGSize,
         scale: Binding<CGFloat>,
         lastScale: Binding<CGFloat>,
         offset: Binding<CGSize>,
@@ -531,6 +533,8 @@ private struct ZoomableImagePage: View {
         onDoubleTap: @escaping (CGPoint) -> Void
     ) {
         self.imageURL = imageURL
+        self.imageRect = imageRect
+        self.screenSize = screenSize
         self._scale = scale
         self._lastScale = lastScale
         self._offset = offset
@@ -547,71 +551,62 @@ private struct ZoomableImagePage: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color.clear
+        ZStack {
+            Color.clear
 
-                if let image = image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        // Match the hero's cornerRadius(14) so the visible
-                        // clip bounds are IDENTICAL when the hero hands
-                        // off to this view. Prevents a last-frame edge
-                        // reveal that read as a small size overshoot.
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .scaleEffect(scale)
-                        .offset(x: offset.width, y: offset.height)
-                        .gesture(pinchGesture)
-                        // Pan is attached ONLY while zoomed. At rest scale,
-                        // no drag gesture on the image — UIPageViewController
-                        // sees the touches and left/right paging works. When
-                        // zoomed, pan takes over (dismiss is gated off at
-                        // scale > 1.05 inside its own handler).
-                        .simultaneousGesture(scale > 1.05 ? panGesture : nil)
-                        // Double-tap runs simultaneously with the single-tap
-                        // recognizer below; when it fires it cancels any
-                        // scheduled single-tap action so we don't dismiss
-                        // AND zoom on a double-tap.
-                        .simultaneousGesture(
-                            SpatialTapGesture(count: 2)
-                                .onEnded { event in
-                                    GalleryDbg.log("double-tap detected")
-                                    pendingSingleTap?.cancel()
-                                    pendingSingleTap = nil
-                                    let dx = event.location.x - geo.size.width / 2
-                                    let dy = event.location.y - geo.size.height / 2
-                                    onDoubleTap(CGPoint(x: dx, y: dy))
-                                }
-                        )
-                        // Debounced single-tap: schedule the action after a
-                        // short window, cancelled if a second tap arrives.
-                        // 80ms is tight but WeChat-snappy; still enough for
-                        // a typical double-tap (users usually hit the
-                        // second tap within 80-200ms of the first).
-                        .onTapGesture {
-                            GalleryDbg.log("single-tap scheduled (80ms debounce)")
-                            let task = DispatchWorkItem {
-                                GalleryDbg.log("single-tap fires (after debounce)")
-                                onSingleTap()
+            if let image = image {
+                Image(uiImage: image)
+                    .resizable()
+                    // Since imageRect IS the aspect-fit rect (its aspect == the
+                    // image's aspect), plain .resizable() fill == aspect-fit.
+                    // No .aspectRatio() — removes mid-animation re-computation.
+                    .frame(width: imageRect.width, height: imageRect.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .scaleEffect(scale, anchor: .center)
+                    .offset(x: offset.width, y: offset.height)
+                    .position(x: imageRect.midX, y: imageRect.midY)
+                    .gesture(pinchGesture)
+                    // Pan is attached ONLY while zoomed. At rest scale, no
+                    // drag gesture on the image — UIPageViewController sees
+                    // the touches and left/right paging works.
+                    .simultaneousGesture(scale > 1.05 ? panGesture : nil)
+                    .simultaneousGesture(
+                        SpatialTapGesture(count: 2)
+                            .onEnded { event in
+                                GalleryDbg.log("double-tap detected")
+                                pendingSingleTap?.cancel()
                                 pendingSingleTap = nil
+                                // event.location is relative to the Image
+                                // view (which is sized to imageRect), so its
+                                // center is at (w/2, h/2) of that rect.
+                                let dx = event.location.x - imageRect.width / 2
+                                let dy = event.location.y - imageRect.height / 2
+                                onDoubleTap(CGPoint(x: dx, y: dy))
                             }
-                            pendingSingleTap?.cancel()
-                            pendingSingleTap = task
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: task)
+                    )
+                    .onTapGesture {
+                        GalleryDbg.log("single-tap scheduled (80ms debounce)")
+                        let task = DispatchWorkItem {
+                            GalleryDbg.log("single-tap fires (after debounce)")
+                            onSingleTap()
+                            pendingSingleTap = nil
                         }
-                        .longPressToSaveImage(url: imageURL)
-                } else if isLoading {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                } else {
-                    Image(systemName: "photo")
-                        .font(.system(size: 48))
-                        .foregroundColor(.gray)
-                }
+                        pendingSingleTap?.cancel()
+                        pendingSingleTap = task
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: task)
+                    }
+                    .longPressToSaveImage(url: imageURL)
+            } else if isLoading {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 48))
+                    .foregroundColor(.gray)
             }
         }
+        .frame(width: screenSize.width, height: screenSize.height)
+        .contentShape(Rectangle())
         .task(id: imageURL) {
             if let loaded = await ImageCacheManager.shared.loadImage(from: imageURL) {
                 image = loaded
@@ -676,9 +671,13 @@ private struct HeroImageView: View {
     var body: some View {
         Group {
             if let image = image {
+                // No .aspectRatio(.fit) — the parent frame is already the
+                // aspect-fit rect (derived from the thumbnail's aspect, which
+                // equals the image's aspect). Plain .resizable() fills the
+                // frame exactly, so there is no letterbox area to animate
+                // through and no mid-animation aspect recalculation.
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
             } else {
                 Color.black.opacity(0.001)
             }
