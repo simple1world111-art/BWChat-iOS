@@ -293,17 +293,25 @@ private struct GalleryContent: View {
         .ignoresSafeArea()
         .onAppear {
             GalleryDbg.log("onAppear", "inHeroPhase=\(inHeroPhase)")
-            // Shorter + easeOut for a WeChat-snappy grow. easeOut's fast
-            // leading edge means the image immediately moves off the
-            // thumbnail (instant visual feedback), then decelerates as
-            // it lands at fullscreen.
-            withAnimation(.easeOut(duration: 0.22)) {
-                GalleryDbg.log("withAnim(appeared=true) START")
-                appeared = true
+            // Defer the animation start until AFTER SwiftUI has rendered
+            // this view one time with appeared=false. Inline withAnimation
+            // inside onAppear was giving SwiftUI no chance to commit the
+            // initial rest-frame — it seems to have been interpolating
+            // from a default identity state (scale=1 fullscreen) to the
+            // appeared=true target, which both happen to be scale=1 but
+            // with a momentary "big" frame in between that users read as
+            // an overshoot. One runloop tick of delay ensures the hero
+            // is physically drawn at restScale first, then grown.
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    GalleryDbg.log("withAnim(appeared=true) START")
+                    appeared = true
+                }
             }
             if inHeroPhase {
                 // 20ms buffer past the animation duration for safety.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+                // Includes the extra async-dispatch tick above (~1 frame).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
                     GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
                     inHeroPhase = false
                 }
