@@ -237,28 +237,32 @@ private struct GalleryContent: View {
                 // When it's not visible, sitting underneath the opaque
                 // TabView at the same full-screen state costs nothing.
                 if hasSrc {
+                    // Hero's layout frame is ALWAYS full-screen — never
+                    // animated. We transform it with scaleEffect + offset
+                    // to visually place it at the source thumbnail at
+                    // rest. Pure transforms are GPU-accelerated and
+                    // monotonic; animating `.frame` earlier caused the
+                    // HeroImageView's internal aspectRatio(.fit) to
+                    // re-compute rendering each frame and the image's
+                    // visible size crossed a non-linear hump (the
+                    // "overshoot → return" users kept seeing) whenever
+                    // the frame aspect ratio passed the image's intrinsic
+                    // aspect mid-animation.
+                    let restScale = min(src.width / screen.width,
+                                         src.height / screen.height)
+                    let restOffsetX = src.midX - screen.width / 2
+                    let restOffsetY = src.midY - screen.height / 2
+
                     HeroImageView(url: currentURL)
-                        .frame(
-                            width: appeared ? screen.width : src.width,
-                            height: appeared ? screen.height : src.height
-                        )
-                        // Animate cornerRadius 14 → 0 alongside the frame.
-                        // At thumbnail size we need 14pt to cover the chat
-                        // bubble's rounded edges; at full screen we want 0
-                        // so that when the TabView fades in (which clips at
-                        // 0) the visual edges coincide and there's no
-                        // perceived size-jump at the hero→TabView handoff.
+                        .frame(width: screen.width, height: screen.height)
                         .clipShape(RoundedRectangle(cornerRadius: appeared ? 0 : 14))
-                        // Mirror the TabView's drag-transforms so on
-                        // swipe-to-dismiss, when we hide the TabView and
-                        // reveal the hero, it already sits at the exact
-                        // position/scale the TabView was showing — then the
-                        // withAnimation in dismissBySwipe can shrink it
-                        // smoothly back to src.
-                        .scaleEffect(appeared ? dragDismissScale : 1.0, anchor: .center)
-                        .position(
-                            x: appeared ? screen.width / 2 : src.midX,
-                            y: appeared ? screen.height / 2 + verticalDrag : src.midY
+                        .scaleEffect(
+                            appeared ? dragDismissScale : restScale,
+                            anchor: .center
+                        )
+                        .offset(
+                            x: appeared ? 0 : restOffsetX,
+                            y: appeared ? verticalDrag : restOffsetY
                         )
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
