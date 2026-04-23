@@ -194,36 +194,41 @@ private struct GalleryContent: View {
                 // cross-fade instantly without a render-tree reshape.
 
                 // Real gallery (gestures, paging, pinch-zoom).
-                TabView(selection: $currentIndex) {
-                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
-                        ZoomableImagePage(
-                            imageURL: url,
-                            scale: index == currentIndex ? $scale : .constant(1),
-                            lastScale: index == currentIndex ? $lastScale : .constant(1),
-                            offset: index == currentIndex ? $offset : .constant(.zero),
-                            lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
-                            onSingleTap: { dismissByTap() },
-                            onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
-                        )
-                        .tag(index)
+                // Only mount while NOT in hero phase. Previously we kept
+                // TabView mounted with opacity 0 during hero, but its
+                // internal UIPageViewController still ran layout passes —
+                // one intermediate pass produced a 1206x0 layer (visible
+                // as "Failed to create 1206x0 image slot" in the log),
+                // and the eventual opacity swap into the post-layout
+                // state showed a slight size jump that users read as
+                // "enlarges past target, then shrinks back".
+                if !inHeroPhase {
+                    TabView(selection: $currentIndex) {
+                        ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                            ZoomableImagePage(
+                                imageURL: url,
+                                scale: index == currentIndex ? $scale : .constant(1),
+                                lastScale: index == currentIndex ? $lastScale : .constant(1),
+                                offset: index == currentIndex ? $offset : .constant(.zero),
+                                lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                                onSingleTap: { dismissByTap() },
+                                onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
+                            )
+                            .tag(index)
+                        }
                     }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .offset(y: verticalDrag)
-                .scaleEffect(dragDismissScale)
-                .opacity(inHeroPhase ? 0 : 1)
-                .allowsHitTesting(!inHeroPhase)
-                // Lock the horizontal page swipe once the user commits to a
-                // vertical drag — otherwise you can swipe left/right to
-                // change photos WHILE dragging one down, which WeChat
-                // doesn't allow and feels wrong.
-                .scrollDisabled(verticalDrag != 0)
-                .simultaneousGesture(verticalDismissGesture)
-                .onChange(of: currentIndex) { newIndex in
-                    resetZoom()
-                    if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
-                        Task { await loadMoreIfNeeded() }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .offset(y: verticalDrag)
+                    .scaleEffect(dragDismissScale)
+                    .scrollDisabled(verticalDrag != 0)
+                    .simultaneousGesture(verticalDismissGesture)
+                    .onChange(of: currentIndex) { newIndex in
+                        resetZoom()
+                        if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
+                            Task { await loadMoreIfNeeded() }
+                        }
                     }
+                    .transition(.identity)
                 }
 
                 // Hero image — plain SwiftUI Image whose frame/position
