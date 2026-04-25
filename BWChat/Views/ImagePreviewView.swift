@@ -385,14 +385,16 @@ private struct GalleryContent: View {
                 // Includes the extra async-dispatch tick above (~1 frame).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
                     GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
-                    // Short crossfade instead of an instant toggle: TabView is
-                    // already mounted and fully laid out underneath, so the
-                    // 80ms fade is invisible when hero and TabView render the
-                    // same pixels at the same rect — but it saves us from any
-                    // single-frame misalignment.
-                    withAnimation(.easeInOut(duration: 0.08)) {
-                        inHeroPhase = false
-                    }
+                    // Instant toggle, no crossfade. The earlier 80ms fade was
+                    // a hedge against single-frame misalignment, but in
+                    // practice — when hero and TabView DO render at slightly
+                    // different rects — the crossfade made both visible
+                    // simultaneously for 80ms, which is exactly the
+                    // "flicker, then shrink" the user reported. Instant
+                    // swap is invisible if the two views match, and at
+                    // worst it's a single off-frame instead of 80ms of
+                    // visible mismatch.
+                    inHeroPhase = false
                 }
             }
         }
@@ -464,13 +466,11 @@ private struct GalleryContent: View {
             // the swap to hero (which renders at scale 1) doesn't pop.
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
-            // Short crossfade for the TabView→Hero swap. Both render the same
-            // pixels at the same rect, so the fade window is visually a no-op,
-            // but it prevents any single-frame gap between the TabView
-            // disappearing and the hero becoming opaque.
-            withAnimation(.easeInOut(duration: 0.08)) {
-                inHeroPhase = true
-            }
+            // Instant TabView→Hero swap (no crossfade). Same rationale as
+            // the open-side swap: when the two views don't perfectly
+            // overlap, an 80ms crossfade displays both at once and that's
+            // what the user reads as "image briefly fills the screen".
+            inHeroPhase = true
             GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
             // Same defer trick as onAppear: the hero just mounted via
             // inHeroPhase=true; let SwiftUI commit that mount at the
@@ -510,9 +510,7 @@ private struct GalleryContent: View {
         if hasSrc {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
-            withAnimation(.easeInOut(duration: 0.08)) {
-                inHeroPhase = true
-            }
+            inHeroPhase = true
             withAnimation(.easeOut(duration: 0.18)) {
                 appeared = false
                 verticalDrag = 0
@@ -634,8 +632,21 @@ private struct ZoomableImagePage: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.clear
+        // Use a GeometryReader to log the ACTUAL frame TabView gives us, in
+        // global screen coords. If TabView (.page) is still applying a safe-
+        // area inset to its child despite our .ignoresSafeArea(), the global
+        // origin will be (0, top_inset) instead of (0, 0) — that's the
+        // signature of the bug.
+        GeometryReader { geo in
+            let globalFrame = geo.frame(in: .global)
+            ZStack {
+                Color.clear
+                    .onAppear {
+                        GalleryDbg.log(
+                            "ZoomableImagePage geom",
+                            "size=\(geo.size) globalOrigin=(\(globalFrame.minX),\(globalFrame.minY)) safeArea=\(geo.safeAreaInsets)"
+                        )
+                    }
 
             if let image = image {
                 Image(uiImage: image)
@@ -650,7 +661,18 @@ private struct ZoomableImagePage: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .scaleEffect(scale, anchor: .center)
                     .offset(x: offset.width, y: offset.height)
-                    .position(x: imageRect.midX, y: imageRect.midY)
+                    // Don't use .position(imageRect.midX, .midY) — those are
+                    // SCREEN coords, but .position is interpreted in this
+                    // view's parent coords. If the parent (TabView page) is
+                    // inset by the top safe area, the image lands top_inset
+                    // pixels too low, and the image is also clipped at the
+                    // page's bottom. Hand-off from the hero (which DOES use
+                    // screen coords) shows the visible image jumping down
+                    // and shrinking. ZStack auto-centering plus the outer
+                    // .ignoresSafeArea() below puts the image at the
+                    // GeometryReader's local center, which after ignoring
+                    // the inset coincides with the screen center where the
+                    // hero ends.
                     .gesture(pinchGesture)
                     // Pan is attached ONLY while zoomed. At rest scale, no
                     // drag gesture on the image — UIPageViewController sees
@@ -690,9 +712,18 @@ private struct ZoomableImagePage: View {
                     .font(.system(size: 48))
                     .foregroundColor(.gray)
             }
-        }
-        .frame(width: screenSize.width, height: screenSize.height)
-        .contentShape(Rectangle())
+            }  // ZStack
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
+        }  // GeometryReader
+        // Critical: extend BEYOND the safe area from inside the TabView page.
+        // .ignoresSafeArea() on the TabView itself didn't propagate to its
+        // UIPageViewController-managed children (the pages still got an
+        // inset frame). Adding it here, on the page content, expands the
+        // GeometryReader to the full screen and erases the inset that had
+        // been shifting the image down ~top_inset pixels relative to the
+        // hero's screen-coord rect.
+        .ignoresSafeArea()
         .task(id: imageURL) {
             if let loaded = await ImageCacheManager.shared.loadImage(from: imageURL) {
                 image = loaded
