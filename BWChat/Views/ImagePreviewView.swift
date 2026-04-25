@@ -258,34 +258,46 @@ private struct GalleryContent: View {
             srcRect = src
         }
 
-        // Hero animates a single rectangle from srcRect (image's real rect in
-        // the bubble) to the image's on-screen rect.
+        // Hero is animated via .scaleEffect + .offset only — NOT .frame /
+        // .position. The latter trigger a full SwiftUI layout pass on every
+        // animation frame, which on a complex view tree (TabView with
+        // UIPageViewController child still mounted underneath) drops the
+        // animation framerate to "you can see the intermediate frames"
+        // territory. scaleEffect and offset, by contrast, are CALayer
+        // affineTransform changes — interpolated by Core Animation on the
+        // GPU at the display's full refresh rate, no layout work per
+        // frame. This is also how WeChat (and every native UIKit hero
+        // transition) keeps the motion silky.
         //
-        // When appeared=true the hero's rect is targetRect MULTIPLIED by the
-        // current pinch-zoom transform (scale + offset). At rest (scale=1,
-        // offset=0) that's exactly targetRect, so this is a no-op for the
-        // common case. But when the user is zoomed in and taps to dismiss,
-        // the hero's start rect now matches the user's current visual rect —
-        // letting dismissByTap animate scale, offset AND appeared together
-        // in ONE withAnimation, producing a continuous motion from "zoomed
-        // visual" to "thumbnail" instead of the old two-phase
-        // unzoom-then-shrink (which felt like a stutter and slow response).
-        let zoomedW = targetRect.width * scale
-        let zoomedH = targetRect.height * scale
-        let zoomedCX = targetRect.midX + offset.width
-        let zoomedCY = targetRect.midY + offset.height
-        let appearedRect = CGRect(
-            x: zoomedCX - zoomedW / 2,
-            y: zoomedCY - zoomedH / 2,
-            width: zoomedW,
-            height: zoomedH
-        )
-        let baseRect: CGRect = appeared ? appearedRect : srcRect
-        let dragK = dragDismissScale
-        let heroW = max(baseRect.width * dragK, 0)
-        let heroH = max(baseRect.height * dragK, 0)
-        let heroCX = baseRect.midX
-        let heroCY = baseRect.midY + verticalDrag
+        // The view's frame stays constant at targetRect throughout. The
+        // animated transform takes the image from src→target and back.
+        //
+        // - At appeared=true: scale = the user's pinch zoom (default 1),
+        //   offset = the user's pan (default 0). At rest this is identity,
+        //   matching targetRect on screen.
+        // - At appeared=false: scale = srcRect.width / targetRect.width
+        //   (uniform — both rects share imgAspect, so width and height
+        //   ratios match), offset translates the centered targetRect to
+        //   srcRect's center.
+        //
+        // Because both endpoints reduce to scale + translate, ONE
+        // withAnimation can interpolate them. dismissByTap can change
+        // scale/offset/appeared all together and the hero glides from
+        // "zoomed visual" straight to "thumbnail rect" in one continuous
+        // GPU-driven motion.
+        let restScale: CGFloat = targetRect.width > 0
+            ? srcRect.width / targetRect.width
+            : 1
+        let restOffsetX: CGFloat = srcRect.midX - targetRect.midX
+        let restOffsetY: CGFloat = srcRect.midY - targetRect.midY
+
+        let baseScale: CGFloat = appeared ? scale : restScale
+        let baseOffsetX: CGFloat = appeared ? offset.width : restOffsetX
+        let baseOffsetY: CGFloat = appeared ? offset.height : restOffsetY
+
+        let heroScale = baseScale * dragDismissScale
+        let heroOffsetX = baseOffsetX
+        let heroOffsetY = baseOffsetY + verticalDrag
 
         return ZStack {
                 Color.black
@@ -354,14 +366,20 @@ private struct GalleryContent: View {
                 // rect when the hero animation completes. The handoff swap is
                 // visually a no-op — no "enlarge then shrink" flicker.
                 if hasSrc {
+                    // GPU-only animation: scaleEffect + offset are CALayer
+                    // transforms, animated on the render server without any
+                    // SwiftUI layout work per frame. .frame/.position stay
+                    // constant at the target rect.
                     HeroImageView(url: currentURL)
-                        .frame(width: heroW, height: heroH)
+                        .frame(width: targetRect.width, height: targetRect.height)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .position(x: heroCX, y: heroCY)
+                        .scaleEffect(heroScale, anchor: .center)
+                        .offset(x: heroOffsetX, y: heroOffsetY)
+                        .position(x: targetRect.midX, y: targetRect.midY)
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
                         .onAppear {
-                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) src=\(src) srcRect=\(srcRect) target=\(targetRect) imgAspect=\(imgAspect)")
+                            GalleryDbg.log("Hero geom", "screen=\(screen.width)x\(screen.height) src=\(src) srcRect=\(srcRect) target=\(targetRect) restScale=\(restScale) restOffset=(\(restOffsetX),\(restOffsetY))")
                         }
                 }
 
@@ -393,15 +411,18 @@ private struct GalleryContent: View {
             // an overshoot. One runloop tick of delay ensures the hero
             // is physically drawn at restScale first, then grown.
             DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.22)) {
+                // Spring with no overshoot (dampingFraction near 1) feels
+                // closer to UIKit's default WeChat-style hero — the motion
+                // accelerates fast then settles softly without a bounce.
+                // response controls overall duration (~0.32s here).
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.92)) {
                     GalleryDbg.log("withAnim(appeared=true) START")
                     appeared = true
                 }
             }
             if inHeroPhase {
-                // 20ms buffer past the animation duration for safety.
-                // Includes the extra async-dispatch tick above (~1 frame).
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                // Swap once the spring has effectively settled (~response).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
                     GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
                     // Instant toggle, no crossfade. The earlier 80ms fade was
                     // a hedge against single-frame misalignment, but in
@@ -480,30 +501,28 @@ private struct GalleryContent: View {
         GalleryDbg.log("dismissByTap()")
         let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
         if hasSrc {
-            // Single-phase dismiss. Hero's appearedRect now factors in
-            // scale + offset, so at the moment of the swap the hero
-            // mounts at the user's CURRENT visual rect — zoomed or not —
-            // matching the TabView pixel-for-pixel. Then a single
-            // withAnimation drives scale → 1, offset → 0, appeared →
-            // false simultaneously: the hero rect interpolates from the
-            // zoomed visual rect straight to the thumbnail's srcRect, in
-            // one continuous motion. No two-phase "unzoom then shrink"
-            // stutter, no zoomed-to-fit-screen snap.
+            // Single-phase dismiss. The hero's transform (scaleEffect +
+            // offset) now uses the user's current scale/offset directly
+            // when appeared=true, so the moment inHeroPhase flips on,
+            // the hero mounts at the user's current visual rect — zoomed
+            // or not — matching the TabView pixel-for-pixel. One
+            // withAnimation then drives scale → 1, offset → 0, appeared
+            // → false together: the hero glides from "zoomed visual"
+            // straight to "thumbnail rect" via a pure CALayer transform
+            // animation. No layout passes, no two-phase stutter.
             inHeroPhase = true
-            GalleryDbg.log("  inHeroPhase=true, single-phase animation")
-            // 0.12s is short enough to feel "snap-back" but long enough
-            // for the easeOut curve to read as a smooth motion rather
-            // than a cut. The previous 0.18s was felt as slow when
-            // dismissing from a zoomed state — the eye had a clear sense
-            // of "the image is still flying" past 150ms.
+            GalleryDbg.log("  inHeroPhase=true, single-phase spring")
+            // Stiff spring (short response, near-critical damping). The
+            // motion feels like a quick "snap back" with a brief soft
+            // landing — same character as WeChat's image close.
             DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.12)) {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.95)) {
                     scale = 1; lastScale = 1
                     offset = .zero; lastOffset = .zero
                     appeared = false
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
                 GalleryDbg.log("  onDismiss() (post-animation)")
                 onDismiss()
             }
