@@ -462,30 +462,28 @@ private struct GalleryContent: View {
         GalleryDbg.log("dismissByTap()")
         let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
         if hasSrc {
-            // Any user pinch-zoom goes back to identity synchronously so
-            // the swap to hero (which renders at scale 1) doesn't pop.
-            scale = 1; lastScale = 1
-            offset = .zero; lastOffset = .zero
-            // Instant TabView→Hero swap (no crossfade). Same rationale as
-            // the open-side swap: when the two views don't perfectly
-            // overlap, an 80ms crossfade displays both at once and that's
-            // what the user reads as "image briefly fills the screen".
-            inHeroPhase = true
-            GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
-            // Same defer trick as onAppear: the hero just mounted via
-            // inHeroPhase=true; let SwiftUI commit that mount at the
-            // current appeared=true fullscreen state before we fire the
-            // shrink animation. Without the defer, SwiftUI batches the
-            // mount and state-change into one transaction and the close
-            // visibly overshoots at the start of the shrink.
-            DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.14)) {
-                    appeared = false
+            let wasZoomed = scale > 1.05
+            if wasZoomed {
+                // Two-phase dismiss when zoomed in. Without this, scale=1
+                // was assigned synchronously and the user saw the image
+                // SNAP from the zoomed region back to fit-screen before
+                // the hero shrink even began — the snap is what felt
+                // janky and "slow" (no continuous motion). Animate the
+                // zoom transform back to identity first, then start the
+                // hero shrink. The TabView is still visible during this
+                // phase, so the unzoom is what the user sees, smoothly.
+                GalleryDbg.log("  wasZoomed → unzoom phase first")
+                withAnimation(.easeOut(duration: 0.10)) {
+                    scale = 1; lastScale = 1
+                    offset = .zero; lastOffset = .zero
                 }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
-                GalleryDbg.log("  onDismiss() (post-animation)")
-                onDismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                    heroShrinkAndDismiss()
+                }
+            } else {
+                scale = 1; lastScale = 1
+                offset = .zero; lastOffset = .zero
+                heroShrinkAndDismiss()
             }
         } else {
             // No source frame — old behavior: fade + shrink in place.
@@ -497,6 +495,27 @@ private struct GalleryContent: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                 onDismiss()
             }
+        }
+    }
+
+    /// The hero-shrink half of a tap dismiss. Extracted because
+    /// dismissByTap now optionally runs a smooth zoom-out animation first
+    /// (when the user is zoomed in) before invoking this.
+    private func heroShrinkAndDismiss() {
+        inHeroPhase = true
+        GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
+        // Defer one runloop tick so SwiftUI commits the hero mount at the
+        // current appeared=true (fullscreen) state before the animation
+        // begins. Without this, the mount and state change end up in the
+        // same transaction and the close visibly overshoots at the start.
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.14)) {
+                appeared = false
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
+            GalleryDbg.log("  onDismiss() (post-animation)")
+            onDismiss()
         }
     }
 
