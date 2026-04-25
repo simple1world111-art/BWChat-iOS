@@ -259,10 +259,28 @@ private struct GalleryContent: View {
         }
 
         // Hero animates a single rectangle from srcRect (image's real rect in
-        // the bubble) to targetRect (on-screen fit). Both have the image's
-        // aspect, so the rect's aspect is constant throughout — no mid-
-        // animation letterbox changes, no scaleEffect/offset tricks.
-        let baseRect: CGRect = appeared ? targetRect : srcRect
+        // the bubble) to the image's on-screen rect.
+        //
+        // When appeared=true the hero's rect is targetRect MULTIPLIED by the
+        // current pinch-zoom transform (scale + offset). At rest (scale=1,
+        // offset=0) that's exactly targetRect, so this is a no-op for the
+        // common case. But when the user is zoomed in and taps to dismiss,
+        // the hero's start rect now matches the user's current visual rect —
+        // letting dismissByTap animate scale, offset AND appeared together
+        // in ONE withAnimation, producing a continuous motion from "zoomed
+        // visual" to "thumbnail" instead of the old two-phase
+        // unzoom-then-shrink (which felt like a stutter and slow response).
+        let zoomedW = targetRect.width * scale
+        let zoomedH = targetRect.height * scale
+        let zoomedCX = targetRect.midX + offset.width
+        let zoomedCY = targetRect.midY + offset.height
+        let appearedRect = CGRect(
+            x: zoomedCX - zoomedW / 2,
+            y: zoomedCY - zoomedH / 2,
+            width: zoomedW,
+            height: zoomedH
+        )
+        let baseRect: CGRect = appeared ? appearedRect : srcRect
         let dragK = dragDismissScale
         let heroW = max(baseRect.width * dragK, 0)
         let heroH = max(baseRect.height * dragK, 0)
@@ -462,28 +480,27 @@ private struct GalleryContent: View {
         GalleryDbg.log("dismissByTap()")
         let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
         if hasSrc {
-            let wasZoomed = scale > 1.05
-            if wasZoomed {
-                // Two-phase dismiss when zoomed in. Without this, scale=1
-                // was assigned synchronously and the user saw the image
-                // SNAP from the zoomed region back to fit-screen before
-                // the hero shrink even began — the snap is what felt
-                // janky and "slow" (no continuous motion). Animate the
-                // zoom transform back to identity first, then start the
-                // hero shrink. The TabView is still visible during this
-                // phase, so the unzoom is what the user sees, smoothly.
-                GalleryDbg.log("  wasZoomed → unzoom phase first")
-                withAnimation(.easeOut(duration: 0.10)) {
+            // Single-phase dismiss. Hero's appearedRect now factors in
+            // scale + offset, so at the moment of the swap the hero
+            // mounts at the user's CURRENT visual rect — zoomed or not —
+            // matching the TabView pixel-for-pixel. Then a single
+            // withAnimation drives scale → 1, offset → 0, appeared →
+            // false simultaneously: the hero rect interpolates from the
+            // zoomed visual rect straight to the thumbnail's srcRect, in
+            // one continuous motion. No two-phase "unzoom then shrink"
+            // stutter, no zoomed-to-fit-screen snap.
+            inHeroPhase = true
+            GalleryDbg.log("  inHeroPhase=true, single-phase animation")
+            DispatchQueue.main.async {
+                withAnimation(.easeOut(duration: 0.18)) {
                     scale = 1; lastScale = 1
                     offset = .zero; lastOffset = .zero
+                    appeared = false
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-                    heroShrinkAndDismiss()
-                }
-            } else {
-                scale = 1; lastScale = 1
-                offset = .zero; lastOffset = .zero
-                heroShrinkAndDismiss()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                GalleryDbg.log("  onDismiss() (post-animation)")
+                onDismiss()
             }
         } else {
             // No source frame — old behavior: fade + shrink in place.
@@ -495,27 +512,6 @@ private struct GalleryContent: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                 onDismiss()
             }
-        }
-    }
-
-    /// The hero-shrink half of a tap dismiss. Extracted because
-    /// dismissByTap now optionally runs a smooth zoom-out animation first
-    /// (when the user is zoomed in) before invoking this.
-    private func heroShrinkAndDismiss() {
-        inHeroPhase = true
-        GalleryDbg.log("  inHeroPhase=true, starting withAnim(appeared=false)")
-        // Defer one runloop tick so SwiftUI commits the hero mount at the
-        // current appeared=true (fullscreen) state before the animation
-        // begins. Without this, the mount and state change end up in the
-        // same transaction and the close visibly overshoots at the start.
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.14)) {
-                appeared = false
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
-            GalleryDbg.log("  onDismiss() (post-animation)")
-            onDismiss()
         }
     }
 
