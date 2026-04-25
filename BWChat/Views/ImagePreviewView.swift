@@ -491,14 +491,19 @@ private struct GalleryContent: View {
             // stutter, no zoomed-to-fit-screen snap.
             inHeroPhase = true
             GalleryDbg.log("  inHeroPhase=true, single-phase animation")
+            // 0.12s is short enough to feel "snap-back" but long enough
+            // for the easeOut curve to read as a smooth motion rather
+            // than a cut. The previous 0.18s was felt as slow when
+            // dismissing from a zoomed state — the eye had a clear sense
+            // of "the image is still flying" past 150ms.
             DispatchQueue.main.async {
-                withAnimation(.easeOut(duration: 0.18)) {
+                withAnimation(.easeOut(duration: 0.12)) {
                     scale = 1; lastScale = 1
                     offset = .zero; lastOffset = .zero
                     appeared = false
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
                 GalleryDbg.log("  onDismiss() (post-animation)")
                 onDismiss()
             }
