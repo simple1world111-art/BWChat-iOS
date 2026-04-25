@@ -299,6 +299,24 @@ private struct GalleryContent: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
+                // Critical: TabView under .page style still honors the bottom
+                // safe area (and on some iOS versions the top one too) even
+                // when an ancestor calls .ignoresSafeArea(). The inset shifts
+                // the TabView's child frame down by ~top_inset and shrinks
+                // its height by ~bottom_inset. ZoomableImagePage uses
+                // .position(imageRect.midX, imageRect.midY) — coordinates
+                // computed against the SCREEN — but .position is interpreted
+                // in the ZoomableImagePage's parent coordinate space (the
+                // TabView's child frame). If that frame is offset, the image
+                // lands at screen y = top_inset + imageRect.midY instead of
+                // imageRect.midY. The hero (rendered directly in the
+                // .ignoresSafeArea() ZStack) IS at imageRect.midY, so the
+                // hero→TabView swap visibly jumps the image down by the top
+                // inset and crops differently — users read this as "image
+                // fills the screen, then shrinks with black borders".
+                // .ignoresSafeArea() on the TabView itself eliminates the
+                // inset so both views share one coord system.
+                .ignoresSafeArea()
                 .offset(y: verticalDrag)
                 .scaleEffect(dragDismissScale)
                 .scrollDisabled(verticalDrag != 0)
