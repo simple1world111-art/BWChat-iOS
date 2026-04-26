@@ -82,6 +82,17 @@ struct SplashScreen: View {
         // by simply reopening LoginView and entering credentials.
         let watchdog = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 20_000_000_000)
+            // CRITICAL: Task.cancel() doesn't stop a task's body — it just
+            // marks Task.isCancelled = true and lets Task.sleep throw a
+            // CancellationError. Because we wrap that in `try?`, the
+            // throw gets swallowed and the rest of THIS body continues
+            // running. Without the guard below, every successful login
+            // (which calls `watchdog.cancel()` on its way out) would
+            // immediately resume this task and fire authManager.logout()
+            // — nuking the freshly-restored session and bouncing the
+            // user back to LoginView on every app launch. The guard
+            // makes "cancelled" mean what we actually want: don't run.
+            guard !Task.isCancelled else { return }
             if isCheckingToken {
                 authManager.logout()
                 isCheckingToken = false
