@@ -79,6 +79,44 @@ class APIService {
         return (data.token, data.refreshToken, data.user)
     }
 
+    func register(
+        username: String,
+        password: String,
+        nickname: String?,
+        deviceToken: String?
+    ) async throws -> (String, String, User) {
+        var body: [String: Any] = [
+            "username": username,
+            "password": password,
+        ]
+        if let nickname = nickname, !nickname.isEmpty {
+            body["nickname"] = nickname
+        }
+        if let token = deviceToken {
+            body["device_token"] = token
+        }
+
+        struct RegisterData: Decodable {
+            let token: String
+            let refreshToken: String
+            let user: User
+
+            enum CodingKeys: String, CodingKey {
+                case token
+                case refreshToken = "refresh_token"
+                case user
+            }
+        }
+
+        let response: APIResponseWrapper<RegisterData> = try await postJSON(
+            path: "/auth/register", body: body, auth: false
+        )
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return (data.token, data.refreshToken, data.user)
+    }
+
     func verifyToken() async throws -> User {
         struct VerifyData: Decodable {
             let user: User
