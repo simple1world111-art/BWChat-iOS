@@ -16,6 +16,7 @@
 		A10007 /* ContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
 		A10008 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
 		A10009 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
+		A10200 /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200; };
 		A10010 /* ContactListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
 		A10011 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
 		A10012 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
@@ -113,6 +114,7 @@
 		B10007 /* ContactsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsViewModel.swift; sourceTree = "<group>"; };
 		B10008 /* SplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreen.swift; sourceTree = "<group>"; };
 		B10009 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		B10200 /* RegisterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisterView.swift; sourceTree = "<group>"; };
 		B10010 /* ContactListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactListView.swift; sourceTree = "<group>"; };
 		B10011 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		B10012 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
@@ -265,6 +267,7 @@
 			children = (
 				B10008 /* SplashScreen.swift */,
 				B10009 /* LoginView.swift */,
+				B10200 /* RegisterView.swift */,
 				B10010 /* ContactListView.swift */,
 				B10011 /* ChatView.swift */,
 				B10012 /* MessageBubble.swift */,
@@ -469,6 +472,7 @@
 				A10007 /* ContactsViewModel.swift in Sources */,
 				A10008 /* SplashScreen.swift in Sources */,
 				A10009 /* LoginView.swift in Sources */,
+				A10200 /* RegisterView.swift in Sources */,
 				A10010 /* ContactListView.swift in Sources */,
 				A10011 /* ChatView.swift in Sources */,
 				A10012 /* MessageBubble.swift in Sources */,
