@@ -370,9 +370,20 @@ private struct GalleryContent: View {
                     // transforms, animated on the render server without any
                     // SwiftUI layout work per frame. .frame/.position stay
                     // constant at the target rect.
+                    //
+                    // .compositingGroup() flattens the hero (image + clip
+                    // shape) into a single CALayer before the transform is
+                    // applied. Without it, SwiftUI may keep the image and
+                    // its clip mask in separate layers and animate each
+                    // independently — that's where the residual "small
+                    // jitter at open" was coming from. With one layer, the
+                    // transform is a single CGAffineTransform interpolation
+                    // and there's nothing for the layers to drift relative
+                    // to each other.
                     HeroImageView(url: currentURL)
                         .frame(width: targetRect.width, height: targetRect.height)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .compositingGroup()
                         .scaleEffect(heroScale, anchor: .center)
                         .offset(x: heroOffsetX, y: heroOffsetY)
                         .position(x: targetRect.midX, y: targetRect.midY)
@@ -411,18 +422,22 @@ private struct GalleryContent: View {
             // an overshoot. One runloop tick of delay ensures the hero
             // is physically drawn at restScale first, then grown.
             DispatchQueue.main.async {
-                // Spring with no overshoot (dampingFraction near 1) feels
-                // closer to UIKit's default WeChat-style hero — the motion
-                // accelerates fast then settles softly without a bounce.
-                // response controls overall duration (~0.32s here).
-                withAnimation(.spring(response: 0.32, dampingFraction: 0.92)) {
+                // easeOut, monotonic. The previous spring(damping≈0.92) was
+                // visibly under-damped — it kept oscillating slightly past
+                // its response time, and the hero→TabView swap happened
+                // while the spring was still in motion. Users saw a
+                // "still wiggling → suddenly frozen" discontinuity, which
+                // came across as worse jitter than the original layout-
+                // driven version. easeOut never overshoots, so the swap
+                // window is forgiving.
+                withAnimation(.easeOut(duration: 0.22)) {
                     GalleryDbg.log("withAnim(appeared=true) START")
                     appeared = true
                 }
             }
             if inHeroPhase {
-                // Swap once the spring has effectively settled (~response).
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
+                // Swap right after the easeOut completes.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
                     GalleryDbg.log("inHeroPhase=false (swap hero→TabView)")
                     // Instant toggle, no crossfade. The earlier 80ms fade was
                     // a hedge against single-frame misalignment, but in
@@ -511,18 +526,21 @@ private struct GalleryContent: View {
             // straight to "thumbnail rect" via a pure CALayer transform
             // animation. No layout passes, no two-phase stutter.
             inHeroPhase = true
-            GalleryDbg.log("  inHeroPhase=true, single-phase spring")
-            // Stiff spring (short response, near-critical damping). The
-            // motion feels like a quick "snap back" with a brief soft
-            // landing — same character as WeChat's image close.
-            DispatchQueue.main.async {
-                withAnimation(.spring(response: 0.26, dampingFraction: 0.95)) {
-                    scale = 1; lastScale = 1
-                    offset = .zero; lastOffset = .zero
-                    appeared = false
-                }
+            GalleryDbg.log("  inHeroPhase=true, single-phase easeOut")
+            // No DispatchQueue.main.async defer here — the original reason
+            // for it (avoid SwiftUI batching mount + animation in one
+            // transaction → visible overshoot) was about .frame/.position
+            // animations. With pure CALayer transform animations there's
+            // no layout commit to fight, so we can fire the withAnimation
+            // immediately and shave one frame (~16ms) off the perceived
+            // latency. Combined with the shorter 0.16s curve, dismiss now
+            // starts moving inside one frame of the tap.
+            withAnimation(.easeOut(duration: 0.16)) {
+                scale = 1; lastScale = 1
+                offset = .zero; lastOffset = .zero
+                appeared = false
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
                 GalleryDbg.log("  onDismiss() (post-animation)")
                 onDismiss()
             }
@@ -732,7 +750,7 @@ private struct ZoomableImagePage: View {
                             }
                     )
                     .onTapGesture {
-                        GalleryDbg.log("single-tap scheduled (80ms debounce)")
+                        GalleryDbg.log("single-tap scheduled (50ms debounce)")
                         let task = DispatchWorkItem {
                             GalleryDbg.log("single-tap fires (after debounce)")
                             onSingleTap()
@@ -740,7 +758,13 @@ private struct ZoomableImagePage: View {
                         }
                         pendingSingleTap?.cancel()
                         pendingSingleTap = task
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: task)
+                        // 50ms is the lower edge of human "fast tap"
+                        // detection — most double-taps are ≥80ms apart, so
+                        // the disambiguation window stays correct, but the
+                        // single-tap (which is the common dismiss action)
+                        // fires ~30ms sooner. That's a perceptible latency
+                        // win at the start of the close animation.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: task)
                     }
                     .longPressToSaveImage(url: imageURL)
             } else if isLoading {
