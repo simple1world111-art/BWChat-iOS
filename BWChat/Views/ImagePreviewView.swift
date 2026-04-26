@@ -863,8 +863,18 @@ private struct HeroImageView: View {
             }
         }
         .task(id: url) {
-            if image == nil {
-                image = await ImageCacheManager.shared.loadImage(from: url)
+            // Always load the full-resolution version, even when a low-res
+            // thumbnail was preLoaded synchronously. Otherwise the hero
+            // shows the chat-thumbnail (~160px wide) scaled up to fill the
+            // screen — visibly soft — and then at the hero→TabView swap
+            // the user sees a sudden "sharpen" because the TabView's
+            // ZoomableImagePage has been loading the full resolution in
+            // the background. With this load, the sharpen happens DURING
+            // the open animation (masked by the motion) and the hero→
+            // TabView swap is invisible — both views render the full
+            // resolution by then.
+            if let loaded = await ImageCacheManager.shared.loadImage(from: url) {
+                image = loaded
             }
         }
     }
