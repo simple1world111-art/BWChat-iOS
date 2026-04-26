@@ -71,6 +71,23 @@ struct SplashScreen: View {
             return
         }
 
+        // Watchdog: regardless of what happens to the verify+refresh chain
+        // (URLSession hang, retry loop, deadlock in older code paths),
+        // guarantee the user lands on the LoginView within ~20s instead of
+        // staring at the splash forever. URLSession's per-request timeout
+        // is 15s, so this is purely a safety net for paths that bypass it.
+        // Reproduced with peter (u005) — refresh token rejected, but the
+        // app never advanced past splash. The watchdog ensures that even
+        // if a future bug strands the auth chain, the user can recover
+        // by simply reopening LoginView and entering credentials.
+        let watchdog = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            if isCheckingToken {
+                authManager.logout()
+                isCheckingToken = false
+            }
+        }
+
         do {
             let user = try await APIService.shared.verifyToken()
             authManager.updateUser(user)
@@ -95,6 +112,7 @@ struct SplashScreen: View {
             }
         }
 
+        watchdog.cancel()
         try? await minDelay
         isCheckingToken = false
     }
