@@ -1020,13 +1020,26 @@ class APIService {
         }
 
         if httpResponse.statusCode == 401 && allowRetry {
-            // Try to refresh the token and retry the request once
+            // Try to refresh the token and retry the request once.
             do {
                 try await attemptTokenRefresh()
-            } catch {
-                // Refresh failed — force logout
+            } catch APIError.unauthorized {
+                // Refresh token was DEFINITIVELY rejected by the server
+                // (status 401 from /auth/refresh — token expired,
+                // blacklisted, or signature mismatch). Only NOW logout.
                 AuthManager.shared.logout()
                 throw APIError.unauthorized
+            } catch {
+                // Refresh failed for a non-auth reason (network blip,
+                // server 5xx, JSON decode error, timeout). Tokens are
+                // probably still valid — bouncing the user to LoginView
+                // here is the bug behind "过段时间就要重新登录":
+                // momentary connectivity issues during a 401-triggered
+                // refresh would nuke the session permanently. Re-throw
+                // the underlying error so the caller can render a
+                // transient-failure state and the next attempt can
+                // succeed normally.
+                throw error
             }
             // Rebuild request with new token
             var retryRequest = request
