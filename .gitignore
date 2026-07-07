@@ -19,6 +19,7 @@ Pods/
 *.xcworkspace
 !BWChat.xcodeproj/project.xcworkspace/
 BWChat.xcodeproj/project.xcworkspace/*
+!BWChat.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 !BWChat.xcodeproj/project.xcworkspace/xcshareddata/
 BWChat.xcodeproj/project.xcworkspace/xcshareddata/*
 !BWChat.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
