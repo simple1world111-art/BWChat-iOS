@@ -17,6 +17,12 @@ Package.pins
 # CocoaPods (本项目不用，但预防)
 Pods/
 *.xcworkspace
+!BWChat.xcodeproj/project.xcworkspace/
+BWChat.xcodeproj/project.xcworkspace/*
+!BWChat.xcodeproj/project.xcworkspace/xcshareddata/
+BWChat.xcodeproj/project.xcworkspace/xcshareddata/*
+!BWChat.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+!BWChat.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # OS files
 .DS_Store
