@@ -33,7 +33,7 @@ enum MediaLibrarySaver {
                 if let err = err {
                     cont.resume(throwing: err)
                 } else if !ok {
-                    cont.resume(throwing: NSError(domain: "BWChat", code: -1, userInfo: [NSLocalizedDescriptionKey: "保存失败"]))
+                    cont.resume(throwing: NSError(domain: "BBchat", code: -1, userInfo: [NSLocalizedDescriptionKey: L10n.tr("media.saveFailed")]))
                 } else {
                     cont.resume()
                 }
@@ -43,27 +43,27 @@ enum MediaLibrarySaver {
 
     static func saveImage(mediaPath: String) async {
         guard await hasAddAccess() else {
-            MediaSaveFeedback.shared.show("请在设置中允许 BWChat 将照片添加到相册")
+            MediaSaveFeedback.shared.show(L10n.tr("media.photoPermissionRequired"))
             return
         }
         do {
             let data = try await APIService.shared.loadAuthenticatedMedia(path: mediaPath)
             guard let image = UIImage(data: data) else {
-                MediaSaveFeedback.shared.show("图片数据无效")
+                MediaSaveFeedback.shared.show(L10n.tr("media.invalidImageData"))
                 return
             }
             try await performChanges {
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
-            MediaSaveFeedback.shared.show("已保存到相册")
+            MediaSaveFeedback.shared.show(L10n.tr("media.savedToAlbum"))
         } catch {
-            MediaSaveFeedback.shared.show("保存失败")
+            MediaSaveFeedback.shared.show(L10n.tr("media.saveFailed"))
         }
     }
 
     static func saveVideo(mediaPath: String) async {
         guard await hasAddAccess() else {
-            MediaSaveFeedback.shared.show("请在设置中允许 BWChat 将视频添加到相册")
+            MediaSaveFeedback.shared.show(L10n.tr("media.videoPermissionRequired"))
             return
         }
         let tmp: URL
@@ -72,19 +72,19 @@ enum MediaLibrarySaver {
             let ext = (mediaPath as NSString).pathExtension.lowercased()
             let suffix = ext.isEmpty ? "mp4" : ext
             tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("bwchat-video-\(UUID().uuidString).\(suffix)")
+                .appendingPathComponent("bbchat-video-\(UUID().uuidString).\(suffix)")
             try data.write(to: tmp, options: .atomic)
         } catch {
-            MediaSaveFeedback.shared.show("视频下载失败")
+            MediaSaveFeedback.shared.show(L10n.tr("media.videoDownloadFailed"))
             return
         }
         do {
             try await performChanges {
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: tmp)
             }
-            MediaSaveFeedback.shared.show("视频已保存到相册")
+            MediaSaveFeedback.shared.show(L10n.tr("media.videoSavedToAlbum"))
         } catch {
-            MediaSaveFeedback.shared.show("视频保存失败")
+            MediaSaveFeedback.shared.show(L10n.tr("media.videoSaveFailed"))
         }
         try? FileManager.default.removeItem(at: tmp)
     }

@@ -78,7 +78,7 @@ struct CallView: View {
                         .allowsHitTesting(false)
 
                     if call.groupID != nil && call.state == .connected {
-                        Text("\(callManager.remoteParticipantCount + 1) 人通话中")
+                        Text(L10n.tr("call.participants.count", callManager.remoteParticipantCount + 1))
                             .font(.system(size: 14))
                             .foregroundColor(.white.opacity(0.6))
                             .padding(.top, 4)
@@ -111,17 +111,17 @@ struct CallView: View {
     private func statusText(_ call: CallSession) -> some View {
         switch call.state {
         case .outgoing:
-            Text("正在呼叫...")
+            Text(L10n.tr("call.calling"))
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
         case .incoming:
             Text(call.groupID != nil
-                 ? (call.callType == .voice ? "群语音通话邀请" : "群视频通话邀请")
-                 : (call.callType == .voice ? "语音来电" : "视频来电"))
+                 ? (call.callType == .voice ? L10n.tr("call.groupVoiceInvite") : L10n.tr("call.groupVideoInvite"))
+                 : (call.callType == .voice ? L10n.tr("call.voiceIncoming") : L10n.tr("call.videoIncoming")))
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
         case .connecting:
-            Text("连接中...")
+            Text(L10n.tr("call.connecting"))
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
         case .connected:
@@ -183,7 +183,7 @@ struct CallView: View {
             Image(systemName: "video.slash.fill")
                 .font(.system(size: 60))
                 .foregroundColor(.white.opacity(0.3))
-            Text("等待视频连接...")
+            Text(L10n.tr("call.waitingVideo"))
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.5))
                 .padding(.top, 8)
@@ -204,7 +204,7 @@ struct CallView: View {
                         .background(Color.red)
                         .clipShape(Circle())
                 }
-                Text("拒绝")
+                Text(L10n.tr("call.decline"))
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.7))
             }
@@ -218,7 +218,7 @@ struct CallView: View {
                         .background(Color.green)
                         .clipShape(Circle())
                 }
-                Text("接听")
+                Text(L10n.tr("call.answer"))
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.7))
             }
@@ -231,27 +231,27 @@ struct CallView: View {
         HStack(spacing: call.callType == .video ? 16 : 32) {
             controlButton(
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: callManager.isMuted ? "取消静音" : "静音",
+                label: callManager.isMuted ? L10n.tr("call.unmute") : L10n.tr("call.mute"),
                 isActive: callManager.isMuted
             ) { callManager.toggleMute() }
 
             if call.callType == .video {
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
-                    label: callManager.isLocalVideoEnabled ? "关摄像头" : "开摄像头",
+                    label: callManager.isLocalVideoEnabled ? L10n.tr("call.cameraOff") : L10n.tr("call.cameraOn"),
                     isActive: !callManager.isLocalVideoEnabled
                 ) { callManager.toggleLocalVideo() }
 
                 controlButton(
                     icon: "camera.rotate.fill",
-                    label: "翻转",
+                    label: L10n.tr("call.flip"),
                     isActive: false
                 ) { callManager.flipCamera() }
             }
 
             controlButton(
                 icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
-                label: callManager.isSpeakerOn ? "扬声器" : "听筒",
+                label: callManager.isSpeakerOn ? L10n.tr("call.speaker") : L10n.tr("call.earpiece"),
                 isActive: callManager.isSpeakerOn
             ) { callManager.toggleSpeaker() }
 
@@ -264,7 +264,7 @@ struct CallView: View {
                         .background(Color.red)
                         .clipShape(Circle())
                 }
-                Text("挂断")
+                Text(L10n.tr("call.hangUp"))
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.7))
             }

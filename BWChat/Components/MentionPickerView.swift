@@ -36,11 +36,11 @@ struct MentionPickerView: View {
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle("选择提及的人")
+            .navigationTitle(L10n.tr("mention.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") { dismiss() }
+                    Button(L10n.tr("common.cancel")) { dismiss() }
                 }
             }
         }

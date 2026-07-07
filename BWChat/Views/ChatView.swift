@@ -7,19 +7,34 @@ import AVKit
 import AVFoundation
 import UniformTypeIdentifiers
 
+private struct ChatMessageRenderItem: Identifiable {
+    let message: Message
+    let previousTimestamp: String?
+
+    var id: Int { message.id }
+}
+
 struct ChatView: View {
     let contact: Contact
     var onMarkRead: (() -> Void)?
+    @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel: ChatViewModel
     @ObservedObject private var callManager = CallManager.shared
+    @ObservedObject private var appearanceStore = ChatAppearanceStore.shared
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
     @State private var showPlusMenu = false
+    @State private var showGiftSheet = false
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
     @State private var voiceCancelZone = false
-    @FocusState private var isInputFocused: Bool
+    @State private var isInputFocused = false
+    @State private var inputTextHeight: CGFloat = 40
+    @State private var isViewVisible = false
+    @State private var toastMessage: String?
+
+    private let bottomScrollAnchorID = "chat-bottom-anchor"
 
     private var isSelfChat: Bool {
         contact.userID == AuthManager.shared.currentUser?.userID
@@ -27,6 +42,18 @@ struct ChatView: View {
 
     private var myAvatarURL: String {
         AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
+    private var renderedMessages: [ChatMessageRenderItem] {
+        var rows: [ChatMessageRenderItem] = []
+        rows.reserveCapacity(viewModel.messages.count)
+
+        var previous: String?
+        for message in viewModel.messages {
+            rows.append(ChatMessageRenderItem(message: message, previousTimestamp: previous))
+            previous = message.timestamp
+        }
+        return rows
     }
 
     init(contact: Contact, onMarkRead: (() -> Void)? = nil) {
@@ -40,11 +67,13 @@ struct ChatView: View {
     }
 
     private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
+        guard isViewVisible else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
-            proxy.scrollTo(messageID, anchor: .center)
+            proxy.scrollTo(messageScrollID(messageID), anchor: .center)
         }
         highlightedMessageID = messageID
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard isViewVisible else { return }
             withAnimation(.easeOut(duration: 0.5)) {
                 if highlightedMessageID == messageID {
                     highlightedMessageID = nil
@@ -53,138 +82,203 @@ struct ChatView: View {
         }
     }
 
-    private func scrollChatToLatest(proxy: ScrollViewProxy) {
-        let targetID: AnyHashable? = viewModel.pendingMessages.last?.id ?? viewModel.messages.last?.id
-        guard let targetID else { return }
-        // First attempt (quick): usually works when cell is already laid out.
-        // Second attempt (longer delay): safety net for freshly-appended cells
-        // in the flipped LazyVStack that need an extra layout pass.
+    private func messageScrollID(_ id: Int) -> String {
+        "message-\(id)"
+    }
+
+    private func pendingScrollID(_ id: UUID) -> String {
+        "pending-\(id.uuidString)"
+    }
+
+    private func scrollChatToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        guard isViewVisible else { return }
+
+        let scrollAction = {
+            proxy.scrollTo(bottomScrollAnchorID, anchor: .top)
+        }
+
+        // The bottom anchor is outside the message padding, so scrolling to it
+        // reaches the true end of the flipped ScrollView instead of stopping on
+        // the newest bubble with a little remaining scroll range.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(targetID, anchor: .top)
+            guard isViewVisible else { return }
+            if animated {
+                withAnimation(.easeOut(duration: 0.2), scrollAction)
+            } else {
+                scrollAction()
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            guard isViewVisible else { return }
+            scrollAction()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            proxy.scrollTo(targetID, anchor: .top)
+            guard isViewVisible else { return }
+            scrollAction()
         }
     }
 
-    private func previousTimestamp(for message: Message) -> String? {
-        guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }),
-              idx > 0 else { return nil }
-        return viewModel.messages[idx - 1].timestamp
+    private func previousTimestamp(for pending: PendingMessage) -> String? {
+        guard let idx = viewModel.pendingMessages.firstIndex(where: { $0.id == pending.id }) else {
+            return viewModel.messages.last?.timestamp
+        }
+        if idx > 0 {
+            return viewModel.pendingMessages[idx - 1].createdAt.iso8601String
+        }
+        return viewModel.messages.last?.timestamp
+    }
+
+    private func handleImageTap(url: String, frame: CGRect) {
+        isInputFocused = false
+        hideKeyboard()
+        let allImages = viewModel.messages.filter(\.isImage).map(\.content)
+        ImageGalleryState.shared.show(
+            urls: allImages,
+            index: allImages.firstIndex(of: url) ?? 0,
+            sourceFrame: frame,
+            loadMoreOlder: {
+                await loadMoreGalleryImages()
+            }
+        )
+    }
+
+    private func loadMoreGalleryImages() async -> Int {
+        let before = viewModel.messages.filter(\.isImage).map(\.content).count
+        await viewModel.loadMoreMessages()
+        let after = viewModel.messages.filter(\.isImage).map(\.content)
+        let added = after.count - before
+        if added > 0 {
+            let newOlder = Array(after.prefix(added))
+            ImageGalleryState.shared.imageURLs.insert(contentsOf: newOlder, at: 0)
+        }
+        return added
+    }
+
+    @ViewBuilder
+    private func messageRow(_ message: Message, previousTimestamp: String?, proxy: ScrollViewProxy) -> some View {
+        let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
+
+        VStack(spacing: 4) {
+            if TimestampHelper.shouldShowTime(
+                current: message.timestamp,
+                previous: previousTimestamp
+            ) {
+                TimeSeparatorView(timestamp: message.timestamp)
+            }
+
+            MessageBubble(
+                message: message,
+                isFromMe: isFromMe,
+                avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
+                onImageTap: handleImageTap,
+                onVideoTap: { url in
+                    isInputFocused = false
+                    hideKeyboard()
+                    previewVideoURL = url
+                },
+                onReply: { msg in viewModel.setReply(to: msg) },
+                onQuoteTap: { targetID in
+                    scrollToMessage(targetID, proxy: proxy)
+                },
+                peerName: contact.nickname
+            )
+        }
+        .id(messageScrollID(message.id))
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
+        )
+        .flippedRow()
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(viewModel.pendingMessages.reversed()) { pending in
-                            PendingMessageBubble(pending: pending, avatarURL: myAvatarURL) {
-                                Task { await viewModel.retryPending(pending) }
-                            }
-                            .id(pending.id)
-                            .flippedRow()
-                        }
+                ZStack {
+                    ChatBackgroundLayer(
+                        background: appearanceStore.effectiveBackground(
+                            targetType: .dm,
+                            targetID: contact.userID
+                        )
+                    )
 
-                        ForEach(viewModel.messages.reversed()) { message in
-                            let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
-                            VStack(spacing: 4) {
-                                if TimestampHelper.shouldShowTime(
-                                    current: message.timestamp,
-                                    previous: previousTimestamp(for: message)
-                                ) {
-                                    TimeSeparatorView(timestamp: message.timestamp)
-                                }
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomScrollAnchorID)
 
-                                MessageBubble(
-                                    message: message,
-                                    isFromMe: isFromMe,
-                                    avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
-                                    onImageTap: { url, frame in
-                                        isInputFocused = false
-                                        hideKeyboard()
-                                        let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(
-                                            urls: allImages,
-                                            index: allImages.firstIndex(of: url) ?? 0,
-                                            sourceFrame: frame,
-                                            loadMoreOlder: {
-                                                // When the gallery nears its leftmost image,
-                                                // page in more chat history and tell the gallery
-                                                // how many NEW older image URLs that added.
-                                                let before = viewModel.messages.filter(\.isImage).map(\.content).count
-                                                await viewModel.loadMoreMessages()
-                                                let after = viewModel.messages.filter(\.isImage).map(\.content)
-                                                let added = after.count - before
-                                                if added > 0 {
-                                                    let newOlder = Array(after.prefix(added))
-                                                    ImageGalleryState.shared.imageURLs.insert(contentsOf: newOlder, at: 0)
-                                                }
-                                                return added
-                                            }
-                                        )
-                                    },
-                                    onVideoTap: { url in
-                                        isInputFocused = false
-                                        hideKeyboard()
-                                        previewVideoURL = url
-                                    },
-                                    onReply: { msg in viewModel.setReply(to: msg) },
-                                    onQuoteTap: { targetID in
-                                        scrollToMessage(targetID, proxy: proxy)
+                            LazyVStack(spacing: 4) {
+                                ForEach(viewModel.pendingMessages.reversed()) { pending in
+                                    VStack(spacing: 4) {
+                                        if TimestampHelper.shouldShowTime(
+                                            current: pending.createdAt.iso8601String,
+                                            previous: previousTimestamp(for: pending)
+                                        ) {
+                                            TimeSeparatorView(timestamp: pending.createdAt.iso8601String)
+                                        }
+
+                                        PendingMessageBubble(pending: pending, avatarURL: myAvatarURL) {
+                                            Task { await viewModel.retryPending(pending) }
+                                        }
                                     }
-                                )
-                            }
-                            .id(message.id)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
-                            )
-                            .flippedRow()
-                        }
-
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .flippedRow()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
+                                    .id(pendingScrollID(pending.id))
+                                    .flippedRow()
                                 }
+
+                                ForEach(renderedMessages.reversed()) { row in
+                                    messageRow(row.message, previousTimestamp: row.previousTimestamp, proxy: proxy)
+                                }
+
+                                if viewModel.hasMore {
+                                    ProgressView()
+                                        .tint(AppColors.accent)
+                                        .padding()
+                                        .flippedRow()
+                                        .onAppear {
+                                            Task { await viewModel.loadMoreMessages() }
+                                        }
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .rotationEffect(.degrees(180))
+                    .scaleEffect(x: -1, y: 1, anchor: .center)
+                    .scrollIndicators(.hidden)
+                    .scrollDismissesKeyboard(.interactively)
+                    // Only scroll to latest when a NEW message arrives at the
+                    // end of the list (last.id changes). Watching messages.count
+                    // also fires when loadMoreMessages prepends older history,
+                    // yanking the user back to the bottom mid-scroll.
+                    .onChange(of: viewModel.messages.last?.id) { _ in
+                        scrollChatToBottom(proxy: proxy)
+                    }
+                    .onChange(of: viewModel.pendingMessages.count) { _ in
+                        scrollChatToBottom(proxy: proxy)
+                    }
+                    .task {
+                        await viewModel.loadMessages()
+                        await appearanceStore.loadIfNeeded()
+                        guard !Task.isCancelled, isViewVisible else { return }
+                        onMarkRead?()
+                        scrollChatToBottom(proxy: proxy, animated: false)
+                    }
                 }
-                .rotationEffect(.degrees(180))
-                .scaleEffect(x: -1, y: 1, anchor: .center)
-                .scrollIndicators(.hidden)
                 .contentShape(Rectangle())
-                // simultaneousGesture instead of onTapGesture: the
-                // latter was consuming the gesture phase and the first
-                // tap on the input field (which is a sibling in this
-                // VStack but sometimes wins the SwiftUI gesture race
-                // under the flipped coord system) was getting swallowed
-                // before it reached the TextField. Simultaneous lets
-                // both handlers fire — keyboard still dismisses on
-                // background tap, and TextField focus is not blocked.
-                .simultaneousGesture(TapGesture().onEnded { hideKeyboard() })
-                // Only scroll to latest when a NEW message arrives at the
-                // end of the list (last.id changes). Watching messages.count
-                // also fires when loadMoreMessages prepends older history,
-                // yanking the user back to the bottom mid-scroll.
-                .onChange(of: viewModel.messages.last?.id) { _ in scrollChatToLatest(proxy: proxy) }
-                .onChange(of: viewModel.pendingMessages.count) { _ in scrollChatToLatest(proxy: proxy) }
-                .task {
-                    await viewModel.loadMessages()
-                    onMarkRead?()
-                }
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        isInputFocused = false
+                        showPlusMenu = false
+                        hideKeyboard()
+                    }
+                )
             }
 
             if let replyMsg = viewModel.replyingTo {
-                let senderName = replyMsg.senderID == AuthManager.shared.currentUser?.userID ? "我" : contact.nickname
+                let senderName = replyMsg.senderID == AuthManager.shared.currentUser?.userID ? L10n.tr("common.me") : contact.nickname
                 ReplyPreviewBar(
                     senderName: senderName,
                     content: replyMsg.content,
@@ -199,14 +293,34 @@ struct ChatView: View {
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                EmptyView()
-            }
-        }
+        .withUIKitBackButton()
         .overlay { voiceRecordingOverlay }
-        .onAppear { setActiveChat(true) }
-        .onDisappear { setActiveChat(false) }
+        .sheet(isPresented: $showGiftSheet) {
+            GiftPickerSheet(
+                source: .fixed(GiftRecipient(
+                    id: contact.userID,
+                    name: contact.nickname,
+                    avatarURL: contact.avatarURL
+                )),
+                onSend: { gift, _ in
+                    try await viewModel.sendGift(gift)
+                },
+                onOpenWallet: {
+                    navigator.push(WalletView())
+                },
+                onSendFailure: { message in
+                    toastMessage = message
+                }
+            )
+        }
+        .onAppear {
+            isViewVisible = true
+            setActiveChat(true)
+        }
+        .onDisappear {
+            isViewVisible = false
+            setActiveChat(false)
+        }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false
@@ -225,46 +339,56 @@ struct ChatView: View {
         )) { item in
             VideoPlayerView(videoURL: item.url)
         }
+        .toast(message: $toastMessage)
     }
 
     // MARK: - Input Bar
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            Divider().opacity(0.3)
-
-            HStack(spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { isVoiceMode.toggle() }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isVoiceMode.toggle()
+                        if isVoiceMode { showPlusMenu = false }
+                    }
                 } label: {
                     Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
                         .font(.system(size: 20))
                         .foregroundColor(AppColors.accent)
-                        .frame(width: 32, height: 40)
+                        .frame(width: 32, height: inputChromeHeight)
                 }
+                .buttonStyle(.plain)
 
                 if isVoiceMode {
                     holdToRecordButton
                 } else {
-                    TextField("输入消息...", text: $viewModel.inputText, axis: .vertical)
-                        .font(.system(size: 16))
-                        .lineLimit(1...5)
-                        .focused($isInputFocused)
-                        .submitLabel(.send)
-                        .onSubmit {
-                            Task { await viewModel.sendText() }
+                    ZStack(alignment: .topLeading) {
+                        ChatInputTextView(
+                            text: $viewModel.inputText,
+                            isFocused: $isInputFocused,
+                            height: $inputTextHeight
+                        ) {
+                            viewModel.submitText()
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22)
-                                .fill(AppColors.separator)
-                        )
+                        .frame(height: inputTextHeight)
+
+                        Text(L10n.tr("chat.input.placeholder"))
+                            .font(.system(size: 16))
+                            .foregroundColor(AppColors.tertiaryText)
+                            .padding(.top, 11)
+                            .padding(.leading, 2)
+                            .opacity(viewModel.inputText.isEmpty && !isInputFocused ? 1 : 0)
+                            .allowsHitTesting(false)
+                    }
+                        .chatComposerFieldChrome(minHeight: inputChromeHeight)
+                        .contentShape(Rectangle())
+                        .onTapGesture { isInputFocused = true }
                 }
 
                 if viewModel.isSendEnabled && !isVoiceMode {
                     Button {
-                        Task { await viewModel.sendText() }
+                        viewModel.submitText()
                     } label: {
                         ZStack {
                             Circle()
@@ -276,6 +400,7 @@ struct ChatView: View {
                         }
                         .contentShape(Circle())
                     }
+                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
                 } else if !isVoiceMode {
                     Button {
                         isInputFocused = false
@@ -287,27 +412,32 @@ struct ChatView: View {
                             .frame(width: 40, height: 40)
                             .contentShape(Rectangle())
                     }
+                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
 
             if showPlusMenu && !isVoiceMode {
                 chatPlusMenu
             }
         }
-        .background(AppColors.secondaryBackground)
+        .chatComposerBarBackground()
+    }
+
+    private var inputChromeHeight: CGFloat {
+        inputTextHeight + 14
     }
 
     private var holdToRecordButton: some View {
-        Text(recorder.isRecording ? (voiceCancelZone ? "松开 取消" : "松开 发送") : "按住 说话")
+        Text(recorder.isRecording ? (voiceCancelZone ? L10n.tr("voice.releaseCancel") : L10n.tr("voice.releaseSend")) : L10n.tr("voice.holdToTalk"))
             .font(.system(size: 16, weight: .medium))
             .foregroundColor(recorder.isRecording ? .white : AppColors.primaryText)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(recorder.isRecording ? (voiceCancelZone ? Color.red.opacity(0.8) : AppColors.accent) : AppColors.separator)
+            .chatComposerRecordChrome(
+                isRecording: recorder.isRecording,
+                isCanceling: voiceCancelZone,
+                minHeight: inputChromeHeight
             )
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -362,7 +492,7 @@ struct ChatView: View {
                         .font(.system(size: 48, weight: .light, design: .monospaced))
                         .foregroundColor(.white)
 
-                    Text(voiceCancelZone ? "松开 取消发送" : "上滑 取消")
+                    Text(voiceCancelZone ? L10n.tr("voice.releaseCancelSend") : L10n.tr("voice.slideUpCancel"))
                         .font(.system(size: 15))
                         .foregroundColor(.white.opacity(0.7))
                         .padding(.bottom, 120)
@@ -407,7 +537,7 @@ struct ChatView: View {
                             .font(.system(size: 22))
                             .foregroundColor(AppColors.primaryText)
                     }
-                    Text("相册")
+                    Text(L10n.tr("chat.album"))
                         .font(.system(size: 11))
                         .foregroundColor(AppColors.secondaryText)
                 }
@@ -440,6 +570,12 @@ struct ChatView: View {
             }
 
             if !isSelfChat {
+                GiftPlusMenuTile {
+                    showPlusMenu = false
+                    isInputFocused = false
+                    showGiftSheet = true
+                }
+
                 Button {
                     showPlusMenu = false
                     CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .voice)
@@ -449,7 +585,7 @@ struct ChatView: View {
                             RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
                             Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                         }
-                        Text("语音通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                        Text(L10n.tr("call.voice")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                     }
                 }
 
@@ -462,7 +598,7 @@ struct ChatView: View {
                             RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
                             Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                         }
-                        Text("视频通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                        Text(L10n.tr("call.video")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                     }
                 }
             }
@@ -497,14 +633,11 @@ struct PendingMessageBubble: View {
                     }
 
                     if pending.msgType == "text" && !pending.content.isEmpty {
-                        Text(pending.content)
-                            .font(.system(size: 16))
-                            .foregroundColor(.white)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(AppColors.accentGradient)
-                            .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
+                        TimestampedTextBubble(
+                            content: pending.content,
+                            timeText: pending.formattedTime,
+                            isFromMe: true
+                        )
                     } else if let imageData = pending.imageData, let uiImage = UIImage(data: imageData) {
                         Image(uiImage: uiImage)
                             .resizable()
@@ -538,7 +671,7 @@ struct PendingMessageBubble: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .frame(width: 100)
-                        .background(AppColors.accentGradient)
+                        .background(AppColors.sentBubbleGradient)
                         .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
                     }
                 }

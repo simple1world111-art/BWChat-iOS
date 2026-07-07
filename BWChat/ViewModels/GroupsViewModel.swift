@@ -49,19 +49,19 @@ class GroupsViewModel: ObservableObject {
             }
             persist()
         } catch {
-            if groups.isEmpty { errorMessage = "加载群聊失败" }
+            if groups.isEmpty { errorMessage = L10n.tr("group.loadListFailed") }
         }
     }
 
-    func createGroup(name: String, memberIDs: [String]) async -> Bool {
+    func createGroup(name: String, memberIDs: [String], isPublic: Bool = false) async -> Bool {
         do {
-            _ = try await APIService.shared.createGroup(name: name, memberIDs: memberIDs)
+            _ = try await APIService.shared.createGroup(name: name, memberIDs: memberIDs, isPublic: isPublic)
             await loadGroups()
             return true
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "创建失败"
+            errorMessage = L10n.tr("group.createFailed")
         }
         return false
     }
@@ -80,7 +80,8 @@ class GroupsViewModel: ObservableObject {
                     lastMessage: g.lastMessage,
                     lastMessageTime: g.lastMessageTime,
                     lastMessageSender: g.lastMessageSender,
-                    unreadCount: 0
+                    unreadCount: 0,
+                    isPublic: g.isPublic
                 )
                 groups[index] = updated
                 persist()
@@ -139,7 +140,8 @@ class GroupsViewModel: ObservableObject {
                         lastMessage: g.lastMessage,
                         lastMessageTime: g.lastMessageTime,
                         lastMessageSender: g.lastMessageSender,
-                        unreadCount: g.unreadCount
+                        unreadCount: g.unreadCount,
+                        isPublic: g.isPublic
                     )
                     self.persist()
                 }
@@ -148,12 +150,12 @@ class GroupsViewModel: ObservableObject {
     }
 
     private func handleGroupContactUpdate(_ data: [String: Any]) {
-        guard let groupID = data["group_id"] as? Int,
-              let lastMessage = data["last_message"] as? String,
-              let lastMessageTime = data["last_message_time"] as? String else { return }
+        guard let groupID = Self.intValue(data["group_id"]),
+              let lastMessage = Self.stringValue(data["last_message"]),
+              let lastMessageTime = Self.stringValue(data["last_message_time"]) else { return }
 
-        let senderNickname = data["sender_nickname"] as? String
-        let senderID = data["sender_id"] as? String
+        let senderNickname = Self.stringValue(data["sender_nickname"])
+        let senderID = Self.stringValue(data["sender_id"])
         let myID = AuthManager.shared.currentUser?.userID
 
         // Suppress unread increment if user is actively viewing this group chat
@@ -176,7 +178,8 @@ class GroupsViewModel: ObservableObject {
                 lastMessage: lastMessage,
                 lastMessageTime: lastMessageTime,
                 lastMessageSender: senderNickname ?? g.lastMessageSender,
-                unreadCount: g.unreadCount + unreadDelta
+                unreadCount: g.unreadCount + unreadDelta,
+                isPublic: g.isPublic
             )
             groups[index] = updated
             groups.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
@@ -185,5 +188,18 @@ class GroupsViewModel: ObservableObject {
             // New group not yet in list — reload to pick it up
             Task { await loadGroups() }
         }
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
     }
 }

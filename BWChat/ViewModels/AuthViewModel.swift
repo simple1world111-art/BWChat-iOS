@@ -32,11 +32,11 @@ class AuthViewModel: ObservableObject {
     /// user has typed something. Returns nil when the form is valid.
     var registerValidationHint: String? {
         if username.isBlank { return nil }
-        if username.count < 3 { return "用户名至少 3 位" }
+        if username.count < 3 { return L10n.tr("auth.validation.usernameTooShort") }
         if password.isBlank { return nil }
-        if password.count < 6 { return "密码至少 6 位" }
+        if password.count < 6 { return L10n.tr("auth.validation.passwordTooShort") }
         if !confirmPassword.isBlank && password != confirmPassword {
-            return "两次输入的密码不一致"
+            return L10n.tr("auth.validation.passwordMismatch")
         }
         return nil
     }
@@ -63,9 +63,9 @@ class AuthViewModel: ObservableObject {
             PushService.shared.requestPermission()
             PushService.shared.ensureTokenUploaded()
         } catch let error as APIError {
-            errorMessage = error.errorDescription
+            errorMessage = Self.localizedLoginError(error)
         } catch {
-            errorMessage = "登录失败，请稍后再试"
+            errorMessage = L10n.tr("auth.login.failed")
         }
 
         isLoading = false
@@ -93,9 +93,25 @@ class AuthViewModel: ObservableObject {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "注册失败，请稍后再试"
+            errorMessage = L10n.tr("auth.register.failed")
         }
 
         isLoading = false
+    }
+
+    private static func localizedLoginError(_ error: APIError) -> String {
+        switch error {
+        case .unauthorized:
+            return L10n.tr("auth.login.invalidCredentials")
+        case .serverError(_, let message):
+            switch message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "user_not_found", "invalid_credentials", "invalid_username_or_password", "incorrect_username_or_password":
+                return L10n.tr("auth.login.invalidCredentials")
+            default:
+                return message
+            }
+        default:
+            return error.errorDescription ?? L10n.tr("auth.login.failed")
+        }
     }
 }

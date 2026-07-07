@@ -128,6 +128,26 @@ final class ImageCacheManager: @unchecked Sendable {
         }
     }
 
+    func removeMomentMediaCaches(for moment: Moment) {
+        var paths = Set(moment.images.filter { !$0.isEmpty })
+        for media in moment.media {
+            if !media.url.isEmpty {
+                paths.insert(media.url)
+            }
+            if let thumbnailURL = media.thumbnailURL, !thumbnailURL.isEmpty {
+                paths.insert(thumbnailURL)
+            }
+            if let lockedPreviewURL = media.lockedPreviewURL, !lockedPreviewURL.isEmpty {
+                paths.insert(lockedPreviewURL)
+            }
+        }
+
+        for path in paths {
+            removeImage(for: path)
+            removeImage(for: path + "?thumb=1")
+        }
+    }
+
     // MARK: - Disk Helpers
 
     private static func diskFileURL(in baseURL: URL, for urlPath: String) -> URL {

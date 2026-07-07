@@ -29,13 +29,108 @@ struct Message: Codable, Identifiable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id
+        case messageID = "message_id"
+        case messageId = "messageId"
         case senderID = "sender_id"
+        case senderId = "senderId"
+        case fromUserID = "from_user_id"
+        case fromUserId = "fromUserId"
+        case userID = "user_id"
         case receiverID = "receiver_id"
+        case receiverId = "receiverId"
+        case recipientID = "recipient_id"
+        case recipientId = "recipientId"
+        case toUserID = "to_user_id"
+        case toUserId = "toUserId"
         case msgType = "msg_type"
+        case msgTypeCamel = "msgType"
+        case messageType = "message_type"
+        case type
         case content
+        case gift
+        case payload
         case timestamp
+        case createdAt = "created_at"
+        case createdAtCamel = "createdAt"
+        case time
         case replyToID = "reply_to_id"
+        case replyToId = "replyToId"
         case replyTo = "reply_to"
+        case replyToCamel = "replyTo"
+    }
+
+    init(
+        id: Int,
+        senderID: String,
+        receiverID: String,
+        msgType: String,
+        content: String,
+        timestamp: String,
+        replyToID: Int?,
+        replyTo: ReplyPreview?
+    ) {
+        self.id = id
+        self.senderID = senderID
+        self.receiverID = receiverID
+        self.msgType = msgType
+        self.content = content
+        self.timestamp = timestamp
+        self.replyToID = replyToID
+        self.replyTo = replyTo
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedContent = container.flexContent(for: .content)
+            ?? container.flexContent(for: .payload)
+            ?? container.flexContent(for: .gift)
+            ?? ""
+        let decodedType = container.flexString(for: .msgType)
+            ?? container.flexString(for: .msgTypeCamel)
+            ?? container.flexString(for: .messageType)
+            ?? container.flexString(for: .type)
+            ?? (GiftMessagePayload.parse(decodedContent) == nil ? "text" : "gift")
+
+        self.id = container.flexInt(for: .id)
+            ?? container.flexInt(for: .messageID)
+            ?? container.flexInt(for: .messageId)
+            ?? 0
+        self.senderID = container.flexString(for: .senderID)
+            ?? container.flexString(for: .senderId)
+            ?? container.flexString(for: .fromUserID)
+            ?? container.flexString(for: .fromUserId)
+            ?? container.flexString(for: .userID)
+            ?? ""
+        self.receiverID = container.flexString(for: .receiverID)
+            ?? container.flexString(for: .receiverId)
+            ?? container.flexString(for: .recipientID)
+            ?? container.flexString(for: .recipientId)
+            ?? container.flexString(for: .toUserID)
+            ?? container.flexString(for: .toUserId)
+            ?? ""
+        self.msgType = decodedType
+        self.content = decodedContent
+        self.timestamp = container.flexString(for: .timestamp)
+            ?? container.flexString(for: .createdAt)
+            ?? container.flexString(for: .createdAtCamel)
+            ?? container.flexString(for: .time)
+            ?? ISO8601DateFormatter().string(from: Date())
+        self.replyToID = container.flexInt(for: .replyToID)
+            ?? container.flexInt(for: .replyToId)
+        self.replyTo = (try? container.decodeIfPresent(ReplyPreview.self, forKey: .replyTo))
+            ?? (try? container.decodeIfPresent(ReplyPreview.self, forKey: .replyToCamel))
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(senderID, forKey: .senderID)
+        try container.encode(receiverID, forKey: .receiverID)
+        try container.encode(msgType, forKey: .msgType)
+        try container.encode(content, forKey: .content)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(replyToID, forKey: .replyToID)
+        try container.encodeIfPresent(replyTo, forKey: .replyTo)
     }
 
     var isImage: Bool {
@@ -61,30 +156,14 @@ struct Message: Codable, Identifiable, Equatable {
     }
 
     var formattedTime: String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        
-        // Try with fractional seconds first, then without
-        if let date = formatter.date(from: timestamp) {
-            return Self.timeFormatter.string(from: date)
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: timestamp) {
-            return Self.timeFormatter.string(from: date)
-        }
-        return timestamp
+        TimestampHelper.formatTime(timestamp)
     }
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "HH:mm"
-        return f
-    }()
 }
 
 /// Used for optimistic UI updates before server confirms
 struct PendingMessage: Identifiable {
     let id: UUID = UUID()
+    let createdAt: Date = Date()
     let receiverID: String
     let msgType: String
     let content: String
@@ -108,5 +187,9 @@ struct PendingMessage: Identifiable {
         self.videoData = videoData
         self.voiceData = voiceData
         self.voiceDuration = voiceDuration
+    }
+
+    var formattedTime: String {
+        TimestampHelper.formatTime(createdAt)
     }
 }

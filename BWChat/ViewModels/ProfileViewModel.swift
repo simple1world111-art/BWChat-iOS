@@ -20,6 +20,44 @@ class ProfileViewModel: ObservableObject {
     @Published var editLocation = ""
     @Published var editBirthdayDate = Date()
 
+    private static func birthdayFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }
+
+    private static func defaultBirthdayDate() -> Date {
+        Calendar(identifier: .gregorian).date(byAdding: .year, value: -18, to: Date()) ?? Date()
+    }
+
+    private static func birthdayString(from date: Date) -> String {
+        birthdayFormatter().string(from: date)
+    }
+
+    private static func birthdayDate(from rawValue: String) -> Date? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = birthdayFormatter()
+        if let date = formatter.date(from: trimmed) {
+            return date
+        }
+        if trimmed.count >= 10 {
+            return formatter.date(from: String(trimmed.prefix(10)))
+        }
+        return nil
+    }
+
+    private static func normalizedBirthdayString(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if let date = birthdayDate(from: trimmed) {
+            return birthdayString(from: date)
+        }
+        return trimmed
+    }
+
     init() {
         // Use cached user immediately so avatar shows without waiting for network
         if let cached = AuthManager.shared.currentUser {
@@ -51,15 +89,9 @@ class ProfileViewModel: ObservableObject {
         editNickname = user.nickname
         editBio = user.bio
         editGender = user.gender
-        editBirthday = user.birthday
+        editBirthday = Self.normalizedBirthdayString(user.birthday)
         editLocation = user.location
-        if !user.birthday.isEmpty {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            if let date = formatter.date(from: user.birthday) {
-                editBirthdayDate = date
-            }
-        }
+        editBirthdayDate = Self.birthdayDate(from: editBirthday) ?? Self.defaultBirthdayDate()
     }
 
     func saveProfile() async {
@@ -67,9 +99,7 @@ class ProfileViewModel: ObservableObject {
         errorMessage = nil
         successMessage = nil
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let birthdayStr = editBirthday.isEmpty ? "" : editBirthday
+        let birthdayStr = normalizedBirthdayForSave()
 
         do {
             let updated = try await APIService.shared.updateProfile(
@@ -81,7 +111,7 @@ class ProfileViewModel: ObservableObject {
             )
             profile = updated
             AuthManager.shared.updateUser(updated)
-            successMessage = "保存成功"
+            successMessage = L10n.tr("profile.saveSuccess")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -97,7 +127,7 @@ class ProfileViewModel: ObservableObject {
             await loadProfile()
             // Clear image cache so new avatar is fetched
             ImageCacheManager.shared.clearCache()
-            successMessage = "头像更新成功"
+            successMessage = L10n.tr("profile.avatar.updated")
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -105,8 +135,25 @@ class ProfileViewModel: ObservableObject {
     }
 
     func updateBirthdayFromDate() {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        editBirthday = formatter.string(from: editBirthdayDate)
+        editBirthday = Self.birthdayString(from: editBirthdayDate)
+    }
+
+    func setBirthdayDate(_ date: Date) {
+        editBirthdayDate = date
+        updateBirthdayFromDate()
+    }
+
+    func clearBirthday() {
+        editBirthday = ""
+        editBirthdayDate = Self.defaultBirthdayDate()
+    }
+
+    private func normalizedBirthdayForSave() -> String {
+        let trimmed = editBirthday.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if let date = Self.birthdayDate(from: trimmed) {
+            return Self.birthdayString(from: date)
+        }
+        return Self.birthdayString(from: editBirthdayDate)
     }
 }

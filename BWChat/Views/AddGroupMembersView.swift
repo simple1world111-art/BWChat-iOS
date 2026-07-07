@@ -32,7 +32,7 @@ struct AddGroupMembersView: View {
                         Image(systemName: "person.badge.plus")
                             .font(.system(size: 36))
                             .foregroundColor(AppColors.tertiaryText)
-                        Text("所有好友都已在群中")
+                        Text(L10n.tr("group.addMembers.allAdded"))
                             .font(.system(size: 14))
                             .foregroundColor(AppColors.secondaryText)
                         Spacer()
@@ -41,7 +41,7 @@ struct AddGroupMembersView: View {
                 } else {
                     // Header
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("选择要添加的好友 (\(selectedFriends.count))")
+                        Text(L10n.tr("group.addMembers.selectCount", selectedFriends.count))
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(AppColors.secondaryText)
                             .textCase(.uppercase)
@@ -101,11 +101,11 @@ struct AddGroupMembersView: View {
                 Spacer(minLength: 0)
             }
             .background(AppColors.background)
-            .navigationTitle("添加群成员")
+            .navigationTitle(L10n.tr("group.addMembers.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") { dismiss() }
+                    Button(L10n.tr("common.cancel")) { dismiss() }
                         .font(.system(size: 16))
                         .foregroundColor(AppColors.accent)
                         .frame(height: 44)
@@ -119,7 +119,7 @@ struct AddGroupMembersView: View {
                             ProgressView()
                                 .scaleEffect(0.8)
                         } else {
-                            Text("添加")
+                            Text(L10n.tr("common.add"))
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(!selectedFriends.isEmpty ? AppColors.accent : AppColors.tertiaryText)
                         }
@@ -129,11 +129,11 @@ struct AddGroupMembersView: View {
                     .contentShape(Rectangle())
                 }
             }
-            .alert("错误", isPresented: Binding(
+            .alert(L10n.tr("common.error"), isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
-                Button("确定", role: .cancel) {}
+                Button(L10n.tr("common.confirm"), role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
             }
@@ -156,7 +156,7 @@ struct AddGroupMembersView: View {
             let detail = try await APIService.shared.getGroupDetail(groupID: groupID)
             existingMemberIDs = Set(detail.members.map { $0.userID })
         } catch {
-            errorMessage = "加载群信息失败"
+            errorMessage = L10n.tr("group.loadFailed")
         }
     }
 
@@ -169,7 +169,7 @@ struct AddGroupMembersView: View {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "添加失败"
+            errorMessage = L10n.tr("group.addMembers.failed")
         }
         isAdding = false
     }

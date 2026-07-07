@@ -29,29 +29,6 @@ struct Conversation: Codable, Identifiable, Equatable, Hashable {
     var isGroup: Bool { type == "group" }
 
     var formattedTime: String {
-        guard let timeStr = lastMessageTime else { return "" }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        var date: Date?
-        date = formatter.date(from: timeStr)
-        if date == nil {
-            formatter.formatOptions = [.withInternetDateTime]
-            date = formatter.date(from: timeStr)
-        }
-        guard let parsedDate = date else { return "" }
-
-        let calendar = Calendar.current
-        if calendar.isDateInToday(parsedDate) {
-            let tf = DateFormatter()
-            tf.dateFormat = "HH:mm"
-            return tf.string(from: parsedDate)
-        } else if calendar.isDateInYesterday(parsedDate) {
-            return "昨天"
-        } else {
-            let tf = DateFormatter()
-            tf.dateFormat = "MM/dd"
-            return tf.string(from: parsedDate)
-        }
+        TimestampHelper.formatListTime(lastMessageTime)
     }
 }

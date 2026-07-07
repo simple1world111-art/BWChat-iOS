@@ -15,10 +15,10 @@ struct GroupCallView: View {
             VStack(spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(callManager.currentCall?.groupName ?? "群通话")
+                        Text(callManager.currentCall?.groupName ?? L10n.tr("call.groupCall"))
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
-                        Text("\(callManager.remoteParticipantCount + 1) 人通话中 · \(formatDuration(callManager.callDuration))")
+                        Text("\(L10n.tr("call.participants.count", callManager.remoteParticipantCount + 1)) · \(formatDuration(callManager.callDuration))")
                             .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.6))
                     }
@@ -68,7 +68,7 @@ struct GroupCallView: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
                 if let localParticipant = callManager.room?.localParticipant {
                     videoCell(
-                        name: "我",
+                        name: L10n.tr("common.me"),
                         videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack,
                         isLocal: true
                     )
@@ -119,7 +119,7 @@ struct GroupCallView: View {
 
     @ViewBuilder
     private var voiceGrid: some View {
-        let names = ["我"] + callManager.remoteParticipantNames
+        let names = [L10n.tr("common.me")] + callManager.remoteParticipantNames
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(Array(names.enumerated()), id: \.offset) { _, name in

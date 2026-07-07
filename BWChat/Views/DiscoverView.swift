@@ -1,103 +1,311 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 struct DiscoverView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var languageStore = AppLanguageStore.shared
+    @ObservedObject private var authManager = AuthManager.shared
     @StateObject private var momentsNotif = MomentsNotificationManager.shared
+    @StateObject private var discoverConfig = DiscoverConfigStore()
+    @StateObject private var shortDramaFeed = ShortDramaFeedViewModel()
+    @State private var comingSoonItem: DiscoverComingSoonItem?
 
     var body: some View {
-        List {
-            Button {
-                momentsNotif.markFeedViewed()
-                navigator.push(MomentsView())
-            } label: {
-                HStack(spacing: 14) {
-                    ZStack(alignment: .topTrailing) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(LinearGradient(
-                                colors: [Color(hex: "667eea"), Color(hex: "764ba2")],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "camera.fill")
-                            .font(.system(size: 17))
-                            .foregroundColor(.white)
-                            .frame(width: 40, height: 40)
+        ScrollView {
+            VStack(spacing: 12) {
+                RootTabTitle(localizedKey: "tab.discover")
+                    .padding(.bottom, 2)
 
-                        if momentsNotif.hasNewMoments {
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 10, height: 10)
-                                .offset(x: 3, y: -3)
+                ForEach(discoverConfig.sections) { section in
+                    discoverCard {
+                        ForEach(section.items) { item in
+                            discoverRow(for: item, isLast: item.id == section.items.last?.id)
                         }
                     }
-
-                    Text("朋友圈")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppColors.primaryText)
-
-                    Spacer()
-
-                    if momentsNotif.unreadCount > 0 {
-                        Text("\(momentsNotif.unreadCount)")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Color.red)
-                            .cornerRadius(10)
-                    }
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(AppColors.tertiaryText)
                 }
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .listRowSeparator(.hidden)
+            .padding(.horizontal, 16)
+            .padding(.top, AppSpacing.rootTabTopInset)
+            .padding(.bottom, 20)
+        }
+        .id(languageStore.activeLanguage.rawValue)
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .task(id: authManager.currentUser?.userID ?? "guest") {
+            await discoverConfig.load(force: true)
+            await momentsNotif.fetchFromServer()
+            preloadShortDramaIfAvailable()
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task {
+                await discoverConfig.load()
+                await momentsNotif.fetchFromServer()
+                preloadShortDramaIfAvailable()
+            }
+        }
+        .alert(item: $comingSoonItem) { item in
+            Alert(
+                title: Text(item.title),
+                message: Text(item.message ?? L10n.tr("discover.comingSoon")),
+                dismissButton: .default(Text(L10n.tr("common.ok")))
+            )
+        }
+    }
 
-            Button {
-                navigator.push(InAppWebView(url: URL(string: "https://g123.jp")!, title: "游戏"))
-            } label: {
-                HStack(spacing: 14) {
+    private func discoverRow(for item: DiscoverItem, isLast: Bool) -> some View {
+        VStack(spacing: 0) {
+            discoverRow(
+                title: item.displayTitle(language: languageStore.activeLanguage),
+                systemImage: resolvedSystemImage(item.systemImage),
+                colors: item.displayColors,
+                badge: badgeValue(for: item),
+                showsDot: showsDot(for: item)
+            ) {
+                handleTap(item)
+            }
+
+            if !isLast {
+                discoverDivider
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func discoverCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(AppColors.cardBackground)
+        .cornerRadius(14)
+    }
+
+    private func discoverRow(
+        title: String,
+        systemImage: String,
+        colors: [Color],
+        badge: Int? = nil,
+        showsDot: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                ZStack(alignment: .topTrailing) {
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(LinearGradient(
-                            colors: [Color(hex: "FF6B6B"), Color(hex: "FF8E53")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ))
+                        .fill(iconFill(for: colors))
                         .frame(width: 40, height: 40)
                         .overlay(
-                            Image(systemName: "gamecontroller.fill")
+                            Image(systemName: systemImage)
                                 .font(.system(size: 17))
                                 .foregroundColor(.white)
                         )
 
-                    Text("游戏")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppColors.primaryText)
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(AppColors.tertiaryText)
+                    if showsDot {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 10, height: 10)
+                            .offset(x: 3, y: -3)
+                    }
                 }
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+
+                Text(title)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+
+                Spacer()
+
+                if let badge, badge > 0 {
+                    Text("\(badge)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.red)
+                        .cornerRadius(10)
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
             }
-            .buttonStyle(.plain)
-            .listRowSeparator(.hidden)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
         }
-        .listStyle(.plain)
-        .background(AppColors.secondaryBackground)
-        .navigationTitle("发现")
-        .task(id: AuthManager.shared.currentUser?.userID ?? "") {
-            await momentsNotif.fetchFromServer()
+        .buttonStyle(.plain)
+    }
+
+    private func iconFill(for colors: [Color]) -> AnyShapeStyle {
+        guard let first = colors.first else {
+            return AnyShapeStyle(AppColors.accentGradient)
         }
+        guard colors.count > 1 else {
+            return AnyShapeStyle(first)
+        }
+        return AnyShapeStyle(LinearGradient(
+            colors: Array(colors.prefix(2)),
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        ))
+    }
+
+    private func resolvedSystemImage(_ rawName: String?) -> String {
+        guard let rawName,
+              !rawName.isDiscoverBlank,
+              UIImage(systemName: rawName) != nil else {
+            return "sparkles"
+        }
+        return rawName
+    }
+
+    private var discoverDivider: some View {
+        Rectangle()
+            .fill(AppColors.separator)
+            .frame(height: 1)
+            .padding(.leading, 70)
+    }
+
+    private func badgeValue(for item: DiscoverItem) -> Int? {
+        switch item.badgeKey?.normalizedDiscoverToken {
+        case "moments_unread", "moments":
+            return momentsNotif.unreadCount
+        default:
+            return item.badgeCount
+        }
+    }
+
+    private func showsDot(for item: DiscoverItem) -> Bool {
+        switch item.dotKey?.normalizedDiscoverToken {
+        case "moments_new", "moments":
+            return momentsNotif.hasNewMoments
+        default:
+            return item.showsDot ?? false
+        }
+    }
+
+    private func handleTap(_ item: DiscoverItem) {
+        let route = item.route ?? DiscoverRoute(type: "native", name: item.id)
+        switch route.normalizedType {
+        case "native":
+            handleNativeRoute(route.name ?? item.id, item: item)
+        case "web", "h5", "url":
+            openWebRoute(route, item: item)
+        case "coming_soon", "comingsoon", "disabled":
+            showComingSoon(item, route: route)
+        default:
+            if route.url != nil {
+                openWebRoute(route, item: item)
+            } else {
+                showComingSoon(item, route: route)
+            }
+        }
+    }
+
+    private func handleNativeRoute(_ rawName: String, item: DiscoverItem) {
+        switch rawName.normalizedDiscoverToken {
+        case "moments":
+            momentsNotif.markFeedViewed()
+            navigator.push(MomentsView())
+        case "groups", "group", "group_list":
+            navigator.push(GroupListView().withUIKitBackButton())
+        case "nearby", "map", "map_dating":
+            navigator.push(MapDatingView())
+        case "short_drama", "shortdrama", "drama":
+            shortDramaFeed.startInitialPreload()
+            navigator.push(ShortDramaFeedView(viewModel: shortDramaFeed))
+        default:
+            showComingSoon(item, route: item.route)
+        }
+    }
+
+    private func preloadShortDramaIfAvailable() {
+        guard discoverConfig.sections.contains(where: { section in
+            section.items.contains { item in
+                item.id.normalizedDiscoverToken == "short_drama"
+                    || item.route?.name?.normalizedDiscoverToken == "short_drama"
+            }
+        }) else { return }
+        shortDramaFeed.startInitialPreload()
+    }
+
+    private func openWebRoute(_ route: DiscoverRoute, item: DiscoverItem) {
+        guard let urlString = route.url,
+              let url = URL(string: urlString),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        else {
+            showComingSoon(item, route: route)
+            return
+        }
+
+        let title = route.displayTitle(
+            language: languageStore.activeLanguage,
+            fallback: item.displayTitle(language: languageStore.activeLanguage)
+        )
+        navigator.push(InAppWebView(url: url, title: title))
+    }
+
+    private func showComingSoon(_ item: DiscoverItem, route: DiscoverRoute?) {
+        comingSoonItem = DiscoverComingSoonItem(
+            title: item.displayTitle(language: languageStore.activeLanguage),
+            message: route?.displayMessage(language: languageStore.activeLanguage)
+        )
+    }
+}
+
+private struct DiscoverComingSoonItem: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String?
+}
+
+@MainActor
+private final class DiscoverConfigStore: ObservableObject {
+    @Published private(set) var sections: [DiscoverSection] = DiscoverConfigData.defaultSections
+
+    private static let cacheKey = "bbchat.discover.remoteConfig.v1"
+    private let minimumRefreshInterval: TimeInterval = 5 * 60
+    private var lastRefreshAttemptDate: Date?
+
+    init() {
+        if let cached = Self.cachedConfig() {
+            let cachedSections = cached.effectiveSections
+            if !cachedSections.isEmpty {
+                sections = cachedSections
+            }
+        }
+    }
+
+    func load(force: Bool = false) async {
+        if !force, let lastRefreshAttemptDate, Date().timeIntervalSince(lastRefreshAttemptDate) < minimumRefreshInterval {
+            return
+        }
+        lastRefreshAttemptDate = Date()
+
+        do {
+            let config = try await APIService.shared.fetchDiscoverConfig()
+            let nextSections = config.effectiveSections
+            guard !nextSections.isEmpty else { return }
+            sections = nextSections
+            Self.save(config)
+        } catch {
+            // Keep bundled defaults or the last valid cached config.
+        }
+    }
+
+    private static func cachedConfig() -> DiscoverConfigData? {
+        guard let data = UserDefaults.standard.data(forKey: cacheKey) else { return nil }
+        return try? JSONDecoder().decode(DiscoverConfigData.self, from: data)
+    }
+
+    private static func save(_ config: DiscoverConfigData) {
+        guard let data = try? JSONEncoder().encode(config) else { return }
+        UserDefaults.standard.set(data, forKey: cacheKey)
     }
 }
 
@@ -122,6 +330,7 @@ struct InAppWebView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
+        .withUIKitBackButton()
     }
 }
 

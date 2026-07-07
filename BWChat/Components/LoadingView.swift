@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct LoadingView: View {
-    var message: String = "加载中..."
+    var message: String = L10n.tr("common.loading")
 
     var body: some View {
         VStack(spacing: 12) {

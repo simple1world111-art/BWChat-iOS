@@ -71,13 +71,14 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.startCall(targetID: userID, callType: type.rawValue)
+                let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
                 if var call = currentCall {
                     call.roomName = resp.roomName
                     call.livekitToken = resp.token
-                    call.livekitURL = resp.livekitUrl
+                    call.livekitURL = livekitURL
                     currentCall = call
                 }
-                await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: type == .video)
+                await connectToRoom(url: livekitURL, token: resp.token, isVideo: type == .video)
             } catch {
                 print("[CallManager] Failed to start call: \(error)")
                 await safeEndCall()
@@ -98,21 +99,23 @@ class CallManager: ObservableObject {
             do {
                 if let groupID = call.groupID {
                     let resp = try await APIService.shared.startGroupCall(groupID: groupID, callType: call.callType.rawValue)
+                    let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
                     if var c = currentCall {
                         c.roomName = resp.roomName
                         c.livekitToken = resp.token
-                        c.livekitURL = resp.livekitUrl
+                        c.livekitURL = livekitURL
                         currentCall = c
                     }
-                    await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: call.callType == .video)
+                    await connectToRoom(url: livekitURL, token: resp.token, isVideo: call.callType == .video)
                 } else {
                     let resp = try await APIService.shared.joinCall(roomName: call.roomName)
+                    let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
                     if var c = currentCall {
                         c.livekitToken = resp.token
-                        c.livekitURL = resp.livekitUrl
+                        c.livekitURL = livekitURL
                         currentCall = c
                     }
-                    await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: call.callType == .video)
+                    await connectToRoom(url: livekitURL, token: resp.token, isVideo: call.callType == .video)
                 }
             } catch {
                 print("[CallManager] Failed to join call: \(error)")
@@ -142,13 +145,14 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.startGroupCall(groupID: groupID, callType: type.rawValue)
+                let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
                 if var call = currentCall {
                     call.roomName = resp.roomName
                     call.livekitToken = resp.token
-                    call.livekitURL = resp.livekitUrl
+                    call.livekitURL = livekitURL
                     currentCall = call
                 }
-                await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: type == .video)
+                await connectToRoom(url: livekitURL, token: resp.token, isVideo: type == .video)
             } catch {
                 print("[CallManager] Failed to start group call: \(error)")
                 await safeEndCall()
@@ -176,12 +180,13 @@ class CallManager: ObservableObject {
         Task {
             do {
                 let resp = try await APIService.shared.joinCall(roomName: roomName)
+                let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
                 if var call = currentCall {
                     call.livekitToken = resp.token
-                    call.livekitURL = resp.livekitUrl
+                    call.livekitURL = livekitURL
                     currentCall = call
                 }
-                await connectToRoom(url: resp.livekitUrl, token: resp.token, isVideo: callType == .video)
+                await connectToRoom(url: livekitURL, token: resp.token, isVideo: callType == .video)
             } catch {
                 print("[CallManager] Failed to join group call: \(error)")
                 await safeEndCall()
@@ -259,7 +264,7 @@ class CallManager: ObservableObject {
 
     func rejectCall() {
         guard let call = currentCall else { return }
-        if call.roomName.isEmpty {
+        if call.groupID == nil, !call.remoteUserID.isEmpty {
             WebSocketService.shared.sendCallReject(targetID: call.remoteUserID)
         }
         endCallLocally()
@@ -270,6 +275,8 @@ class CallManager: ObservableObject {
 
         if let groupID = call.groupID {
             Task { try? await APIService.shared.leaveGroupCall(groupID: groupID) }
+        } else if !call.remoteUserID.isEmpty {
+            WebSocketService.shared.sendCallEnd(targetID: call.remoteUserID)
         }
 
         endCallLocally()
@@ -396,6 +403,11 @@ class CallManager: ObservableObject {
 
     // MARK: - Private
 
+    private func resolvedLiveKitURL(_ serverURL: String) -> String {
+        let configuredURL = AppConfig.livekitURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return configuredURL.isEmpty ? serverURL : configuredURL
+    }
+
     func endCallLocally() {
         stopRingtone()
 
@@ -474,15 +486,18 @@ class CallManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] data in
                 guard let self = self else { return }
-                guard let callerID = data["caller_id"] as? String,
-                      let callerName = data["caller_name"] as? String,
-                      let roomName = data["room_name"] as? String,
-                      let typeStr = data["call_type"] as? String,
+                guard let callerID = Self.stringValue(data["caller_id"]),
+                      let callerName = Self.stringValue(data["caller_name"]),
+                      let roomName = Self.stringValue(data["room_name"]),
+                      let typeStr = Self.stringValue(data["call_type"]),
                       let callType = CallType(rawValue: typeStr) else { return }
 
-                let callerAvatar = data["caller_avatar"] as? String ?? ""
+                let callerAvatar = Self.stringValue(data["caller_avatar"]) ?? ""
 
-                if self.currentCall != nil { return }
+                if self.currentCall != nil {
+                    WebSocketService.shared.sendCallBusy(targetID: callerID)
+                    return
+                }
 
                 self.currentCall = CallSession(
                     remoteUserID: callerID,
@@ -525,16 +540,16 @@ class CallManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] data in
                 guard let self = self else { return }
-                guard let groupID = data["group_id"] as? Int,
-                      let groupName = data["group_name"] as? String,
-                      let roomName = data["room_name"] as? String,
-                      let typeStr = data["call_type"] as? String,
+                guard let groupID = Self.intValue(data["group_id"]),
+                      let groupName = Self.stringValue(data["group_name"]),
+                      let roomName = Self.stringValue(data["room_name"]),
+                      let typeStr = Self.stringValue(data["call_type"]),
                       let callType = CallType(rawValue: typeStr) else { return }
 
                 if self.currentCall != nil { return }
 
                 self.currentCall = CallSession(
-                    remoteUserID: data["caller_id"] as? String ?? "",
+                    remoteUserID: Self.stringValue(data["caller_id"]) ?? "",
                     remoteNickname: groupName,
                     remoteAvatarURL: "",
                     callType: callType,
@@ -559,6 +574,19 @@ class CallManager: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
     }
     // MARK: - Ringtone
 
@@ -587,16 +615,16 @@ class CallManager: ObservableObject {
     // MARK: - Call Record Message
 
     private func sendCallRecord(call: CallSession, duration: TimeInterval) async {
-        let typeLabel = call.callType == .video ? "视频通话" : "语音通话"
+        let typeLabel = call.callType == .video ? L10n.tr("call.video") : L10n.tr("call.voice")
         let content: String
         if call.state == .connected || duration > 0 {
             let mins = Int(duration) / 60
             let secs = Int(duration) % 60
             content = "[\(typeLabel)] \(String(format: "%02d:%02d", mins, secs))"
         } else if call.isOutgoing {
-            content = "[\(typeLabel)] 对方未接听"
+            content = L10n.tr("call.record.remoteMissed", typeLabel)
         } else {
-            content = "[\(typeLabel)] 未接听"
+            content = L10n.tr("call.record.missed", typeLabel)
         }
 
         do {

@@ -9,12 +9,14 @@ struct BWChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @ObservedObject private var callManager = CallManager.shared
+    @ObservedObject private var walletStore = WalletStore.shared
 
 
     var body: some Scene {
         WindowGroup {
             ZStack {
                 SplashScreen()
+                    .appLocalizedEnvironment()
                     .preferredColorScheme(nil)
                     .onChange(of: scenePhase) { newPhase in
                         handleScenePhase(newPhase)
@@ -54,6 +56,9 @@ struct BWChatApp: App {
                     )
                 }
             }
+            .onAppear {
+                Task { await refreshWalletBalanceIfNeeded() }
+            }
         }
     }
 
@@ -62,6 +67,7 @@ struct BWChatApp: App {
         case .active:
             // App returned to foreground — ensure push & WebSocket are alive
             Task { @MainActor in
+                await refreshWalletBalanceIfNeeded()
                 PushService.shared.reregisterIfNeeded()
                 PushService.shared.clearBadge()
                 if AuthManager.shared.isLoggedIn && !WebSocketService.shared.isConnected {
@@ -76,6 +82,12 @@ struct BWChatApp: App {
         @unknown default:
             break
         }
+    }
+
+    @MainActor
+    private func refreshWalletBalanceIfNeeded() async {
+        guard AuthManager.shared.isLoggedIn else { return }
+        await walletStore.refreshBalanceFromServer()
     }
 }
 
@@ -126,6 +138,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        postConversationReloadIfNeeded(userInfo)
+
         // Update badge count from the push payload
         if let aps = userInfo["aps"] as? [String: Any],
            let badge = aps["badge"] as? Int {
@@ -145,10 +159,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let userInfo = notification.request.content.userInfo
+        postConversationReloadIfNeeded(userInfo)
 
         // Incoming 1v1 call push — show call UI directly
         if let pushType = userInfo["push_type"] as? String, pushType == "call",
-           let callerID = userInfo["caller_id"] as? String,
+           let callerID = Self.stringValue(userInfo["caller_id"]),
            let callerName = userInfo["caller_name"] as? String,
            let roomName = userInfo["room_name"] as? String,
            let callTypeStr = userInfo["call_type"] as? String,
@@ -173,7 +188,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
         // Incoming group call push — show group call UI directly
         if let pushType = userInfo["push_type"] as? String, pushType == "group_call",
-           let groupID = userInfo["group_id"] as? Int,
+           let groupID = Self.intValue(userInfo["group_id"]),
            let groupName = userInfo["group_name"] as? String,
            let roomName = userInfo["room_name"] as? String,
            let callTypeStr = userInfo["call_type"] as? String,
@@ -181,7 +196,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             Task { @MainActor in
                 guard CallManager.shared.currentCall == nil else { return }
                 CallManager.shared.currentCall = CallSession(
-                    remoteUserID: userInfo["caller_id"] as? String ?? "",
+                    remoteUserID: Self.stringValue(userInfo["caller_id"]) ?? "",
                     remoteNickname: groupName,
                     remoteAvatarURL: "",
                     callType: callType,
@@ -207,7 +222,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
 
         // Suppress DM notification banner if viewing that chat
-        if let senderID = userInfo["sender_id"] as? String,
+        if let senderID = Self.stringValue(userInfo["sender_id"]),
            let activeChatID = WebSocketService.shared.activeChatUserID,
            activeChatID == senderID,
            userInfo["group_id"] == nil {
@@ -217,9 +232,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
         // Suppress group notification banner if viewing that group,
         // UNLESS the user was @mentioned — always show those
-        let isMention = userInfo["is_mention"] as? Bool ?? false
+        let isMention = Self.boolValue(userInfo["is_mention"]) ?? false
         if !isMention,
-           let groupID = userInfo["group_id"] as? Int,
+           let groupID = Self.intValue(userInfo["group_id"]),
            let activeGroupID = WebSocketService.shared.activeGroupID,
            activeGroupID == groupID {
             completionHandler([])
@@ -237,10 +252,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
+        postConversationReloadIfNeeded(userInfo)
 
         // Handle incoming 1v1 call push
         if let pushType = userInfo["push_type"] as? String, pushType == "call",
-           let callerID = userInfo["caller_id"] as? String,
+           let callerID = Self.stringValue(userInfo["caller_id"]),
            let callerName = userInfo["caller_name"] as? String,
            let roomName = userInfo["room_name"] as? String,
            let callTypeStr = userInfo["call_type"] as? String,
@@ -265,7 +281,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
         // Handle incoming group call push
         if let pushType = userInfo["push_type"] as? String, pushType == "group_call",
-           let groupID = userInfo["group_id"] as? Int,
+           let groupID = Self.intValue(userInfo["group_id"]),
            let groupName = userInfo["group_name"] as? String,
            let roomName = userInfo["room_name"] as? String,
            let callTypeStr = userInfo["call_type"] as? String,
@@ -273,7 +289,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             Task { @MainActor in
                 guard CallManager.shared.currentCall == nil else { return }
                 CallManager.shared.currentCall = CallSession(
-                    remoteUserID: userInfo["caller_id"] as? String ?? "",
+                    remoteUserID: Self.stringValue(userInfo["caller_id"]) ?? "",
                     remoteNickname: groupName,
                     remoteAvatarURL: "",
                     callType: callType,
@@ -289,13 +305,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
-        if let groupID = userInfo["group_id"] as? Int {
+        if let groupID = Self.intValue(userInfo["group_id"]) {
             NotificationCenter.default.post(
                 name: .init("openGroupChat"),
                 object: nil,
                 userInfo: ["group_id": groupID]
             )
-        } else if let senderID = userInfo["sender_id"] as? String {
+        } else if let senderID = Self.stringValue(userInfo["sender_id"]) {
             NotificationCenter.default.post(
                 name: .init("openChat"),
                 object: nil,
@@ -307,5 +323,36 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             PushService.shared.clearBadge()
         }
         completionHandler()
+    }
+
+    private func postConversationReloadIfNeeded(_ userInfo: [AnyHashable: Any]) {
+        guard userInfo["sender_id"] != nil || userInfo["group_id"] != nil else { return }
+        NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool? {
+        if let bool = value as? Bool { return bool }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let string = value as? String {
+            switch string.lowercased() {
+            case "true", "1", "yes": return true
+            case "false", "0", "no": return false
+            default: return nil
+            }
+        }
+        return nil
     }
 }

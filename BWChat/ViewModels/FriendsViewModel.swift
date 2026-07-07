@@ -78,7 +78,7 @@ class FriendsViewModel: ObservableObject {
             }
             LocalCache.save(fetched, key: Self.friendsKey)
         } catch {
-            if friends.isEmpty { errorMessage = "加载好友列表失败" }
+            if friends.isEmpty { errorMessage = L10n.tr("friends.loadFailed") }
         }
     }
 
@@ -99,7 +99,7 @@ class FriendsViewModel: ObservableObject {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "发送失败"
+            errorMessage = L10n.tr("messages.sendFailed")
         }
     }
 
@@ -107,10 +107,10 @@ class FriendsViewModel: ObservableObject {
         do {
             try await APIService.shared.acceptFriendRequest(requestID: request.requestID)
             friendRequests.removeAll { $0.id == request.id }
-            successMessage = "已添加 \(request.nickname) 为好友"
+            successMessage = L10n.tr("friends.added", request.nickname)
             await loadFriends()
         } catch {
-            errorMessage = "操作失败"
+            errorMessage = L10n.tr("common.operationFailed")
         }
     }
 
@@ -119,7 +119,7 @@ class FriendsViewModel: ObservableObject {
             try await APIService.shared.rejectFriendRequest(requestID: request.requestID)
             friendRequests.removeAll { $0.id == request.id }
         } catch {
-            errorMessage = "操作失败"
+            errorMessage = L10n.tr("common.operationFailed")
         }
     }
 }

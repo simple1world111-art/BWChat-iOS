@@ -52,7 +52,7 @@ struct VideoPlayerView: View {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 40))
                         .foregroundColor(.gray)
-                    Text("视频加载失败")
+                    Text(L10n.tr("video.loadFailed"))
                         .foregroundColor(.gray)
                 }
             }

@@ -8,20 +8,26 @@ struct CreateGroupView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var groupName = ""
     @State private var selectedFriends: Set<String> = []
+    @State private var isPublic: Bool
     @State private var isCreating = false
     var onCreated: (() -> Void)?
+
+    init(initialIsPublic: Bool = false, onCreated: (() -> Void)? = nil) {
+        _isPublic = State(initialValue: initialIsPublic)
+        self.onCreated = onCreated
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Group name input
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("群聊名称")
+                    Text(L10n.tr("group.create.name"))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(AppColors.secondaryText)
                         .textCase(.uppercase)
 
-                    TextField("输入群聊名称", text: $groupName)
+                    TextField(L10n.tr("group.create.name.placeholder"), text: $groupName)
                         .font(.system(size: 16))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -32,9 +38,32 @@ struct CreateGroupView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 8)
 
+                HStack(spacing: 12) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(AppColors.accent)
+                        .frame(width: 24)
+
+                    Text(L10n.tr("group.isPublic"))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.primaryText)
+
+                    Spacer()
+
+                    Toggle("", isOn: $isPublic)
+                        .labelsHidden()
+                        .tint(AppColors.accent)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(AppColors.separator.opacity(0.6))
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+
                 // Friends list
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("选择成员 (\(selectedFriends.count))")
+                    Text(L10n.tr("group.selectMembers.count", selectedFriends.count))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(AppColors.secondaryText)
                         .textCase(.uppercase)
@@ -46,7 +75,7 @@ struct CreateGroupView: View {
                             Image(systemName: "person.3")
                                 .font(.system(size: 36))
                                 .foregroundColor(AppColors.tertiaryText)
-                            Text("暂无好友，先添加好友吧")
+                            Text(L10n.tr("group.create.noFriends"))
                                 .font(.system(size: 14))
                                 .foregroundColor(AppColors.secondaryText)
                             Spacer()
@@ -106,11 +135,11 @@ struct CreateGroupView: View {
                 Spacer(minLength: 0)
             }
             .background(AppColors.background)
-            .navigationTitle("创建群聊")
+            .navigationTitle(L10n.tr("group.create.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") { dismiss() }
+                    Button(L10n.tr("common.cancel")) { dismiss() }
                         .font(.system(size: 16))
                         .foregroundColor(AppColors.accent)
                         .frame(height: 44)
@@ -124,7 +153,7 @@ struct CreateGroupView: View {
                             ProgressView()
                                 .scaleEffect(0.8)
                         } else {
-                            Text("创建")
+                            Text(L10n.tr("common.create"))
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(canCreate ? AppColors.accent : AppColors.tertiaryText)
                         }
@@ -149,7 +178,8 @@ struct CreateGroupView: View {
         let groupsVM = GroupsViewModel()
         let success = await groupsVM.createGroup(
             name: groupName.trimmingCharacters(in: .whitespacesAndNewlines),
-            memberIDs: Array(selectedFriends)
+            memberIDs: Array(selectedFriends),
+            isPublic: isPublic
         )
         isCreating = false
         if success {

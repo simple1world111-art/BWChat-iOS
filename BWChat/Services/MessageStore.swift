@@ -8,7 +8,7 @@ final class MessageStore {
     static let shared = MessageStore()
 
     private var db: OpaquePointer?
-    private let queue = DispatchQueue(label: "com.bwchat.messagestore", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "com.bbchat.messagestore", qos: .userInitiated)
 
     private init() {
         openDatabase()
@@ -24,7 +24,7 @@ final class MessageStore {
     private func openDatabase() {
         let fileManager = FileManager.default
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dbDir = appSupport.appendingPathComponent("BWChat", isDirectory: true)
+        let dbDir = appSupport.appendingPathComponent("BBchat", isDirectory: true)
         try? fileManager.createDirectory(at: dbDir, withIntermediateDirectories: true)
 
         let dbURL = dbDir.appendingPathComponent("messages.sqlite")

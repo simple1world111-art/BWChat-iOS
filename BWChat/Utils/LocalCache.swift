@@ -15,7 +15,7 @@ import Foundation
 enum LocalCache {
     private static let encoder = JSONEncoder()
     private static let decoder = JSONDecoder()
-    private static let writeQueue = DispatchQueue(label: "bwchat.localcache.write", qos: .utility)
+    private static let writeQueue = DispatchQueue(label: "bbchat.localcache.write", qos: .utility)
 
     private static var cacheDir: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!

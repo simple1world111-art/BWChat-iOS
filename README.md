@@ -1,4 +1,4 @@
-# BWChat iOS
+# BBchat iOS
 
 极简风格的轻量级聊天应用 iOS 客户端。
 
@@ -28,7 +28,7 @@
 ## 项目结构
 
 ```
-BWChat/
+BBchat/
 ├── BWChat.xcodeproj
 ├── BWChat/
 │   ├── BWChatApp.swift          # App 入口
@@ -46,8 +46,8 @@ BWChat/
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/<your-org>/BWChat-iOS.git
-cd BWChat-iOS
+git clone https://github.com/<your-org>/BBchat-iOS.git
+cd BBchat-iOS
 
 # 2. 用 Xcode 打开
 open BWChat.xcodeproj
@@ -68,12 +68,14 @@ open BWChat.xcodeproj
 ```swift
 enum AppConfig {
     #if DEBUG
-    static let apiBaseURL = "http://192.168.1.100:8000/api/v1"
-    static let wsBaseURL  = "ws://192.168.1.100:8000/ws"
+    static let apiBaseURL = "http://52.198.192.138/api/v1"
+    static let wsBaseURL  = "ws://52.198.192.138/ws"
     #else
-    static let apiBaseURL = "https://your-server.com/api/v1"
-    static let wsBaseURL  = "wss://your-server.com/ws"
+    static let apiBaseURL = "http://52.198.192.138/api/v1"
+    static let wsBaseURL  = "ws://52.198.192.138/ws"
     #endif
+
+    static let livekitURL = "ws://52.198.192.138:7880"
 }
 ```
 

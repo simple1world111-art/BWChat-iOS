@@ -7,83 +7,107 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10001 /* BWChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001; };
-		A10002 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002; };
-		A10003 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003; };
-		A10004 /* Contact.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004; };
-		A10005 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005; };
-		A10006 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006; };
-		A10007 /* ContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007; };
-		A10008 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008; };
-		A10009 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009; };
-		A10200 /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200; };
-		A10010 /* ContactListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010; };
-		A10011 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011; };
-		A10012 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012; };
-		A10013 /* ImagePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013; };
-		A10014 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014; };
-		A10015 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015; };
-		A10016 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016; };
-		A10017 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017; };
-		A10018 /* ImageCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018; };
-		A10019 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019; };
-		A10020 /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020; };
-		A10021 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021; };
-		A10022 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022; };
-		A10023 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023; };
-		A10110 /* UIKitNav.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10110; };
-		A10111 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10111; };
-		A10112 /* ChatbotAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10112; };
-		A10113 /* BotConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10113; };
-		A10114 /* BotChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10114; };
-		A10115 /* BotConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10115; };
-		A10024 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024; };
-		A10116 /* LocalCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10116; };
-		A10025 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10025; };
-		A10030 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030; };
-		A10040 /* Group.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040; };
-		A10041 /* FriendRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041; };
-		A10042 /* FriendsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042; };
-		A10043 /* GroupsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043; };
-		A10044 /* GroupChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044; };
-		A10045 /* AddFriendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045; };
-		A10046 /* FriendRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10046; };
-		A10047 /* CreateGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047; };
-		A10048 /* GroupChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048; };
-		A10049 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049; };
-		A10050 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050; };
-		A10060 /* VideoThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060; };
-		A10061 /* AddGroupMembersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10061; };
-		A10062 /* GroupDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062; };
-		A10070 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070; };
-		A10071 /* EditProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071; };
-		A10072 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072; };
-		A10073 /* UserCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073; };
-		A10080 /* MediaPickerPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10080; };
-		A10090 /* Call.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090; };
-		A10091 /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10091; };
-		A10092 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10092; };
-		A10093 /* MentionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10093; };
-		A10094 /* ReplyPreviewBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10094; };
-		A10095 /* BWChatNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = PR10002; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		A10096 /* GroupCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096; };
-		A10097 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10001; };
-		A10100 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100; };
-		A10101 /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101; };
-		A10102 /* ConversationListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102; };
-		A10103 /* MomentsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103; };
-		A10104 /* MomentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104; };
-		A10105 /* CreateMomentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105; };
-		A10106 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106; };
-		A10107 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10107; };
-		A10108 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B10108; };
-		A10109 /* MediaLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10109; };
-/* End PBXBuildFile section */
+		A10001 /* BWChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BWChatApp.swift */; };
+		A10002 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* User.swift */; };
+		A10003 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* Message.swift */; };
+		A10004 /* Contact.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* Contact.swift */; };
+		A10005 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* AuthViewModel.swift */; };
+		A10006 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* ChatViewModel.swift */; };
+		A10007 /* ContactsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10007 /* ContactsViewModel.swift */; };
+		A10008 /* SplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10008 /* SplashScreen.swift */; };
+		A10009 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10009 /* LoginView.swift */; };
+		A10010 /* ContactListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10010 /* ContactListView.swift */; };
+		A10011 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10011 /* ChatView.swift */; };
+		A10012 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10012 /* MessageBubble.swift */; };
+		A10013 /* ImagePreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10013 /* ImagePreviewView.swift */; };
+		A10014 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* APIService.swift */; };
+		A10015 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* WebSocketService.swift */; };
+		A10016 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* PushService.swift */; };
+		A10017 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* AuthManager.swift */; };
+		A10018 /* ImageCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* ImageCacheManager.swift */; };
+		A10019 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* AvatarView.swift */; };
+		A10020 /* LoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* LoadingView.swift */; };
+		A10021 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* ToastView.swift */; };
+		A10022 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10022 /* Constants.swift */; };
+		A10023 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* Extensions.swift */; };
+		A10024 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* KeychainHelper.swift */; };
+		A10025 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B10025 /* Assets.xcassets */; };
+		A10030 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10030 /* NotificationService.swift */; };
+		A10040 /* Group.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10040 /* Group.swift */; };
+		A10041 /* FriendRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10041 /* FriendRequest.swift */; };
+		A10042 /* FriendsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10042 /* FriendsViewModel.swift */; };
+		A10043 /* GroupsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10043 /* GroupsViewModel.swift */; };
+		A10044 /* GroupChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10044 /* GroupChatViewModel.swift */; };
+		A10045 /* AddFriendView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10045 /* AddFriendView.swift */; };
+		A10046 /* FriendRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10046 /* FriendRequestsView.swift */; };
+		A10047 /* CreateGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10047 /* CreateGroupView.swift */; };
+		A10048 /* GroupChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10048 /* GroupChatView.swift */; };
+		A10049 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10049 /* MainTabView.swift */; };
+		A10050 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10050 /* VideoPlayerView.swift */; };
+		A10060 /* VideoThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10060 /* VideoThumbnailView.swift */; };
+		A10061 /* AddGroupMembersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10061 /* AddGroupMembersView.swift */; };
+		A10062 /* GroupDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10062 /* GroupDetailView.swift */; };
+		A10070 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10070 /* ProfileView.swift */; };
+		A10071 /* EditProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10071 /* EditProfileView.swift */; };
+		A10072 /* ProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10072 /* ProfileViewModel.swift */; };
+		A10073 /* UserCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10073 /* UserCacheManager.swift */; };
+		A10080 /* MediaPickerPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10080 /* MediaPickerPreview.swift */; };
+		A10090 /* Call.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10090 /* Call.swift */; };
+		A10091 /* CallManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10091 /* CallManager.swift */; };
+		A10092 /* CallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10092 /* CallView.swift */; };
+		A10093 /* MentionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10093 /* MentionPickerView.swift */; };
+		A10094 /* ReplyPreviewBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10094 /* ReplyPreviewBar.swift */; };
+		A10095 /* BWChatNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = PR10002 /* BWChatNotificationService.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10096 /* GroupCallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10096 /* GroupCallView.swift */; };
+		A10097 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10001 /* LiveKit */; };
+		A10100 /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10100 /* Conversation.swift */; };
+		A10101 /* Moment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10101 /* Moment.swift */; };
+		A10102 /* ConversationListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10102 /* ConversationListViewModel.swift */; };
+		A10103 /* MomentsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10103 /* MomentsViewModel.swift */; };
+		A10104 /* MomentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10104 /* MomentsView.swift */; };
+		A10105 /* CreateMomentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10105 /* CreateMomentView.swift */; };
+		A10106 /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10106 /* DiscoverView.swift */; };
+		A10107 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10107 /* MessageStore.swift */; };
+		A10108 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = B10108 /* libsqlite3.tbd */; };
+		A10109 /* MediaLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10109 /* MediaLibrarySaver.swift */; };
+		A10110 /* UIKitNav.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10110 /* UIKitNav.swift */; };
+		A10111 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10111 /* WalletView.swift */; };
+		A10112 /* ChatbotAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10112 /* ChatbotAPI.swift */; };
+		A10113 /* BotConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10113 /* BotConfig.swift */; };
+		A10114 /* BotChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10114 /* BotChatView.swift */; };
+		A10115 /* BotConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10115 /* BotConfigView.swift */; };
+		A10116 /* LocalCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10116 /* LocalCache.swift */; };
+		A10117 /* ChatAppearanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10117 /* ChatAppearanceStore.swift */; };
+		A10118 /* ChatBackgroundSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10118 /* ChatBackgroundSettingsView.swift */; };
+		A10119 /* WalletStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10119 /* WalletStore.swift */; };
+		A10200 /* RegisterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10200 /* RegisterView.swift */; };
+		A10210 /* Gift.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10210 /* Gift.swift */; };
+		A10211 /* GiftViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10211 /* GiftViews.swift */; };
+		A10220 /* MapDating.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10220 /* MapDating.swift */; };
+		A10221 /* MapDatingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10221 /* MapDatingViewModel.swift */; };
+		A10222 /* MapDatingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10222 /* MapDatingView.swift */; };
+			A10230 /* RootTabTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10230 /* RootTabTitle.swift */; };
+			A10300 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = B10300 /* Localizable.strings */; };
+			A10301 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = B10320 /* InfoPlist.strings */; };
+			A10302 /* AppLanguageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10340 /* AppLanguageStore.swift */; };
+			A10341 /* DiscoverConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10341 /* DiscoverConfig.swift */; };
+			A10400 /* Follow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10400 /* Follow.swift */; };
+			A10401 /* ShortDrama.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10401 /* ShortDrama.swift */; };
+			A10402 /* FollowListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10402 /* FollowListViewModel.swift */; };
+			A10403 /* UserProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10403 /* UserProfileViewModel.swift */; };
+			A10404 /* ShortDramaFeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10404 /* ShortDramaFeedViewModel.swift */; };
+			A10405 /* FollowListViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10405 /* FollowListViews.swift */; };
+			A10406 /* UserProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10406 /* UserProfileView.swift */; };
+			A10407 /* ShortDramaFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10407 /* ShortDramaFeedView.swift */; };
+			A10408 /* ShortDramaVideoPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10408 /* ShortDramaVideoPage.swift */; };
+			A10409 /* ShortDramaActionRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10409 /* ShortDramaActionRail.swift */; };
+			A10410 /* ShortDramaCommentsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10410 /* ShortDramaCommentsSheet.swift */; };
+	/* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
 		C10001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = P10001;
+			containerPortal = P10001 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = T10002;
 			remoteInfo = BWChatNotificationService;
@@ -114,7 +138,6 @@
 		B10007 /* ContactsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsViewModel.swift; sourceTree = "<group>"; };
 		B10008 /* SplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashScreen.swift; sourceTree = "<group>"; };
 		B10009 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
-		B10200 /* RegisterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisterView.swift; sourceTree = "<group>"; };
 		B10010 /* ContactListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactListView.swift; sourceTree = "<group>"; };
 		B10011 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		B10012 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
@@ -127,17 +150,9 @@
 		B10019 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
 		B10020 /* LoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingView.swift; sourceTree = "<group>"; };
 		B10021 /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
-		B10060 /* VideoThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailView.swift; sourceTree = "<group>"; };
 		B10022 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		B10023 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
-		B10110 /* UIKitNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIKitNav.swift; sourceTree = "<group>"; };
-		B10111 /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
-		B10112 /* ChatbotAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatbotAPI.swift; sourceTree = "<group>"; };
-		B10113 /* BotConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotConfig.swift; sourceTree = "<group>"; };
-		B10114 /* BotChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotChatView.swift; sourceTree = "<group>"; };
-		B10115 /* BotConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotConfigView.swift; sourceTree = "<group>"; };
 		B10024 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
-		B10116 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
 		B10025 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B10026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B10027 /* BWChat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BWChat.entitlements; sourceTree = "<group>"; };
@@ -153,6 +168,9 @@
 		B10046 /* FriendRequestsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequestsView.swift; sourceTree = "<group>"; };
 		B10047 /* CreateGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateGroupView.swift; sourceTree = "<group>"; };
 		B10048 /* GroupChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatView.swift; sourceTree = "<group>"; };
+		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
+		B10060 /* VideoThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailView.swift; sourceTree = "<group>"; };
 		B10061 /* AddGroupMembersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGroupMembersView.swift; sourceTree = "<group>"; };
 		B10062 /* GroupDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupDetailView.swift; sourceTree = "<group>"; };
 		B10070 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
@@ -160,14 +178,12 @@
 		B10072 /* ProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewModel.swift; sourceTree = "<group>"; };
 		B10073 /* UserCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserCacheManager.swift; sourceTree = "<group>"; };
 		B10080 /* MediaPickerPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPickerPreview.swift; sourceTree = "<group>"; };
-		B10049 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
-		B10050 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
 		B10090 /* Call.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Call.swift; sourceTree = "<group>"; };
 		B10091 /* CallManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallManager.swift; sourceTree = "<group>"; };
 		B10092 /* CallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallView.swift; sourceTree = "<group>"; };
-		B10096 /* GroupCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCallView.swift; sourceTree = "<group>"; };
 		B10093 /* MentionPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MentionPickerView.swift; sourceTree = "<group>"; };
 		B10094 /* ReplyPreviewBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyPreviewBar.swift; sourceTree = "<group>"; };
+		B10096 /* GroupCallView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCallView.swift; sourceTree = "<group>"; };
 		B10100 /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversation.swift; sourceTree = "<group>"; };
 		B10101 /* Moment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Moment.swift; sourceTree = "<group>"; };
 		B10102 /* ConversationListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListViewModel.swift; sourceTree = "<group>"; };
@@ -175,11 +191,61 @@
 		B10104 /* MomentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentsView.swift; sourceTree = "<group>"; };
 		B10105 /* CreateMomentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateMomentView.swift; sourceTree = "<group>"; };
 		B10106 /* DiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverView.swift; sourceTree = "<group>"; };
-		PR10001 /* BWChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BWChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10107 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 		B10108 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		B10109 /* MediaLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibrarySaver.swift; sourceTree = "<group>"; };
+		B10110 /* UIKitNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIKitNav.swift; sourceTree = "<group>"; };
+		B10111 /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
+		B10112 /* ChatbotAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatbotAPI.swift; sourceTree = "<group>"; };
+		B10113 /* BotConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotConfig.swift; sourceTree = "<group>"; };
+		B10114 /* BotChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotChatView.swift; sourceTree = "<group>"; };
+		B10115 /* BotConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotConfigView.swift; sourceTree = "<group>"; };
+		B10116 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
+		B10117 /* ChatAppearanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAppearanceStore.swift; sourceTree = "<group>"; };
+		B10118 /* ChatBackgroundSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBackgroundSettingsView.swift; sourceTree = "<group>"; };
+		B10119 /* WalletStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletStore.swift; sourceTree = "<group>"; };
+		B10200 /* RegisterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegisterView.swift; sourceTree = "<group>"; };
+		B10210 /* Gift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gift.swift; sourceTree = "<group>"; };
+		B10211 /* GiftViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftViews.swift; sourceTree = "<group>"; };
+		B10220 /* MapDating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapDating.swift; sourceTree = "<group>"; };
+		B10221 /* MapDatingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapDatingViewModel.swift; sourceTree = "<group>"; };
+		B10222 /* MapDatingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapDatingView.swift; sourceTree = "<group>"; };
+		B10230 /* RootTabTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabTitle.swift; sourceTree = "<group>"; };
+		B10301 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10302 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10303 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10304 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10305 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10306 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10307 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		B10308 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		B10309 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		B10310 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		B10321 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10322 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10323 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10324 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10325 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10326 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10327 /* pt-BR */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "pt-BR"; path = "pt-BR.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		B10328 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		B10329 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+			B10330 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+			B10340 /* AppLanguageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguageStore.swift; sourceTree = "<group>"; };
+			B10341 /* DiscoverConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoverConfig.swift; sourceTree = "<group>"; };
+			B10400 /* Follow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Follow.swift; sourceTree = "<group>"; };
+			B10401 /* ShortDrama.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDrama.swift; sourceTree = "<group>"; };
+			B10402 /* FollowListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowListViewModel.swift; sourceTree = "<group>"; };
+			B10403 /* UserProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileViewModel.swift; sourceTree = "<group>"; };
+			B10404 /* ShortDramaFeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaFeedViewModel.swift; sourceTree = "<group>"; };
+			B10405 /* FollowListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FollowListViews.swift; sourceTree = "<group>"; };
+			B10406 /* UserProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileView.swift; sourceTree = "<group>"; };
+			B10407 /* ShortDramaFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaFeedView.swift; sourceTree = "<group>"; };
+			B10408 /* ShortDramaVideoPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaVideoPage.swift; sourceTree = "<group>"; };
+			B10409 /* ShortDramaActionRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaActionRail.swift; sourceTree = "<group>"; };
+			B10410 /* ShortDramaCommentsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaCommentsSheet.swift; sourceTree = "<group>"; };
+			PR10001 /* BBchat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BBchat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -217,7 +283,9 @@
 			children = (
 				B10001 /* BWChatApp.swift */,
 				B10026 /* Info.plist */,
+				B10320 /* InfoPlist.strings */,
 				B10027 /* BWChat.entitlements */,
+				B10300 /* Localizable.strings */,
 				B10025 /* Assets.xcassets */,
 				G10002 /* Models */,
 				G10003 /* ViewModels */,
@@ -242,10 +310,15 @@
 				B10100 /* Conversation.swift */,
 				B10101 /* Moment.swift */,
 				B10113 /* BotConfig.swift */,
-			);
-			path = Models;
-			sourceTree = "<group>";
-		};
+					B10210 /* Gift.swift */,
+					B10220 /* MapDating.swift */,
+					B10341 /* DiscoverConfig.swift */,
+					B10400 /* Follow.swift */,
+					B10401 /* ShortDrama.swift */,
+				);
+				path = Models;
+				sourceTree = "<group>";
+			};
 		G10003 /* ViewModels */ = {
 			isa = PBXGroup;
 			children = (
@@ -255,13 +328,17 @@
 				B10042 /* FriendsViewModel.swift */,
 				B10043 /* GroupsViewModel.swift */,
 				B10044 /* GroupChatViewModel.swift */,
-				B10072 /* ProfileViewModel.swift */,
-				B10102 /* ConversationListViewModel.swift */,
-				B10103 /* MomentsViewModel.swift */,
-			);
-			path = ViewModels;
-			sourceTree = "<group>";
-		};
+					B10072 /* ProfileViewModel.swift */,
+					B10102 /* ConversationListViewModel.swift */,
+					B10103 /* MomentsViewModel.swift */,
+					B10221 /* MapDatingViewModel.swift */,
+					B10402 /* FollowListViewModel.swift */,
+					B10403 /* UserProfileViewModel.swift */,
+					B10404 /* ShortDramaFeedViewModel.swift */,
+				);
+				path = ViewModels;
+				sourceTree = "<group>";
+			};
 		G10004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -284,16 +361,24 @@
 				B10111 /* WalletView.swift */,
 				B10114 /* BotChatView.swift */,
 				B10115 /* BotConfigView.swift */,
+				B10118 /* ChatBackgroundSettingsView.swift */,
 				B10071 /* EditProfileView.swift */,
 				B10092 /* CallView.swift */,
 				B10096 /* GroupCallView.swift */,
 				B10104 /* MomentsView.swift */,
-				B10105 /* CreateMomentView.swift */,
-				B10106 /* DiscoverView.swift */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
+					B10105 /* CreateMomentView.swift */,
+					B10106 /* DiscoverView.swift */,
+					B10222 /* MapDatingView.swift */,
+					B10405 /* FollowListViews.swift */,
+					B10406 /* UserProfileView.swift */,
+					B10407 /* ShortDramaFeedView.swift */,
+					B10408 /* ShortDramaVideoPage.swift */,
+					B10409 /* ShortDramaActionRail.swift */,
+					B10410 /* ShortDramaCommentsSheet.swift */,
+				);
+				path = Views;
+				sourceTree = "<group>";
+			};
 		G10005 /* Services */ = {
 			isa = PBXGroup;
 			children = (
@@ -303,6 +388,8 @@
 				B10107 /* MessageStore.swift */,
 				B10109 /* MediaLibrarySaver.swift */,
 				B10112 /* ChatbotAPI.swift */,
+				B10117 /* ChatAppearanceStore.swift */,
+				B10119 /* WalletStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -314,6 +401,7 @@
 				B10018 /* ImageCacheManager.swift */,
 				B10073 /* UserCacheManager.swift */,
 				B10091 /* CallManager.swift */,
+				B10340 /* AppLanguageStore.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -322,12 +410,14 @@
 			isa = PBXGroup;
 			children = (
 				B10019 /* AvatarView.swift */,
+				B10230 /* RootTabTitle.swift */,
 				B10020 /* LoadingView.swift */,
 				B10021 /* ToastView.swift */,
 				B10060 /* VideoThumbnailView.swift */,
 				B10080 /* MediaPickerPreview.swift */,
 				B10093 /* MentionPickerView.swift */,
 				B10094 /* ReplyPreviewBar.swift */,
+				B10211 /* GiftViews.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -357,7 +447,7 @@
 		G10010 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				PR10001 /* BWChat.app */,
+				PR10001 /* BBchat.app */,
 				PR10002 /* BWChatNotificationService.appex */,
 			);
 			name = Products;
@@ -368,7 +458,7 @@
 /* Begin PBXNativeTarget section */
 		T10001 /* BWChat */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CL10001;
+			buildConfigurationList = CL10001 /* Build configuration list for PBXNativeTarget "BWChat" */;
 			buildPhases = (
 				S10001 /* Sources */,
 				F10001 /* Frameworks */,
@@ -378,19 +468,19 @@
 			buildRules = (
 			);
 			dependencies = (
-				D10001,
+				D10001 /* PBXTargetDependency */,
 			);
 			name = BWChat;
 			packageProductDependencies = (
 				PKG10001 /* LiveKit */,
 			);
-			productName = BWChat;
-			productReference = PR10001;
+			productName = BBchat;
+			productReference = PR10001 /* BBchat.app */;
 			productType = "com.apple.product-type.application";
 		};
 		T10002 /* BWChatNotificationService */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CL10002;
+			buildConfigurationList = CL10002 /* Build configuration list for PBXNativeTarget "BWChatNotificationService" */;
 			buildPhases = (
 				S10002 /* Sources */,
 				F10002 /* Frameworks */,
@@ -401,7 +491,7 @@
 			);
 			name = BWChatNotificationService;
 			productName = BWChatNotificationService;
-			productReference = PR10002;
+			productReference = PR10002 /* BWChatNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -422,7 +512,7 @@
 					};
 				};
 			};
-			buildConfigurationList = CL10000;
+			buildConfigurationList = CL10000 /* Build configuration list for PBXProject "BWChat" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -430,15 +520,23 @@
 				en,
 				Base,
 				"zh-Hans",
+				ja,
+				ko,
+				es,
+				fr,
+				de,
+				"pt-BR",
+				ru,
+				"zh-Hant",
 			);
 			mainGroup = G10000;
-			productRefGroup = G10010;
-			projectDirPath = "";
-			projectRoot = "";
 			packageReferences = (
 				SPKG10001 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 				SPKG10002 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
 			);
+			productRefGroup = G10010 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
 			targets = (
 				T10001 /* BWChat */,
 				T10002 /* BWChatNotificationService */,
@@ -452,6 +550,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10025 /* Assets.xcassets in Resources */,
+				A10300 /* Localizable.strings in Resources */,
+				A10301 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -484,6 +584,7 @@
 				A10018 /* ImageCacheManager.swift in Sources */,
 				A10073 /* UserCacheManager.swift in Sources */,
 				A10019 /* AvatarView.swift in Sources */,
+				A10230 /* RootTabTitle.swift in Sources */,
 				A10020 /* LoadingView.swift in Sources */,
 				A10021 /* ToastView.swift in Sources */,
 				A10022 /* Constants.swift in Sources */,
@@ -494,6 +595,9 @@
 				A10113 /* BotConfig.swift in Sources */,
 				A10114 /* BotChatView.swift in Sources */,
 				A10115 /* BotConfigView.swift in Sources */,
+				A10117 /* ChatAppearanceStore.swift in Sources */,
+				A10118 /* ChatBackgroundSettingsView.swift in Sources */,
+				A10119 /* WalletStore.swift in Sources */,
 				A10024 /* KeychainHelper.swift in Sources */,
 				A10116 /* LocalCache.swift in Sources */,
 				A10040 /* Group.swift in Sources */,
@@ -528,9 +632,27 @@
 				A10105 /* CreateMomentView.swift in Sources */,
 				A10106 /* DiscoverView.swift in Sources */,
 				A10109 /* MediaLibrarySaver.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+				A10210 /* Gift.swift in Sources */,
+				A10211 /* GiftViews.swift in Sources */,
+				A10220 /* MapDating.swift in Sources */,
+				A10221 /* MapDatingViewModel.swift in Sources */,
+					A10222 /* MapDatingView.swift in Sources */,
+					A10302 /* AppLanguageStore.swift in Sources */,
+					A10341 /* DiscoverConfig.swift in Sources */,
+					A10400 /* Follow.swift in Sources */,
+					A10401 /* ShortDrama.swift in Sources */,
+					A10402 /* FollowListViewModel.swift in Sources */,
+					A10403 /* UserProfileViewModel.swift in Sources */,
+					A10404 /* ShortDramaFeedViewModel.swift in Sources */,
+					A10405 /* FollowListViews.swift in Sources */,
+					A10406 /* UserProfileView.swift in Sources */,
+					A10407 /* ShortDramaFeedView.swift in Sources */,
+					A10408 /* ShortDramaVideoPage.swift in Sources */,
+					A10409 /* ShortDramaActionRail.swift in Sources */,
+					A10410 /* ShortDramaCommentsSheet.swift in Sources */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 		S10002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -544,10 +666,47 @@
 /* Begin PBXTargetDependency section */
 		D10001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = T10002;
-			targetProxy = C10001;
+			target = T10002 /* BWChatNotificationService */;
+			targetProxy = C10001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		B10300 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				B10301 /* en */,
+				B10302 /* ja */,
+				B10303 /* ko */,
+				B10304 /* es */,
+				B10305 /* fr */,
+				B10306 /* de */,
+				B10307 /* pt-BR */,
+				B10308 /* ru */,
+				B10309 /* zh-Hans */,
+				B10310 /* zh-Hant */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		B10320 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				B10321 /* en */,
+				B10322 /* ja */,
+				B10323 /* ko */,
+				B10324 /* es */,
+				B10325 /* fr */,
+				B10326 /* de */,
+				B10327 /* pt-BR */,
+				B10328 /* ru */,
+				B10329 /* zh-Hans */,
+				B10330 /* zh-Hant */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		BC10001 /* Debug */ = {
@@ -614,11 +773,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BWChat/BWChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChat/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = BWChat;
+				INFOPLIST_KEY_CFBundleDisplayName = BBchat;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -628,7 +787,7 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = BBchat;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -642,11 +801,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BWChat/BWChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChat/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = BWChat;
+				INFOPLIST_KEY_CFBundleDisplayName = BBchat;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -656,7 +815,7 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = BBchat;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -668,7 +827,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BWChatNotificationService/BWChatNotificationService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
@@ -694,7 +853,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BWChatNotificationService/BWChatNotificationService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
@@ -761,8 +920,8 @@
 			repositoryURL = "https://github.com/apple/swift-protobuf.git";
 			requirement = {
 				kind = versionRange;
-				minimumVersion = 1.28.0;
 				maximumVersion = 1.36.0;
+				minimumVersion = 1.28.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -770,11 +929,10 @@
 /* Begin XCSwiftPackageProductDependency section */
 		PKG10001 /* LiveKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = SPKG10001;
+			package = SPKG10001 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
 			productName = LiveKit;
 		};
 /* End XCSwiftPackageProductDependency section */
-
 	};
 	rootObject = P10001 /* Project object */;
 }

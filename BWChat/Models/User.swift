@@ -12,14 +12,19 @@ struct User: Codable, Identifiable, Equatable {
     var gender: String
     var birthday: String
     var location: String
+    var followingCount: Int
+    var followerCount: Int
+    var followedByMe: Bool
+    var followsMe: Bool
+    var isFriend: Bool
 
     var id: String { userID }
 
     var genderDisplay: String {
         switch gender {
-        case "male": return "男"
-        case "female": return "女"
-        case "other": return "其他"
+        case "male": return L10n.tr("profile.gender.male")
+        case "female": return L10n.tr("profile.gender.female")
+        case "other": return L10n.tr("profile.gender.other")
         default: return ""
         }
     }
@@ -33,17 +38,57 @@ struct User: Codable, Identifiable, Equatable {
         case gender
         case birthday
         case location
+        case followingCount = "following_count"
+        case followerCount = "follower_count"
+        case followedByMe = "followed_by_me"
+        case followsMe = "follows_me"
+        case isFriend = "is_friend"
+    }
+
+    init(
+        userID: String,
+        username: String,
+        nickname: String,
+        avatarURL: String,
+        bio: String = "",
+        gender: String = "",
+        birthday: String = "",
+        location: String = "",
+        followingCount: Int = 0,
+        followerCount: Int = 0,
+        followedByMe: Bool = false,
+        followsMe: Bool = false,
+        isFriend: Bool = false
+    ) {
+        self.userID = userID
+        self.username = username
+        self.nickname = nickname
+        self.avatarURL = avatarURL
+        self.bio = bio
+        self.gender = gender
+        self.birthday = birthday
+        self.location = location
+        self.followingCount = followingCount
+        self.followerCount = followerCount
+        self.followedByMe = followedByMe
+        self.followsMe = followsMe
+        self.isFriend = isFriend
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        userID = try container.decode(String.self, forKey: .userID)
-        username = try container.decode(String.self, forKey: .username)
-        nickname = try container.decode(String.self, forKey: .nickname)
-        avatarURL = try container.decode(String.self, forKey: .avatarURL)
+        userID = container.flexString(for: .userID) ?? ""
+        username = container.flexString(for: .username) ?? ""
+        nickname = container.flexString(for: .nickname) ?? L10n.tr("profile.defaultUser")
+        avatarURL = container.flexString(for: .avatarURL) ?? ""
         bio = try container.decodeIfPresent(String.self, forKey: .bio) ?? ""
         gender = try container.decodeIfPresent(String.self, forKey: .gender) ?? ""
         birthday = try container.decodeIfPresent(String.self, forKey: .birthday) ?? ""
         location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+        followingCount = container.flexInt(for: .followingCount) ?? 0
+        followerCount = container.flexInt(for: .followerCount) ?? 0
+        followedByMe = container.flexBool(for: .followedByMe) ?? false
+        followsMe = container.flexBool(for: .followsMe) ?? false
+        isFriend = container.flexBool(for: .isFriend) ?? false
     }
 }

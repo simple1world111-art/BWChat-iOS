@@ -19,6 +19,7 @@ struct GroupDetailView: View {
     @State private var showRemoveConfirm = false
     @State private var memberToRemove: GroupMember?
     @State private var isProcessing = false
+    @State private var isUpdatingVisibility = false
     var onGroupLeft: (() -> Void)?
 
     private var isOwner: Bool {
@@ -48,9 +49,10 @@ struct GroupDetailView: View {
             }
         }
         .background(AppColors.secondaryBackground)
-        .navigationTitle("群聊信息")
+        .navigationTitle(L10n.tr("group.info.title"))
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
+        .withUIKitBackButton()
         .task {
             // Render from cache immediately (no spinner) while we refresh
             // from the server in the background. Only first-ever open
@@ -60,49 +62,49 @@ struct GroupDetailView: View {
             }
             await loadDetail()
         }
-        .alert("修改群名", isPresented: $showRenameAlert) {
-            TextField("输入新群名", text: $newGroupName)
-            Button("取消", role: .cancel) {}
-            Button("确定") {
+        .alert(L10n.tr("group.rename.title"), isPresented: $showRenameAlert) {
+            TextField(L10n.tr("group.rename.placeholder"), text: $newGroupName)
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("common.confirm")) {
                 Task { await renameGroup() }
             }
         }
-        .alert("确认退出", isPresented: $showLeaveConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("退出", role: .destructive) {
+        .alert(L10n.tr("group.leave.confirmTitle"), isPresented: $showLeaveConfirm) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("group.leave.confirm"), role: .destructive) {
                 Task { await leaveGroup() }
             }
         } message: {
-            Text("确定要退出该群聊吗？")
+            Text(L10n.tr("group.leave.message"))
         }
-        .alert("确认解散", isPresented: $showDismissConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("解散", role: .destructive) {
+        .alert(L10n.tr("group.dismiss.confirmTitle"), isPresented: $showDismissConfirm) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("group.dismiss.confirm"), role: .destructive) {
                 Task { await dismissGroup() }
             }
         } message: {
-            Text("解散后所有成员将被移出，聊天记录将被删除，此操作不可恢复。")
+            Text(L10n.tr("group.dismiss.message"))
         }
-        .alert("移除成员", isPresented: $showRemoveConfirm) {
-            Button("取消", role: .cancel) { memberToRemove = nil }
-            Button("移除", role: .destructive) {
+        .alert(L10n.tr("group.removeMember.title"), isPresented: $showRemoveConfirm) {
+            Button(L10n.tr("common.cancel"), role: .cancel) { memberToRemove = nil }
+            Button(L10n.tr("group.removeMember.confirm"), role: .destructive) {
                 if let m = memberToRemove {
                     Task { await removeMember(m) }
                 }
             }
         } message: {
-            Text("确定要将 \(memberToRemove?.nickname ?? "") 移出群聊吗？")
+            Text(L10n.tr("group.removeMember.message", memberToRemove?.nickname ?? ""))
         }
         .sheet(isPresented: $showAddMembers) {
             AddGroupMembersView(groupID: groupID) {
                 Task { await loadDetail() }
             }
         }
-        .alert("错误", isPresented: Binding(
+        .alert(L10n.tr("common.error"), isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
-            Button("确定", role: .cancel) {}
+            Button(L10n.tr("common.confirm"), role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
         }
@@ -119,7 +121,7 @@ struct GroupDetailView: View {
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundColor(AppColors.primaryText)
 
-            Text("\(detail.members.count) 位成员")
+            Text(L10n.tr("group.members.count", detail.members.count))
                 .font(.system(size: 14))
                 .foregroundColor(AppColors.secondaryText)
         }
@@ -152,12 +154,12 @@ struct GroupDetailView: View {
     private func membersSection(_ detail: GroupDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("群成员")
+                Text(L10n.tr("group.members"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(AppColors.secondaryText)
                     .textCase(.uppercase)
                 Spacer()
-                Text("\(detail.members.count) 人")
+                Text(L10n.tr("group.members.shortCount", detail.members.count))
                     .font(.system(size: 13))
                     .foregroundColor(AppColors.tertiaryText)
             }
@@ -188,7 +190,7 @@ struct GroupDetailView: View {
                                 .foregroundColor(AppColors.accent)
                         }
 
-                        Text("添加成员")
+                        Text(L10n.tr("group.addMembers"))
                             .font(.system(size: 16))
                             .foregroundColor(AppColors.accent)
 
@@ -217,7 +219,7 @@ struct GroupDetailView: View {
                         .lineLimit(1)
 
                     if member.role == "owner" {
-                        Text("群主")
+                        Text(L10n.tr("group.role.owner"))
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
@@ -225,7 +227,7 @@ struct GroupDetailView: View {
                             .background(AppColors.accent)
                             .cornerRadius(4)
                     } else if member.role == "admin" {
-                        Text("管理员")
+                        Text(L10n.tr("group.role.admin"))
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(AppColors.accent)
                             .padding(.horizontal, 6)
@@ -269,7 +271,7 @@ struct GroupDetailView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "phone.fill")
                         .font(.system(size: 16))
-                    Text("语音通话")
+                    Text(L10n.tr("call.voice"))
                         .font(.system(size: 15, weight: .medium))
                 }
                 .foregroundColor(.white)
@@ -289,7 +291,7 @@ struct GroupDetailView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "video.fill")
                         .font(.system(size: 16))
-                    Text("视频通话")
+                    Text(L10n.tr("call.video"))
                         .font(.system(size: 15, weight: .medium))
                 }
                 .foregroundColor(.white)
@@ -309,11 +311,13 @@ struct GroupDetailView: View {
         VStack(spacing: 12) {
             // Rename (owner/admin only)
             if isOwner {
+                visibilityToggleRow(detail)
+
                 Button {
                     newGroupName = detail.name
                     showRenameAlert = true
                 } label: {
-                    actionRow(icon: "pencil", text: "修改群名", color: AppColors.accent)
+                    actionRow(icon: "pencil", text: L10n.tr("group.rename.action"), color: AppColors.accent)
                 }
             }
 
@@ -322,19 +326,58 @@ struct GroupDetailView: View {
                 Button {
                     showDismissConfirm = true
                 } label: {
-                    actionRow(icon: "trash", text: "解散群聊", color: AppColors.errorColor)
+                    actionRow(icon: "trash", text: L10n.tr("group.dismiss.action"), color: AppColors.errorColor)
                 }
             } else {
                 Button {
                     showLeaveConfirm = true
                 } label: {
-                    actionRow(icon: "rectangle.portrait.and.arrow.right", text: "退出群聊", color: AppColors.errorColor)
+                    actionRow(icon: "rectangle.portrait.and.arrow.right", text: L10n.tr("group.leave.action"), color: AppColors.errorColor)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 20)
         .padding(.bottom, 40)
+    }
+
+    private func visibilityToggleRow(_ detail: GroupDetail) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "globe")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(AppColors.accent)
+                .frame(width: 24)
+
+            Text(L10n.tr("group.isPublic"))
+                .font(.system(size: 16))
+                .foregroundColor(AppColors.primaryText)
+
+            Spacer()
+
+            if isUpdatingVisibility {
+                ProgressView()
+                    .scaleEffect(0.8)
+                    .tint(AppColors.accent)
+            } else {
+                Text(detail.isPublic ? L10n.tr("group.public") : L10n.tr("group.private"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(AppColors.secondaryText)
+            }
+
+            Toggle("", isOn: Binding(
+                get: { self.detail?.isPublic ?? detail.isPublic },
+                set: { newValue in
+                    Task { await updateGroupVisibility(newValue) }
+                }
+            ))
+            .labelsHidden()
+            .tint(AppColors.accent)
+            .disabled(isUpdatingVisibility)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(AppColors.background)
+        .cornerRadius(12)
     }
 
     private func actionRow(icon: String, text: String, color: Color) -> some View {
@@ -346,6 +389,8 @@ struct GroupDetailView: View {
             Text(text)
                 .font(.system(size: 16))
                 .foregroundColor(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .medium))
@@ -373,7 +418,7 @@ struct GroupDetailView: View {
             }
             LocalCache.save(fetched, key: cacheKey)
         } catch {
-            if detail == nil { errorMessage = "加载群信息失败" }
+            if detail == nil { errorMessage = L10n.tr("group.loadFailed") }
         }
     }
 
@@ -387,7 +432,7 @@ struct GroupDetailView: View {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "修改失败"
+            errorMessage = L10n.tr("group.updateFailed")
         }
         isProcessing = false
     }
@@ -401,7 +446,7 @@ struct GroupDetailView: View {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "退出失败"
+            errorMessage = L10n.tr("group.leaveFailed")
         }
         isProcessing = false
     }
@@ -415,7 +460,7 @@ struct GroupDetailView: View {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "解散失败"
+            errorMessage = L10n.tr("group.dismissFailed")
         }
         isProcessing = false
     }
@@ -429,8 +474,35 @@ struct GroupDetailView: View {
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "移除失败"
+            errorMessage = L10n.tr("group.removeFailed")
         }
         isProcessing = false
+    }
+
+    @MainActor
+    private func updateGroupVisibility(_ isPublic: Bool) async {
+        guard !isUpdatingVisibility, let current = detail else { return }
+        guard current.isPublic != isPublic else { return }
+
+        isUpdatingVisibility = true
+        var optimistic = current
+        optimistic.isPublic = isPublic
+        detail = optimistic
+        LocalCache.save(optimistic, key: cacheKey)
+
+        do {
+            try await APIService.shared.updateGroupVisibility(groupID: groupID, isPublic: isPublic)
+            await loadDetail()
+        } catch let error as APIError {
+            detail = current
+            LocalCache.save(current, key: cacheKey)
+            errorMessage = error.errorDescription
+        } catch {
+            detail = current
+            LocalCache.save(current, key: cacheKey)
+            errorMessage = L10n.tr("group.publicSettingFailed")
+        }
+
+        isUpdatingVisibility = false
     }
 }

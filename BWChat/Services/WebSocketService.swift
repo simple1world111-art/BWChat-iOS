@@ -99,7 +99,7 @@ class WebSocketService: ObservableObject {
                 self.lastPathStatus = path.status
             }
         }
-        networkMonitor.start(queue: DispatchQueue(label: "bwchat.netmon"))
+        networkMonitor.start(queue: DispatchQueue(label: "bbchat.netmon"))
     }
 
     private func usesVPN(_ path: NWPath) -> Bool {
@@ -274,13 +274,13 @@ class WebSocketService: ObservableObject {
 
         case "group_removed":
             if let d = json["data"] as? [String: Any],
-               let gid = d["group_id"] as? Int {
+               let gid = Self.intValue(d["group_id"]) {
                 groupRemovedPublisher.send(gid)
             }
 
         case "group_renamed":
             if let d = json["data"] as? [String: Any],
-               let gid = d["group_id"] as? Int,
+               let gid = Self.intValue(d["group_id"]),
                let name = d["name"] as? String {
                 groupRenamedPublisher.send((gid, name))
             }
@@ -335,7 +335,7 @@ class WebSocketService: ObservableObject {
 
         case "group_call_ended":
             if let d = json["data"] as? [String: Any],
-               let gid = d["group_id"] as? Int {
+               let gid = Self.intValue(d["group_id"]) {
                 groupCallEndedPublisher.send(gid)
             }
 
@@ -411,9 +411,16 @@ class WebSocketService: ObservableObject {
         task.send(message) { [weak self] error in
             if let error = error {
                 print("[WS] sendJSON error: \(error)")
-                Task { @MainActor in self?.handleDisconnect() }
+                Task { @MainActor in self?.handleDisconnect(error: error) }
             }
         }
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string) }
+        return nil
     }
 
     private func startHeartbeat() {
@@ -431,9 +438,9 @@ class WebSocketService: ObservableObject {
         guard isConnected, let task = webSocketTask, task.state == .running else { return }
         let pingMessage = URLSessionWebSocketTask.Message.string("{\"type\": \"ping\"}")
         task.send(pingMessage) { [weak self] error in
-            if error != nil {
+            if let error {
                 Task { @MainActor in
-                    self?.handleDisconnect()
+                    self?.handleDisconnect(error: error)
                 }
             }
         }
@@ -487,7 +494,9 @@ class WebSocketService: ObservableObject {
         healthCheckTask = nil
 
         webSocketTask = nil
-        staleTask?.cancel(with: .goingAway, reason: nil)
+        if error == nil {
+            staleTask?.cancel(with: .goingAway, reason: nil)
+        }
 
         guard !isManuallyDisconnected else { return }
 

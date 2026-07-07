@@ -8,6 +8,13 @@ import AVFoundation
 import UniformTypeIdentifiers
 import UIKit
 
+private struct GroupMessageRenderItem: Identifiable {
+    let message: GroupMessage
+    let previousTimestamp: String?
+
+    var id: Int { message.id }
+}
+
 struct GroupChatView: View {
     let group: ChatGroup
     var onMarkRead: (() -> Void)?
@@ -15,6 +22,7 @@ struct GroupChatView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel: GroupChatViewModel
     @ObservedObject private var callManager = CallManager.shared
+    @ObservedObject private var appearanceStore = ChatAppearanceStore.shared
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
@@ -22,14 +30,33 @@ struct GroupChatView: View {
     @State private var memberCount: Int
     @State private var shouldPopToRoot = false
     @State private var showPlusMenu = false
+    @State private var showGiftSheet = false
     @State private var highlightedMessageID: Int?
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
     @State private var voiceCancelZone = false
-    @FocusState private var isInputFocused: Bool
+    @State private var isInputFocused = false
+    @State private var inputTextHeight: CGFloat = 40
+    @State private var isViewVisible = false
+    @State private var toastMessage: String?
+    @State private var memberProfilesByID: [String: GroupMember]
+
+    private let bottomScrollAnchorID = "group-chat-bottom-anchor"
 
     private var myAvatarURL: String {
         AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
+    private var renderedMessages: [GroupMessageRenderItem] {
+        var rows: [GroupMessageRenderItem] = []
+        rows.reserveCapacity(viewModel.messages.count)
+
+        var previous: String?
+        for message in viewModel.messages {
+            rows.append(GroupMessageRenderItem(message: message, previousTimestamp: previous))
+            previous = message.timestamp
+        }
+        return rows
     }
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
@@ -45,6 +72,45 @@ struct GroupChatView: View {
         let cached = LocalCache.load(GroupDetail.self, key: "group_detail_\(group.groupID)")
         let seed = cached?.members.count ?? group.memberCount
         _memberCount = State(initialValue: seed)
+        _memberProfilesByID = State(initialValue: Self.memberProfilesByID(from: cached?.members ?? []))
+    }
+
+    private static func memberProfilesByID(from members: [GroupMember]) -> [String: GroupMember] {
+        members.reduce(into: [:]) { result, member in
+            result[member.userID] = member
+        }
+    }
+
+    private func cacheMembers(_ members: [GroupMember]) {
+        for member in members {
+            UserCacheManager.shared.cacheUser(
+                userID: member.userID,
+                nickname: member.nickname,
+                avatarURL: member.avatarURL
+            )
+        }
+    }
+
+    private func resolvedSenderAvatarURL(for message: GroupMessage, isFromMe: Bool) -> String {
+        if isFromMe { return myAvatarURL }
+        if let member = memberProfilesByID[message.senderID], !member.avatarURL.isBlank {
+            return member.avatarURL
+        }
+        if let cached = UserCacheManager.shared.getUser(message.senderID), !cached.avatarURL.isBlank {
+            return cached.avatarURL
+        }
+        return message.senderAvatar
+    }
+
+    private func resolvedSenderNickname(for message: GroupMessage, isFromMe: Bool) -> String? {
+        guard !isFromMe else { return nil }
+        if let member = memberProfilesByID[message.senderID], !member.nickname.isBlank {
+            return member.nickname
+        }
+        if let cached = UserCacheManager.shared.getUser(message.senderID), !cached.nickname.isBlank {
+            return cached.nickname
+        }
+        return message.senderNickname
     }
 
     private func setActiveGroupChat(_ active: Bool) {
@@ -52,11 +118,13 @@ struct GroupChatView: View {
     }
 
     private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
+        guard isViewVisible else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
-            proxy.scrollTo(messageID, anchor: .center)
+            proxy.scrollTo(messageScrollID(messageID), anchor: .center)
         }
         highlightedMessageID = messageID
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard isViewVisible else { return }
             withAnimation(.easeOut(duration: 0.5)) {
                 if highlightedMessageID == messageID {
                     highlightedMessageID = nil
@@ -65,137 +133,202 @@ struct GroupChatView: View {
         }
     }
 
-    private func scrollGroupChatToLatest(proxy: ScrollViewProxy) {
-        let targetID: AnyHashable? = viewModel.pendingTexts.last?.id ?? viewModel.messages.last?.id
-        guard let targetID else { return }
+    private func messageScrollID(_ id: Int) -> String {
+        "message-\(id)"
+    }
+
+    private func pendingScrollID(_ id: String) -> String {
+        "pending-\(id)"
+    }
+
+    private func scrollGroupChatToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        guard isViewVisible else { return }
+
+        let scrollAction = {
+            proxy.scrollTo(bottomScrollAnchorID, anchor: .top)
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(targetID, anchor: .top)
+            guard isViewVisible else { return }
+            if animated {
+                withAnimation(.easeOut(duration: 0.2), scrollAction)
+            } else {
+                scrollAction()
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            guard isViewVisible else { return }
+            scrollAction()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            proxy.scrollTo(targetID, anchor: .top)
+            guard isViewVisible else { return }
+            scrollAction()
         }
     }
 
-    private func previousTimestamp(for message: GroupMessage) -> String? {
-        guard let idx = viewModel.messages.firstIndex(where: { $0.id == message.id }),
-              idx > 0 else { return nil }
-        return viewModel.messages[idx - 1].timestamp
+    private func previousTimestamp(for pending: PendingGroupText) -> String? {
+        guard let idx = viewModel.pendingTexts.firstIndex(where: { $0.id == pending.id }) else {
+            return viewModel.messages.last?.timestamp
+        }
+        if idx > 0 {
+            return viewModel.pendingTexts[idx - 1].createdAt.iso8601String
+        }
+        return viewModel.messages.last?.timestamp
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 4) {
-                        ForEach(viewModel.pendingTexts.reversed()) { pending in
-                            PendingGroupBubble(pending: pending, avatarURL: myAvatarURL) {
-                                Task { await viewModel.retryPendingText(pending) }
-                            }
-                            .id(pending.id)
-                            .flippedRow()
-                        }
+                ZStack {
+                    ChatBackgroundLayer(
+                        background: appearanceStore.effectiveBackground(
+                            targetType: .group,
+                            targetID: String(group.groupID)
+                        )
+                    )
 
-                        ForEach(viewModel.messages.reversed()) { message in
-                            let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomScrollAnchorID)
 
-                            VStack(spacing: 4) {
-                                if TimestampHelper.shouldShowTime(
-                                    current: message.timestamp,
-                                    previous: previousTimestamp(for: message)
-                                ) {
-                                    TimeSeparatorView(timestamp: message.timestamp)
+                            LazyVStack(spacing: 4) {
+                                ForEach(viewModel.pendingTexts.reversed()) { pending in
+                                    VStack(spacing: 4) {
+                                        if TimestampHelper.shouldShowTime(
+                                            current: pending.createdAt.iso8601String,
+                                            previous: previousTimestamp(for: pending)
+                                        ) {
+                                            TimeSeparatorView(timestamp: pending.createdAt.iso8601String)
+                                        }
+
+                                        PendingGroupBubble(pending: pending, avatarURL: myAvatarURL) {
+                                            Task { await viewModel.retryPendingText(pending) }
+                                        }
+                                    }
+                                    .id(pendingScrollID(pending.id))
+                                    .flippedRow()
                                 }
 
-                                GroupMessageBubble(
-                                    message: message,
-                                    isFromMe: isFromMe,
-                                    myAvatarURL: myAvatarURL,
-                                    onImageTap: { url, frame in
-                                        isInputFocused = false
-                                        hideKeyboard()
-                                        let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                        ImageGalleryState.shared.show(
-                                            urls: allImages,
-                                            index: allImages.firstIndex(of: url) ?? 0,
-                                            sourceFrame: frame,
-                                            loadMoreOlder: {
-                                                // When the gallery nears its leftmost image,
-                                                // page in more group history and tell the gallery
-                                                // how many NEW older image URLs that added.
-                                                let before = viewModel.messages.filter(\.isImage).map(\.content).count
-                                                await viewModel.loadMoreMessages()
-                                                let after = viewModel.messages.filter(\.isImage).map(\.content)
-                                                let added = after.count - before
-                                                if added > 0 {
-                                                    let newOlder = Array(after.prefix(added))
-                                                    ImageGalleryState.shared.imageURLs.insert(contentsOf: newOlder, at: 0)
-                                                }
-                                                return added
+                                ForEach(renderedMessages.reversed()) { row in
+                                    let message = row.message
+                                    let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
+
+                                    VStack(spacing: 4) {
+                                        if TimestampHelper.shouldShowTime(
+                                            current: message.timestamp,
+                                            previous: row.previousTimestamp
+                                        ) {
+                                            TimeSeparatorView(timestamp: message.timestamp)
+                                        }
+
+                                        GroupMessageBubble(
+                                            message: message,
+                                            isFromMe: isFromMe,
+                                            myAvatarURL: myAvatarURL,
+                                            senderAvatarURL: resolvedSenderAvatarURL(for: message, isFromMe: isFromMe),
+                                            senderNickname: resolvedSenderNickname(for: message, isFromMe: isFromMe),
+                                            onImageTap: { url, frame in
+                                                isInputFocused = false
+                                                hideKeyboard()
+                                                let allImages = viewModel.messages.filter(\.isImage).map(\.content)
+                                                ImageGalleryState.shared.show(
+                                                    urls: allImages,
+                                                    index: allImages.firstIndex(of: url) ?? 0,
+                                                    sourceFrame: frame,
+                                                    loadMoreOlder: {
+                                                        // When the gallery nears its leftmost image,
+                                                        // page in more group history and tell the gallery
+                                                        // how many NEW older image URLs that added.
+                                                        let before = viewModel.messages.filter(\.isImage).map(\.content).count
+                                                        await viewModel.loadMoreMessages()
+                                                        let after = viewModel.messages.filter(\.isImage).map(\.content)
+                                                        let added = after.count - before
+                                                        if added > 0 {
+                                                            let newOlder = Array(after.prefix(added))
+                                                            ImageGalleryState.shared.imageURLs.insert(contentsOf: newOlder, at: 0)
+                                                        }
+                                                        return added
+                                                    }
+                                                )
+                                            },
+                                            onVideoTap: { url in
+                                                isInputFocused = false
+                                                hideKeyboard()
+                                                previewVideoURL = url
+                                            },
+                                            onReply: { msg in viewModel.setReply(to: msg) },
+                                            onQuoteTap: { targetID in
+                                                scrollToMessage(targetID, proxy: proxy)
+                                            },
+                                            onMention: { userID, nickname in
+                                                viewModel.addMention(userID: userID, nickname: nickname)
                                             }
                                         )
-                                    },
-                                    onVideoTap: { url in
-                                        isInputFocused = false
-                                        hideKeyboard()
-                                        previewVideoURL = url
-                                    },
-                                    onReply: { msg in viewModel.setReply(to: msg) },
-                                    onQuoteTap: { targetID in
-                                        scrollToMessage(targetID, proxy: proxy)
-                                    },
-                                    onMention: { userID, nickname in
-                                        viewModel.addMention(userID: userID, nickname: nickname)
                                     }
-                                )
-                            }
-                            .id(message.id)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
-                            )
-                            .flippedRow()
-                        }
-
-                        if viewModel.hasMore {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                                .padding()
-                                .flippedRow()
-                                .onAppear {
-                                    Task { await viewModel.loadMoreMessages() }
+                                    .id(messageScrollID(message.id))
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
+                                    )
+                                    .flippedRow()
                                 }
+
+                                if viewModel.hasMore {
+                                    ProgressView()
+                                        .tint(AppColors.accent)
+                                        .padding()
+                                        .flippedRow()
+                                        .onAppear {
+                                            Task { await viewModel.loadMoreMessages() }
+                                        }
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                }
-                .rotationEffect(.degrees(180))
-                .scaleEffect(x: -1, y: 1, anchor: .center)
-                .scrollIndicators(.hidden)
-                .contentShape(Rectangle())
-                // See ChatView for the rationale: simultaneousGesture
-                // keeps the dismiss-on-background-tap behavior without
-                // blocking the first tap on the input field.
-                .simultaneousGesture(TapGesture().onEnded { hideKeyboard() })
-                // Only scroll to latest when a NEW message arrives at the
-                // end of the list (last.id changes). Watching messages.count
-                // also fires when loadMoreMessages prepends older history,
-                // yanking the user back to the bottom mid-scroll.
-                .onChange(of: viewModel.messages.last?.id) { _ in scrollGroupChatToLatest(proxy: proxy) }
-                .onChange(of: viewModel.pendingTexts.count) { _ in scrollGroupChatToLatest(proxy: proxy) }
-                .task {
-                    async let messagesTask: () = viewModel.loadMessages()
-                    async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
-                    await messagesTask
-                    if let detail = try? await detailTask {
-                        memberCount = detail.members.count
-                        // Persist for the next open + for GroupDetailView.
-                        LocalCache.save(detail, key: "group_detail_\(group.groupID)")
+                    .rotationEffect(.degrees(180))
+                    .scaleEffect(x: -1, y: 1, anchor: .center)
+                    .scrollIndicators(.hidden)
+                    .scrollDismissesKeyboard(.interactively)
+                    // Only scroll to latest when a NEW message arrives at the
+                    // end of the list (last.id changes). Watching messages.count
+                    // also fires when loadMoreMessages prepends older history,
+                    // yanking the user back to the bottom mid-scroll.
+                    .onChange(of: viewModel.messages.last?.id) { _ in
+                        scrollGroupChatToBottom(proxy: proxy)
                     }
-                    onMarkRead?()
+                    .onChange(of: viewModel.pendingTexts.count) { _ in
+                        scrollGroupChatToBottom(proxy: proxy)
+                    }
+                    .task {
+                        async let messagesTask: () = viewModel.loadMessages()
+                        async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
+                        await messagesTask
+                        await appearanceStore.loadIfNeeded()
+                        if let detail = try? await detailTask {
+                            memberCount = detail.members.count
+                            memberProfilesByID = Self.memberProfilesByID(from: detail.members)
+                            cacheMembers(detail.members)
+                            // Persist for the next open + for GroupDetailView.
+                            LocalCache.save(detail, key: "group_detail_\(group.groupID)")
+                        }
+                        guard !Task.isCancelled, isViewVisible else { return }
+                        onMarkRead?()
+                        scrollGroupChatToBottom(proxy: proxy, animated: false)
+                    }
                 }
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        isInputFocused = false
+                        showPlusMenu = false
+                        hideKeyboard()
+                    }
+                )
             }
 
             if let replyMsg = viewModel.replyingTo {
@@ -222,7 +355,7 @@ struct GroupChatView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(alertMsg.senderNickname) 提到了你")
+                        Text(L10n.tr("mention.alert", alertMsg.senderNickname))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(.white)
                         Text(alertMsg.content.prefix(50))
@@ -251,6 +384,7 @@ struct GroupChatView: View {
         .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
+        .withUIKitBackButton()
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { showGroupDetail = true } label: {
@@ -263,6 +397,20 @@ struct GroupChatView: View {
         .sheet(isPresented: $showAddMembers) {
             AddGroupMembersView(groupID: group.groupID)
         }
+        .sheet(isPresented: $showGiftSheet) {
+            GiftPickerSheet(
+                source: .group(groupID: group.groupID, groupName: group.name),
+                onSend: { gift, recipient in
+                    try await viewModel.sendGift(gift, recipientID: recipient.id)
+                },
+                onOpenWallet: {
+                    navigator.push(WalletView())
+                },
+                onSendFailure: { message in
+                    toastMessage = message
+                }
+            )
+        }
         .onChange(of: showGroupDetail) { show in
             if show {
                 showGroupDetail = false
@@ -272,8 +420,14 @@ struct GroupChatView: View {
             }
         }
         .overlay { groupVoiceRecordingOverlay }
-        .onAppear { setActiveGroupChat(true) }
-        .onDisappear { setActiveGroupChat(false) }
+        .onAppear {
+            isViewVisible = true
+            setActiveGroupChat(true)
+        }
+        .onDisappear {
+            isViewVisible = false
+            setActiveGroupChat(false)
+        }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 isInputFocused = false
@@ -293,7 +447,11 @@ struct GroupChatView: View {
         }
         .onChange(of: shouldPopToRoot) { pop in
             if pop {
-                dismiss()
+                if navigator.canPopPushedController {
+                    navigator.popToRoot()
+                } else {
+                    dismiss()
+                }
             }
         }
         
@@ -303,6 +461,7 @@ struct GroupChatView: View {
         )) { item in
             VideoPlayerView(videoURL: item.url)
         }
+        .toast(message: $toastMessage)
         
     }
 
@@ -310,40 +469,49 @@ struct GroupChatView: View {
 
     private var groupInputBar: some View {
         VStack(spacing: 0) {
-            Divider().opacity(0.3)
-
-            HStack(spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { isVoiceMode.toggle() }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isVoiceMode.toggle()
+                        if isVoiceMode { showPlusMenu = false }
+                    }
                 } label: {
                     Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
                         .font(.system(size: 20))
                         .foregroundColor(AppColors.accent)
-                        .frame(width: 32, height: 40)
+                        .frame(width: 32, height: inputChromeHeight)
                 }
+                .buttonStyle(.plain)
 
                 if isVoiceMode {
                     groupHoldToRecordButton
                 } else {
-                    TextField("输入消息...", text: $viewModel.inputText, axis: .vertical)
-                        .font(.system(size: 16))
-                        .lineLimit(1...5)
-                        .focused($isInputFocused)
-                        .submitLabel(.send)
-                        .onSubmit {
-                            Task { await viewModel.sendText() }
+                    ZStack(alignment: .topLeading) {
+                        ChatInputTextView(
+                            text: $viewModel.inputText,
+                            isFocused: $isInputFocused,
+                            height: $inputTextHeight
+                        ) {
+                            viewModel.submitText()
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 22)
-                                .fill(AppColors.separator)
-                        )
+                        .frame(height: inputTextHeight)
+
+                        Text(L10n.tr("chat.input.placeholder"))
+                            .font(.system(size: 16))
+                            .foregroundColor(AppColors.tertiaryText)
+                            .padding(.top, 11)
+                            .padding(.leading, 2)
+                            .opacity(viewModel.inputText.isEmpty && !isInputFocused ? 1 : 0)
+                            .allowsHitTesting(false)
+                    }
+                        .chatComposerFieldChrome(minHeight: inputChromeHeight)
+                        .contentShape(Rectangle())
+                        .onTapGesture { isInputFocused = true }
                 }
 
                 if viewModel.isSendEnabled && !isVoiceMode {
                     Button {
-                        Task { await viewModel.sendText() }
+                        viewModel.submitText()
                     } label: {
                         ZStack {
                             Circle()
@@ -355,6 +523,7 @@ struct GroupChatView: View {
                         }
                         .contentShape(Circle())
                     }
+                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
                 } else if !isVoiceMode {
                     Button {
                         isInputFocused = false
@@ -366,27 +535,32 @@ struct GroupChatView: View {
                             .frame(width: 40, height: 40)
                             .contentShape(Rectangle())
                     }
+                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 12)
 
             if showPlusMenu && !isVoiceMode {
                 groupPlusMenu
             }
         }
-        .background(AppColors.secondaryBackground)
+        .chatComposerBarBackground()
+    }
+
+    private var inputChromeHeight: CGFloat {
+        inputTextHeight + 14
     }
 
     private var groupHoldToRecordButton: some View {
-        Text(recorder.isRecording ? (voiceCancelZone ? "松开 取消" : "松开 发送") : "按住 说话")
+        Text(recorder.isRecording ? (voiceCancelZone ? L10n.tr("voice.releaseCancel") : L10n.tr("voice.releaseSend")) : L10n.tr("voice.holdToTalk"))
             .font(.system(size: 16, weight: .medium))
             .foregroundColor(recorder.isRecording ? .white : AppColors.primaryText)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(recorder.isRecording ? (voiceCancelZone ? Color.red.opacity(0.8) : AppColors.accent) : AppColors.separator)
+            .chatComposerRecordChrome(
+                isRecording: recorder.isRecording,
+                isCanceling: voiceCancelZone,
+                minHeight: inputChromeHeight
             )
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -453,7 +627,7 @@ struct GroupChatView: View {
                         .font(.system(size: 48, weight: .light, design: .monospaced))
                         .foregroundColor(.white)
 
-                    Text(voiceCancelZone ? "松开 取消发送" : "上滑 取消")
+                    Text(voiceCancelZone ? L10n.tr("voice.releaseCancelSend") : L10n.tr("voice.slideUpCancel"))
                         .font(.system(size: 15))
                         .foregroundColor(.white.opacity(0.7))
                         .padding(.bottom, 120)
@@ -478,7 +652,7 @@ struct GroupChatView: View {
                         RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
                         Image(systemName: "photo").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                     }
-                    Text("相册").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                    Text(L10n.tr("chat.album")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                 }
             }
             .onChange(of: selectedMediaItems) { items in
@@ -508,6 +682,12 @@ struct GroupChatView: View {
                 }
             }
 
+            GiftPlusMenuTile {
+                showPlusMenu = false
+                isInputFocused = false
+                showGiftSheet = true
+            }
+
             Button {
                 showPlusMenu = false
                 CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .voice)
@@ -517,7 +697,7 @@ struct GroupChatView: View {
                         RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
                         Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                     }
-                    Text("语音通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                    Text(L10n.tr("call.voice")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                 }
             }
 
@@ -530,7 +710,7 @@ struct GroupChatView: View {
                         RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
                         Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                     }
-                    Text("视频通话").font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
+                    Text(L10n.tr("call.video")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
                 }
             }
         }
@@ -546,6 +726,8 @@ struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
     var myAvatarURL: String = ""
+    var senderAvatarURL: String? = nil
+    var senderNickname: String? = nil
     /// Second arg: the thumbnail's global-coordinate frame at tap time
     /// (used by the full-screen gallery for a hero grow-from-thumbnail).
     var onImageTap: ((String, CGRect) -> Void)?
@@ -556,6 +738,16 @@ struct GroupMessageBubble: View {
 
     @State private var swipeOffset: CGFloat = 0
     @State private var showMenu = false
+
+    private var displaySenderAvatarURL: String {
+        if let senderAvatarURL, !senderAvatarURL.isBlank { return senderAvatarURL }
+        return message.senderAvatar
+    }
+
+    private var displaySenderNickname: String {
+        if let senderNickname, !senderNickname.isBlank { return senderNickname }
+        return message.senderNickname
+    }
 
     var body: some View {
         if message.isSystem {
@@ -572,26 +764,20 @@ struct GroupMessageBubble: View {
             }
             .padding(.vertical, 4)
         } else {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
-                AvatarView(url: message.senderAvatar, size: 36)
+                AvatarView(url: displaySenderAvatarURL, size: 36)
                     .onTapGesture {
-                        onMention?(message.senderID, message.senderNickname)
+                        onMention?(message.senderID, displaySenderNickname)
                     }
             }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 3) {
-                if !isFromMe {
-                    Text(message.senderNickname)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AppColors.secondaryText)
-                }
-
                 if let reply = message.replyTo {
                     QuotedMessageView(
-                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
+                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? L10n.tr("common.me") : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
                         content: reply.content,
                         msgType: reply.msgType,
                         isFromMe: isFromMe,
@@ -627,37 +813,60 @@ struct GroupMessageBubble: View {
                         duration: message.voiceDuration,
                         isFromMe: isFromMe
                     )
-                } else {
-                    Text(message.content)
-                        .font(.system(size: 16))
-                        .foregroundColor(isFromMe ? .white : AppColors.primaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            Group {
-                                if isFromMe {
-                                    AppColors.sentBubbleGradient
-                                } else {
-                                    LinearGradient(colors: [AppColors.receivedBubble], startPoint: .top, endPoint: .bottom)
-                                }
+                } else if let giftPayload = message.giftPayload {
+                    GiftMessageBubble(
+                        payload: giftPayload,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe,
+                        senderName: isFromMe ? nil : displaySenderNickname,
+                        recipientFallback: L10n.tr("group.member")
+                    )
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                        impactFeedback.impactOccurred()
+                        showMenu = true
+                    }
+                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                        Button(L10n.tr("common.reply")) { onReply?(message) }
+                        if !isFromMe {
+                            Button("@\(displaySenderNickname)") {
+                                onMention?(message.senderID, displaySenderNickname)
                             }
-                        )
-                        .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+                        }
+                        Button(L10n.tr("common.cancel"), role: .cancel) {}
+                    }
+                } else if let botSharePayload = BotSharePayload.decode(from: message.content) {
+                    VStack(alignment: isFromMe ? .trailing : .leading, spacing: 4) {
+                        if !isFromMe {
+                            Text(displaySenderNickname)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(AppColors.secondaryText)
+                                .lineLimit(1)
+                        }
+
+                        BotShareCard(payload: botSharePayload, isFromMe: isFromMe)
+                    }
+                } else {
+                    TimestampedTextBubble(
+                        content: message.content,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe,
+                        senderName: isFromMe ? nil : displaySenderNickname
+                    )
                         .onLongPressGesture(minimumDuration: 0.5) {
                             let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                             impactFeedback.impactOccurred()
                             showMenu = true
                         }
                         .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                            Button("复制") { UIPasteboard.general.string = message.content }
-                            Button("回复") { onReply?(message) }
+                            Button(L10n.tr("common.copy")) { UIPasteboard.general.string = message.content }
+                            Button(L10n.tr("common.reply")) { onReply?(message) }
                             if !isFromMe {
-                                Button("@\(message.senderNickname)") {
-                                    onMention?(message.senderID, message.senderNickname)
+                                Button("@\(displaySenderNickname)") {
+                                    onMention?(message.senderID, displaySenderNickname)
                                 }
                             }
-                            Button("取消", role: .cancel) {}
+                            Button(L10n.tr("common.cancel"), role: .cancel) {}
                         }
                 }
             }
@@ -697,7 +906,7 @@ struct PendingGroupBubble: View {
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 8) {
             Spacer(minLength: 40)
             HStack(alignment: .center, spacing: 6) {
                 if pending.status == .failed {
@@ -710,14 +919,11 @@ struct PendingGroupBubble: View {
                     }
                 }
 
-                Text(pending.content)
-                    .font(.system(size: 16))
-                    .foregroundColor(.white)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(AppColors.sentBubbleGradient)
-                    .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
+                TimestampedTextBubble(
+                    content: pending.content,
+                    timeText: pending.formattedTime,
+                    isFromMe: true
+                )
             }
 
             AvatarView(url: avatarURL, size: 36)

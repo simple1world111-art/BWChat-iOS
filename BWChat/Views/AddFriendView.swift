@@ -16,7 +16,7 @@ struct AddFriendView: View {
                         .foregroundColor(AppColors.secondaryText)
                         .font(.system(size: 16))
 
-                    TextField("搜索用户名或昵称", text: $viewModel.searchText)
+                    TextField(L10n.tr("addFriend.search.placeholder"), text: $viewModel.searchText)
                         .font(.system(size: 16))
                         .autocapitalization(.none)
                         .disableAutocorrection(true)
@@ -56,7 +56,7 @@ struct AddFriendView: View {
                         Image(systemName: "person.slash")
                             .font(.system(size: 36))
                             .foregroundColor(AppColors.tertiaryText)
-                        Text("未找到相关用户")
+                        Text(L10n.tr("addFriend.noResults"))
                             .font(.system(size: 15))
                             .foregroundColor(AppColors.secondaryText)
                     }
@@ -67,7 +67,7 @@ struct AddFriendView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 36))
                             .foregroundColor(AppColors.tertiaryText)
-                        Text("输入用户名或昵称搜索")
+                        Text(L10n.tr("addFriend.searchHint"))
                             .font(.system(size: 15))
                             .foregroundColor(AppColors.secondaryText)
                     }
@@ -87,14 +87,14 @@ struct AddFriendView: View {
                 }
             }
             .background(AppColors.background)
-            .navigationTitle("添加好友")
+            .navigationTitle(L10n.tr("addFriend.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         dismiss()
                     } label: {
-                        Text("取消")
+                        Text(L10n.tr("common.cancel"))
                             .font(.system(size: 16))
                             .foregroundColor(AppColors.accent)
                             .frame(height: 44)
@@ -135,7 +135,7 @@ struct SearchUserRow: View {
     private var actionButton: some View {
         switch user.relation {
         case "friend":
-            Text("已是好友")
+            Text(L10n.tr("addFriend.alreadyFriends"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(AppColors.secondaryText)
                 .padding(.horizontal, 12)
@@ -144,7 +144,7 @@ struct SearchUserRow: View {
                 .cornerRadius(16)
 
         case "pending_sent":
-            Text("已发送")
+            Text(L10n.tr("addFriend.sent"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(AppColors.secondaryText)
                 .padding(.horizontal, 12)
@@ -153,7 +153,7 @@ struct SearchUserRow: View {
                 .cornerRadius(16)
 
         case "pending_received":
-            Text("待接受")
+            Text(L10n.tr("addFriend.pending"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(AppColors.warningColor)
                 .padding(.horizontal, 12)
@@ -163,7 +163,7 @@ struct SearchUserRow: View {
 
         default:
             Button(action: onAdd) {
-                Text("添加")
+                Text(L10n.tr("common.add"))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 16)

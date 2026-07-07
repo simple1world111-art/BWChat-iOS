@@ -16,7 +16,7 @@ struct ReplyPreviewBar: View {
                 .frame(width: 3, height: 36)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("回复 \(senderName)")
+                Text(L10n.tr("reply.to", senderName))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(AppColors.accent)
                     .lineLimit(1)
@@ -42,8 +42,10 @@ struct ReplyPreviewBar: View {
 
     private var previewText: String {
         switch msgType {
-        case "image": return "[图片]"
-        case "video": return "[视频]"
+        case "image": return L10n.tr("message.image")
+        case "video": return L10n.tr("message.video")
+        case "voice": return L10n.tr("message.voice")
+        case "gift": return GiftMessagePayload.previewText(content: content)
         default: return content
         }
     }
@@ -87,8 +89,10 @@ struct QuotedMessageView: View {
 
     private var previewText: String {
         switch msgType {
-        case "image": return "[图片]"
-        case "video": return "[视频]"
+        case "image": return L10n.tr("message.image")
+        case "video": return L10n.tr("message.video")
+        case "voice": return L10n.tr("message.voice")
+        case "gift": return GiftMessagePayload.previewText(content: content)
         default: return content
         }
     }

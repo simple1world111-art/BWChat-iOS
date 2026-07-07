@@ -42,7 +42,7 @@ class ContactsViewModel: ObservableObject {
             }
             errorMessage = error.errorDescription
         } catch {
-            errorMessage = "加载联系人失败"
+            errorMessage = L10n.tr("contacts.loadFailed")
         }
 
         isLoading = false
@@ -132,9 +132,11 @@ class ContactsViewModel: ObservableObject {
             let existing = contacts[index]
             let lastMsg: String
             if message.isImage {
-                lastMsg = "[图片]"
+                lastMsg = L10n.tr("message.image")
             } else if message.isVideo {
-                lastMsg = "[视频]"
+                lastMsg = L10n.tr("message.video")
+            } else if message.isGift {
+                lastMsg = GiftMessagePayload.previewText(content: message.content)
             } else {
                 lastMsg = message.content
             }
@@ -175,6 +177,10 @@ class ContactsViewModel: ObservableObject {
               let receiverID = data["receiver_id"] as? String,
               let lastMessage = data["last_message"] as? String,
               let lastMessageTime = data["last_message_time"] as? String else { return }
+        let msgType = data["msg_type"] as? String ?? data["last_message_type"] as? String
+        let previewMessage = (msgType == "gift" || GiftMessagePayload.parse(lastMessage) != nil)
+            ? GiftMessagePayload.previewText(content: lastMessage)
+            : lastMessage
 
         let myID = AuthManager.shared.currentUser?.userID
         let contactID = (senderID == myID) ? receiverID : senderID
@@ -187,7 +193,7 @@ class ContactsViewModel: ObservableObject {
                 userID: existing.userID,
                 nickname: existing.nickname,
                 avatarURL: existing.avatarURL,
-                lastMessage: lastMessage,
+                lastMessage: previewMessage,
                 lastMessageTime: lastMessageTime,
                 unreadCount: existing.unreadCount
             )

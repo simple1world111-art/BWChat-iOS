@@ -7,7 +7,7 @@ import PhotosUI
 @MainActor
 struct EditProfileView: View {
     @ObservedObject var viewModel: ProfileViewModel
-    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var navigator: UIKitNavigator
 
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showToast = false
@@ -15,75 +15,75 @@ struct EditProfileView: View {
     @State private var showBirthdayPicker = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    avatarSection(avatarURL: viewModel.profile?.avatarURL ?? "")
+        ScrollView {
+            VStack(spacing: 24) {
+                avatarSection(avatarURL: viewModel.profile?.avatarURL ?? "")
 
-                    formSection
+                formSection
 
-                    if showBirthdayPicker {
-                        birthdayPickerSection
-                    }
+                if showBirthdayPicker {
+                    birthdayPickerSection
                 }
-                .padding(.bottom, 30)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .onTapGesture {
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            }
-            .background(AppColors.secondaryBackground)
-            .navigationTitle("编辑资料")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
-                        dismiss()
-                    }
-                    .foregroundColor(AppColors.secondaryText)
+            .padding(.bottom, 30)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .onTapGesture {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(L10n.tr("profile.edit.title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                AppBackButton {
+                    navigator.pop()
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task {
-                            await viewModel.saveProfile()
-                            if viewModel.errorMessage == nil {
-                                dismiss()
-                            }
-                        }
-                    } label: {
-                        if viewModel.isSaving {
-                            ProgressView()
-                                .tint(AppColors.accent)
-                        } else {
-                            Text("保存")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(AppColors.accent)
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task {
+                        await viewModel.saveProfile()
+                        if viewModel.errorMessage == nil {
+                            navigator.pop()
                         }
                     }
-                    .disabled(viewModel.isSaving || viewModel.editNickname.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
-            .overlay {
-                if showToast {
-                    VStack {
-                        Spacer()
-                        Text(toastMessage)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(Color.black.opacity(0.75))
-                            .cornerRadius(20)
-                            .padding(.bottom, 30)
+                } label: {
+                    if viewModel.isSaving {
+                        ProgressView()
+                            .tint(AppColors.accent)
+                    } else {
+                        Text(L10n.tr("common.save"))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(AppColors.accent)
                     }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.easeInOut, value: showToast)
                 }
+                .disabled(viewModel.isSaving || viewModel.editNickname.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .onChange(of: viewModel.errorMessage) { msg in
-                if let msg = msg {
-                    showToastMessage(msg)
+        }
+        .overlay {
+            if showToast {
+                VStack {
+                    Spacer()
+                    Text(toastMessage)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(0.75))
+                        .cornerRadius(20)
+                        .padding(.bottom, 30)
                 }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeInOut, value: showToast)
+            }
+        }
+        .onChange(of: viewModel.errorMessage) { msg in
+            if let msg = msg {
+                showToastMessage(msg)
             }
         }
     }
@@ -117,7 +117,7 @@ struct EditProfileView: View {
                 }
             }
 
-            Text("点击更换头像")
+            Text(L10n.tr("profile.avatar.change"))
                 .font(.system(size: 13))
                 .foregroundColor(AppColors.secondaryText)
         }
@@ -130,8 +130,8 @@ struct EditProfileView: View {
     private var formSection: some View {
         VStack(spacing: 0) {
             // Nickname
-            editRow(title: "昵称") {
-                TextField("请输入昵称", text: $viewModel.editNickname)
+            editRow(title: L10n.tr("profile.nickname")) {
+                TextField(L10n.tr("profile.nickname.placeholder"), text: $viewModel.editNickname)
                     .font(.system(size: 15))
                     .foregroundColor(AppColors.primaryText)
                     .multilineTextAlignment(.trailing)
@@ -139,8 +139,8 @@ struct EditProfileView: View {
             Divider().padding(.leading, 16)
 
             // Bio
-            editRow(title: "个性签名") {
-                TextField("介绍一下自己", text: $viewModel.editBio)
+            editRow(title: L10n.tr("profile.bio")) {
+                TextField(L10n.tr("profile.bio.placeholder"), text: $viewModel.editBio)
                     .font(.system(size: 15))
                     .foregroundColor(AppColors.primaryText)
                     .multilineTextAlignment(.trailing)
@@ -148,12 +148,12 @@ struct EditProfileView: View {
             Divider().padding(.leading, 16)
 
             // Gender
-            editRow(title: "性别") {
+            editRow(title: L10n.tr("profile.gender")) {
                 Picker("", selection: $viewModel.editGender) {
-                    Text("未设置").tag("")
-                    Text("男").tag("male")
-                    Text("女").tag("female")
-                    Text("其他").tag("other")
+                    Text(L10n.tr("profile.unset")).tag("")
+                    Text(L10n.tr("profile.gender.male")).tag("male")
+                    Text(L10n.tr("profile.gender.female")).tag("female")
+                    Text(L10n.tr("profile.gender.other")).tag("other")
                 }
                 .pickerStyle(.menu)
                 .tint(AppColors.primaryText)
@@ -168,13 +168,13 @@ struct EditProfileView: View {
                 }
             } label: {
                 HStack {
-                    Text("生日")
+                    Text(L10n.tr("profile.birthday"))
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(AppColors.primaryText)
 
                     Spacer()
 
-                    Text(viewModel.editBirthday.isEmpty ? "未设置" : formattedEditBirthday)
+                    Text(viewModel.editBirthday.isEmpty ? L10n.tr("profile.unset") : formattedEditBirthday)
                         .font(.system(size: 15))
                         .foregroundColor(viewModel.editBirthday.isEmpty ? AppColors.tertiaryText : AppColors.primaryText)
 
@@ -183,19 +183,20 @@ struct EditProfileView: View {
                         .foregroundColor(AppColors.tertiaryText)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 13)
+                .padding(.vertical, 18)
                 .contentShape(Rectangle())
             }
             Divider().padding(.leading, 16)
 
             // Location
-            editRow(title: "地区") {
-                TextField("请输入所在地区", text: $viewModel.editLocation)
+            editRow(title: L10n.tr("profile.location")) {
+                TextField(L10n.tr("profile.location.placeholder"), text: $viewModel.editLocation)
                     .font(.system(size: 15))
                     .foregroundColor(AppColors.primaryText)
                     .multilineTextAlignment(.trailing)
             }
         }
+        .padding(.vertical, 4)
         .background(AppColors.cardBackground)
         .cornerRadius(14)
         .padding(.horizontal, 16)
@@ -206,28 +207,41 @@ struct EditProfileView: View {
     private var birthdayPickerSection: some View {
         VStack(spacing: 8) {
             DatePicker(
-                "选择生日",
-                selection: $viewModel.editBirthdayDate,
+                L10n.tr("profile.birthday.select"),
+                selection: birthdayDateBinding,
                 in: ...Date(),
                 displayedComponents: .date
             )
             .datePickerStyle(.wheel)
             .labelsHidden()
-            .environment(\.locale, Locale(identifier: "zh_CN"))
-            .onChange(of: viewModel.editBirthdayDate) { _ in
-                viewModel.updateBirthdayFromDate()
-            }
+            .environment(\.locale, AppLanguageStore.shared.locale)
 
-            Button {
-                viewModel.editBirthday = ""
-                withAnimation {
-                    showBirthdayPicker = false
+            HStack {
+                Button {
+                    viewModel.clearBirthday()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showBirthdayPicker = false
+                    }
+                } label: {
+                    Text(L10n.tr("profile.birthday.clear"))
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.errorColor)
                 }
-            } label: {
-                Text("清除生日")
-                    .font(.system(size: 14))
-                    .foregroundColor(AppColors.errorColor)
+
+                Spacer()
+
+                Button {
+                    viewModel.updateBirthdayFromDate()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showBirthdayPicker = false
+                    }
+                } label: {
+                    Text(L10n.tr("common.done"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+                }
             }
+            .padding(.horizontal, 4)
         }
         .padding()
         .background(AppColors.cardBackground)
@@ -237,13 +251,21 @@ struct EditProfileView: View {
 
     // MARK: - Helpers
 
+    private var birthdayDateBinding: Binding<Date> {
+        Binding(
+            get: { viewModel.editBirthdayDate },
+            set: { viewModel.setBirthdayDate($0) }
+        )
+    }
+
     private var formattedEditBirthday: String {
-        guard !viewModel.editBirthday.isEmpty else { return "未设置" }
+        guard !viewModel.editBirthday.isEmpty else { return L10n.tr("profile.unset") }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         guard let date = formatter.date(from: viewModel.editBirthday) else { return viewModel.editBirthday }
         let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "yyyy年M月d日"
+        displayFormatter.locale = AppLanguageStore.shared.locale
+        displayFormatter.dateStyle = .medium
         return displayFormatter.string(from: date)
     }
 
@@ -252,14 +274,16 @@ struct EditProfileView: View {
             Text(title)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(AppColors.primaryText)
-                .frame(width: 72, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .frame(width: 96, alignment: .leading)
 
             Spacer()
 
             content()
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 13)
+        .padding(.vertical, 18)
     }
 
     private func showToastMessage(_ message: String) {

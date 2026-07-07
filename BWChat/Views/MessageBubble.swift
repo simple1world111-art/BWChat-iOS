@@ -16,11 +16,12 @@ struct MessageBubble: View {
     var onVideoTap: ((String) -> Void)?
     var onReply: ((Message) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
+    var peerName: String?
 
     @State private var swipeOffset: CGFloat = 0
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
@@ -29,7 +30,7 @@ struct MessageBubble: View {
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
                 if let reply = message.replyTo {
-                    let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? "我" : UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID
+                    let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? L10n.tr("common.me") : UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID
                     QuotedMessageView(
                         senderName: senderName,
                         content: reply.content,
@@ -49,6 +50,10 @@ struct MessageBubble: View {
                         duration: message.voiceDuration,
                         isFromMe: isFromMe
                     )
+                } else if let giftPayload = message.giftPayload {
+                    giftBubble(giftPayload)
+                } else if let botSharePayload = BotSharePayload.decode(from: message.content) {
+                    BotShareCard(payload: botSharePayload, isFromMe: isFromMe)
                 } else {
                     textBubble
                 }
@@ -93,35 +98,20 @@ struct MessageBubble: View {
     @State private var showMenu = false
 
     private var textBubble: some View {
-        Text(message.content)
-            .font(.system(size: 16))
-            .foregroundColor(isFromMe ? .white : AppColors.primaryText)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                Group {
-                    if isFromMe {
-                        AppColors.sentBubbleGradient
-                    } else {
-                        LinearGradient(
-                            colors: [AppColors.receivedBubble, AppColors.receivedBubble],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    }
-                }
-            )
-            .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+        TimestampedTextBubble(
+            content: message.content,
+            timeText: message.formattedTime,
+            isFromMe: isFromMe
+        )
             .onLongPressGesture(minimumDuration: 0.5) {
                 let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                 impactFeedback.impactOccurred()
                 showMenu = true
             }
             .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                Button("复制") { UIPasteboard.general.string = message.content }
-                Button("回复") { onReply?(message) }
-                Button("取消", role: .cancel) {}
+                Button(L10n.tr("common.copy")) { UIPasteboard.general.string = message.content }
+                Button(L10n.tr("common.reply")) { onReply?(message) }
+                Button(L10n.tr("common.cancel"), role: .cancel) {}
             }
     }
 
@@ -155,6 +145,82 @@ struct MessageBubble: View {
             onVideoTap?(message.content)
         }
         .longPressToSaveVideo(url: message.content)
+    }
+
+    private func giftBubble(_ payload: GiftMessagePayload) -> some View {
+        GiftMessageBubble(
+            payload: payload,
+            timeText: message.formattedTime,
+            isFromMe: isFromMe,
+            recipientFallback: isFromMe ? peerName : L10n.tr("common.me")
+        )
+        .onLongPressGesture(minimumDuration: 0.5) {
+            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+            impactFeedback.impactOccurred()
+            showMenu = true
+        }
+        .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+            Button(L10n.tr("common.reply")) { onReply?(message) }
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+        }
+    }
+}
+
+struct TimestampedTextBubble: View {
+    let content: String
+    let timeText: String
+    let isFromMe: Bool
+    var senderName: String?
+
+    private var textColor: Color {
+        isFromMe ? .white : AppColors.primaryText
+    }
+
+    private var timeColor: Color {
+        isFromMe ? .white.opacity(0.72) : AppColors.secondaryText
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: senderName == nil ? 0 : 4) {
+                if let senderName, !senderName.isEmpty {
+                    Text(senderName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Text(content)
+                    .font(.system(size: 16))
+                    .foregroundColor(textColor)
+                + Text("  \(timeText)")
+                    .font(.system(size: 13))
+                    .foregroundColor(.clear)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            Text(timeText)
+                .font(.system(size: 13))
+                .foregroundColor(timeColor)
+                .monospacedDigit()
+                .padding(.leading, 8)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Group {
+                if isFromMe {
+                    AppColors.sentBubbleGradient
+                } else {
+                    LinearGradient(
+                        colors: [AppColors.receivedBubble, AppColors.receivedBubble],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            }
+        )
+        .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
     }
 }
 

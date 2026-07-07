@@ -11,6 +11,20 @@ struct SplashScreen: View {
 
     var body: some View {
         Group {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-walletReviewScreenshot") {
+                NavigationStack {
+                    WalletView()
+                        .environmentObject(UIKitNavigator())
+                }
+            } else if isCheckingToken {
+                splashView
+            } else if authManager.isLoggedIn {
+                MainTabView()
+            } else {
+                LoginView()
+            }
+            #else
             if isCheckingToken {
                 splashView
             } else if authManager.isLoggedIn {
@@ -18,6 +32,7 @@ struct SplashScreen: View {
             } else {
                 LoginView()
             }
+            #endif
         }
         .task {
             await checkToken()
@@ -26,31 +41,35 @@ struct SplashScreen: View {
 
     private var splashView: some View {
         ZStack {
-            // Gradient background
-            LinearGradient(
-                colors: [Color(hex: "667EEA"), Color(hex: "764BA2")],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            AuthPlushBackground()
 
-            VStack(spacing: 20) {
-                // App icon
-                ZStack {
-                    Circle()
-                        .fill(.white.opacity(0.15))
-                        .frame(width: 100, height: 100)
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.white)
-                }
-                .scaleEffect(logoScale)
-                .opacity(logoOpacity)
+            VStack(spacing: 14) {
+                Spacer()
 
                 Text(AppConfig.appName)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.system(size: 36, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
+                    .scaleEffect(logoScale)
                     .opacity(logoOpacity)
+
+                Text(L10n.tr("splash.entering"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.76))
+                    .opacity(logoOpacity)
+
+                Text(L10n.tr("splash.tagline"))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.58))
+                    .multilineTextAlignment(.center)
+                    .opacity(logoOpacity)
+
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .padding(.top, 6)
+                    .opacity(logoOpacity)
+
+                Spacer()
+                    .frame(height: 86)
             }
         }
         .onAppear {
@@ -62,14 +81,27 @@ struct SplashScreen: View {
     }
 
     private func checkToken() async {
-        // Show splash for at least 0.8s
-        async let minDelay: Void = Task.sleep(nanoseconds: 800_000_000)
-
         guard authManager.token != nil else {
-            try? await minDelay
+            try? await Task.sleep(nanoseconds: 500_000_000)
             isCheckingToken = false
             return
         }
+
+        if authManager.currentUser != nil {
+            resumeAuthenticatedSession()
+            isCheckingToken = false
+            Task {
+                await validateCachedSession()
+            }
+            return
+        }
+
+        await validateCachedSession()
+        isCheckingToken = false
+    }
+
+    private func validateCachedSession() async {
+        guard authManager.token != nil else { return }
 
         // Watchdog: regardless of what happens to the verify+refresh chain
         // (URLSession hang, retry loop, deadlock in older code paths),
@@ -102,11 +134,7 @@ struct SplashScreen: View {
         do {
             let user = try await APIService.shared.verifyToken()
             authManager.updateUser(user)
-            authManager.isLoggedIn = true
-            WebSocketService.shared.connect()
-            PushService.shared.requestPermission()
-            // Re-upload device token (may have been cleared by previous logout)
-            PushService.shared.ensureTokenUploaded()
+            resumeAuthenticatedSession()
         } catch {
             // Access token expired — attempt refresh
             do {
@@ -114,17 +142,19 @@ struct SplashScreen: View {
                 authManager.token = newToken
                 authManager.refreshToken = newRefreshToken
                 authManager.updateUser(user)
-                authManager.isLoggedIn = true
-                WebSocketService.shared.connect()
-                PushService.shared.requestPermission()
-                PushService.shared.ensureTokenUploaded()
+                resumeAuthenticatedSession()
             } catch {
                 authManager.logout()
             }
         }
 
         watchdog.cancel()
-        try? await minDelay
-        isCheckingToken = false
+    }
+
+    private func resumeAuthenticatedSession() {
+        authManager.isLoggedIn = true
+        WebSocketService.shared.connect()
+        PushService.shared.requestPermission()
+        PushService.shared.ensureTokenUploaded()
     }
 }

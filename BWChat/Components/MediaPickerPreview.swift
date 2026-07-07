@@ -54,7 +54,7 @@ struct MediaPickerPreview: View {
 
                 // Bottom send bar
                 HStack {
-                    Text("\(mediaItems.count) 项已选择")
+                    Text(L10n.tr("media.selected.count", mediaItems.count))
                         .font(.system(size: 14))
                         .foregroundColor(AppColors.secondaryText)
 
@@ -65,7 +65,7 @@ struct MediaPickerPreview: View {
                         dismiss()
                         onSend(items)
                     } label: {
-                        Text("发送 (\(mediaItems.count))")
+                        Text(L10n.tr("media.send.count", mediaItems.count))
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 24)
@@ -80,11 +80,11 @@ struct MediaPickerPreview: View {
                 .background(AppColors.secondaryBackground)
             }
             .background(AppColors.background)
-            .navigationTitle("预览")
+            .navigationTitle(L10n.tr("media.preview.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") {
+                    Button(L10n.tr("common.cancel")) {
                         dismiss()
                     }
                     .foregroundColor(AppColors.accent)

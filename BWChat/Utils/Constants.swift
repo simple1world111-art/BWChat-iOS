@@ -3,23 +3,47 @@
 
 import SwiftUI
 
+struct CatFoodProductConfig: Identifiable, Equatable {
+    let productID: String
+    let coins: Int
+    let fallbackPriceUSD: String
+
+    var id: String { productID }
+}
+
 enum AppConfig {
+    // Backend entry points. Media paths intentionally remain server-relative
+    // (/api/v1/images/..., /api/v1/avatars/..., etc.) for legacy compatibility.
     #if DEBUG
-    static let apiBaseURL = "http://52.69.26.53:8000/api/v1"
-    static let wsBaseURL  = "ws://52.69.26.53:8000/ws"
+    static let apiBaseURL = "http://52.198.192.138/api/v1"
+    static let wsBaseURL  = "ws://52.198.192.138/ws"
     #else
-    static let apiBaseURL = "http://52.69.26.53:8000/api/v1"
-    static let wsBaseURL  = "ws://52.69.26.53:8000/ws"
+    static let apiBaseURL = "http://52.198.192.138/api/v1"
+    static let wsBaseURL  = "ws://52.198.192.138/ws"
     #endif
 
-    static let livekitURL = "ws://52.69.26.53:7880"
-    static let appName = "BWChat"
+    static let livekitURL = "ws://52.198.192.138:7880"
+    static let appName = "BBchat"
     static let messagePageSize = 30
     static let wsHeartbeatInterval: TimeInterval = 15
+    static let catFoodProducts: [CatFoodProductConfig] = [
+        CatFoodProductConfig(productID: "com.bwchat.app.catfood.100", coins: 100, fallbackPriceUSD: "$0.99"),
+        CatFoodProductConfig(productID: "com.bwchat.app.catfood.800", coins: 800, fallbackPriceUSD: "$7.99"),
+        CatFoodProductConfig(productID: "com.bwchat.app.catfood.1800", coins: 1800, fallbackPriceUSD: "$17.99"),
+        CatFoodProductConfig(productID: "com.bwchat.app.catfood.3000", coins: 3000, fallbackPriceUSD: "$29.99"),
+        CatFoodProductConfig(productID: "com.bwchat.app.catfood.9800", coins: 9800, fallbackPriceUSD: "$99.99"),
+        CatFoodProductConfig(productID: "com.bwchat.app.catfood.19800", coins: 19800, fallbackPriceUSD: "$199.99")
+    ]
 
-    // Chatbot API (Qwen3-32B via Cloudflare tunnel).
-    // Quick Tunnel URL; update when the tunnel is restarted.
-    static let chatbotBaseURL = "https://helicopter-industry-regions-cams.trycloudflare.com"
+}
+
+enum AppSpacing {
+    static let rootTabTopInset: CGFloat = 28
+}
+
+enum AppListMetrics {
+    static let userCardHeight: CGFloat = 72
+    static let conversationSwipeActionHeight: CGFloat = 72
 }
 
 // MARK: - Premium Color Palette

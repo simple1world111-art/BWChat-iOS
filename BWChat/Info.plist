@@ -11,7 +11,9 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>$(PRODUCT_NAME)</string>
+    <string>BBchat</string>
+    <key>CFBundleDisplayName</key>
+    <string>BBchat</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconName</key>
@@ -41,12 +43,14 @@
         <true/>
     </dict>
     <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>BWChat 需要访问相册以保存图片和视频</string>
+    <string>BBchat 需要访问相册以保存图片和视频</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>BWChat 需要访问相册以发送图片</string>
+    <string>BBchat 需要访问相册以发送图片</string>
     <key>NSCameraUsageDescription</key>
-    <string>BWChat 需要使用摄像头进行视频通话</string>
+    <string>BBchat 需要使用摄像头进行视频通话</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>BWChat 需要使用麦克风进行语音和视频通话</string>
+    <string>BBchat 需要使用麦克风进行语音和视频通话</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>BBchat 需要使用你的位置来发现附近用户，并在你主动开启附近的人时共享模糊位置。</string>
 </dict>
 </plist>

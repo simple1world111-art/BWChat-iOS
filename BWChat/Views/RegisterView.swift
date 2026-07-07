@@ -1,181 +1,253 @@
-// BWChat/Views/RegisterView.swift
-// Registration screen — same visual language as LoginView.
+// BBchat/Views/RegisterView.swift
+// Registration screen using the BBchat plush visual system.
 
 import SwiftUI
 
 struct RegisterView: View {
     @StateObject private var viewModel = AuthViewModel()
     @Environment(\.dismiss) private var dismiss
-    @State private var animateGradient = false
+    @State private var showPassword = false
+    @State private var showConfirmPassword = false
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case username
+        case nickname
+        case password
+        case confirmPassword
+    }
 
     var body: some View {
         GeometryReader { geo in
+            let isEditing = focusedField != nil
+
             ZStack {
-                LinearGradient(
-                    colors: [Color(hex: "667EEA").opacity(0.08), Color(hex: "764BA2").opacity(0.05), AppColors.background],
-                    startPoint: animateGradient ? .topLeading : .topTrailing,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 6).repeatForever(autoreverses: true)) {
-                        animateGradient.toggle()
-                    }
-                }
+                AuthPlushBackground()
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        Spacer().frame(height: max(geo.size.height * 0.06, 24))
+                    VStack(spacing: isEditing ? 10 : 16) {
+                        Spacer()
+                            .frame(height: AuthLayout.registerTopSpacing(height: geo.size.height, isEditing: isEditing))
 
-                        ZStack {
-                            Circle()
-                                .fill(AppColors.accentGradient)
-                                .frame(width: min(72, geo.size.width * 0.18), height: min(72, geo.size.width * 0.18))
-                            Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.system(size: min(30, geo.size.width * 0.075)))
-                                .foregroundColor(.white)
-                        }
-                        .shadow(color: AppColors.accent.opacity(0.3), radius: 18, y: 8)
-                        .padding(.bottom, 12)
+                        AuthTitleLockup(
+                            title: L10n.tr("auth.register.title"),
+                            subtitle: L10n.tr("auth.register.subtitle")
+                        )
 
-                        Text("创建账号")
-                            .font(.system(size: 26, weight: .bold, design: .rounded))
-                            .foregroundColor(AppColors.primaryText)
-                            .padding(.bottom, 6)
+                        AuthFormCard {
+                            VStack(spacing: 13) {
+                                AuthFieldChrome(
+                                    systemImage: "person.fill",
+                                    isFocused: focusedField == .username
+                                ) {
+                                    HStack(spacing: 8) {
+                                        ZStack(alignment: .leading) {
+                                            if viewModel.username.isEmpty {
+                                                AuthFieldPlaceholder(L10n.tr("auth.username.rules"))
+                                            }
 
-                        Text("注册即可开始聊天")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppColors.secondaryText)
-                            .padding(.bottom, max(geo.size.height * 0.035, 18))
+                                            TextField("", text: $viewModel.username)
+                                                .textContentType(.username)
+                                                .autocapitalization(.none)
+                                                .disableAutocorrection(true)
+                                                .font(.system(size: 16, weight: .medium))
+                                                .foregroundColor(AuthPalette.inputText)
+                                                .focused($focusedField, equals: .username)
+                                                .submitLabel(.next)
+                                                .onSubmit { focusedField = .nickname }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                        VStack(spacing: 14) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "person.fill")
-                                    .foregroundColor(AppColors.accent)
-                                    .font(.system(size: 16))
-                                    .frame(width: 20)
-                                TextField("用户名 (3-20 位字母 / 数字 / _)", text: $viewModel.username)
-                                    .textContentType(.username)
-                                    .autocapitalization(.none)
-                                    .disableAutocorrection(true)
-                                    .font(.system(size: 16))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(AppColors.separator.opacity(0.6))
-                            .cornerRadius(14)
-
-                            HStack(spacing: 12) {
-                                Image(systemName: "face.smiling")
-                                    .foregroundColor(AppColors.accent)
-                                    .font(.system(size: 16))
-                                    .frame(width: 20)
-                                TextField("昵称 (可选)", text: $viewModel.nickname)
-                                    .autocapitalization(.none)
-                                    .disableAutocorrection(true)
-                                    .font(.system(size: 16))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(AppColors.separator.opacity(0.6))
-                            .cornerRadius(14)
-
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock.fill")
-                                    .foregroundColor(AppColors.accent)
-                                    .font(.system(size: 16))
-                                    .frame(width: 20)
-                                SecureField("密码 (至少 6 位)", text: $viewModel.password)
-                                    .textContentType(.newPassword)
-                                    .font(.system(size: 16))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(AppColors.separator.opacity(0.6))
-                            .cornerRadius(14)
-
-                            HStack(spacing: 12) {
-                                Image(systemName: "lock.rotation")
-                                    .foregroundColor(AppColors.accent)
-                                    .font(.system(size: 16))
-                                    .frame(width: 20)
-                                SecureField("确认密码", text: $viewModel.confirmPassword)
-                                    .textContentType(.newPassword)
-                                    .font(.system(size: 16))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .background(AppColors.separator.opacity(0.6))
-                            .cornerRadius(14)
-                        }
-                        .padding(.horizontal, 24)
-
-                        // Inline validation hint OR server error
-                        if let hint = viewModel.registerValidationHint {
-                            HStack(spacing: 6) {
-                                Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 12))
-                                Text(hint)
-                                    .font(.system(size: 13))
-                            }
-                            .foregroundColor(AppColors.secondaryText)
-                            .padding(.top, 12)
-                            .padding(.horizontal, 24)
-                        } else if let error = viewModel.errorMessage {
-                            HStack(spacing: 6) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 12))
-                                Text(error)
-                                    .font(.system(size: 13))
-                            }
-                            .foregroundColor(AppColors.errorColor)
-                            .padding(.top, 12)
-                            .padding(.horizontal, 24)
-                        }
-
-                        Button {
-                            Task { await viewModel.register() }
-                        } label: {
-                            ZStack {
-                                if viewModel.isLoading {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                } else {
-                                    Text("注 册")
-                                        .font(.system(size: 17, weight: .semibold))
+                                        if !viewModel.username.isEmpty {
+                                            Button {
+                                                viewModel.username = ""
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(AuthPalette.mutedText.opacity(0.55))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
                                 }
+                                .contentShape(Rectangle())
+                                .onTapGesture { focusedField = .username }
+
+                                AuthFieldChrome(
+                                    systemImage: "face.smiling",
+                                    isFocused: focusedField == .nickname
+                                ) {
+                                    HStack(spacing: 8) {
+                                        ZStack(alignment: .leading) {
+                                            if viewModel.nickname.isEmpty {
+                                                AuthFieldPlaceholder(L10n.tr("auth.nickname.optional"))
+                                            }
+
+                                            TextField("", text: $viewModel.nickname)
+                                                .autocapitalization(.none)
+                                                .disableAutocorrection(true)
+                                                .font(.system(size: 16, weight: .medium))
+                                                .foregroundColor(AuthPalette.inputText)
+                                                .focused($focusedField, equals: .nickname)
+                                                .submitLabel(.next)
+                                                .onSubmit { focusedField = .password }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        if !viewModel.nickname.isEmpty {
+                                            Button {
+                                                viewModel.nickname = ""
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(AuthPalette.mutedText.opacity(0.55))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture { focusedField = .nickname }
+
+                                AuthFieldChrome(
+                                    systemImage: "lock.fill",
+                                    isFocused: focusedField == .password
+                                ) {
+                                    HStack(spacing: 8) {
+                                        ZStack(alignment: .leading) {
+                                            if viewModel.password.isEmpty {
+                                                AuthFieldPlaceholder(L10n.tr("auth.password.rules"))
+                                            }
+
+                                            Group {
+                                                if showPassword {
+                                                    TextField("", text: $viewModel.password)
+                                                        .textContentType(.newPassword)
+                                                } else {
+                                                    SecureField("", text: $viewModel.password)
+                                                        .textContentType(.newPassword)
+                                                }
+                                            }
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(AuthPalette.inputText)
+                                            .focused($focusedField, equals: .password)
+                                            .submitLabel(.next)
+                                            .onSubmit { focusedField = .confirmPassword }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        Button {
+                                            showPassword.toggle()
+                                        } label: {
+                                            Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .foregroundColor(AuthPalette.mutedText.opacity(0.72))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture { focusedField = .password }
+
+                                AuthFieldChrome(
+                                    systemImage: "lock.rotation",
+                                    isFocused: focusedField == .confirmPassword
+                                ) {
+                                    HStack(spacing: 8) {
+                                        ZStack(alignment: .leading) {
+                                            if viewModel.confirmPassword.isEmpty {
+                                                AuthFieldPlaceholder(L10n.tr("auth.confirmPassword"))
+                                            }
+
+                                            Group {
+                                                if showConfirmPassword {
+                                                    TextField("", text: $viewModel.confirmPassword)
+                                                        .textContentType(.newPassword)
+                                                } else {
+                                                    SecureField("", text: $viewModel.confirmPassword)
+                                                        .textContentType(.newPassword)
+                                                }
+                                            }
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(AuthPalette.inputText)
+                                            .focused($focusedField, equals: .confirmPassword)
+                                            .submitLabel(.go)
+                                            .onSubmit { submitRegisterIfPossible() }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                        Button {
+                                            showConfirmPassword.toggle()
+                                        } label: {
+                                            Image(systemName: showConfirmPassword ? "eye.slash.fill" : "eye.fill")
+                                                .font(.system(size: 15, weight: .semibold))
+                                                .foregroundColor(AuthPalette.mutedText.opacity(0.72))
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture { focusedField = .confirmPassword }
+
+                                if let hint = viewModel.registerValidationHint {
+                                    AuthInlineMessage(
+                                        message: hint,
+                                        systemImage: "info.circle.fill",
+                                        color: AuthPalette.mutedText
+                                    )
+                                } else if let error = viewModel.errorMessage {
+                                    AuthInlineMessage(
+                                        message: error,
+                                        systemImage: "exclamationmark.triangle.fill",
+                                        color: AppColors.errorColor
+                                    )
+                                }
+
+                                AuthPrimaryButton(
+                                    title: L10n.tr("auth.register.action"),
+                                    isLoading: viewModel.isLoading,
+                                    isEnabled: viewModel.isRegisterEnabled
+                                ) {
+                                    submitRegisterIfPossible()
+                                }
+                                .padding(.top, 4)
+
+                                Button {
+                                    dismiss()
+                                } label: {
+                                    Text(L10n.tr("auth.haveAccount"))
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(AuthPalette.coral)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.top, 2)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .foregroundColor(.white)
-                            .background(
-                                viewModel.isRegisterEnabled
-                                    ? AppColors.accentGradient
-                                    : LinearGradient(colors: [AppColors.tertiaryText], startPoint: .leading, endPoint: .trailing)
-                            )
-                            .cornerRadius(14)
-                            .shadow(color: viewModel.isRegisterEnabled ? AppColors.accent.opacity(0.3) : .clear, radius: 12, y: 6)
                         }
-                        .disabled(!viewModel.isRegisterEnabled)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 22)
 
-                        Button {
-                            dismiss()
-                        } label: {
-                            Text("已有账号，去登录")
-                                .font(.system(size: 14))
-                                .foregroundColor(AppColors.accent)
-                        }
-                        .padding(.top, 18)
-
-                        Spacer().frame(height: 40)
+                        Spacer()
+                            .frame(height: isEditing ? 18 : 28)
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, max(geo.safeAreaInsets.bottom, 14))
                     .frame(minHeight: geo.size.height)
+                    .animation(.easeInOut(duration: 0.24), value: isEditing)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
         }
-        .onTapGesture { hideKeyboard() }
-        .ignoresSafeArea(.keyboard)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(L10n.tr("common.done")) { focusedField = nil }
+                    .font(.system(size: 15, weight: .semibold))
+            }
+        }
+    }
+
+    private func submitRegisterIfPossible() {
+        guard viewModel.isRegisterEnabled else { return }
+        focusedField = nil
+        Task { await viewModel.register() }
     }
 }

@@ -5,7 +5,7 @@ import Foundation
 import Security
 
 enum KeychainHelper {
-    private static let service = "com.bwchat.app"
+    private static let service = Bundle.main.bundleIdentifier ?? "com.bbchat.app"
 
     static func save(key: String, value: String) {
         guard let data = value.data(using: .utf8) else { return }

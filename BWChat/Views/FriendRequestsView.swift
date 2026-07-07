@@ -14,7 +14,7 @@ struct FriendRequestsView: View {
                     Image(systemName: "person.crop.circle.badge.clock")
                         .font(.system(size: 40))
                         .foregroundColor(AppColors.tertiaryText)
-                    Text("暂无好友请求")
+                    Text(L10n.tr("friendRequests.empty"))
                         .font(.system(size: 15))
                         .foregroundColor(AppColors.secondaryText)
                     Spacer()
@@ -36,9 +36,10 @@ struct FriendRequestsView: View {
             }
         }
         .background(AppColors.secondaryBackground)
-        .navigationTitle("好友请求")
+        .navigationTitle(L10n.tr("contacts.friendRequests"))
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
+        .withUIKitBackButton()
         .task {
             await viewModel.loadFriendRequests()
         }
@@ -60,7 +61,7 @@ struct FriendRequestRow: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(AppColors.primaryText)
                     .lineLimit(1)
-                Text("请求添加你为好友")
+                Text(L10n.tr("friendRequests.row.subtitle"))
                     .font(.system(size: 13))
                     .foregroundColor(AppColors.secondaryText)
             }
