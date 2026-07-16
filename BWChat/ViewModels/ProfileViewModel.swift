@@ -6,6 +6,8 @@ import PhotosUI
 
 @MainActor
 class ProfileViewModel: ObservableObject {
+    static let bioCharacterLimit = 150
+
     @Published var profile: User?
     @Published var isLoading = false
     @Published var isSaving = false
@@ -14,7 +16,14 @@ class ProfileViewModel: ObservableObject {
 
     // Edit fields
     @Published var editNickname = ""
-    @Published var editBio = ""
+    @Published var editBio = "" {
+        didSet {
+            let limitedValue = String(editBio.prefix(Self.bioCharacterLimit))
+            if editBio != limitedValue {
+                editBio = limitedValue
+            }
+        }
+    }
     @Published var editGender = ""
     @Published var editBirthday = ""
     @Published var editLocation = ""
@@ -100,11 +109,15 @@ class ProfileViewModel: ObservableObject {
         successMessage = nil
 
         let birthdayStr = normalizedBirthdayForSave()
+        let bio = String(editBio.prefix(Self.bioCharacterLimit))
+        if editBio != bio {
+            editBio = bio
+        }
 
         do {
             let updated = try await APIService.shared.updateProfile(
                 nickname: editNickname,
-                bio: editBio,
+                bio: bio,
                 gender: editGender,
                 birthday: birthdayStr,
                 location: editLocation

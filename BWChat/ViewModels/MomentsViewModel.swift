@@ -2,17 +2,17 @@ import Foundation
 import UIKit
 
 enum MomentFeedTab: String, CaseIterable, Identifiable {
-    case world
-    case friends
+    case recommended
+    case following
 
     var id: String { rawValue }
 
     var titleKey: String {
         switch self {
-        case .friends:
-            return "moments.tab.friends"
-        case .world:
-            return "moments.tab.world"
+        case .recommended:
+            return "moments.tab.recommended"
+        case .following:
+            return "moments.tab.following"
         }
     }
 }
@@ -21,7 +21,14 @@ private struct MomentsFeedState {
     var moments: [Moment] = []
     var isLoading = false
     var hasMore = true
+    var nextBeforeID: Int?
     var errorMessage: String?
+}
+
+private struct MomentsFeedPage {
+    let moments: [Moment]
+    let hasMore: Bool
+    let nextBeforeID: Int?
 }
 
 private enum MomentsFeedContext: Hashable {
@@ -31,7 +38,24 @@ private enum MomentsFeedContext: Hashable {
 
 @MainActor
 class MomentsViewModel: ObservableObject {
-    @Published var selectedTab: MomentFeedTab = .world {
+    private struct PendingMomentUpload {
+        let context: MomentsFeedContext
+        let content: String
+        let media: [MomentUploadMedia]
+        let unlockPriceCatFood: Int?
+    }
+    private struct CachedMomentFeed: Codable {
+        let items: [Moment]
+        let hasMore: Bool
+        let nextBeforeID: Int?
+
+        init(items: [Moment], hasMore: Bool, nextBeforeID: Int? = nil) {
+            self.items = items
+            self.hasMore = hasMore
+            self.nextBeforeID = nextBeforeID
+        }
+    }
+    @Published var selectedTab: MomentFeedTab = .recommended {
         didSet {
             guard filterUserID == nil else { return }
             seedFromCacheIfNeeded(for: .tab(selectedTab))
@@ -39,10 +63,13 @@ class MomentsViewModel: ObservableObject {
     }
 
     @Published private var feedStates: [MomentFeedTab: MomentsFeedState] = [
-        .friends: MomentsFeedState(),
-        .world: MomentsFeedState()
+        .recommended: MomentsFeedState(),
+        .following: MomentsFeedState()
     ]
     @Published private var userState = MomentsFeedState()
+    @Published private(set) var uploadingMomentIDs = Set<Int>()
+    @Published private(set) var failedMomentIDs = Set<Int>()
+    private var pendingMomentUploads: [Int: PendingMomentUpload] = [:]
 
     /// nil = public feed tabs; non-nil = single user's moments
     var filterUserID: String? {
@@ -71,10 +98,9 @@ class MomentsViewModel: ObservableObject {
         state(for: activeContext).errorMessage
     }
 
-    private static let feedCacheKey = "moments_feed"
+    private static let followingCacheKey = "moments_following_feed"
     private static let worldCacheKey = "moments_world_feed"
     private var seededCacheKeys = Set<String>()
-
     private var activeContext: MomentsFeedContext {
         if let uid = filterUserID {
             return .user(uid)
@@ -111,47 +137,117 @@ class MomentsViewModel: ObservableObject {
 
     private func cacheKey(for context: MomentsFeedContext) -> String? {
         switch context {
-        case .tab(.friends):
-            return Self.feedCacheKey
-        case .tab(.world):
+        case .tab(.following):
+            return Self.followingCacheKey
+        case .tab(.recommended):
             return Self.worldCacheKey
         case .user:
             return nil
         }
     }
 
+    private func snapshotKey(for context: MomentsFeedContext) -> CacheKey? {
+        switch context {
+        case .tab(let tab):
+            return CacheKey.current(namespace: "moments-feed", key: tab.rawValue)
+        case .user(let userID):
+            return CacheKey.current(namespace: "moments-user", key: userID)
+        }
+    }
+
     private func seedFromCacheIfNeeded(for context: MomentsFeedContext) {
-        guard let key = cacheKey(for: context),
-              !seededCacheKeys.contains(key),
+        // “关注”必须以服务端当前关注关系为准，不能先展示可能已经过期、
+        // 或由旧版服务端混入非关注作者的本地 Feed 快照。
+        if context == .tab(.following) { return }
+
+        let marker: String
+        switch context {
+        case .tab(let tab): marker = "tab.\(tab.rawValue)"
+        case .user(let userID): marker = "user.\(userID)"
+        }
+        guard !seededCacheKeys.contains(marker),
               state(for: context).moments.isEmpty
         else { return }
 
-        seededCacheKeys.insert(key)
-        if let cached = LocalCache.load([Moment].self, key: key) {
+        seededCacheKeys.insert(marker)
+        if let key = snapshotKey(for: context),
+           let cached: CachedSnapshot<CachedMomentFeed> = AppCacheRepository.shared.cachedValue(for: key) {
             mutateState(for: context) { state in
-                state.moments = cached
+                state.moments = cached.value.items
+                state.hasMore = cached.value.hasMore
+                state.nextBeforeID = cached.value.nextBeforeID
+            }
+        } else if let legacyKey = cacheKey(for: context),
+                  let cached = LocalCache.load([Moment].self, key: legacyKey) {
+            mutateState(for: context) { state in state.moments = cached }
+            if let key = snapshotKey(for: context) {
+                AppCacheRepository.shared.save(
+                    CachedMomentFeed(
+                        items: Array(cached.prefix(200)),
+                        hasMore: true,
+                        nextBeforeID: cached.last?.id
+                    ),
+                    for: key,
+                    policy: .feed
+                )
+                LocalCache.clear(key: legacyKey)
             }
         }
     }
 
     private func persistIfNeeded(_ context: MomentsFeedContext) {
-        guard let key = cacheKey(for: context) else { return }
-        LocalCache.save(state(for: context).moments, key: key)
+        if let snapshotKey = snapshotKey(for: context) {
+            let current = state(for: context)
+            AppCacheRepository.shared.save(
+                CachedMomentFeed(
+                    items: Array(current.moments.prefix(200)),
+                    hasMore: current.hasMore,
+                    nextBeforeID: current.nextBeforeID
+                ),
+                for: snapshotKey,
+                policy: .feed
+            )
+        }
     }
 
     private func fetchFeed(
         for context: MomentsFeedContext,
         beforeID: Int? = nil,
         limit: Int = 20
-    ) async throws -> ([Moment], Bool) {
+    ) async throws -> MomentsFeedPage {
         switch context {
-        case .tab(.world):
-            return try await APIService.shared.getMomentsWorld(beforeID: beforeID, limit: limit)
-        case .tab(.friends):
-            return try await APIService.shared.getMomentsFeed(beforeID: beforeID, limit: limit)
+        case .tab(.recommended):
+            let result = try await APIService.shared.getMomentsWorld(beforeID: beforeID, limit: limit)
+            return MomentsFeedPage(
+                moments: result.0,
+                hasMore: result.1,
+                nextBeforeID: result.0.last?.id
+            )
+        case .tab(.following):
+            // `/moments/feed` is the authoritative personalized feed. Do not
+            // gate it on a second `/follows/following` request or filter its
+            // authors again: either can turn a valid server page into a false
+            // empty state when identifiers or pagination differ.
+            let result = try await APIService.shared.getMomentsFollowing(beforeID: beforeID, limit: limit)
+            return MomentsFeedPage(
+                moments: Self.followingFeedItems(from: result.0),
+                hasMore: result.1,
+                nextBeforeID: result.0.last?.id
+            )
         case .user(let uid):
-            return try await APIService.shared.getUserMoments(userID: uid, limit: limit, beforeID: beforeID)
+            let result = try await APIService.shared.getUserMoments(userID: uid, limit: limit, beforeID: beforeID)
+            return MomentsFeedPage(
+                moments: result.0,
+                hasMore: result.1,
+                nextBeforeID: result.0.last?.id
+            )
         }
+    }
+
+    /// Policy seam covered by tests: the server owns follow filtering and
+    /// ordering, while the client only renders the returned page.
+    nonisolated static func followingFeedItems(from moments: [Moment]) -> [Moment] {
+        moments
     }
 
     private func insertMoment(_ moment: Moment, for context: MomentsFeedContext) {
@@ -163,9 +259,7 @@ class MomentsViewModel: ObservableObject {
     }
 
     private func insertMomentIntoPublicTabs(_ moment: Moment) {
-        for tab in MomentFeedTab.allCases {
-            insertMoment(moment, for: .tab(tab))
-        }
+        insertMoment(moment, for: .tab(.recommended))
     }
 
     private func replaceMoment(tempID: Int, with moment: Moment, for context: MomentsFeedContext) {
@@ -180,9 +274,7 @@ class MomentsViewModel: ObservableObject {
     private func replaceMomentInRelatedPublicLists(tempID: Int, with moment: Moment, source: MomentsFeedContext) {
         switch source {
         case .tab:
-            for tab in MomentFeedTab.allCases {
-                replaceMoment(tempID: tempID, with: moment, for: .tab(tab))
-            }
+            replaceMoment(tempID: tempID, with: moment, for: .tab(.recommended))
         case .user:
             replaceMoment(tempID: tempID, with: moment, for: source)
         }
@@ -318,6 +410,7 @@ class MomentsViewModel: ObservableObject {
         if refresh {
             mutateState(for: context) { state in
                 state.hasMore = true
+                state.nextBeforeID = nil
             }
         }
 
@@ -340,18 +433,42 @@ class MomentsViewModel: ObservableObject {
         }
 
         do {
-            let (items, more) = try await fetchFeed(for: context)
-            mutateState(for: context) { state in
-                if state.moments != items {
-                    state.moments = items
+            let page: MomentsFeedPage
+            if context == .tab(.following) {
+                page = try await fetchFeed(for: context)
+            } else if let key = snapshotKey(for: context) {
+                let cached: CachedMomentFeed = try await AppCacheRepository.shared.loadValue(
+                    key: key,
+                    policy: .feed,
+                    forceRefresh: refresh
+                ) {
+                    let result = try await self.fetchFeed(for: context)
+                    return CachedMomentFeed(
+                        items: result.moments,
+                        hasMore: result.hasMore,
+                        nextBeforeID: result.nextBeforeID
+                    )
                 }
-                state.hasMore = more
+                page = MomentsFeedPage(
+                    moments: cached.items,
+                    hasMore: cached.hasMore,
+                    nextBeforeID: cached.nextBeforeID
+                )
+            } else {
+                page = try await fetchFeed(for: context)
+            }
+            mutateState(for: context) { state in
+                if state.moments != page.moments {
+                    state.moments = page.moments
+                }
+                state.hasMore = page.hasMore
+                state.nextBeforeID = page.nextBeforeID
             }
             persistIfNeeded(context)
         } catch {
             if state(for: context).moments.isEmpty {
                 mutateState(for: context) { state in
-                    state.errorMessage = L10n.tr("common.operationFailed")
+                    state.errorMessage = Self.message(for: error)
                 }
             }
         }
@@ -362,7 +479,7 @@ class MomentsViewModel: ObservableObject {
         let current = state(for: context)
         guard current.hasMore,
               !current.isLoading,
-              let lastID = current.moments.last?.id
+              let lastID = current.nextBeforeID ?? current.moments.last?.id
         else { return }
 
         mutateState(for: context) { state in
@@ -370,18 +487,30 @@ class MomentsViewModel: ObservableObject {
         }
 
         do {
-            let (items, more) = try await fetchFeed(for: context, beforeID: lastID)
+            let page = try await fetchFeed(for: context, beforeID: lastID)
             mutateState(for: context) { state in
                 let existingIDs = Set(state.moments.map(\.id))
-                state.moments.append(contentsOf: items.filter { !existingIDs.contains($0.id) })
-                state.hasMore = more
+                state.moments.append(contentsOf: page.moments.filter { !existingIDs.contains($0.id) })
+                state.hasMore = page.hasMore
+                state.nextBeforeID = page.nextBeforeID
             }
             persistIfNeeded(context)
-        } catch { }
+        } catch {
+            mutateState(for: context) { state in
+                state.errorMessage = Self.message(for: error)
+            }
+        }
 
         mutateState(for: context) { state in
             state.isLoading = false
         }
+    }
+
+    nonisolated private static func message(for error: Error) -> String {
+        if let apiError = error as? APIError {
+            return apiError.errorDescription ?? L10n.tr("common.operationFailed")
+        }
+        return error.localizedDescription
     }
 
     func loadMoreIfNeeded(currentMomentID: Int) {
@@ -423,7 +552,9 @@ class MomentsViewModel: ObservableObject {
             )
 
             updateMomentInRelatedPublicLists(updated, source: context)
-        } catch { }
+        } catch {
+            mutateState(for: context) { $0.errorMessage = Self.message(for: error) }
+        }
     }
 
     func addComment(
@@ -456,16 +587,28 @@ class MomentsViewModel: ObservableObject {
             )
 
             updateMomentInRelatedPublicLists(updated, source: context)
-        } catch { }
+        } catch {
+            mutateState(for: context) { $0.errorMessage = Self.message(for: error) }
+        }
     }
 
     func deleteMoment(momentID: Int) async {
         let context = activeContext
 
+        if momentID < 0 {
+            uploadingMomentIDs.remove(momentID)
+            failedMomentIDs.remove(momentID)
+            pendingMomentUploads.removeValue(forKey: momentID)
+            removeMomentFromRelatedPublicLists(momentID: momentID, source: context)
+            return
+        }
+
         do {
             try await APIService.shared.deleteMoment(momentID: momentID)
             removeMomentFromRelatedPublicLists(momentID: momentID, source: context)
-        } catch { }
+        } catch {
+            mutateState(for: context) { $0.errorMessage = Self.message(for: error) }
+        }
     }
 
     func publishMomentOptimistically(
@@ -488,18 +631,39 @@ class MomentsViewModel: ObservableObject {
         case .user:
             insertMoment(optimistic, for: context)
         }
+        pendingMomentUploads[tempID] = PendingMomentUpload(
+            context: context,
+            content: content,
+            media: media,
+            unlockPriceCatFood: unlockPriceCatFood
+        )
+        enqueueMomentUpload(tempID: tempID)
+    }
 
-        Task {
+    func retryMomentUpload(momentID: Int) {
+        guard pendingMomentUploads[momentID] != nil else { return }
+        failedMomentIDs.remove(momentID)
+        enqueueMomentUpload(tempID: momentID)
+    }
+
+    private func enqueueMomentUpload(tempID: Int) {
+        guard let payload = pendingMomentUploads[tempID] else { return }
+        uploadingMomentIDs.insert(tempID)
+        BackgroundUploadCoordinator.shared.enqueue(id: "moment-\(tempID)") { [self] in
             do {
                 let uploaded = try await APIService.shared.createMoment(
-                    content: content,
-                    mediaDataList: media,
-                    unlockPriceCatFood: unlockPriceCatFood
+                    content: payload.content,
+                    mediaDataList: payload.media,
+                    unlockPriceCatFood: payload.unlockPriceCatFood
                 )
-                replaceMomentInRelatedPublicLists(tempID: tempID, with: uploaded, source: context)
+                self.uploadingMomentIDs.remove(tempID)
+                self.failedMomentIDs.remove(tempID)
+                self.pendingMomentUploads.removeValue(forKey: tempID)
+                self.replaceMomentInRelatedPublicLists(tempID: tempID, with: uploaded, source: payload.context)
             } catch {
-                removeMomentFromRelatedPublicLists(momentID: tempID, source: context)
-                mutateState(for: context) { state in
+                self.uploadingMomentIDs.remove(tempID)
+                self.failedMomentIDs.insert(tempID)
+                self.mutateState(for: payload.context) { state in
                     state.errorMessage = error.localizedDescription
                 }
             }

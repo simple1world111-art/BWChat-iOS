@@ -14,6 +14,8 @@ class GroupChatViewModel: ObservableObject {
     @Published var hasMore = false
     @Published var errorMessage: String?
     @Published var pendingTexts: [PendingGroupText] = []
+    @Published var pendingStickers: [PendingGroupSticker] = []
+    @Published var pendingMedia: [PendingGroupMedia] = []
     @Published var replyingTo: GroupMessage?
     @Published var mentionedUserIDs: [String] = []
     @Published var showMentionPicker = false
@@ -23,8 +25,11 @@ class GroupChatViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private let store = MessageStore.shared
     private var isSyncingLatest = false
-    private var lastTextSubmit: (signature: String, date: Date)?
+    private var apiConfirmedMessageIDs = Set<Int>()
     private var webSocketConfirmedMessageIDs = Set<Int>()
+    private var nextOptimisticMessageID = Int.max / 4
+    private var optimisticStickerMessageIDs = Set<Int>()
+    private var optimisticStickerSignatures: [Int: StickerSendSignature] = [:]
 
     private enum GroupMessageSource {
         case apiResponse
@@ -32,22 +37,40 @@ class GroupChatViewModel: ObservableObject {
         case history
     }
 
+    private struct StickerSendSignature: Equatable {
+        let stickerID: String
+        let packID: String
+        let assetKey: String
+        let replyID: Int?
+    }
+
     // Per-group "we've already backfilled the full server history" flag.
     // Persisted across launches so we only do the one-time backfill once
     // per group per install. Cleared on logout via LocalCache.clear().
-    private static let backfilledKey = "bbchat.group_backfilled"
+    private var backfilledKey: String {
+        "bbchat.group_backfilled.\(AuthManager.shared.currentUser?.userID ?? "locked")"
+    }
 
     private var isBackfilled: Bool {
-        let ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [Int] ?? []
+        let ids = UserDefaults.standard.array(forKey: backfilledKey) as? [Int] ?? []
         return ids.contains(group.groupID)
     }
 
     private func markBackfilled() {
-        var ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [Int] ?? []
+        var ids = UserDefaults.standard.array(forKey: backfilledKey) as? [Int] ?? []
         if !ids.contains(group.groupID) {
             ids.append(group.groupID)
-            UserDefaults.standard.set(ids, forKey: Self.backfilledKey)
+            UserDefaults.standard.set(ids, forKey: backfilledKey)
         }
+    }
+
+    private func userFacingSendError(_ error: Error, fallbackKey: String) -> String {
+        if let localizedError = error as? LocalizedError,
+           let message = localizedError.errorDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            return message
+        }
+        return L10n.tr(fallbackKey)
     }
 
     init(group: ChatGroup) {
@@ -173,7 +196,9 @@ class GroupChatViewModel: ObservableObject {
             store.saveGroupMessages(msgs)
             messages.insert(contentsOf: msgs, at: 0)
             hasMore = more
-        } catch { }
+        } catch {
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.loadFailed")
+        }
     }
 
     func submitText() {
@@ -182,20 +207,6 @@ class GroupChatViewModel: ObservableObject {
 
         let replyID = replyingTo?.id
         let mentions = mentionedUserIDs
-        let signature = outgoingSignature(
-            content: text,
-            msgType: "text",
-            replyID: replyID,
-            mentions: mentions
-        )
-        let now = Date()
-        if let lastTextSubmit,
-           lastTextSubmit.signature == signature,
-           now.timeIntervalSince(lastTextSubmit.date) < 0.8 {
-            return
-        }
-        lastTextSubmit = (signature, now)
-
         inputText = ""
         replyingTo = nil
         mentionedUserIDs = []
@@ -217,20 +228,27 @@ class GroupChatViewModel: ObservableObject {
 
     private func finishTextSend(pendingID: String, text: String, replyID: Int?, mentions: [String] = []) async {
         do {
-            let msg = try await APIService.shared.sendGroupText(
+            let response = try await APIService.shared.sendGroupText(
                 groupID: group.groupID,
                 content: text,
                 replyToID: replyID,
                 mentions: mentions,
                 clientMessageID: pendingID
             )
+            let msg = normalizedOutgoingMessage(
+                response,
+                expectedType: "text",
+                expectedContent: text,
+                replyID: replyID,
+                mentions: mentions,
+                clientMessageID: pendingID
+            )
             store.saveGroupMessage(msg)
-            let shouldMergeOutgoingEcho = !pendingTexts.contains { $0.id == pendingID }
             removePendingText(id: pendingID)
-            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: shouldMergeOutgoingEcho)
+            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
         } catch {
             markPendingTextFailed(id: pendingID)
-            errorMessage = L10n.tr("messages.sendFailed")
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.sendFailed")
         }
     }
 
@@ -243,6 +261,91 @@ class GroupChatViewModel: ObservableObject {
             text: pending.content,
             replyID: pending.replyID,
             mentions: pending.mentions
+        )
+    }
+
+    func sendSticker(pack: StickerPack, sticker: StickerItem) async {
+        isSending = true
+        defer { isSending = false }
+
+        let replyMessage = replyingTo
+        let replyID = replyMessage?.id
+        let clientMessageID = UUID().uuidString
+        let payload = StickerMessagePayload(pack: pack, sticker: sticker)
+        let signature = stickerSignature(content: payload.encodedContent, replyID: replyID)
+
+        replyingTo = nil
+        let localMessage = makeOptimisticStickerMessage(
+            content: payload.encodedContent,
+            clientMessageID: clientMessageID,
+            replyTo: replyMessage
+        )
+        optimisticStickerMessageIDs.insert(localMessage.id)
+        optimisticStickerSignatures[localMessage.id] = signature
+        appendMessageIfNeeded(localMessage)
+
+        do {
+            let response = try await APIService.shared.sendGroupSticker(
+                groupID: group.groupID,
+                packID: pack.id,
+                stickerID: sticker.id,
+                replyToID: replyID,
+                clientMessageID: clientMessageID
+            )
+            let msg = normalizedOutgoingMessage(
+                response,
+                expectedType: "sticker",
+                expectedContent: payload.encodedContent,
+                replyID: replyID,
+                clientMessageID: clientMessageID
+            )
+            store.saveGroupMessage(msg)
+            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
+        } catch {
+            removeOptimisticStickerMessage(id: localMessage.id)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.stickerSendFailed")
+        }
+    }
+
+    private func finishStickerSend(
+        pendingID: String,
+        packID: String,
+        stickerID: String,
+        replyID: Int?
+    ) async {
+        do {
+            let response = try await APIService.shared.sendGroupSticker(
+                groupID: group.groupID,
+                packID: packID,
+                stickerID: stickerID,
+                replyToID: replyID,
+                clientMessageID: pendingID
+            )
+            let msg = normalizedOutgoingMessage(
+                response,
+                expectedType: "sticker",
+                expectedContent: pendingStickers.first(where: { $0.id == pendingID })?.content,
+                replyID: replyID,
+                clientMessageID: pendingID
+            )
+            store.saveGroupMessage(msg)
+            removePendingSticker(id: pendingID)
+            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
+        } catch {
+            markPendingStickerFailed(id: pendingID)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.stickerSendFailed")
+        }
+    }
+
+    func retryPendingSticker(_ pending: PendingGroupSticker) async {
+        if let idx = pendingStickers.firstIndex(where: { $0.id == pending.id }) {
+            pendingStickers[idx].status = .sending
+        }
+        await finishStickerSend(
+            pendingID: pending.id,
+            packID: pending.packID,
+            stickerID: pending.stickerID,
+            replyID: pending.replyID
         )
     }
 
@@ -263,42 +366,72 @@ class GroupChatViewModel: ObservableObject {
     }
 
     func sendImage(data: Data) async {
-        isSending = true
-        do {
-            let msg = try await APIService.shared.sendGroupImage(groupID: group.groupID, imageData: data, filename: "img_\(Int(Date().timeIntervalSince1970)).jpg")
-            store.saveGroupMessage(msg)
-            appendMessageIfNeeded(msg)
-        } catch {
-            errorMessage = L10n.tr("messages.imageSendFailed")
-        }
-        isSending = false
+        let pending = PendingGroupMedia(msgType: "image", data: data, filename: "img_\(UUID().uuidString).jpg")
+        pendingMedia.append(pending)
+        enqueueMediaUpload(pending)
     }
 
     func sendVideo(data: Data, filename: String) async {
-        isSending = true
-        do {
-            let msg = try await APIService.shared.sendGroupVideo(groupID: group.groupID, videoData: data, filename: filename)
-            store.saveGroupMessage(msg)
-            appendMessageIfNeeded(msg)
-        } catch {
-            errorMessage = L10n.tr("messages.videoSendFailed")
+        let pending = PendingGroupMedia(msgType: "video", data: data, filename: filename)
+        pendingMedia.append(pending)
+        enqueueMediaUpload(pending)
+    }
+
+    func retryPendingMedia(_ pending: PendingGroupMedia) {
+        guard let index = pendingMedia.firstIndex(where: { $0.id == pending.id }) else { return }
+        pendingMedia[index].status = .sending
+        enqueueMediaUpload(pendingMedia[index])
+    }
+
+    private func enqueueMediaUpload(_ pending: PendingGroupMedia) {
+        BackgroundUploadCoordinator.shared.enqueue(id: "group-\(group.groupID)-\(pending.id)") { [self] in
+            await finishMediaSend(pending)
         }
-        isSending = false
+    }
+
+    private func finishMediaSend(_ pending: PendingGroupMedia) async {
+        do {
+            let response: GroupMessage
+            if pending.msgType == "video" {
+                response = try await APIService.shared.sendGroupVideo(
+                    groupID: group.groupID,
+                    videoData: pending.data,
+                    filename: pending.filename
+                )
+            } else {
+                response = try await APIService.shared.sendGroupImage(
+                    groupID: group.groupID,
+                    imageData: pending.data,
+                    filename: pending.filename
+                )
+            }
+            let msg = normalizedOutgoingMessage(response, expectedType: pending.msgType)
+            store.saveGroupMessage(msg)
+            pendingMedia.removeAll { $0.id == pending.id }
+            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
+        } catch {
+            if let index = pendingMedia.firstIndex(where: { $0.id == pending.id }) {
+                pendingMedia[index].status = .failed
+            }
+            let key = pending.msgType == "video" ? "messages.videoSendFailed" : "messages.imageSendFailed"
+            errorMessage = userFacingSendError(error, fallbackKey: key)
+        }
     }
 
     func sendVoice(data: Data, duration: Double) async {
         isSending = true
         do {
-            let msg = try await APIService.shared.sendGroupVoice(
+            let response = try await APIService.shared.sendGroupVoice(
                 groupID: group.groupID,
                 voiceData: data,
                 duration: duration,
                 filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
             )
+            let msg = normalizedOutgoingMessage(response, expectedType: "voice")
             store.saveGroupMessage(msg)
-            appendMessageIfNeeded(msg)
+            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
         } catch {
-            errorMessage = L10n.tr("messages.voiceSendFailed")
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.voiceSendFailed")
         }
         isSending = false
     }
@@ -312,22 +445,54 @@ class GroupChatViewModel: ObservableObject {
         defer { isSending = false }
 
         do {
-            let msg = try await APIService.shared.sendGroupGift(
+            let response = try await APIService.shared.sendGroupGift(
                 groupID: group.groupID,
                 recipientID: recipientID,
                 giftID: gift.giftID
             )
+            let msg = normalizedOutgoingMessage(response, expectedType: "gift")
             store.saveGroupMessage(msg)
-            appendMessageIfNeeded(msg)
+            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
             Task { await WalletStore.shared.refreshBalanceFromServer() }
         } catch {
-            errorMessage = L10n.tr("gift.sendFailed")
+            errorMessage = userFacingSendError(error, fallbackKey: "gift.sendFailed")
             throw error
         }
     }
 
     var isSendEnabled: Bool {
         !inputText.isBlank
+    }
+
+    var visiblePendingTexts: [PendingGroupText] {
+        pendingTexts.filter { pending in
+            !messages.contains {
+                isOwnOutgoingMergeable($0) && pendingText(pending, matches: $0)
+            }
+        }
+    }
+
+    var visiblePendingStickers: [PendingGroupSticker] {
+        pendingStickers.filter { pending in
+            !messages.contains {
+                isOwnOutgoingMergeable($0) && pendingSticker(pending, matches: $0)
+            }
+        }
+    }
+
+    var visiblePendingMedia: [PendingGroupMedia] {
+        pendingMedia
+    }
+
+    func markConversationAsReadOnServer() {
+        UnreadBadgeStore.shared.setConversationUnreadCount(
+            0,
+            for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
+        )
+        Task {
+            try? await APIService.shared.markGroupMessagesAsRead(groupID: group.groupID)
+            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+        }
     }
 
     private func triggerMentionAlertIfNeeded(_ msg: GroupMessage) {
@@ -355,24 +520,31 @@ class GroupChatViewModel: ObservableObject {
                 guard let self = self else { return }
                 if msg.groupID == self.group.groupID {
                     self.store.saveGroupMessage(msg)
-                    var shouldMergeOutgoingEcho = false
                     if msg.senderID == AuthManager.shared.currentUser?.userID {
-                        self.webSocketConfirmedMessageIDs.insert(msg.id)
-                        let resolvedPending = self.removeFirstPendingText {
+                        var resolvedPending = self.removeFirstPendingText {
                             self.pendingText($0, matches: msg)
                         }
-                        shouldMergeOutgoingEcho = !resolvedPending
+                        if !resolvedPending {
+                            resolvedPending = self.removeFirstPendingSticker {
+                                self.pendingSticker($0, matches: msg)
+                            }
+                        }
                     }
                     self.appendMessageIfNeeded(
                         msg,
                         source: .webSocket,
-                        shouldMergeOutgoingEcho: shouldMergeOutgoingEcho
+                        shouldMergeOutgoingEcho: msg.senderID == AuthManager.shared.currentUser?.userID
                     )
                     self.triggerMentionAlertIfNeeded(msg)
-                    if msg.senderID != AuthManager.shared.currentUser?.userID {
+                    if msg.senderID != AuthManager.shared.currentUser?.userID,
+                       WebSocketService.shared.activeGroupID == self.group.groupID {
+                        UnreadBadgeStore.shared.setConversationUnreadCount(
+                            0,
+                            for: ConversationReadTarget.group(groupID: self.group.groupID).listIdentity
+                        )
                         Task {
                             try? await APIService.shared.markGroupMessagesAsRead(groupID: self.group.groupID)
-                            await MainActor.run { PushService.shared.clearBadge() }
+                            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
                         }
                     }
                 }
@@ -401,6 +573,9 @@ class GroupChatViewModel: ObservableObject {
             .sink { [weak self] in
                 self?.messages.removeAll()
                 self?.pendingTexts.removeAll()
+                self?.pendingStickers.removeAll()
+                self?.apiConfirmedMessageIDs.removeAll()
+                self?.webSocketConfirmedMessageIDs.removeAll()
             }
             .store(in: &cancellables)
     }
@@ -409,6 +584,14 @@ class GroupChatViewModel: ObservableObject {
         guard !isSyncingLatest else { return }
         isSyncingLatest = true
         defer { isSyncingLatest = false }
+
+        let isActivelyVisible = WebSocketService.shared.activeGroupID == group.groupID
+        if isActivelyVisible {
+            UnreadBadgeStore.shared.setConversationUnreadCount(
+                0,
+                for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
+            )
+        }
 
         let latestID = store.latestGroupMessageID(groupID: group.groupID)
         do {
@@ -419,8 +602,10 @@ class GroupChatViewModel: ObservableObject {
             fetched.append(contentsOf: try await fetchRecentGroupMessages())
             mergeFetchedGroupMessages(fetched, triggerMentions: true)
 
-            try? await APIService.shared.markGroupMessagesAsRead(groupID: group.groupID)
-            PushService.shared.clearBadge()
+            if isActivelyVisible, WebSocketService.shared.activeGroupID == group.groupID {
+                try? await APIService.shared.markGroupMessagesAsRead(groupID: group.groupID)
+                PushService.shared.syncBadgeFromUnreadState()
+            }
         } catch {
             print("[GroupChat] Failed to sync latest: \(error)")
         }
@@ -459,7 +644,11 @@ class GroupChatViewModel: ObservableObject {
 
         let existingIDs = Set(messages.map(\.id))
         store.saveGroupMessages(scoped)
-        appendMessagesIfNeeded(scoped)
+        appendMessagesIfNeeded(
+            scoped,
+            source: .history,
+            shouldMergeOutgoingEcho: true
+        )
 
         guard triggerMentions else { return }
         scoped
@@ -479,6 +668,51 @@ class GroupChatViewModel: ObservableObject {
         )
     }
 
+    private func nextLocalStickerMessageID() -> Int {
+        let id = nextOptimisticMessageID
+        nextOptimisticMessageID += 1
+        return id
+    }
+
+    private func makeOptimisticStickerMessage(
+        content: String,
+        clientMessageID: String,
+        replyTo: GroupMessage?
+    ) -> GroupMessage {
+        let currentUser = AuthManager.shared.currentUser
+        return GroupMessage(
+            id: nextLocalStickerMessageID(),
+            groupID: group.groupID,
+            senderID: currentUser?.userID ?? "",
+            msgType: "sticker",
+            content: content,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            senderNickname: currentUser?.nickname ?? L10n.tr("common.me"),
+            senderAvatar: currentUser?.avatarURL ?? "",
+            replyToID: replyTo?.id,
+            replyTo: replyTo.map {
+                GroupReplyPreview(
+                    id: $0.id,
+                    senderID: $0.senderID,
+                    msgType: $0.msgType,
+                    content: $0.content
+                )
+            },
+            mentions: nil,
+            clientMessageID: clientMessageID
+        )
+    }
+
+    private func removeOptimisticStickerMessage(id: Int) {
+        clearOptimisticStickerTracking(id)
+        messages.removeAll { $0.id == id }
+    }
+
+    private func clearOptimisticStickerTracking(_ id: Int) {
+        optimisticStickerMessageIDs.remove(id)
+        optimisticStickerSignatures.removeValue(forKey: id)
+    }
+
     private func removePendingText(id: String) {
         pendingTexts.removeAll { $0.id == id }
     }
@@ -489,10 +723,27 @@ class GroupChatViewModel: ObservableObject {
         }
     }
 
+    private func removePendingSticker(id: String) {
+        pendingStickers.removeAll { $0.id == id }
+    }
+
+    private func markPendingStickerFailed(id: String) {
+        if let idx = pendingStickers.firstIndex(where: { $0.id == id }) {
+            pendingStickers[idx].status = .failed
+        }
+    }
+
     @discardableResult
     private func removeFirstPendingText(matching predicate: (PendingGroupText) -> Bool) -> Bool {
         guard let idx = pendingTexts.firstIndex(where: predicate) else { return false }
         pendingTexts.remove(at: idx)
+        return true
+    }
+
+    @discardableResult
+    private func removeFirstPendingSticker(matching predicate: (PendingGroupSticker) -> Bool) -> Bool {
+        guard let idx = pendingStickers.firstIndex(where: predicate) else { return false }
+        pendingStickers.remove(at: idx)
         return true
     }
 
@@ -503,9 +754,7 @@ class GroupChatViewModel: ObservableObject {
     ) {
         var changed = false
         for message in newMessages {
-            if source == .webSocket {
-                webSocketConfirmedMessageIDs.insert(message.id)
-            }
+            markConfirmed(message.id, source: source)
 
             if let existingIndex = messages.firstIndex(where: { $0.id == message.id }) {
                 if messages[existingIndex] != message {
@@ -516,9 +765,18 @@ class GroupChatViewModel: ObservableObject {
             }
 
             if shouldMergeOutgoingEcho,
-               let echoIndex = outgoingEchoIndex(for: message) {
+               let echoIndex = outgoingEchoIndex(for: message, source: source) {
                 let existing = messages[echoIndex]
+                clearOptimisticStickerTracking(existing.id)
                 let merged = preferredMessage(existing: existing, incoming: message, source: source)
+                clearDeliveryTracking(for: existing.id, unlessKeeping: merged.id)
+                clearDeliveryTracking(for: message.id, unlessKeeping: merged.id)
+                if merged.id == message.id {
+                    markConfirmed(merged.id, source: source)
+                }
+                if existing.id != message.id {
+                    store.deleteGroupMessage(id: merged.id == existing.id ? message.id : existing.id)
+                }
                 messages[echoIndex] = merged
                 changed = true
                 continue
@@ -528,7 +786,12 @@ class GroupChatViewModel: ObservableObject {
             changed = true
         }
         guard changed else { return }
-        messages.sort { $0.id < $1.id }
+        sortMessagesForDisplay()
+        if source == .apiResponse {
+            newMessages.forEach {
+                NotificationCenter.default.post(name: .conversationPreviewDidChange, object: $0)
+            }
+        }
     }
 
     private func pendingText(_ pending: PendingGroupText, matches message: GroupMessage) -> Bool {
@@ -537,19 +800,89 @@ class GroupChatViewModel: ObservableObject {
         }
 
         return pending.content == message.content
-            && pending.replyID == replyTargetID(for: message)
-            && normalizedMentions(pending.mentions) == normalizedMentions(message.mentions)
-            && message.msgType == "text"
+            && pendingReplyMatches(pending.replyID, replyTargetID(for: message))
+            && (message.mentions == nil
+                || normalizedMentions(pending.mentions) == normalizedMentions(message.mentions))
+            && MessageDeliveryMatcher.normalizedType(message.msgType) == "text"
+            && pendingTimestampMatches(pending.createdAt, messageTimestamp: message.timestamp)
     }
 
-    private func outgoingEchoIndex(for message: GroupMessage) -> Int? {
-        guard isOwnOutgoingText(message),
-              let clientMessageID = nonBlank(message.clientMessageID) else { return nil }
-        return messages.lastIndex { existing in
-            existing.id != message.id
-                && isOwnOutgoingText(existing)
-                && nonBlank(existing.clientMessageID) == clientMessageID
+    private func pendingSticker(_ pending: PendingGroupSticker, matches message: GroupMessage) -> Bool {
+        if message.clientMessageID == pending.id {
+            return true
         }
+
+        return stickerSignaturesMatch(
+                stickerSignature(content: pending.content, replyID: pending.replyID),
+                stickerSignature(content: message.content, replyID: replyTargetID(for: message))
+            )
+            && pendingReplyMatches(pending.replyID, replyTargetID(for: message))
+            && MessageDeliveryMatcher.normalizedType(message.msgType) == "sticker"
+            && pendingTimestampMatches(pending.createdAt, messageTimestamp: message.timestamp)
+    }
+
+    private func outgoingEchoIndex(
+        for message: GroupMessage,
+        source: GroupMessageSource
+    ) -> Int? {
+        guard isOwnOutgoingMergeable(message) else { return nil }
+
+        if let clientMessageID = nonBlank(message.clientMessageID),
+           let clientMatch = messages.lastIndex(where: { existing in
+               existing.id != message.id
+                   && isOwnOutgoingMergeable(existing)
+                   && nonBlank(existing.clientMessageID) == clientMessageID
+           }) {
+            return clientMatch
+        }
+
+        return messages.lastIndex { existing in
+            guard existing.id != message.id,
+                  isOwnOutgoingMergeable(existing),
+                  MessageDeliveryMatcher.normalizedType(existing.msgType)
+                    == MessageDeliveryMatcher.normalizedType(message.msgType),
+                  replyTargetID(for: existing) == replyTargetID(for: message),
+                  normalizedMentions(existing.mentions) == normalizedMentions(message.mentions),
+                  timestampsAreClose(existing.timestamp, message.timestamp),
+                  isEligibleEcho(existing.id, for: source) else {
+                return false
+            }
+
+            return outgoingContentsMatch(existing, message)
+        }
+    }
+
+    private func isEligibleEcho(_ existingID: Int, for source: GroupMessageSource) -> Bool {
+        switch source {
+        case .apiResponse:
+            return webSocketConfirmedMessageIDs.contains(existingID)
+                || optimisticStickerMessageIDs.contains(existingID)
+        case .webSocket:
+            return apiConfirmedMessageIDs.contains(existingID)
+                || optimisticStickerMessageIDs.contains(existingID)
+        case .history:
+            return apiConfirmedMessageIDs.contains(existingID)
+                || webSocketConfirmedMessageIDs.contains(existingID)
+                || optimisticStickerMessageIDs.contains(existingID)
+        }
+    }
+
+    private func outgoingContentsMatch(_ lhs: GroupMessage, _ rhs: GroupMessage) -> Bool {
+        if lhs.msgType == "sticker" {
+            return stickerSignaturesMatch(
+                stickerSignature(content: lhs.content, replyID: replyTargetID(for: lhs)),
+                stickerSignature(content: rhs.content, replyID: replyTargetID(for: rhs))
+            )
+        }
+        guard MessageDeliveryMatcher.normalizedType(lhs.msgType)
+                == MessageDeliveryMatcher.normalizedType(rhs.msgType) else {
+            return false
+        }
+        return MessageDeliveryMatcher.contentsMatch(
+            type: lhs.msgType,
+            lhs: lhs.content,
+            rhs: rhs.content
+        )
     }
 
     private func preferredMessage(
@@ -566,10 +899,28 @@ class GroupChatViewModel: ObservableObject {
         return incoming
     }
 
-    private func isOwnOutgoingText(_ message: GroupMessage) -> Bool {
+    private func isOwnOutgoingMergeable(_ message: GroupMessage) -> Bool {
         message.groupID == group.groupID
             && message.senderID == AuthManager.shared.currentUser?.userID
-            && message.msgType == "text"
+            && message.msgType != "system"
+    }
+
+    private func markConfirmed(_ id: Int, source: GroupMessageSource) {
+        switch source {
+        case .apiResponse:
+            apiConfirmedMessageIDs.insert(id)
+        case .webSocket:
+            webSocketConfirmedMessageIDs.insert(id)
+        case .history:
+            break
+        }
+    }
+
+    private func clearDeliveryTracking(for id: Int, unlessKeeping keptID: Int) {
+        guard id != keptID else { return }
+        apiConfirmedMessageIDs.remove(id)
+        webSocketConfirmedMessageIDs.remove(id)
+        clearOptimisticStickerTracking(id)
     }
 
     private func outgoingSignature(for message: GroupMessage) -> String {
@@ -599,6 +950,52 @@ class GroupChatViewModel: ObservableObject {
         message.replyToID ?? message.replyTo?.id
     }
 
+    private func normalizedOutgoingMessage(
+        _ message: GroupMessage,
+        expectedType: String,
+        expectedContent: String? = nil,
+        replyID: Int? = nil,
+        mentions: [String]? = nil,
+        clientMessageID: String? = nil
+    ) -> GroupMessage {
+        let currentUser = AuthManager.shared.currentUser
+        let content = message.content.isBlank
+            ? (expectedContent ?? message.content)
+            : message.content
+        return GroupMessage(
+            id: message.id,
+            groupID: group.groupID,
+            senderID: currentUser?.userID ?? message.senderID,
+            msgType: expectedType,
+            content: content,
+            timestamp: message.timestamp.isBlank
+                ? ISO8601DateFormatter().string(from: Date())
+                : message.timestamp,
+            senderNickname: message.senderNickname.isBlank
+                ? (currentUser?.nickname ?? message.senderID)
+                : message.senderNickname,
+            senderAvatar: message.senderAvatar.isBlank
+                ? (currentUser?.avatarURL ?? "")
+                : message.senderAvatar,
+            replyToID: message.replyToID ?? replyID,
+            replyTo: message.replyTo,
+            mentions: message.mentions ?? mentions,
+            clientMessageID: nonBlank(message.clientMessageID) ?? nonBlank(clientMessageID)
+        )
+    }
+
+    private func pendingTimestampMatches(_ createdAt: Date, messageTimestamp: String) -> Bool {
+        if let messageDate = TimestampHelper.parse(messageTimestamp) {
+            let delta = messageDate.timeIntervalSince(createdAt)
+            return delta >= -2 && delta <= 90
+        }
+        return abs(Date().timeIntervalSince(createdAt)) <= 90
+    }
+
+    private func pendingReplyMatches(_ pendingReplyID: Int?, _ messageReplyID: Int?) -> Bool {
+        pendingReplyID == messageReplyID || messageReplyID == nil
+    }
+
     private func normalizedMentions(_ mentions: [String]?) -> [String] {
         Array(Set(mentions ?? [])).sorted()
     }
@@ -618,6 +1015,50 @@ class GroupChatViewModel: ObservableObject {
             return false
         }
         return abs(lhsDate.timeIntervalSince(rhsDate)) <= 30
+    }
+
+    private func stickerSignature(content: String, replyID: Int?) -> StickerSendSignature {
+        if let payload = StickerMessagePayload.parse(content) {
+            return StickerSendSignature(
+                stickerID: payload.stickerID,
+                packID: payload.packID,
+                assetKey: payload.assetKey,
+                replyID: replyID
+            )
+        }
+        return StickerSendSignature(
+            stickerID: content,
+            packID: "",
+            assetKey: content,
+            replyID: replyID
+        )
+    }
+
+    private func stickerSignaturesMatch(
+        _ lhs: StickerSendSignature,
+        _ rhs: StickerSendSignature
+    ) -> Bool {
+        guard lhs.replyID == rhs.replyID else { return false }
+        if !lhs.packID.isEmpty, !rhs.packID.isEmpty, lhs.packID != rhs.packID {
+            return false
+        }
+        return lhs.stickerID == rhs.stickerID
+            || lhs.assetKey == rhs.assetKey
+            || lhs.stickerID == rhs.assetKey
+            || lhs.assetKey == rhs.stickerID
+    }
+
+    private func sortMessagesForDisplay() {
+        messages.sort { lhs, rhs in
+            if !optimisticStickerMessageIDs.isEmpty,
+               let lhsDate = TimestampHelper.parse(lhs.timestamp),
+               let rhsDate = TimestampHelper.parse(rhs.timestamp),
+               lhsDate != rhsDate {
+                return lhsDate < rhsDate
+            }
+
+            return lhs.id < rhs.id
+        }
     }
 
     private static func intValue(_ value: Any?) -> Int? {
@@ -654,6 +1095,75 @@ struct PendingGroupText: Identifiable {
         self.mentions = mentions
         self.status = status
         self.createdAt = createdAt
+    }
+
+    var formattedTime: String {
+        TimestampHelper.formatTime(createdAt)
+    }
+}
+
+struct PendingGroupSticker: Identifiable {
+    let id: String
+    let content: String
+    let packID: String
+    let stickerID: String
+    let replyID: Int?
+    let createdAt: Date
+    var status: PendingStatus = .sending
+
+    enum PendingStatus {
+        case sending, failed
+    }
+
+    init(
+        id: String,
+        content: String,
+        packID: String,
+        stickerID: String,
+        replyID: Int? = nil,
+        status: PendingStatus = .sending,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.content = content
+        self.packID = packID
+        self.stickerID = stickerID
+        self.replyID = replyID
+        self.status = status
+        self.createdAt = createdAt
+    }
+
+    var formattedTime: String {
+        TimestampHelper.formatTime(createdAt)
+    }
+}
+
+struct PendingGroupMedia: Identifiable {
+    let id: String
+    let msgType: String
+    let data: Data
+    let filename: String
+    let createdAt: Date
+    var status: PendingStatus
+
+    enum PendingStatus {
+        case sending, failed
+    }
+
+    init(
+        id: String = UUID().uuidString,
+        msgType: String,
+        data: Data,
+        filename: String,
+        createdAt: Date = Date(),
+        status: PendingStatus = .sending
+    ) {
+        self.id = id
+        self.msgType = msgType
+        self.data = data
+        self.filename = filename
+        self.createdAt = createdAt
+        self.status = status
     }
 
     var formattedTime: String {

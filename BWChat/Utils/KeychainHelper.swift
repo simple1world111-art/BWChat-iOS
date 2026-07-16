@@ -4,31 +4,59 @@
 import Foundation
 import Security
 
+struct KeychainError: Error, Equatable {
+    let operation: String
+    let status: OSStatus
+}
+
 enum KeychainHelper {
     private static let service = Bundle.main.bundleIdentifier ?? "com.bbchat.app"
 
-    static func save(key: String, value: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    static func save(key: String, value: String) throws {
+        try saveData(key: key, data: Data(value.utf8))
+    }
 
-        // Delete existing item
-        let deleteQuery: [String: Any] = [
+    /// Stores device-local binary secrets. Cache encryption keys use this
+    /// path so logging out can discard the in-memory key without deleting the
+    /// keychain item needed to unlock the same account on the next login.
+    static func saveData(key: String, data: Data) throws {
+        let identityQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
 
-        // Add new item
+        // Update first so a transient add failure cannot destroy a previously
+        // persisted token. Add only when the item genuinely does not exist.
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let updateStatus = SecItemUpdate(identityQuery as CFDictionary, updateAttributes as CFDictionary)
+        if updateStatus == errSecSuccess { return }
+        guard updateStatus == errSecItemNotFound else {
+            throw KeychainError(operation: "update", status: updateStatus)
+        }
+
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        SecItemAdd(addQuery as CFDictionary, nil)
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw KeychainError(operation: "add", status: addStatus)
+        }
     }
 
     static func load(key: String) -> String? {
+        guard let data = loadData(key: key) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func loadData(key: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -40,18 +68,22 @@ enum KeychainHelper {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        guard status == errSecSuccess, let data = result as? Data else {
+        guard status == errSecSuccess else {
+            if status != errSecItemNotFound {
+                print("[Keychain] load failed operation=copy status=\(status)")
+            }
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        return result as? Data
     }
 
-    static func delete(key: String) {
+    @discardableResult
+    static func delete(key: String) -> OSStatus {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(query as CFDictionary)
+        return SecItemDelete(query as CFDictionary)
     }
 }

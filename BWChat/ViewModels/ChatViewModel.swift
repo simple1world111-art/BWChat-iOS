@@ -23,22 +23,49 @@ class ChatViewModel: ObservableObject {
     private let store = MessageStore.shared
     private var myID: String { AuthManager.shared.currentUser?.userID ?? "" }
     private var isSyncingLatest = false
+    private var nextOptimisticMessageID = Int.max / 4
+    private var optimisticStickerMessageIDs = Set<Int>()
+    private var optimisticStickerSignatures: [Int: StickerSendSignature] = [:]
+    private var apiConfirmedMessageIDs = Set<Int>()
+    private var webSocketConfirmedMessageIDs = Set<Int>()
+
+    private enum MessageSource {
+        case apiResponse
+        case webSocket
+        case history
+    }
+
+    private struct StickerSendSignature: Equatable {
+        let stickerID: String
+        let packID: String
+        let assetKey: String
+        let replyID: Int?
+    }
 
     // Per-DM "full server history pulled" flag. See GroupChatViewModel for
     // the rationale.
-    private static let backfilledKey = "bbchat.dm_backfilled"
+    private var backfilledKey: String { "bbchat.dm_backfilled.\(myID)" }
 
     private var isBackfilled: Bool {
-        let ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [String] ?? []
+        let ids = UserDefaults.standard.array(forKey: backfilledKey) as? [String] ?? []
         return ids.contains(contact.userID)
     }
 
     private func markBackfilled() {
-        var ids = UserDefaults.standard.array(forKey: Self.backfilledKey) as? [String] ?? []
+        var ids = UserDefaults.standard.array(forKey: backfilledKey) as? [String] ?? []
         if !ids.contains(contact.userID) {
             ids.append(contact.userID)
-            UserDefaults.standard.set(ids, forKey: Self.backfilledKey)
+            UserDefaults.standard.set(ids, forKey: backfilledKey)
         }
+    }
+
+    private func userFacingSendError(_ error: Error, fallbackKey: String) -> String {
+        if let localizedError = error as? LocalizedError,
+           let message = localizedError.errorDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            return message
+        }
+        return L10n.tr(fallbackKey)
     }
 
     init(contact: Contact) {
@@ -92,9 +119,6 @@ class ChatViewModel: ObservableObject {
                 }
             }
         } catch let error as APIError {
-            if case .unauthorized = error {
-                AuthManager.shared.logout()
-            }
             if messages.isEmpty { errorMessage = error.errorDescription }
         } catch {
             if messages.isEmpty { errorMessage = L10n.tr("messages.loadFailed") }
@@ -181,7 +205,8 @@ class ChatViewModel: ObservableObject {
             msgType: "text",
             content: text,
             imageData: nil,
-            videoData: nil
+            videoData: nil,
+            replyToID: replyID
         )
         pendingMessages.append(pending)
 
@@ -192,16 +217,27 @@ class ChatViewModel: ObservableObject {
 
     private func finishTextSend(pendingID: UUID, text: String, replyID: Int?) async {
         do {
-            let message = try await APIService.shared.sendTextMessage(
+            let response = try await APIService.shared.sendTextMessage(
                 receiverID: contact.userID,
                 content: text,
                 replyToID: replyID
             )
+            let message = normalizedOutgoingMessage(
+                response,
+                expectedType: "text",
+                expectedContent: text,
+                replyID: replyID
+            )
             store.saveMessage(message)
             removePendingMessage(id: pendingID)
-            appendMessageIfNeeded(message)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
         } catch {
             markPendingMessageFailed(id: pendingID)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.sendFailed")
         }
     }
 
@@ -211,13 +247,19 @@ class ChatViewModel: ObservableObject {
         }
 
         if pending.msgType == "text" {
-            await finishTextSend(pendingID: pending.id, text: pending.content, replyID: nil)
+            await finishTextSend(pendingID: pending.id, text: pending.content, replyID: pending.replyToID)
+        } else if pending.msgType == "sticker",
+                  let payload = StickerMessagePayload.parse(pending.content) {
+            await finishStickerSend(
+                pendingID: pending.id,
+                packID: payload.packID,
+                stickerID: payload.stickerID,
+                replyID: pending.replyToID
+            )
         } else if pending.msgType == "image", let data = pending.imageData {
-            await sendImage(data: data)
-            pendingMessages.removeAll { $0.id == pending.id }
+            enqueueImageUpload(pendingID: pending.id, data: data, filename: pending.filename ?? "image_\(pending.id.uuidString).jpg")
         } else if pending.msgType == "video", let data = pending.videoData {
-            await sendVideo(data: data, filename: "video_\(Int(Date().timeIntervalSince1970)).mp4")
-            pendingMessages.removeAll { $0.id == pending.id }
+            enqueueVideoUpload(pendingID: pending.id, data: data, filename: pending.filename ?? "video_\(pending.id.uuidString).mp4")
         }
     }
 
@@ -229,66 +271,160 @@ class ChatViewModel: ObservableObject {
         replyingTo = nil
     }
 
-    func sendImage(data: Data) async {
+    func sendSticker(pack: StickerPack, sticker: StickerItem) async {
         isSending = true
+        defer { isSending = false }
 
+        let replyMessage = replyingTo
+        let replyID = replyMessage?.id
+        let payload = StickerMessagePayload(pack: pack, sticker: sticker)
+        let signature = stickerSignature(content: payload.encodedContent, replyID: replyID)
+
+        replyingTo = nil
+        let localMessage = makeOptimisticStickerMessage(
+            content: payload.encodedContent,
+            replyTo: replyMessage
+        )
+        optimisticStickerMessageIDs.insert(localMessage.id)
+        optimisticStickerSignatures[localMessage.id] = signature
+        appendMessageIfNeeded(localMessage)
+
+        do {
+            let response = try await APIService.shared.sendStickerMessage(
+                receiverID: contact.userID,
+                packID: pack.id,
+                stickerID: sticker.id,
+                replyToID: replyID
+            )
+            let message = normalizedOutgoingMessage(
+                response,
+                expectedType: "sticker",
+                expectedContent: payload.encodedContent,
+                replyID: replyID
+            )
+            store.saveMessage(message)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
+        } catch {
+            removeOptimisticStickerMessage(id: localMessage.id)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.stickerSendFailed")
+        }
+    }
+
+    private func finishStickerSend(
+        pendingID: UUID,
+        packID: String,
+        stickerID: String,
+        replyID: Int?
+    ) async {
+        do {
+            let response = try await APIService.shared.sendStickerMessage(
+                receiverID: contact.userID,
+                packID: packID,
+                stickerID: stickerID,
+                replyToID: replyID
+            )
+            let message = normalizedOutgoingMessage(
+                response,
+                expectedType: "sticker",
+                expectedContent: pendingMessages.first(where: { $0.id == pendingID })?.content,
+                replyID: replyID
+            )
+            store.saveMessage(message)
+            removePendingMessage(id: pendingID)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
+        } catch {
+            markPendingMessageFailed(id: pendingID)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.stickerSendFailed")
+        }
+    }
+
+    func sendImage(data: Data) async {
+        let filename = "image_\(UUID().uuidString).jpg"
         let pending = PendingMessage(
             receiverID: contact.userID,
             msgType: "image",
             content: "",
             imageData: data,
-            videoData: nil
+            videoData: nil,
+            filename: filename
         )
         pendingMessages.append(pending)
+        enqueueImageUpload(pendingID: pending.id, data: data, filename: filename)
+    }
 
+    private func enqueueImageUpload(pendingID: UUID, data: Data, filename: String) {
+        BackgroundUploadCoordinator.shared.enqueue(id: "direct-image-\(pendingID.uuidString)") { [self] in
+            await finishImageSend(pendingID: pendingID, data: data, filename: filename)
+        }
+    }
+
+    private func finishImageSend(pendingID: UUID, data: Data, filename: String) async {
         do {
-            let message = try await APIService.shared.sendImageMessage(
+            let response = try await APIService.shared.sendImageMessage(
                 receiverID: contact.userID,
                 imageData: data,
-                filename: "image_\(Int(Date().timeIntervalSince1970)).jpg"
+                filename: filename
             )
+            let message = normalizedOutgoingMessage(response, expectedType: "image")
             store.saveMessage(message)
-            pendingMessages.removeAll { $0.id == pending.id }
-            appendMessageIfNeeded(message)
+            removePendingMessage(id: pendingID)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
         } catch {
-            if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
-                pendingMessages[index].status = .failed
-            }
-            errorMessage = L10n.tr("messages.imageSendFailed")
+            markPendingMessageFailed(id: pendingID)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.imageSendFailed")
         }
-
-        isSending = false
     }
 
     func sendVideo(data: Data, filename: String) async {
-        isSending = true
-
         let pending = PendingMessage(
             receiverID: contact.userID,
             msgType: "video",
             content: "",
             imageData: nil,
-            videoData: data
+            videoData: data,
+            filename: filename
         )
         pendingMessages.append(pending)
+        enqueueVideoUpload(pendingID: pending.id, data: data, filename: filename)
+    }
 
+    private func enqueueVideoUpload(pendingID: UUID, data: Data, filename: String) {
+        BackgroundUploadCoordinator.shared.enqueue(id: "direct-video-\(pendingID.uuidString)") { [self] in
+            await finishVideoSend(pendingID: pendingID, data: data, filename: filename)
+        }
+    }
+
+    private func finishVideoSend(pendingID: UUID, data: Data, filename: String) async {
         do {
-            let message = try await APIService.shared.sendVideoMessage(
+            let response = try await APIService.shared.sendVideoMessage(
                 receiverID: contact.userID,
                 videoData: data,
                 filename: filename
             )
+            let message = normalizedOutgoingMessage(response, expectedType: "video")
             store.saveMessage(message)
-            pendingMessages.removeAll { $0.id == pending.id }
-            appendMessageIfNeeded(message)
+            removePendingMessage(id: pendingID)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
         } catch {
-            if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
-                pendingMessages[index].status = .failed
-            }
-            errorMessage = L10n.tr("messages.videoSendFailed")
+            markPendingMessageFailed(id: pendingID)
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.videoSendFailed")
         }
-
-        isSending = false
     }
 
     func sendVoice(data: Data, duration: Double) async {
@@ -304,20 +440,25 @@ class ChatViewModel: ObservableObject {
         pendingMessages.append(pending)
 
         do {
-            let message = try await APIService.shared.sendVoiceMessage(
+            let response = try await APIService.shared.sendVoiceMessage(
                 receiverID: contact.userID,
                 voiceData: data,
                 duration: duration,
                 filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
             )
+            let message = normalizedOutgoingMessage(response, expectedType: "voice")
             store.saveMessage(message)
             pendingMessages.removeAll { $0.id == pending.id }
-            appendMessageIfNeeded(message)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
         } catch {
             if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
                 pendingMessages[index].status = .failed
             }
-            errorMessage = L10n.tr("messages.voiceSendFailed")
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.voiceSendFailed")
         }
 
         isSending = false
@@ -332,21 +473,46 @@ class ChatViewModel: ObservableObject {
         defer { isSending = false }
 
         do {
-            let message = try await APIService.shared.sendGiftMessage(
+            let response = try await APIService.shared.sendGiftMessage(
                 receiverID: contact.userID,
                 giftID: gift.giftID
             )
+            let message = normalizedOutgoingMessage(response, expectedType: "gift")
             store.saveMessage(message)
-            appendMessageIfNeeded(message)
+            appendMessageIfNeeded(
+                message,
+                source: .apiResponse,
+                shouldMergeOutgoingEcho: true
+            )
             Task { await WalletStore.shared.refreshBalanceFromServer() }
         } catch {
-            errorMessage = L10n.tr("gift.sendFailed")
+            errorMessage = userFacingSendError(error, fallbackKey: "gift.sendFailed")
             throw error
         }
     }
 
     var isSendEnabled: Bool {
         !inputText.isBlank
+    }
+
+    /// Pending and confirmed messages are intentionally stored separately, but
+    /// they must never be rendered together once either delivery channel has
+    /// confirmed the same local send operation.
+    var visiblePendingMessages: [PendingMessage] {
+        pendingMessages.filter { pending in
+            !messages.contains { confirmedMessage($0, matches: pending) }
+        }
+    }
+
+    func markConversationAsReadOnServer() {
+        UnreadBadgeStore.shared.setConversationUnreadCount(
+            0,
+            for: ConversationReadTarget.direct(userID: contact.userID).listIdentity
+        )
+        Task {
+            try? await APIService.shared.markMessagesAsRead(contactID: contact.userID)
+            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+        }
     }
 
     private func setupWebSocketListener() {
@@ -361,15 +527,25 @@ class ChatViewModel: ObservableObject {
                 if isRelevant {
                     self.store.saveMessage(message)
                     if message.senderID == AuthManager.shared.currentUser?.userID {
-                        self.removeFirstPendingMessage {
-                            $0.msgType == message.msgType && $0.content == message.content
+                        _ = self.removeFirstPendingMessage {
+                            self.pendingMessage($0, matches: message)
                         }
-                        self.appendMessageIfNeeded(message)
+                        self.appendMessageIfNeeded(
+                            message,
+                            source: .webSocket,
+                            shouldMergeOutgoingEcho: true
+                        )
                     } else {
-                        self.appendMessageIfNeeded(message)
-                        Task {
-                            try? await APIService.shared.markMessagesAsRead(contactID: self.contact.userID)
-                            await MainActor.run { PushService.shared.clearBadge() }
+                        self.appendMessageIfNeeded(message, source: .webSocket)
+                        if WebSocketService.shared.activeChatUserID == self.contact.userID {
+                            UnreadBadgeStore.shared.setConversationUnreadCount(
+                                0,
+                                for: ConversationReadTarget.direct(userID: self.contact.userID).listIdentity
+                            )
+                            Task {
+                                try? await APIService.shared.markMessagesAsRead(contactID: self.contact.userID)
+                                await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+                            }
                         }
                     }
                 }
@@ -398,6 +574,8 @@ class ChatViewModel: ObservableObject {
             .sink { [weak self] in
                 self?.messages.removeAll()
                 self?.pendingMessages.removeAll()
+                self?.apiConfirmedMessageIDs.removeAll()
+                self?.webSocketConfirmedMessageIDs.removeAll()
             }
             .store(in: &cancellables)
     }
@@ -406,6 +584,14 @@ class ChatViewModel: ObservableObject {
         guard !isSyncingLatest else { return }
         isSyncingLatest = true
         defer { isSyncingLatest = false }
+
+        let isActivelyVisible = WebSocketService.shared.activeChatUserID == contact.userID
+        if isActivelyVisible {
+            UnreadBadgeStore.shared.setConversationUnreadCount(
+                0,
+                for: ConversationReadTarget.direct(userID: contact.userID).listIdentity
+            )
+        }
 
         let latestID = store.latestMessageID(userID: myID, contactID: contact.userID)
         do {
@@ -416,8 +602,10 @@ class ChatViewModel: ObservableObject {
             fetched.append(contentsOf: try await fetchRecentMessages())
             mergeFetchedMessages(fetched)
 
-            try? await APIService.shared.markMessagesAsRead(contactID: contact.userID)
-            PushService.shared.clearBadge()
+            if isActivelyVisible, WebSocketService.shared.activeChatUserID == contact.userID {
+                try? await APIService.shared.markMessagesAsRead(contactID: contact.userID)
+                PushService.shared.syncBadgeFromUnreadState()
+            }
         } catch {
             print("[Chat] Failed to sync latest: \(error)")
         }
@@ -453,11 +641,193 @@ class ChatViewModel: ObservableObject {
     private func mergeFetchedMessages(_ fetched: [Message]) {
         guard !fetched.isEmpty else { return }
         store.saveMessages(fetched)
-        appendMessagesIfNeeded(fetched)
+        appendMessagesIfNeeded(
+            fetched,
+            source: .history,
+            shouldMergeOutgoingEcho: true
+        )
     }
 
-    private func appendMessageIfNeeded(_ message: Message) {
-        appendMessagesIfNeeded([message])
+    private func appendMessageIfNeeded(
+        _ message: Message,
+        source: MessageSource = .history,
+        shouldMergeOutgoingEcho: Bool = false
+    ) {
+        appendMessagesIfNeeded(
+            [message],
+            source: source,
+            shouldMergeOutgoingEcho: shouldMergeOutgoingEcho
+        )
+    }
+
+    private func nextLocalStickerMessageID() -> Int {
+        let id = nextOptimisticMessageID
+        nextOptimisticMessageID += 1
+        return id
+    }
+
+    private func makeOptimisticStickerMessage(content: String, replyTo: Message?) -> Message {
+        Message(
+            id: nextLocalStickerMessageID(),
+            senderID: myID,
+            receiverID: contact.userID,
+            msgType: "sticker",
+            content: content,
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            replyToID: replyTo?.id,
+            replyTo: replyTo.map {
+                ReplyPreview(
+                    id: $0.id,
+                    senderID: $0.senderID,
+                    msgType: $0.msgType,
+                    content: $0.content
+                )
+            }
+        )
+    }
+
+    private func removeOptimisticStickerMessage(id: Int) {
+        clearOptimisticStickerTracking(id)
+        messages.removeAll { $0.id == id }
+    }
+
+    private func clearOptimisticStickerTracking(_ id: Int) {
+        optimisticStickerMessageIDs.remove(id)
+        optimisticStickerSignatures.removeValue(forKey: id)
+    }
+
+    private func optimisticStickerIndex(for message: Message) -> Int? {
+        guard message.senderID == myID,
+              message.receiverID == contact.userID,
+              message.msgType == "sticker" else {
+            return nil
+        }
+        let incomingSignature = stickerSignature(
+            content: message.content,
+            replyID: replyTargetID(for: message)
+        )
+
+        return messages.lastIndex { existing in
+            guard optimisticStickerMessageIDs.contains(existing.id),
+                  existing.senderID == message.senderID,
+                  existing.receiverID == message.receiverID,
+                  existing.msgType == message.msgType,
+                  timestampsAreClose(existing.timestamp, message.timestamp) else {
+                return false
+            }
+
+            let existingSignature = optimisticStickerSignatures[existing.id]
+                ?? stickerSignature(content: existing.content, replyID: replyTargetID(for: existing))
+            return stickerSignaturesMatch(existingSignature, incomingSignature)
+        }
+    }
+
+    private func stickerSignature(content: String, replyID: Int?) -> StickerSendSignature {
+        if let payload = StickerMessagePayload.parse(content) {
+            return StickerSendSignature(
+                stickerID: payload.stickerID,
+                packID: payload.packID,
+                assetKey: payload.assetKey,
+                replyID: replyID
+            )
+        }
+        return StickerSendSignature(
+            stickerID: content,
+            packID: "",
+            assetKey: content,
+            replyID: replyID
+        )
+    }
+
+    private func stickerSignaturesMatch(
+        _ lhs: StickerSendSignature,
+        _ rhs: StickerSendSignature
+    ) -> Bool {
+        guard lhs.replyID == rhs.replyID else { return false }
+        if !lhs.packID.isEmpty, !rhs.packID.isEmpty, lhs.packID != rhs.packID {
+            return false
+        }
+        return lhs.stickerID == rhs.stickerID
+            || lhs.assetKey == rhs.assetKey
+            || lhs.stickerID == rhs.assetKey
+            || lhs.assetKey == rhs.stickerID
+    }
+
+    private func replyTargetID(for message: Message) -> Int? {
+        message.replyToID ?? message.replyTo?.id
+    }
+
+    private func normalizedOutgoingMessage(
+        _ message: Message,
+        expectedType: String,
+        expectedContent: String? = nil,
+        replyID: Int? = nil
+    ) -> Message {
+        let content = message.content.isBlank
+            ? (expectedContent ?? message.content)
+            : message.content
+        return Message(
+            id: message.id,
+            senderID: myID,
+            receiverID: contact.userID,
+            msgType: expectedType,
+            content: content,
+            timestamp: message.timestamp.isBlank
+                ? ISO8601DateFormatter().string(from: Date())
+                : message.timestamp,
+            replyToID: message.replyToID ?? replyID,
+            replyTo: message.replyTo
+        )
+    }
+
+    private func timestampsAreClose(_ lhs: String, _ rhs: String) -> Bool {
+        guard lhs != rhs else { return true }
+        guard let lhsDate = TimestampHelper.parse(lhs),
+              let rhsDate = TimestampHelper.parse(rhs) else {
+            return false
+        }
+        return abs(lhsDate.timeIntervalSince(rhsDate)) <= 30
+    }
+
+    private func pendingMessage(_ pending: PendingMessage, matches message: Message) -> Bool {
+        guard pending.receiverID == contact.userID,
+              normalizedMessageType(pending.msgType) == normalizedMessageType(message.msgType),
+              pendingReplyMatches(pending.replyToID, replyTargetID(for: message)),
+              pendingTimestampMatches(pending, message: message) else {
+            return false
+        }
+
+        if pending.msgType == "sticker" {
+            return stickerSignaturesMatch(
+                stickerSignature(content: pending.content, replyID: pending.replyToID),
+                stickerSignature(content: message.content, replyID: replyTargetID(for: message))
+            )
+        }
+        if pending.msgType == "text" {
+            return pending.content == message.content
+        }
+        return true
+    }
+
+    private func confirmedMessage(_ message: Message, matches pending: PendingMessage) -> Bool {
+        guard isOwnOutgoing(message) else { return false }
+        return pendingMessage(pending, matches: message)
+    }
+
+    private func pendingReplyMatches(_ pendingReplyID: Int?, _ messageReplyID: Int?) -> Bool {
+        pendingReplyID == messageReplyID || messageReplyID == nil
+    }
+
+    private func pendingTimestampMatches(_ pending: PendingMessage, message: Message) -> Bool {
+        if let messageDate = TimestampHelper.parse(message.timestamp) {
+            let delta = messageDate.timeIntervalSince(pending.createdAt)
+            return delta >= -2 && delta <= 90
+        }
+        return abs(Date().timeIntervalSince(pending.createdAt)) <= 90
+    }
+
+    private func normalizedMessageType(_ value: String) -> String {
+        MessageDeliveryMatcher.normalizedType(value)
     }
 
     private func removePendingMessage(id: UUID) {
@@ -472,19 +842,163 @@ class ChatViewModel: ObservableObject {
 
     @discardableResult
     private func removeFirstPendingMessage(matching predicate: (PendingMessage) -> Bool) -> Bool {
-        guard let index = pendingMessages.firstIndex(where: predicate) else { return false }
-        pendingMessages.remove(at: index)
-        return true
+        if let index = pendingMessages.firstIndex(where: predicate) {
+            pendingMessages.remove(at: index)
+            return true
+        }
+        return false
     }
 
-    private func appendMessagesIfNeeded(_ newMessages: [Message]) {
-        var appended = false
-        for message in newMessages where !messages.contains(where: { $0.id == message.id }) {
+    private func appendMessagesIfNeeded(
+        _ newMessages: [Message],
+        source: MessageSource = .history,
+        shouldMergeOutgoingEcho: Bool = false
+    ) {
+        var changed = false
+        for message in newMessages {
+            markConfirmed(message.id, source: source)
+
+            if let existingIndex = messages.firstIndex(where: { $0.id == message.id }) {
+                if messages[existingIndex] != message {
+                    messages[existingIndex] = message
+                    changed = true
+                }
+                continue
+            }
+
+            if let optimisticIndex = optimisticStickerIndex(for: message) {
+                let localID = messages[optimisticIndex].id
+                clearOptimisticStickerTracking(localID)
+                messages[optimisticIndex] = message
+                changed = true
+                continue
+            }
+
+            if shouldMergeOutgoingEcho,
+               let echoIndex = outgoingEchoIndex(for: message, source: source) {
+                let existing = messages[echoIndex]
+                let preferred = preferredMessage(existing: existing, incoming: message, source: source)
+
+                clearDeliveryTracking(for: existing.id, unlessKeeping: preferred.id)
+                clearDeliveryTracking(for: message.id, unlessKeeping: preferred.id)
+                if preferred.id == message.id {
+                    markConfirmed(preferred.id, source: source)
+                }
+                if existing.id != message.id {
+                    store.deleteMessage(id: preferred.id == existing.id ? message.id : existing.id)
+                }
+                messages[echoIndex] = preferred
+                changed = true
+                continue
+            }
+
             messages.append(message)
-            appended = true
+            changed = true
         }
-        guard appended else { return }
-        messages.sort { $0.id < $1.id }
+        guard changed else { return }
+        sortMessagesForDisplay()
+        if source == .apiResponse {
+            newMessages.forEach {
+                NotificationCenter.default.post(name: .conversationPreviewDidChange, object: $0)
+            }
+        }
+    }
+
+    private func outgoingEchoIndex(for message: Message, source: MessageSource) -> Int? {
+        guard isOwnOutgoing(message) else { return nil }
+
+        return messages.lastIndex { existing in
+            guard existing.id != message.id,
+                  isOwnOutgoing(existing),
+                  normalizedMessageType(existing.msgType) == normalizedMessageType(message.msgType),
+                  replyTargetID(for: existing) == replyTargetID(for: message),
+                  timestampsAreClose(existing.timestamp, message.timestamp),
+                  isEligibleEcho(existing.id, for: source) else {
+                return false
+            }
+
+            if message.msgType == "sticker" {
+                return stickerSignaturesMatch(
+                    stickerSignature(content: existing.content, replyID: replyTargetID(for: existing)),
+                    stickerSignature(content: message.content, replyID: replyTargetID(for: message))
+                )
+            }
+            return outgoingContentsMatch(existing, message)
+        }
+    }
+
+    private func outgoingContentsMatch(_ lhs: Message, _ rhs: Message) -> Bool {
+        let type = normalizedMessageType(lhs.msgType)
+        guard type == normalizedMessageType(rhs.msgType) else { return false }
+        return MessageDeliveryMatcher.contentsMatch(
+            type: type,
+            lhs: lhs.content,
+            rhs: rhs.content
+        )
+    }
+
+    private func isEligibleEcho(_ existingID: Int, for source: MessageSource) -> Bool {
+        switch source {
+        case .apiResponse:
+            return webSocketConfirmedMessageIDs.contains(existingID)
+                || optimisticStickerMessageIDs.contains(existingID)
+        case .webSocket:
+            return apiConfirmedMessageIDs.contains(existingID)
+                || optimisticStickerMessageIDs.contains(existingID)
+        case .history:
+            return apiConfirmedMessageIDs.contains(existingID)
+                || webSocketConfirmedMessageIDs.contains(existingID)
+                || optimisticStickerMessageIDs.contains(existingID)
+        }
+    }
+
+    private func preferredMessage(
+        existing: Message,
+        incoming: Message,
+        source: MessageSource
+    ) -> Message {
+        if existing.id > 0, incoming.id <= 0 {
+            return existing
+        }
+        if source == .webSocket, apiConfirmedMessageIDs.contains(existing.id) {
+            return existing
+        }
+        return incoming
+    }
+
+    private func isOwnOutgoing(_ message: Message) -> Bool {
+        message.senderID == myID && message.receiverID == contact.userID
+    }
+
+    private func markConfirmed(_ id: Int, source: MessageSource) {
+        switch source {
+        case .apiResponse:
+            apiConfirmedMessageIDs.insert(id)
+        case .webSocket:
+            webSocketConfirmedMessageIDs.insert(id)
+        case .history:
+            break
+        }
+    }
+
+    private func clearDeliveryTracking(for id: Int, unlessKeeping keptID: Int) {
+        guard id != keptID else { return }
+        apiConfirmedMessageIDs.remove(id)
+        webSocketConfirmedMessageIDs.remove(id)
+        clearOptimisticStickerTracking(id)
+    }
+
+    private func sortMessagesForDisplay() {
+        messages.sort { lhs, rhs in
+            if !optimisticStickerMessageIDs.isEmpty,
+               let lhsDate = TimestampHelper.parse(lhs.timestamp),
+               let rhsDate = TimestampHelper.parse(rhs.timestamp),
+               lhsDate != rhsDate {
+                return lhsDate < rhsDate
+            }
+
+            return lhs.id < rhs.id
+        }
     }
 
     private func isRelevantContactUpdate(_ data: [String: Any]) -> Bool {

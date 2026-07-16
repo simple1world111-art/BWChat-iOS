@@ -4,6 +4,7 @@
 import SwiftUI
 import UIKit
 import os.lock
+import CryptoKit
 
 /// Non-main-actor so disk reads and image decoding don't block the UI
 /// thread — previously the whole class was @MainActor, which meant
@@ -151,10 +152,11 @@ final class ImageCacheManager: @unchecked Sendable {
     // MARK: - Disk Helpers
 
     private static func diskFileURL(in baseURL: URL, for urlPath: String) -> URL {
-        let safeFilename = urlPath
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: ":", with: "_")
-        return baseURL.appendingPathComponent(safeFilename)
+        let normalized = urlPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digest = SHA256.hash(data: Data(normalized.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return baseURL.appendingPathComponent(digest)
     }
 
     private func saveToDisk(data: Data, urlPath: String) {

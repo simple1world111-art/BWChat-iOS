@@ -27,6 +27,170 @@ struct FollowersListView: View {
     }
 }
 
+struct RecommendedUsersListView: View {
+    @StateObject private var viewModel: RecommendedUsersListViewModel
+
+    init(excludeUserID: String?, initialUsers: [FollowUser] = []) {
+        _viewModel = StateObject(
+            wrappedValue: RecommendedUsersListViewModel(
+                excludeUserID: excludeUserID,
+                initialUsers: initialUsers
+            )
+        )
+    }
+
+    var body: some View {
+        RecommendedUsersListContentView(viewModel: viewModel)
+    }
+}
+
+@MainActor
+private final class RecommendedUsersListViewModel: ObservableObject {
+    @Published private(set) var users: [FollowUser]
+    @Published private(set) var isLoading = false
+    @Published private(set) var updatingUserIDs: Set<String> = []
+    @Published var errorMessage: String?
+
+    private let excludeUserID: String?
+    private var hasLoaded = false
+
+    init(excludeUserID: String?, initialUsers: [FollowUser]) {
+        self.excludeUserID = excludeUserID
+        users = Self.filtered(initialUsers, excludeUserID: excludeUserID)
+    }
+
+    func load(force: Bool = false) async {
+        guard force || !hasLoaded else { return }
+        hasLoaded = true
+        isLoading = users.isEmpty
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let recommended = try await APIService.shared.getRecommendedUsers(
+                limit: 50,
+                excludeUserID: excludeUserID
+            )
+            let filtered = Self.filtered(recommended, excludeUserID: excludeUserID)
+            if !filtered.isEmpty || users.isEmpty {
+                users = filtered
+            }
+            filtered.forEach {
+                UserCacheManager.shared.cacheUser(
+                    userID: $0.userID,
+                    username: $0.username,
+                    nickname: $0.nickname,
+                    avatarURL: $0.avatarURL
+                )
+            }
+        } catch {
+            if users.isEmpty {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func toggleFollow(userID: String) {
+        guard !updatingUserIDs.contains(userID),
+              let index = users.firstIndex(where: { $0.userID == userID })
+        else { return }
+
+        let previous = users[index]
+        let targetState = !previous.followedByMe
+        users[index].followedByMe = targetState
+        users[index].followerCount = max(0, previous.followerCount + (targetState ? 1 : -1))
+        updatingUserIDs.insert(userID)
+
+        Task {
+            defer { updatingUserIDs.remove(userID) }
+            do {
+                let relationship = targetState
+                    ? try await APIService.shared.followUser(userID: userID)
+                    : try await APIService.shared.unfollowUser(userID: userID)
+                guard let currentIndex = users.firstIndex(where: { $0.userID == userID }) else { return }
+                users[currentIndex].followedByMe = relationship.followedByMe
+                users[currentIndex].followsMe = relationship.followsMe
+                users[currentIndex].isFriend = relationship.isFriend
+                if let followerCount = relationship.followerCount {
+                    users[currentIndex].followerCount = followerCount
+                }
+            } catch {
+                if let rollbackIndex = users.firstIndex(where: { $0.userID == userID }) {
+                    users[rollbackIndex] = previous
+                }
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private static func filtered(_ candidates: [FollowUser], excludeUserID: String?) -> [FollowUser] {
+        let excludedIDs = Set([excludeUserID, AuthManager.shared.currentUser?.userID].compactMap { $0 })
+        var seenIDs = Set<String>()
+        return candidates.filter {
+            !$0.userID.isBlank
+                && !excludedIDs.contains($0.userID)
+                && seenIDs.insert($0.userID).inserted
+        }
+    }
+}
+
+private struct RecommendedUsersListContentView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @ObservedObject var viewModel: RecommendedUsersListViewModel
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 10) {
+                if viewModel.isLoading && viewModel.users.isEmpty {
+                    ProgressView()
+                        .tint(AppColors.accent)
+                        .padding(.top, 80)
+                } else if viewModel.users.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.2")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundColor(AppColors.tertiaryText)
+                        Text(L10n.tr("profile.suggestions.unavailable"))
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(AppColors.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 80)
+                } else {
+                    ForEach(viewModel.users) { user in
+                        FollowUserRow(
+                            user: user,
+                            showsFollowButton: user.userID != AuthManager.shared.currentUser?.userID,
+                            onOpenProfile: {
+                                navigator.push(UserProfileView(userID: user.userID))
+                            },
+                            onToggleFollow: {
+                                viewModel.toggleFollow(userID: user.userID)
+                            }
+                        )
+                        .disabled(viewModel.updatingUserIDs.contains(user.userID))
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 28)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(L10n.tr("profile.suggestions.title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
+        .withUIKitBackButton()
+        .task {
+            await viewModel.load()
+        }
+        .refreshable {
+            await viewModel.load(force: true)
+        }
+        .toast(message: $viewModel.errorMessage)
+    }
+}
+
 private struct FollowListContentView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject var viewModel: FollowListViewModel

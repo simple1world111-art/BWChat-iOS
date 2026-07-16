@@ -14,6 +14,8 @@ struct User: Codable, Identifiable, Equatable {
     var location: String
     var followingCount: Int
     var followerCount: Int
+    var postsCount: Int?
+    var momentsCount: Int?
     var followedByMe: Bool
     var followsMe: Bool
     var isFriend: Bool
@@ -40,6 +42,8 @@ struct User: Codable, Identifiable, Equatable {
         case location
         case followingCount = "following_count"
         case followerCount = "follower_count"
+        case postsCount = "posts_count"
+        case momentsCount = "moments_count"
         case followedByMe = "followed_by_me"
         case followsMe = "follows_me"
         case isFriend = "is_friend"
@@ -56,6 +60,8 @@ struct User: Codable, Identifiable, Equatable {
         location: String = "",
         followingCount: Int = 0,
         followerCount: Int = 0,
+        postsCount: Int? = nil,
+        momentsCount: Int? = nil,
         followedByMe: Bool = false,
         followsMe: Bool = false,
         isFriend: Bool = false
@@ -70,6 +76,8 @@ struct User: Codable, Identifiable, Equatable {
         self.location = location
         self.followingCount = followingCount
         self.followerCount = followerCount
+        self.postsCount = postsCount
+        self.momentsCount = momentsCount
         self.followedByMe = followedByMe
         self.followsMe = followsMe
         self.isFriend = isFriend
@@ -87,6 +95,8 @@ struct User: Codable, Identifiable, Equatable {
         location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
         followingCount = container.flexInt(for: .followingCount) ?? 0
         followerCount = container.flexInt(for: .followerCount) ?? 0
+        postsCount = container.flexInt(for: .postsCount)
+        momentsCount = container.flexInt(for: .momentsCount)
         followedByMe = container.flexBool(for: .followedByMe) ?? false
         followsMe = container.flexBool(for: .followsMe) ?? false
         isFriend = container.flexBool(for: .isFriend) ?? false

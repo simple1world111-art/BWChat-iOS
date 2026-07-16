@@ -47,20 +47,7 @@ struct CallView: View {
                 if let call = callManager.currentCall {
                     if call.callType != .video || call.state != .connected {
                         if call.groupID != nil {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 24)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color(hex: "5856D6").opacity(0.8), Color(hex: "764BA2").opacity(0.6)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(width: 100, height: 100)
-                                Image(systemName: "person.3.fill")
-                                    .font(.system(size: 36))
-                                    .foregroundColor(.white)
-                            }
+                            GroupAvatarIcon(size: 100)
                             .shadow(color: .white.opacity(0.2), radius: 20)
                         } else {
                             AvatarView(url: call.remoteAvatarURL, size: 100)

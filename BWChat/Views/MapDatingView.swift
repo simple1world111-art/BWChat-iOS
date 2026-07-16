@@ -78,6 +78,7 @@ struct MapDatingView: View {
         let currentUserID = currentUser?.userID
         let userItems = viewModel.displayedUsers.compactMap { user -> MapDatingAnnotationItem? in
             guard user.userID != currentUserID,
+                  user.hasMappableCoordinate,
                   let latitude = user.displayLat,
                   let longitude = user.displayLng else {
                 return nil
@@ -98,7 +99,7 @@ struct MapDatingView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             mapLayer
 
             if viewModel.isLoading {
@@ -108,6 +109,30 @@ struct MapDatingView: View {
                     .background(AppColors.cardBackground)
                     .clipShape(Circle())
                     .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 4)
+            }
+
+            if !viewModel.isLoading, let message = viewModel.usersLoadErrorMessage {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(AppColors.warningColor)
+                    Text(message)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(3)
+                    Spacer(minLength: 0)
+                    Button(L10n.tr("common.retry")) {
+                        Task { await viewModel.retryLoadingUsers() }
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.accent)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(AppColors.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
             }
         }
         .background(AppColors.secondaryBackground)
@@ -222,9 +247,7 @@ struct MapDatingView: View {
         flightPollingTask = nil
         pendingFlightRefreshTask?.cancel()
         pendingFlightRefreshTask = nil
-        flightAircraft = []
-        flightRoutes = []
-        selectedFlightID = nil
+        isFetchingFlightLayer = false
         isUsingMockFlightLayer = false
     }
 
@@ -338,7 +361,10 @@ private struct MapDatingAnnotationItem: Identifiable {
 }
 
 private enum FlightLayerExperiment {
-    static let isEnabled = false
+    @MainActor
+    static var isEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("map_flight_layer", default: false)
+    }
     static let defaultRefreshInterval: TimeInterval = 15
     static let minimumRefreshInterval: TimeInterval = 8
     static let maximumRefreshInterval: TimeInterval = 30
@@ -724,7 +750,7 @@ private struct MapAvatarMarker: View {
     var body: some View {
         AvatarView(url: avatarURL, size: isCurrentUser ? 46 : 40)
             .overlay(
-                Circle()
+                RoundedRectangle(cornerRadius: isCurrentUser ? 10 : 9, style: .continuous)
                     .stroke(Color.white, lineWidth: isCurrentUser ? 4 : 3)
             )
             .overlay(alignment: .bottomTrailing) {
@@ -742,6 +768,8 @@ private struct MapAvatarMarker: View {
 private struct MapUserDetailSheet: View {
     let fallbackUser: MapUser
     @ObservedObject var viewModel: MapDatingViewModel
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject private var languageStore = AppLanguageStore.shared
     @State private var showReportReasons = false
 
@@ -772,7 +800,11 @@ private struct MapUserDetailSheet: View {
 
     private var profileHeader: some View {
         VStack(spacing: 12) {
-            AvatarView(url: user.avatarURL, size: 72)
+            Button(action: openProfile) {
+                AvatarView(url: user.avatarURL, size: 72)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.tr("profile.open", user.nickname))
 
             VStack(spacing: 6) {
                 Text(user.nickname)
@@ -795,6 +827,15 @@ private struct MapUserDetailSheet: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func openProfile() {
+        let userID = user.userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userID.isEmpty else { return }
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            navigator.push(UserProfileView(userID: userID))
+        }
     }
 
     private var infoCard: some View {

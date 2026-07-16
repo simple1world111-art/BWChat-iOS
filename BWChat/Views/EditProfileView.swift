@@ -140,10 +140,28 @@ struct EditProfileView: View {
 
             // Bio
             editRow(title: L10n.tr("profile.bio")) {
-                TextField(L10n.tr("profile.bio.placeholder"), text: $viewModel.editBio)
+                VStack(alignment: .trailing, spacing: 5) {
+                    TextField(
+                        L10n.tr("profile.bio.placeholder"),
+                        text: $viewModel.editBio,
+                        axis: .vertical
+                    )
                     .font(.system(size: 15))
                     .foregroundColor(AppColors.primaryText)
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1...3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("\(viewModel.editBio.count)/\(ProfileViewModel.bioCharacterLimit)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(
+                            viewModel.editBio.count == ProfileViewModel.bioCharacterLimit
+                                ? AppColors.warningColor
+                                : AppColors.tertiaryText
+                        )
+                        .monospacedDigit()
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             Divider().padding(.leading, 16)
 

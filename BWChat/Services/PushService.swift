@@ -6,6 +6,88 @@ import UserNotifications
 import UIKit
 
 @MainActor
+final class UnreadBadgeStore: ObservableObject {
+    static let shared = UnreadBadgeStore()
+
+    @Published private(set) var chatUnreadCount: Int = 0
+    @Published private(set) var momentsUnreadCount: Int = 0
+    /// The per-conversation values are the only source used to derive the chat
+    /// tab and application badge. Zero values are intentionally retained so a
+    /// secondary list can distinguish "known read" from "not loaded yet".
+    @Published private(set) var conversationUnreadCounts: [String: Int] = [:]
+
+    private init() {}
+
+    var totalUnreadCount: Int {
+        chatUnreadCount + momentsUnreadCount
+    }
+
+    func setChatUnreadCount(_ count: Int) {
+        let next = max(0, count)
+        conversationUnreadCounts = next == 0 ? [:] : ["legacy:aggregate": next]
+        updateChatUnreadTotal()
+    }
+
+    func replaceChatUnreadCounts(_ counts: [String: Int]) {
+        conversationUnreadCounts = counts.reduce(into: [:]) { result, entry in
+            let identity = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !identity.isEmpty else { return }
+            result[identity] = max(0, entry.value)
+        }
+        updateChatUnreadTotal()
+    }
+
+    func setConversationUnreadCount(_ count: Int, for identity: String) {
+        let normalizedIdentity = identity.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIdentity.isEmpty else { return }
+        conversationUnreadCounts[normalizedIdentity] = max(0, count)
+        updateChatUnreadTotal()
+    }
+
+    func incrementConversationUnread(for identity: String) {
+        let normalizedIdentity = identity.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIdentity.isEmpty else { return }
+        conversationUnreadCounts[normalizedIdentity, default: 0] += 1
+        updateChatUnreadTotal()
+    }
+
+    /// Returns nil until this identity has been supplied by the canonical
+    /// conversation list. Callers can then safely fall back to their own cache.
+    func conversationUnreadCount(for identity: String) -> Int? {
+        conversationUnreadCounts[identity]
+    }
+
+    private func updateChatUnreadTotal() {
+        let next = conversationUnreadCounts.values.reduce(0, +)
+        guard chatUnreadCount != next else {
+            syncApplicationBadge()
+            return
+        }
+        chatUnreadCount = next
+        syncApplicationBadge()
+    }
+
+    func setMomentsUnreadCount(_ count: Int) {
+        let next = max(0, count)
+        guard momentsUnreadCount != next else {
+            syncApplicationBadge()
+            return
+        }
+        momentsUnreadCount = next
+        syncApplicationBadge()
+    }
+
+    func incrementMomentsUnread() {
+        momentsUnreadCount += 1
+        syncApplicationBadge()
+    }
+
+    func syncApplicationBadge() {
+        UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
+    }
+}
+
+@MainActor
 class PushService: ObservableObject {
     static let shared = PushService()
 
@@ -123,9 +205,11 @@ class PushService: ObservableObject {
         cachedDeviceToken ?? UserDefaults.standard.string(forKey: "device_token")
     }
 
-    /// Clear badge count
-    func clearBadge() {
-        UIApplication.shared.applicationIconBadgeNumber = 0
+    /// Keep the system badge aligned with the app's unread stores. This does
+    /// not mark any conversation as read; callers must clear a concrete
+    /// conversation through `UnreadBadgeStore` first.
+    func syncBadgeFromUnreadState() {
+        UnreadBadgeStore.shared.syncApplicationBadge()
     }
 
     // MARK: - Private

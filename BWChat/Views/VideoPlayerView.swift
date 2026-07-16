@@ -12,6 +12,7 @@ struct VideoPlayerView: View {
     @State private var isLoading = true
     @State private var errorOccurred = false
     @State private var verticalDrag: CGFloat = 0
+    @State private var resolvedRemoteURL: URL?
 
     private var backgroundOpacity: Double {
         1.0 - min(abs(verticalDrag) / 320, 0.9)
@@ -39,6 +40,12 @@ struct VideoPlayerView: View {
                         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
                         try? AVAudioSession.sharedInstance().setActive(true)
                         player.play()
+                        if let resolvedRemoteURL {
+                            MediaCacheManager.shared.scheduleCache(
+                                mediaID: "chat-video:\(videoURL)",
+                                remoteURL: resolvedRemoteURL
+                            )
+                        }
                     }
                     // Simultaneous so the VideoPlayer's own horizontal
                     // scrub gesture keeps working; we only react to
@@ -78,6 +85,7 @@ struct VideoPlayerView: View {
             await loadVideo()
         }
         .onDisappear {
+            MediaCacheManager.shared.cancelScheduledCache(mediaID: "chat-video:\(videoURL)")
             player?.pause()
             player = nil
         }
@@ -139,7 +147,9 @@ struct VideoPlayerView: View {
             return
         }
 
-        player = AVPlayer(url: url)
+        resolvedRemoteURL = url
+        let playbackURL = MediaCacheManager.shared.localURL(mediaID: "chat-video:\(videoURL)") ?? url
+        player = AVPlayer(url: playbackURL)
         isLoading = false
     }
 }

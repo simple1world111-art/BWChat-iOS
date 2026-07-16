@@ -2,14 +2,18 @@
 // Full-screen vertical short drama feed.
 
 import AVFoundation
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct ShortDramaFeedView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject private var viewModel: ShortDramaFeedViewModel
     @State private var commentTarget: ShortDramaVideo?
+    @State private var unlockTarget: ShortDramaVideo?
+    @State private var isUnlocking = false
 
     init(viewModel: ShortDramaFeedViewModel) {
         self.viewModel = viewModel
@@ -36,7 +40,11 @@ struct ShortDramaFeedView: View {
             await viewModel.loadInitial()
         }
         .onChange(of: viewModel.selectedVideoID) { videoID in
-            guard let videoID else { return }
+            guard let videoID, let video = viewModel.video(videoID: videoID) else { return }
+            if video.requiresUnlock {
+                unlockTarget = video
+                return
+            }
             viewModel.activate(videoID: videoID)
         }
         .onChange(of: scenePhase) { phase in
@@ -54,6 +62,16 @@ struct ShortDramaFeedView: View {
                 viewModel.incrementCommentCount(videoID: comment.videoID)
             }
             .presentationDetents([.medium, .large])
+        }
+        .alert(item: $unlockTarget) { video in
+            Alert(
+                title: Text(L10n.tr("shortDrama.unlock.confirmTitle")),
+                message: Text(L10n.tr("shortDrama.unlock.confirmMessage", video.unlockPriceCatFood ?? 0)),
+                primaryButton: .default(Text(L10n.tr("shortDrama.unlock.pay"))) {
+                    confirmUnlock(video)
+                },
+                secondaryButton: .cancel(Text(L10n.tr("common.cancel")))
+            )
         }
         .toast(message: $viewModel.errorMessage)
     }
@@ -130,6 +148,24 @@ struct ShortDramaFeedView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white.opacity(0.78))
             }
+        }
+    }
+
+    private func confirmUnlock(_ video: ShortDramaVideo) {
+        let price = video.unlockPriceCatFood ?? 0
+        guard !isUnlocking else { return }
+        isUnlocking = true
+        Task {
+            if WalletStore.shared.balance == nil {
+                await WalletStore.shared.refreshBalanceFromServer()
+            }
+            if let balance = WalletStore.shared.balance, balance < price {
+                isUnlocking = false
+                navigator.push(WalletView())
+                return
+            }
+            _ = await viewModel.unlock(videoID: video.id)
+            isUnlocking = false
         }
     }
 }
@@ -325,5 +361,1199 @@ private final class ShortDramaPageHostingController: UIHostingController<ShortDr
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+// MARK: - Creator Studio
+
+struct ShortDramaStudioView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @StateObject private var viewModel = ShortDramaStudioViewModel()
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                if viewModel.isLoading && viewModel.series.isEmpty {
+                    ShortDramaStudioLoadingState()
+                        .padding(.top, 92)
+                } else if viewModel.series.isEmpty {
+                    ShortDramaStudioEmptyState(action: openCreateSeries)
+                        .padding(.top, 70)
+                } else {
+                    LazyVStack(spacing: 12) {
+                        ForEach(viewModel.series) { series in
+                            ShortDramaSeriesCard(
+                                series: series,
+                                showsCreator: true,
+                                showsPublishStatus: true,
+                                onOpenSeries: { openEditor(series) },
+                                onOpenEpisode: { _ in openEditor(series) }
+                            )
+                            .onAppear {
+                                viewModel.loadMoreIfNeeded(currentSeriesID: series.id)
+                            }
+                        }
+
+                        if viewModel.isLoadingMore {
+                            ProgressView()
+                                .tint(AppColors.accent)
+                                .padding(.vertical, 16)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 30)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(L10n.tr("shortDrama.studio.title"))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                AppBackButton {
+                    navigator.pop()
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: openCreateSeries) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(AppColors.primaryText)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("shortDrama.series.create"))
+            }
+        }
+        .task {
+            await viewModel.loadInitial()
+        }
+        .refreshable {
+            await viewModel.refresh()
+        }
+        .toast(message: $viewModel.errorMessage)
+    }
+
+    private func openCreateSeries() {
+        navigator.push(ShortDramaUnifiedEditorView(mode: .create) { series in
+            viewModel.upsert(series)
+        })
+    }
+
+    private func openEditor(_ series: ShortDramaSeries) {
+        navigator.push(ShortDramaUnifiedEditorView(mode: .edit(series)) { updated in
+            viewModel.upsert(updated)
+        })
+    }
+}
+
+@MainActor
+final class ShortDramaStudioViewModel: ObservableObject {
+    @Published private(set) var series: [ShortDramaSeries] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var isLoadingMore = false
+    @Published var errorMessage: String?
+
+    private var nextCursor: String?
+    private var hasMore = true
+    private var didLoadInitial = false
+
+    func loadInitial() async {
+        guard !didLoadInitial else { return }
+        await load(reset: true)
+    }
+
+    func refresh() async {
+        await load(reset: true)
+    }
+
+    func loadMoreIfNeeded(currentSeriesID: String) {
+        guard hasMore, !isLoading, !isLoadingMore, series.last?.id == currentSeriesID else { return }
+        Task {
+            await load(reset: false)
+        }
+    }
+
+    func upsert(_ item: ShortDramaSeries) {
+        if let index = series.firstIndex(where: { $0.id == item.id }) {
+            series[index] = item
+        } else {
+            series.insert(item, at: 0)
+        }
+    }
+
+    private func load(reset: Bool) async {
+        if reset {
+            isLoading = true
+            nextCursor = nil
+            hasMore = true
+        } else {
+            isLoadingMore = true
+        }
+        errorMessage = nil
+        defer {
+            isLoading = false
+            isLoadingMore = false
+            didLoadInitial = true
+        }
+
+        do {
+            let page = try await APIService.shared.getMyShortDramaSeries(cursor: reset ? nil : nextCursor)
+            if reset {
+                series = page.series
+            } else {
+                let existing = Set(series.map(\.id))
+                series.append(contentsOf: page.series.filter { !existing.contains($0.id) })
+            }
+            hasMore = page.hasMore
+            nextCursor = page.nextCursor
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct ShortDramaSeriesDetailView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @StateObject private var viewModel: ShortDramaSeriesDetailViewModel
+    @State private var deleteTarget: ShortDramaVideo?
+    let onSeriesUpdated: (ShortDramaSeries) -> Void
+
+    init(series: ShortDramaSeries, onSeriesUpdated: @escaping (ShortDramaSeries) -> Void = { _ in }) {
+        _viewModel = StateObject(wrappedValue: ShortDramaSeriesDetailViewModel(series: series))
+        self.onSeriesUpdated = onSeriesUpdated
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                seriesHeader
+
+                if viewModel.isLoading && viewModel.episodes.isEmpty {
+                    ShortDramaStudioLoadingState()
+                        .padding(.top, 48)
+                } else if viewModel.episodes.isEmpty {
+                    ShortDramaEpisodeEmptyState(action: openUploadEpisode)
+                        .padding(.top, 42)
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(viewModel.episodes) { episode in
+                            ShortDramaEpisodeRow(video: episode) {
+                                deleteTarget = episode
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 30)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(viewModel.series.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                AppBackButton {
+                    navigator.pop()
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 8) {
+                    Button(action: openEditSeries) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(AppColors.primaryText)
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("shortDrama.series.edit"))
+
+                    Button(action: openUploadEpisode) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(AppColors.primaryText)
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("shortDrama.episode.upload"))
+                }
+            }
+        }
+        .task {
+            await viewModel.load()
+            viewModel.startStatusPollingIfNeeded()
+        }
+        .refreshable {
+            await viewModel.load()
+            viewModel.startStatusPollingIfNeeded()
+        }
+        .onDisappear {
+            viewModel.stopStatusPolling()
+        }
+        .confirmationDialog(
+            L10n.tr("shortDrama.episode.delete"),
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(L10n.tr("shortDrama.episode.delete"), role: .destructive) {
+                guard let target = deleteTarget else { return }
+                Task {
+                    await viewModel.delete(video: target)
+                    onSeriesUpdated(viewModel.series)
+                    deleteTarget = nil
+                }
+            }
+            Button(L10n.tr("common.cancel"), role: .cancel) {
+                deleteTarget = nil
+            }
+        } message: {
+            Text(L10n.tr("shortDrama.episode.delete.confirm"))
+        }
+        .toast(message: $viewModel.errorMessage)
+        .toast(message: $viewModel.toastMessage)
+        .onChange(of: viewModel.series) { updated in
+            onSeriesUpdated(updated)
+        }
+    }
+
+    private var seriesHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 13) {
+                ShortDramaCoverImage(url: viewModel.series.coverURL, image: nil)
+                    .frame(width: 96, height: 128)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(viewModel.series.title)
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(AppColors.primaryText)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        ShortDramaStatusBadge(status: viewModel.series.status)
+                    }
+
+                    Text(viewModel.series.intro.isBlank ? L10n.tr("shortDrama.series.noIntro") : viewModel.series.intro)
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(L10n.tr("shortDrama.series.episodeCount", viewModel.series.episodeCount))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(AppColors.secondaryText)
+
+                    if viewModel.series.status.needsAttention,
+                       let message = viewModel.series.statusMessage.shortDramaNonEmptyText {
+                        Text(message)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(AppColors.errorColor)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(14)
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private func openEditSeries() {
+        navigator.push(ShortDramaSeriesEditorView(mode: .edit(viewModel.series)) { updated in
+            viewModel.updateSeries(updated)
+        })
+    }
+
+    private func openUploadEpisode() {
+        navigator.push(ShortDramaEpisodeUploadView(series: viewModel.series) { result in
+            viewModel.applyUpload(result)
+        })
+    }
+}
+
+@MainActor
+final class ShortDramaSeriesDetailViewModel: ObservableObject {
+    @Published var series: ShortDramaSeries
+    @Published private(set) var isLoading = false
+    @Published var errorMessage: String?
+    @Published var toastMessage: String?
+
+    private var statusRefreshTask: Task<Void, Never>?
+
+    var episodes: [ShortDramaVideo] {
+        series.episodes.sorted { lhs, rhs in
+            let lhsNumber = lhs.episodeNumber ?? Int.max
+            let rhsNumber = rhs.episodeNumber ?? Int.max
+            if lhsNumber != rhsNumber {
+                return lhsNumber < rhsNumber
+            }
+            return lhs.id < rhs.id
+        }
+    }
+
+    var shouldPollStatus: Bool {
+        series.status.isPending || series.episodes.contains { $0.publishStatus?.isPending == true }
+    }
+
+    init(series: ShortDramaSeries) {
+        self.series = series
+    }
+
+    func load(silently: Bool = false) async {
+        if !silently {
+            isLoading = true
+            errorMessage = nil
+        }
+        defer {
+            if !silently {
+                isLoading = false
+            }
+        }
+
+        do {
+            series = try await APIService.shared.getShortDramaSeriesDetail(seriesID: series.id)
+            if !shouldPollStatus {
+                stopStatusPolling()
+            }
+        } catch {
+            if !silently {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func updateSeries(_ updated: ShortDramaSeries) {
+        series = updated
+        startStatusPollingIfNeeded()
+    }
+
+    func applyUpload(_ result: ShortDramaEpisodeUploadResult) {
+        guard let video = result.video else {
+            toastMessage = result.statusMessage.shortDramaNonEmptyText
+                ?? result.status?.localizedTitle
+                ?? L10n.tr("shortDrama.episode.uploaded")
+            Task {
+                await load(silently: true)
+                startStatusPollingIfNeeded()
+            }
+            return
+        }
+
+        var nextEpisodes = series.episodes
+        if let index = nextEpisodes.firstIndex(where: { $0.id == video.id }) {
+            nextEpisodes[index] = video
+        } else {
+            nextEpisodes.append(video)
+        }
+        series = series.replacingEpisodes(nextEpisodes)
+        toastMessage = result.statusMessage.shortDramaNonEmptyText
+            ?? result.status?.localizedTitle
+            ?? L10n.tr("shortDrama.episode.uploaded")
+        Task {
+            await load(silently: true)
+            startStatusPollingIfNeeded()
+        }
+    }
+
+    func delete(video: ShortDramaVideo) async {
+        errorMessage = nil
+        do {
+            try await APIService.shared.deleteShortDramaEpisode(videoID: video.id)
+            series = series.replacingEpisodes(series.episodes.filter { $0.id != video.id })
+            startStatusPollingIfNeeded()
+            toastMessage = L10n.tr("shortDrama.episode.deleted")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func startStatusPollingIfNeeded() {
+        guard shouldPollStatus else {
+            stopStatusPolling()
+            return
+        }
+        guard statusRefreshTask == nil else { return }
+
+        statusRefreshTask = Task { @MainActor [weak self] in
+            for attempt in 0..<18 {
+                let seconds: UInt64 = attempt < 5 ? 3 : 8
+                try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                await self.load(silently: true)
+                guard self.shouldPollStatus else { break }
+            }
+            self?.statusRefreshTask = nil
+        }
+    }
+
+    func stopStatusPolling() {
+        statusRefreshTask?.cancel()
+        statusRefreshTask = nil
+    }
+}
+
+private enum ShortDramaSeriesEditorMode {
+    case create
+    case edit(ShortDramaSeries)
+
+    var title: String {
+        switch self {
+        case .create: return L10n.tr("shortDrama.series.create")
+        case .edit: return L10n.tr("shortDrama.series.edit")
+        }
+    }
+
+    var existingSeries: ShortDramaSeries? {
+        if case .edit(let series) = self {
+            return series
+        }
+        return nil
+    }
+}
+
+private struct ShortDramaSeriesEditorView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @State private var title: String
+    @State private var intro: String
+    @State private var coverItem: PhotosPickerItem?
+    @State private var coverImage: UIImage?
+    @State private var coverData: Data?
+    @State private var isSaving = false
+    @State private var toastMessage: String?
+
+    let mode: ShortDramaSeriesEditorMode
+    let onSaved: (ShortDramaSeries) -> Void
+
+    private var existingSeries: ShortDramaSeries? { mode.existingSeries }
+    private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedIntro: String { intro.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var canSave: Bool {
+        guard !trimmedTitle.isEmpty, !isSaving else { return false }
+        if existingSeries == nil {
+            return coverData != nil
+        }
+        return true
+    }
+
+    init(mode: ShortDramaSeriesEditorMode, onSaved: @escaping (ShortDramaSeries) -> Void) {
+        self.mode = mode
+        self.onSaved = onSaved
+        let series = mode.existingSeries
+        _title = State(initialValue: series?.title ?? "")
+        _intro = State(initialValue: series?.intro ?? "")
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                coverPicker
+                formCard
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 30)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(mode.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                AppBackButton {
+                    navigator.pop()
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: save) {
+                    if isSaving {
+                        ProgressView()
+                            .tint(AppColors.accent)
+                    } else {
+                        Text(L10n.tr("common.save"))
+                            .font(.system(size: 15, weight: .bold))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSave)
+                .foregroundColor(canSave ? AppColors.accent : AppColors.tertiaryText)
+            }
+        }
+        .onChange(of: coverItem) { item in
+            Task { await loadCover(item) }
+        }
+        .toast(message: $toastMessage)
+    }
+
+    private var coverPicker: some View {
+        PhotosPicker(selection: $coverItem, matching: .images) {
+            ZStack(alignment: .bottomTrailing) {
+                ShortDramaCoverImage(url: existingSeries?.coverURL ?? "", image: coverImage)
+                    .frame(height: 210)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                Label(L10n.tr("shortDrama.cover.choose"), systemImage: "photo")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(Capsule())
+                    .padding(12)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(L10n.tr("shortDrama.cover.choose"))
+    }
+
+    private var formCard: some View {
+        VStack(spacing: 0) {
+            ShortDramaFormField(title: L10n.tr("shortDrama.series.title")) {
+                TextField(L10n.tr("shortDrama.series.title.placeholder"), text: $title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .textInputAutocapitalization(.never)
+            }
+
+            Divider().padding(.leading, 16)
+
+            ShortDramaFormField(title: L10n.tr("shortDrama.series.intro")) {
+                TextField(L10n.tr("shortDrama.series.intro.placeholder"), text: $intro, axis: .vertical)
+                    .font(.system(size: 15))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(3...5)
+            }
+        }
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private func loadCover(_ item: PhotosPickerItem?) async {
+        guard let item,
+              let data = try? await item.loadTransferable(type: Data.self),
+              let image = UIImage(data: data) else { return }
+        let compressed = APIService.compressImageForUpload(data, maxDimension: 1280, quality: 0.78, maxBytes: 900_000)
+        await MainActor.run {
+            coverData = compressed
+            coverImage = UIImage(data: compressed) ?? image
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        isSaving = true
+        Task {
+            do {
+                let saved: ShortDramaSeries
+                if let existingSeries {
+                    saved = try await APIService.shared.updateShortDramaSeries(
+                        seriesID: existingSeries.id,
+                        title: trimmedTitle,
+                        intro: trimmedIntro,
+                        coverData: coverData,
+                        coverFilename: coverData == nil ? nil : coverFilename()
+                    )
+                } else if let coverData {
+                    saved = try await APIService.shared.createShortDramaSeries(
+                        title: trimmedTitle,
+                        intro: trimmedIntro,
+                        coverData: coverData,
+                        coverFilename: coverFilename()
+                    )
+                } else {
+                    toastMessage = L10n.tr("shortDrama.cover.required")
+                    isSaving = false
+                    return
+                }
+
+                onSaved(saved)
+                navigator.pop()
+            } catch {
+                toastMessage = error.localizedDescription
+                isSaving = false
+            }
+        }
+    }
+
+    private func coverFilename() -> String {
+        "short_drama_cover_\(Int(Date().timeIntervalSince1970)).jpg"
+    }
+}
+
+private struct ShortDramaEpisodeUploadView: View {
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @State private var title = ""
+    @State private var intro = ""
+    @State private var episodeNumber = "1"
+    @State private var videoItem: PhotosPickerItem?
+    @State private var coverItem: PhotosPickerItem?
+    @State private var videoData: Data?
+    @State private var videoFilename: String?
+    @State private var coverData: Data?
+    @State private var coverImage: UIImage?
+    @State private var isUploading = false
+    @State private var toastMessage: String?
+
+    let series: ShortDramaSeries
+    let onUploaded: (ShortDramaEpisodeUploadResult) -> Void
+
+    private var trimmedTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedIntro: String { intro.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var resolvedEpisodeNumber: Int? { Int(episodeNumber.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    private var canUpload: Bool {
+        !trimmedTitle.isEmpty
+            && (resolvedEpisodeNumber ?? 0) > 0
+            && videoData != nil
+            && videoFilename != nil
+            && coverData != nil
+            && !isUploading
+    }
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                videoPicker
+                coverPicker
+                metadataCard
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 30)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(L10n.tr("shortDrama.episode.upload"))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                AppBackButton {
+                    navigator.pop()
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: upload) {
+                    if isUploading {
+                        ProgressView()
+                            .tint(AppColors.accent)
+                    } else {
+                        Text(L10n.tr("common.publish"))
+                            .font(.system(size: 15, weight: .bold))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!canUpload)
+                .foregroundColor(canUpload ? AppColors.accent : AppColors.tertiaryText)
+            }
+        }
+        .onChange(of: videoItem) { item in
+            Task { await loadVideo(item) }
+        }
+        .onChange(of: coverItem) { item in
+            Task { await loadCover(item) }
+        }
+        .toast(message: $toastMessage)
+    }
+
+    private var videoPicker: some View {
+        PhotosPicker(selection: $videoItem, matching: .videos) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(AppColors.cardBackground)
+                    .frame(height: 190)
+
+                VStack(spacing: 10) {
+                    Image(systemName: videoData == nil ? "video.badge.plus" : "video.fill")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+
+                    Text(videoFilename ?? L10n.tr("shortDrama.video.choose"))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+
+                    Text(L10n.tr("shortDrama.video.chooseHint"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppColors.secondaryText)
+                }
+                .padding(.horizontal, 18)
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var coverPicker: some View {
+        PhotosPicker(selection: $coverItem, matching: .images) {
+            ZStack(alignment: .bottomTrailing) {
+                ShortDramaCoverImage(url: "", image: coverImage)
+                    .frame(height: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                Label(L10n.tr("shortDrama.cover.replace"), systemImage: "photo")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(Capsule())
+                    .padding(12)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var metadataCard: some View {
+        VStack(spacing: 0) {
+            ShortDramaFormField(title: L10n.tr("shortDrama.episode.title")) {
+                TextField(L10n.tr("shortDrama.episode.title.placeholder"), text: $title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+            }
+
+            Divider().padding(.leading, 16)
+
+            ShortDramaFormField(title: L10n.tr("shortDrama.episode.number")) {
+                TextField("1", text: $episodeNumber)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .keyboardType(.numberPad)
+            }
+
+            Divider().padding(.leading, 16)
+
+            ShortDramaFormField(title: L10n.tr("shortDrama.episode.intro")) {
+                TextField(L10n.tr("shortDrama.episode.intro.placeholder"), text: $intro, axis: .vertical)
+                    .font(.system(size: 15))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(3...5)
+            }
+        }
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private func loadVideo(_ item: PhotosPickerItem?) async {
+        guard let item,
+              let video = try? await item.loadTransferable(type: VideoTransferable.self) else { return }
+        let url = video.url
+        let data = await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url)
+        }.value
+        let preview = await videoPreviewImage(for: url)
+        try? FileManager.default.removeItem(at: url)
+        guard let data else { return }
+
+        await MainActor.run {
+            videoData = data
+            videoFilename = videoFilename(for: url)
+            if let preview {
+                coverImage = preview
+                coverData = preview.jpegData(compressionQuality: 0.82)
+            }
+        }
+    }
+
+    private func loadCover(_ item: PhotosPickerItem?) async {
+        guard let item,
+              let data = try? await item.loadTransferable(type: Data.self),
+              let image = UIImage(data: data) else { return }
+        let compressed = APIService.compressImageForUpload(data, maxDimension: 1280, quality: 0.78, maxBytes: 900_000)
+        await MainActor.run {
+            coverData = compressed
+            coverImage = UIImage(data: compressed) ?? image
+        }
+    }
+
+    private func upload() {
+        guard canUpload,
+              let videoData,
+              let videoFilename,
+              let coverData,
+              let episodeNumber = resolvedEpisodeNumber else { return }
+        isUploading = true
+        Task {
+            do {
+                let result = try await APIService.shared.uploadShortDramaEpisode(
+                    seriesID: series.id,
+                    title: trimmedTitle,
+                    intro: trimmedIntro,
+                    episodeNumber: episodeNumber,
+                    videoData: videoData,
+                    videoFilename: videoFilename,
+                    coverData: coverData,
+                    coverFilename: coverFilename()
+                )
+                onUploaded(result)
+                navigator.pop()
+            } catch {
+                toastMessage = error.localizedDescription
+                isUploading = false
+            }
+        }
+    }
+
+    private func videoFilename(for url: URL) -> String {
+        let ext = url.pathExtension.isBlank ? "mp4" : url.pathExtension.lowercased()
+        return "short_drama_episode_\(Int(Date().timeIntervalSince1970)).\(ext)"
+    }
+
+    private func coverFilename() -> String {
+        "short_drama_episode_cover_\(Int(Date().timeIntervalSince1970)).jpg"
+    }
+
+    private func videoPreviewImage(for url: URL) async -> UIImage? {
+        await Task.detached(priority: .utility) {
+            let asset = AVAsset(url: url)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 720, height: 720)
+            guard let cgImage = try? generator.copyCGImage(at: .zero, actualTime: nil) else {
+                return nil
+            }
+            return UIImage(cgImage: cgImage)
+        }.value
+    }
+}
+
+private struct ShortDramaSeriesRow: View {
+    let series: ShortDramaSeries
+
+    var body: some View {
+        HStack(spacing: 13) {
+            ShortDramaCoverImage(url: series.coverURL, image: nil)
+                .frame(width: 74, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text(series.title)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(1)
+
+                    ShortDramaStatusBadge(status: series.status)
+                }
+
+                Text(series.intro.isBlank ? L10n.tr("shortDrama.series.noIntro") : series.intro)
+                    .font(.system(size: 13))
+                    .foregroundColor(AppColors.secondaryText)
+                    .lineLimit(2)
+
+                if series.status.needsAttention,
+                   let message = series.statusMessage.shortDramaNonEmptyText {
+                    Text(message)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(AppColors.errorColor)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 10) {
+                    Label(L10n.tr("shortDrama.series.episodeCount", series.episodeCount), systemImage: "play.rectangle")
+                    if !series.updatedAt.isBlank {
+                        Label(series.updatedAt, systemImage: "clock")
+                    }
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(AppColors.tertiaryText)
+                .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(AppColors.tertiaryText)
+        }
+        .padding(12)
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
+        )
+    }
+}
+
+private struct ShortDramaEpisodeRow: View {
+    let video: ShortDramaVideo
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ShortDramaCoverImage(url: video.coverURL, image: nil)
+                .frame(width: 66, height: 88)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(video.episodeText)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(AppColors.accent)
+
+                    if let status = video.publishStatus {
+                        ShortDramaStatusBadge(status: status)
+                    }
+                }
+
+                Text(video.displayTitle)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(1)
+
+                Text(video.displayIntro)
+                    .font(.system(size: 13))
+                    .foregroundColor(AppColors.secondaryText)
+                    .lineLimit(2)
+
+                if video.publishStatus?.needsAttention == true,
+                   let message = video.statusMessage.shortDramaNonEmptyText {
+                    Text(message)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(AppColors.errorColor)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppColors.errorColor)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
+        )
+    }
+}
+
+private struct ShortDramaCoverImage: View {
+    let url: String
+    let image: UIImage?
+    @State private var remoteImage: UIImage?
+    @State private var didLoad = false
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if let remoteImage {
+                Image(uiImage: remoteImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                LinearGradient(
+                    colors: [Color(hex: "2B2D42"), Color(hex: "7C3AED"), Color(hex: "FF4D8D")],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.88))
+            }
+        }
+        .clipped()
+        .task(id: url) {
+            guard image == nil, !url.isBlank, !didLoad else { return }
+            didLoad = true
+            remoteImage = await ImageCacheManager.shared.loadImage(from: url)
+        }
+    }
+}
+
+private struct ShortDramaStatusBadge: View {
+    let status: ShortDramaPublishStatus
+
+    var body: some View {
+        Text(status.localizedTitle)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundColor(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.12))
+            .clipShape(Capsule())
+            .lineLimit(1)
+    }
+
+    private var color: Color {
+        switch status {
+        case .published: return AppColors.online
+        case .processing, .reviewing: return AppColors.accent
+        case .rejected, .failed: return AppColors.errorColor
+        case .draft, .unknown: return AppColors.secondaryText
+        }
+    }
+}
+
+private struct ShortDramaFormField<Content: View>: View {
+    let title: String
+    private let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(AppColors.secondaryText)
+            content
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+}
+
+private struct ShortDramaStudioLoadingState: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .tint(AppColors.accent)
+            Text(L10n.tr("common.loading"))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(AppColors.secondaryText)
+        }
+    }
+}
+
+private struct ShortDramaStudioEmptyState: View {
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "play.rectangle.stack")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundColor(AppColors.accent)
+
+            VStack(spacing: 6) {
+                Text(L10n.tr("shortDrama.studio.empty"))
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppColors.primaryText)
+
+                Text(L10n.tr("shortDrama.studio.emptyHint"))
+                    .font(.system(size: 14))
+                    .foregroundColor(AppColors.secondaryText)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button(action: action) {
+                Label(L10n.tr("shortDrama.series.create"), systemImage: "plus")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 40)
+                    .background(AppColors.accent)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(28)
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct ShortDramaEpisodeEmptyState: View {
+    let action: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "video.badge.plus")
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundColor(AppColors.accent)
+
+            Text(L10n.tr("shortDrama.episode.empty"))
+                .font(.system(size: 17, weight: .bold))
+                .foregroundColor(AppColors.primaryText)
+
+            Button(action: action) {
+                Text(L10n.tr("shortDrama.episode.upload"))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 40)
+                    .background(AppColors.accent)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(28)
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private extension ShortDramaSeries {
+    func replacingEpisodes(_ episodes: [ShortDramaVideo]) -> ShortDramaSeries {
+        ShortDramaSeries(
+            seriesID: seriesID,
+            title: title,
+            intro: intro,
+            coverURL: coverURL,
+            episodeCount: episodes.count,
+            status: status,
+            statusMessage: statusMessage,
+            updatedAt: updatedAt,
+            episodes: episodes,
+            creator: creator,
+            resumeEpisodeID: resumeEpisodeID,
+            resumePositionSeconds: resumePositionSeconds,
+            lastWatchedAt: lastWatchedAt
+        )
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var shortDramaNonEmptyText: String? {
+        let trimmed = self?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

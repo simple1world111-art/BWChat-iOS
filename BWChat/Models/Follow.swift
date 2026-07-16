@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct FollowUser: Decodable, Identifiable, Equatable, Hashable {
+struct FollowUser: Codable, Identifiable, Equatable, Hashable {
     let userID: String
     let username: String
     let nickname: String
@@ -80,7 +80,94 @@ struct FollowUser: Decodable, Identifiable, Equatable, Hashable {
     }
 }
 
-struct PublicProfile: Decodable, Identifiable, Equatable {
+struct ProfileHighlight: Codable, Identifiable, Equatable, Hashable {
+    let id: String
+    let title: String
+    let coverURL: String
+    let itemCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case highlightID = "highlight_id"
+        case title
+        case name
+        case coverURL = "cover_url"
+        case coverURLCamel = "coverURL"
+        case itemCount = "item_count"
+    }
+
+    init(id: String, title: String, coverURL: String, itemCount: Int? = nil) {
+        self.id = id
+        self.title = title
+        self.coverURL = coverURL
+        self.itemCount = itemCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallbackTitle = container.flexString(for: .title)
+            ?? container.flexString(for: .name)
+            ?? ""
+        self.id = container.flexString(for: .id)
+            ?? container.flexString(for: .highlightID)
+            ?? fallbackTitle
+        self.title = fallbackTitle
+        self.coverURL = container.flexString(for: .coverURL)
+            ?? container.flexString(for: .coverURLCamel)
+            ?? ""
+        self.itemCount = container.flexInt(for: .itemCount)
+    }
+}
+
+extension FollowUser {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(userID, forKey: .userID); try c.encode(username, forKey: .username)
+        try c.encode(nickname, forKey: .nickname); try c.encode(avatarURL, forKey: .avatarURL)
+        try c.encode(bio, forKey: .bio); try c.encode(followingCount, forKey: .followingCount)
+        try c.encode(followerCount, forKey: .followerCount); try c.encode(followedByMe, forKey: .followedByMe)
+        try c.encode(followsMe, forKey: .followsMe); try c.encode(isFriend, forKey: .isFriend)
+    }
+}
+
+extension ProfileHighlight {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id); try c.encode(title, forKey: .title)
+        try c.encode(coverURL, forKey: .coverURL); try c.encodeIfPresent(itemCount, forKey: .itemCount)
+    }
+}
+
+extension PublicProfile {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(userID, forKey: .userID); try c.encode(username, forKey: .username)
+        try c.encode(nickname, forKey: .nickname); try c.encode(avatarURL, forKey: .avatarURL)
+        try c.encode(bio, forKey: .bio); try c.encode(gender, forKey: .gender)
+        try c.encode(birthday, forKey: .birthday); try c.encode(location, forKey: .location)
+        try c.encode(followingCount, forKey: .followingCount); try c.encode(followerCount, forKey: .followerCount)
+        try c.encode(followedByMe, forKey: .followedByMe); try c.encode(followsMe, forKey: .followsMe)
+        try c.encode(isFriend, forKey: .isFriend); try c.encode(followRequested, forKey: .followRequested)
+        try c.encodeIfPresent(postsCount, forKey: .postsCount); try c.encodeIfPresent(momentsCount, forKey: .momentsCount)
+        try c.encodeIfPresent(websiteURL, forKey: .websiteURL); try c.encodeIfPresent(contactEmail, forKey: .contactEmail)
+        try c.encodeIfPresent(contactURL, forKey: .contactURL); try c.encode(isVerified, forKey: .isVerified)
+        try c.encode(category, forKey: .category); try c.encode(pronouns, forKey: .pronouns)
+        try c.encode(isPrivate, forKey: .isPrivate); try c.encode(canViewMoments, forKey: .canViewMoments)
+        try c.encode(canMessage, forKey: .canMessage); try c.encodeIfPresent(mutualFollowersCount, forKey: .mutualFollowersCount)
+        try c.encode(mutualFollowers, forKey: .mutualFollowers); try c.encode(highlights, forKey: .highlights)
+        try c.encodeIfPresent(accountCreatedAt, forKey: .accountCreatedAt)
+    }
+}
+
+extension FollowUsersPage {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(users, forKey: .users); try c.encode(hasMore, forKey: .hasMore)
+        try c.encodeIfPresent(nextPage, forKey: .nextPage)
+    }
+}
+
+struct PublicProfile: Codable, Identifiable, Equatable {
     var userID: String
     var username: String
     var nickname: String
@@ -94,6 +181,22 @@ struct PublicProfile: Decodable, Identifiable, Equatable {
     var followedByMe: Bool
     var followsMe: Bool
     var isFriend: Bool
+    var followRequested: Bool
+    var postsCount: Int?
+    var momentsCount: Int?
+    var websiteURL: String?
+    var contactEmail: String?
+    var contactURL: String?
+    var isVerified: Bool
+    var category: String
+    var pronouns: String
+    var isPrivate: Bool
+    var canViewMoments: Bool
+    var canMessage: Bool
+    var mutualFollowersCount: Int?
+    var mutualFollowers: [FollowUser]
+    var highlights: [ProfileHighlight]
+    var accountCreatedAt: String?
 
     var id: String { userID }
 
@@ -126,6 +229,24 @@ struct PublicProfile: Decodable, Identifiable, Equatable {
         case followedByMe = "followed_by_me"
         case followsMe = "follows_me"
         case isFriend = "is_friend"
+        case followRequested = "follow_requested"
+        case requestPending = "request_pending"
+        case postsCount = "posts_count"
+        case momentsCount = "moments_count"
+        case websiteURL = "website_url"
+        case contactEmail = "contact_email"
+        case businessEmail = "business_email"
+        case contactURL = "contact_url"
+        case isVerified = "is_verified"
+        case category
+        case pronouns
+        case isPrivate = "is_private"
+        case canViewMoments = "can_view_moments"
+        case canMessage = "can_message"
+        case mutualFollowersCount = "mutual_followers_count"
+        case mutualFollowers = "mutual_followers"
+        case highlights
+        case accountCreatedAt = "account_created_at"
         case profile
         case user
     }
@@ -143,7 +264,23 @@ struct PublicProfile: Decodable, Identifiable, Equatable {
         followerCount: Int = 0,
         followedByMe: Bool = false,
         followsMe: Bool = false,
-        isFriend: Bool = false
+        isFriend: Bool = false,
+        followRequested: Bool = false,
+        postsCount: Int? = nil,
+        momentsCount: Int? = nil,
+        websiteURL: String? = nil,
+        contactEmail: String? = nil,
+        contactURL: String? = nil,
+        isVerified: Bool = false,
+        category: String = "",
+        pronouns: String = "",
+        isPrivate: Bool = false,
+        canViewMoments: Bool = true,
+        canMessage: Bool = true,
+        mutualFollowersCount: Int? = nil,
+        mutualFollowers: [FollowUser] = [],
+        highlights: [ProfileHighlight] = [],
+        accountCreatedAt: String? = nil
     ) {
         self.userID = userID
         self.username = username
@@ -158,6 +295,22 @@ struct PublicProfile: Decodable, Identifiable, Equatable {
         self.followedByMe = followedByMe
         self.followsMe = followsMe
         self.isFriend = isFriend
+        self.followRequested = followRequested
+        self.postsCount = postsCount
+        self.momentsCount = momentsCount
+        self.websiteURL = websiteURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : websiteURL
+        self.contactEmail = contactEmail?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : contactEmail
+        self.contactURL = contactURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : contactURL
+        self.isVerified = isVerified
+        self.category = category
+        self.pronouns = pronouns
+        self.isPrivate = isPrivate
+        self.canViewMoments = canViewMoments
+        self.canMessage = canMessage
+        self.mutualFollowersCount = mutualFollowersCount
+        self.mutualFollowers = mutualFollowers
+        self.highlights = highlights
+        self.accountCreatedAt = accountCreatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -184,6 +337,29 @@ struct PublicProfile: Decodable, Identifiable, Equatable {
         self.followedByMe = container.flexBool(for: .followedByMe) ?? false
         self.followsMe = container.flexBool(for: .followsMe) ?? false
         self.isFriend = container.flexBool(for: .isFriend) ?? false
+        self.followRequested = container.flexBool(for: .followRequested)
+            ?? container.flexBool(for: .requestPending)
+            ?? false
+        self.postsCount = container.flexInt(for: .postsCount)
+        self.momentsCount = container.flexInt(for: .momentsCount)
+        let website = container.flexString(for: .websiteURL) ?? ""
+        self.websiteURL = website.isBlank ? nil : website
+        let email = container.flexString(for: .contactEmail)
+            ?? container.flexString(for: .businessEmail)
+            ?? ""
+        self.contactEmail = email.isBlank ? nil : email
+        let contactURL = container.flexString(for: .contactURL) ?? ""
+        self.contactURL = contactURL.isBlank ? nil : contactURL
+        self.isVerified = container.flexBool(for: .isVerified) ?? false
+        self.category = container.flexString(for: .category) ?? ""
+        self.pronouns = container.flexString(for: .pronouns) ?? ""
+        self.isPrivate = container.flexBool(for: .isPrivate) ?? false
+        self.canViewMoments = container.flexBool(for: .canViewMoments) ?? true
+        self.canMessage = container.flexBool(for: .canMessage) ?? true
+        self.mutualFollowersCount = container.flexInt(for: .mutualFollowersCount)
+        self.mutualFollowers = (try? container.decodeIfPresent([FollowUser].self, forKey: .mutualFollowers)) ?? []
+        self.highlights = (try? container.decodeIfPresent([ProfileHighlight].self, forKey: .highlights)) ?? []
+        self.accountCreatedAt = container.flexString(for: .accountCreatedAt)
     }
 }
 
@@ -192,6 +368,7 @@ struct FollowRelationship: Decodable, Equatable {
     let followedByMe: Bool
     let followsMe: Bool
     let isFriend: Bool
+    let followRequested: Bool?
     let followingCount: Int?
     let followerCount: Int?
 
@@ -200,6 +377,8 @@ struct FollowRelationship: Decodable, Equatable {
         case followedByMe = "followed_by_me"
         case followsMe = "follows_me"
         case isFriend = "is_friend"
+        case followRequested = "follow_requested"
+        case requestPending = "request_pending"
         case followingCount = "following_count"
         case followerCount = "follower_count"
         case relationship
@@ -211,6 +390,7 @@ struct FollowRelationship: Decodable, Equatable {
         followedByMe: Bool,
         followsMe: Bool = false,
         isFriend: Bool = false,
+        followRequested: Bool? = nil,
         followingCount: Int? = nil,
         followerCount: Int? = nil
     ) {
@@ -218,6 +398,7 @@ struct FollowRelationship: Decodable, Equatable {
         self.followedByMe = followedByMe
         self.followsMe = followsMe
         self.isFriend = isFriend
+        self.followRequested = followRequested
         self.followingCount = followingCount
         self.followerCount = followerCount
     }
@@ -237,12 +418,14 @@ struct FollowRelationship: Decodable, Equatable {
         self.followedByMe = container.flexBool(for: .followedByMe) ?? false
         self.followsMe = container.flexBool(for: .followsMe) ?? false
         self.isFriend = container.flexBool(for: .isFriend) ?? false
+        self.followRequested = container.flexBool(for: .followRequested)
+            ?? container.flexBool(for: .requestPending)
         self.followingCount = container.flexInt(for: .followingCount)
         self.followerCount = container.flexInt(for: .followerCount)
     }
 }
 
-struct FollowUsersPage: Decodable, Equatable {
+struct FollowUsersPage: Codable, Equatable {
     let users: [FollowUser]
     let hasMore: Bool
     let nextPage: Int?

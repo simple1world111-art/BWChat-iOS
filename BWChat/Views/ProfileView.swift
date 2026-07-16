@@ -3,20 +3,25 @@
 
 import SwiftUI
 import UIKit
+import CoreImage.CIFilterBuiltins
 
 struct ProfileView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = ProfileViewModel()
     @ObservedObject private var walletStore = WalletStore.shared
+    @ObservedObject private var appConfig = AppRemoteConfigStore.shared
     @State private var toastMessage: String?
+    @State private var routeAlert: DynamicRouteAlert?
+    @State private var showsShareProfile = false
 
     private var profile: User? {
         viewModel.profile ?? AuthManager.shared.currentUser
     }
 
-    private var displayName: String {
-        displayValue(profile?.nickname, fallback: L10n.tr("profile.defaultUser"))
+    private var usernameText: String {
+        let username = displayValue(profile?.username, fallback: "")
+        return username.isEmpty ? displayValue(profile?.nickname, fallback: L10n.tr("profile.defaultUser")) : username
     }
 
     private var userID: String {
@@ -27,6 +32,20 @@ struct ProfileView: View {
         displayValue(profile?.bio, fallback: L10n.tr("profile.emptyBio"))
     }
 
+    private var profileLink: String {
+        let routeID = displayValue(profile?.username, fallback: userID)
+        let encodedID = routeID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? routeID
+        return "bwchat://profile/\(encodedID)"
+    }
+
+    private var profileShareURL: URL? {
+        URL(string: profileLink)
+    }
+
+    private var profilePostsCount: Int {
+        profile?.postsCount ?? profile?.momentsCount ?? 0
+    }
+
     private var walletBalanceSubtitle: String {
         if let balance = walletStore.balance {
             return L10n.tr("profile.wallet.balance", balance)
@@ -34,17 +53,24 @@ struct ProfileView: View {
         return walletStore.isLoadingBalance ? L10n.tr("common.loading") : L10n.tr("common.tapToView")
     }
 
-    private var profileCompleteness: Int {
-        let fields = [
-            hasValue(profile?.avatarURL),
-            hasValue(profile?.nickname),
-            hasValue(profile?.bio),
-            hasValue(profile?.gender),
-            hasValue(profile?.birthday),
-            hasValue(profile?.location)
-        ]
-        let completed = fields.filter { $0 }.count
-        return Int((Double(completed) / Double(fields.count) * 100).rounded())
+    private var configuredProfileItems: [DynamicSectionItem] {
+        appConfig.config.effectiveProfileSections.flatMap(\.items)
+    }
+
+    private var configuredContactItems: [DynamicSectionItem] {
+        appConfig.config.effectiveContactModules.flatMap(\.items)
+    }
+
+    private var walletItem: DynamicSectionItem? {
+        dynamicItem(withID: "wallet")
+    }
+
+    private var mainFeatureItems: [DynamicSectionItem] {
+        [
+            dynamicItem(withID: "my_moments"),
+            dynamicItem(withID: "agent_hub"),
+            dynamicItem(withID: "my_short_dramas")
+        ].compactMap { $0 }
     }
 
     var body: some View {
@@ -68,19 +94,41 @@ struct ProfileView: View {
         }
         .background(AppColors.secondaryBackground)
         .refreshable {
-            await walletStore.refreshBalanceFromServer()
+            await walletStore.refreshBalanceFromServer(forceRefresh: true)
             await viewModel.loadProfile()
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .task(id: AuthManager.shared.currentUser?.userID ?? "") {
+            await appConfig.load()
             await walletStore.refreshBalanceFromServer()
             await viewModel.loadProfile()
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
-            Task { await walletStore.refreshBalanceFromServer() }
+            Task {
+                await appConfig.load()
+                await walletStore.refreshBalanceFromServer()
+            }
+        }
+        .alert(item: $routeAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(L10n.tr("common.ok")))
+            )
+        }
+        .sheet(isPresented: $showsShareProfile) {
+            ProfileShareSheet(
+                username: usernameText,
+                avatarURL: profile?.avatarURL ?? "",
+                bio: bioText,
+                userID: userID,
+                profileLink: profileLink,
+                shareURL: profileShareURL,
+                onCopyLink: copyProfileLink
+            )
         }
         .toast(message: $toastMessage)
     }
@@ -89,59 +137,33 @@ struct ProfileView: View {
 
     private var profileHero: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
                 heroAvatar
 
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(displayName)
-                        .font(.system(size: 25, weight: .bold))
-                        .foregroundColor(AppColors.primaryText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-
-                    Button(action: copyUserID) {
-                        HStack(spacing: 6) {
-                            Text(userID.isEmpty ? L10n.tr("profile.idMissing") : "#\(userID)")
-                                .lineLimit(1)
-                            if !userID.isEmpty {
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 12, weight: .bold))
-                            }
-                        }
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(AppColors.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(userID.isEmpty)
-
-                    Text(bioText)
-                        .font(.system(size: 14))
-                        .foregroundColor(AppColors.secondaryText)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 5) {
+                    profileTitleRow
+                        .padding(.leading, 12)
+                    profileStats
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(action: openEditProfile) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(AppColors.tertiaryText)
-                        .frame(width: 44, height: 44, alignment: .trailing)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L10n.tr("profile.editIdentity"))
+                .padding(.top, 3)
             }
 
-            followStats
+            Text(bioText)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(AppColors.primaryText)
+                .lineLimit(3)
+                .multilineTextAlignment(.leading)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 2)
 
-            if profileCompleteness < 100 {
-                ProfileCompletionMeter(progress: profileCompleteness)
-            }
+            profileActionRow
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 20)
-        .frame(minHeight: 154, alignment: .center)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppColors.cardBackground)
         .cornerRadius(18)
         .overlay(
@@ -151,90 +173,194 @@ struct ProfileView: View {
     }
 
     private var heroAvatar: some View {
-        ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                Circle()
-                    .strokeBorder(AppColors.accentGradient, lineWidth: 2)
-                    .frame(width: 98, height: 98)
+        ZStack {
+            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                .strokeBorder(AppColors.accentGradient, lineWidth: 2)
+                .frame(width: 82, height: 82)
 
-                AvatarView(url: profile?.avatarURL ?? "", size: 90)
-                    .overlay(Circle().stroke(AppColors.cardBackground, lineWidth: 2))
-            }
-
-            Circle()
-                .fill(AppColors.online)
-                .frame(width: 17, height: 17)
-                .overlay(Circle().stroke(AppColors.cardBackground, lineWidth: 3))
-                .offset(x: -4, y: -4)
-                .accessibilityLabel(L10n.tr("profile.online"))
+            AvatarView(url: profile?.avatarURL ?? "", size: 76)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 17, style: .continuous)
+                        .stroke(AppColors.cardBackground, lineWidth: 2)
+                )
         }
-        .frame(width: 98, height: 98)
+        .frame(width: 82, height: 82)
     }
 
-    private var followStats: some View {
-        HStack(spacing: 0) {
-            profileStatButton(title: L10n.tr("follow.following"), value: profile?.followingCount ?? 0) {
-                guard !userID.isBlank else { return }
-                navigator.push(FollowingListView(userID: userID))
-            }
+    private var profileTitleRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(usernameText)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(AppColors.primaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
 
-            Divider()
-                .frame(height: 28)
+            Text(userID.isEmpty ? L10n.tr("profile.idMissing") : "ID: \(userID)")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(AppColors.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(
+                    Capsule()
+                        .fill(AppColors.secondaryBackground)
+                )
+        }
+    }
 
-            profileStatButton(title: L10n.tr("follow.followers"), value: profile?.followerCount ?? 0) {
+    private var profileStats: some View {
+        HStack(alignment: .top, spacing: 8) {
+            profileStatItem(title: L10n.tr("profile.posts"), value: profilePostsCount)
+            profileStatItem(title: L10n.tr("follow.followers"), value: profile?.followerCount ?? 0) {
                 guard !userID.isBlank else { return }
                 navigator.push(FollowersListView(userID: userID))
             }
+            profileStatItem(title: L10n.tr("follow.following"), value: profile?.followingCount ?? 0) {
+                guard !userID.isBlank else { return }
+                navigator.push(FollowingListView(userID: userID))
+            }
         }
-        .padding(.top, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func profileStatButton(title: String, value: Int, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text("\(value)")
-                    .font(.system(size: 20, weight: .bold))
+    private var profileActionRow: some View {
+        HStack(spacing: 8) {
+            Button(action: openEditProfile) {
+                Label(L10n.tr("profile.edit.title"), systemImage: "square.and.pencil")
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(AppColors.primaryText)
-
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppColors.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(AppColors.secondaryBackground)
+                    )
             }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            Button {
+                showsShareProfile = true
+            } label: {
+                Label(L10n.tr("profile.more.share"), systemImage: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(AppColors.secondaryBackground)
+                    )
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .disabled(userID.isBlank)
+    }
+
+    @ViewBuilder
+    private func profileStatItem(
+        title: String,
+        value: Int,
+        isLeading: Bool = false,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        if let action, !userID.isBlank {
+            Button(action: action) {
+                profileStatContent(title: title, value: value, isLeading: isLeading)
+            }
+            .buttonStyle(.plain)
+        } else {
+            profileStatContent(title: title, value: value, isLeading: isLeading)
+        }
+    }
+
+    private func profileStatContent(
+        title: String,
+        value: Int,
+        isLeading: Bool
+    ) -> some View {
+        VStack(alignment: isLeading ? .leading : .center, spacing: 1) {
+            Text(formattedProfileCount(value))
+                .font(.system(size: 22, weight: .bold))
+                .foregroundColor(AppColors.primaryText)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(AppColors.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+        }
+        .frame(width: 48, alignment: isLeading ? .leading : .center)
+        .frame(minHeight: 40, alignment: .top)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Feature Cards
 
     private var featureCards: some View {
-        ProfileGroupedCard {
-            VStack(spacing: 0) {
-                ProfileMenuRow(
-                    title: L10n.tr("profile.wallet"),
-                    trailingText: walletBalanceSubtitle,
-                    systemImage: "pawprint.fill",
-                    colors: [Color(hex: "FFB703"), Color(hex: "FB8500")]
-                ) {
-                    navigator.push(WalletView())
+        VStack(spacing: 12) {
+            if let walletItem {
+                ProfileGroupedCard {
+                    profileMenuRow(for: walletItem)
                 }
+            }
 
-                ProfileRowDivider()
-
-                ProfileMenuRow(
-                    title: L10n.tr("profile.moments"),
-                    systemImage: "camera.fill",
-                    colors: [Color(hex: "3A86FF"), Color(hex: "8ECAE6")]
-                ) {
-                    navigator.push(MomentsView(
-                        filterUserID: AuthManager.shared.currentUser?.userID,
-                        pageTitleKey: "profile.moments"
-                    ))
+            if !mainFeatureItems.isEmpty {
+                ProfileGroupedCard {
+                    profileMenuRows(mainFeatureItems)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func profileMenuRows(_ items: [DynamicSectionItem]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                profileMenuRow(for: item)
+
+                if index < items.count - 1 {
+                    ProfileRowDivider()
+                }
+            }
+        }
+    }
+
+    private func profileMenuRow(for item: DynamicSectionItem) -> some View {
+        ProfileMenuRow(
+            title: profileMenuTitle(for: item),
+            trailingText: trailingText(for: item),
+            systemImage: profileMenuSystemImage(for: item),
+            colors: item.displayColors.isEmpty ? [AppColors.accent] : item.displayColors
+        ) {
+            openDynamicItem(item)
+        }
+    }
+
+    private func profileMenuTitle(for item: DynamicSectionItem) -> String {
+        switch item.id.normalizedDynamicToken {
+        case "agent_hub":
+            return "智能体"
+        case "my_short_dramas":
+            return L10n.tr("shortDrama.title")
+        case "my_groups":
+            return L10n.tr("discover.groups")
+        default:
+            return item.displayTitle()
+        }
+    }
+
+    private func profileMenuSystemImage(for item: DynamicSectionItem) -> String {
+        if item.id.normalizedDynamicToken == "my_short_dramas" {
+            return "play.rectangle.fill"
+        }
+        return resolvedSystemImage(item.systemImage)
     }
 
     // MARK: - Settings
@@ -260,34 +386,258 @@ struct ProfileView: View {
         navigator.push(EditProfileView(viewModel: viewModel))
     }
 
-    private func copyUserID() {
-        guard !userID.isEmpty else { return }
-        UIPasteboard.general.string = userID
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        toastMessage = L10n.tr("profile.idCopied")
+    private func copyProfileLink() {
+        UIPasteboard.general.string = profileLink
+        toastMessage = L10n.tr("profile.more.linkCopied")
+    }
+
+    private func openDynamicItem(_ item: DynamicSectionItem) {
+        switch DynamicRouteHandler.open(
+            item.route ?? DynamicRoute(type: "native", name: item.id),
+            navigator: navigator,
+            fallbackTitle: item.displayTitle()
+        ) {
+        case .handled:
+            break
+        case .alert(let alert):
+            routeAlert = alert
+        }
+    }
+
+    private func trailingText(for item: DynamicSectionItem) -> String? {
+        switch item.id.normalizedDynamicToken {
+        case "wallet":
+            return walletBalanceSubtitle
+        default:
+            return item.displaySubtitle()
+        }
+    }
+
+    private func dynamicItem(withID id: String) -> DynamicSectionItem? {
+        let normalizedID = id.normalizedDynamicToken
+        return configuredProfileItems.first { $0.id.normalizedDynamicToken == normalizedID }
+            ?? configuredContactItems.first { $0.id.normalizedDynamicToken == normalizedID }
+            ?? DynamicSection.defaultProfileSections
+                .flatMap(\.items)
+                .first { $0.id.normalizedDynamicToken == normalizedID }
+            ?? DynamicSection.defaultContactModules
+                .flatMap(\.items)
+                .first { $0.id.normalizedDynamicToken == normalizedID }
+    }
+
+    private func resolvedSystemImage(_ image: String?) -> String {
+        guard let image, UIImage(systemName: image) != nil else { return "sparkles" }
+        return image
+    }
+
+    private func formattedProfileCount(_ value: Int) -> String {
+        let absValue = abs(value)
+        if absValue >= 1_000_000 {
+            return String(format: "%.1fM", Double(value) / 1_000_000)
+                .replacingOccurrences(of: ".0M", with: "M")
+        }
+        if absValue >= 10_000 {
+            return String(format: "%.1fK", Double(value) / 1_000)
+                .replacingOccurrences(of: ".0K", with: "K")
+        }
+        return "\(value)"
     }
 
     private func displayValue(_ value: String?, fallback: String) -> String {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
     }
+}
 
-    private func hasValue(_ value: String?) -> Bool {
-        !(value ?? "").isBlank
+private struct ProfileShareSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let username: String
+    let avatarURL: String
+    let bio: String
+    let userID: String
+    let profileLink: String
+    let shareURL: URL?
+    let onCopyLink: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(AppColors.separator)
+                .frame(width: 38, height: 4)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+
+            HStack {
+                Text(L10n.tr("profile.more.share"))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(AppColors.primaryText)
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(AppColors.secondaryText)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(AppColors.secondaryBackground))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("common.cancel"))
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    VStack(spacing: 18) {
+                        HStack(spacing: 14) {
+                            AvatarView(url: avatarURL, size: 62)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(Color.white, lineWidth: 2)
+                                )
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(username)
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(AppColors.primaryText)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.72)
+
+                                Text(userID.isBlank ? L10n.tr("profile.idMissing") : "ID: \(userID)")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(AppColors.secondaryText)
+                                    .lineLimit(1)
+
+                                if !bio.isBlank {
+                                    Text(bio)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(AppColors.secondaryText)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Divider()
+
+                        ProfileQRCodeView(text: profileLink)
+                            .frame(width: 172, height: 172)
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .fill(Color.white)
+                            )
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(AppColors.secondaryBackground)
+                    )
+
+                    VStack(spacing: 10) {
+                        if let shareURL {
+                            ShareLink(item: shareURL) {
+                                Label(L10n.tr("profile.more.share"), systemImage: "square.and.arrow.up")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 50)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .fill(AppColors.accent)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Button {
+                            onCopyLink()
+                            dismiss()
+                        } label: {
+                            Label(L10n.tr("profile.more.copyLink"), systemImage: "link")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(AppColors.primaryText)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(AppColors.secondaryBackground)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(AppColors.separator, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
+            }
+        }
+        .background(AppColors.cardBackground)
+        .presentationDetents([.fraction(0.78), .large])
+        .presentationDragIndicator(.hidden)
     }
 }
 
-private struct ProfileSettingsView: View {
+private struct ProfileQRCodeView: View {
+    let text: String
+
+    var body: some View {
+        if let qrImage = Self.makeQRCode(from: text) {
+            Image(uiImage: qrImage)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(systemName: "qrcode")
+                .font(.system(size: 96, weight: .regular))
+                .foregroundColor(AppColors.primaryText)
+        }
+    }
+
+    private static func makeQRCode(from text: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.correctionLevel = "M"
+
+        guard let outputImage = filter.outputImage else { return nil }
+        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        guard let cgImage = CIContext().createCGImage(scaledImage, from: scaledImage.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+struct ProfileSettingsView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @EnvironmentObject private var languageStore: AppLanguageStore
     @ObservedObject var viewModel: ProfileViewModel
     @State private var showLogoutAlert = false
+    @State private var showClearVideoCacheAlert = false
+    @State private var showClearAccountCacheAlert = false
+    @State private var showClearAllCacheAlert = false
+    @ObservedObject private var mediaCache = MediaCacheManager.shared
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
                 preferencesCard
                 accountCard
+                cacheCard
                 logoutCard
             }
             .padding(.horizontal, 16)
@@ -317,17 +667,39 @@ private struct ProfileSettingsView: View {
         } message: {
             Text(L10n.tr("settings.logout.message"))
         }
+        .alert(L10n.tr("settings.cache.video.clear"), isPresented: $showClearVideoCacheAlert) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("common.confirm"), role: .destructive) {
+                mediaCache.clearCurrentAccount()
+            }
+        }
+        .alert(L10n.tr("settings.cache.account.clear"), isPresented: $showClearAccountCacheAlert) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("common.confirm"), role: .destructive) {
+                if let userID = AuthManager.shared.currentUser?.userID {
+                    AuthManager.shared.clearLocalData(for: userID)
+                }
+            }
+        }
+        .alert(L10n.tr("settings.cache.all.clear"), isPresented: $showClearAllCacheAlert) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("common.confirm"), role: .destructive) {
+                AuthManager.shared.clearAllLocalAccountData()
+            }
+        }
     }
 
     private var preferencesCard: some View {
         ProfileGroupedCard {
-            ProfileMenuRow(
-                title: L10n.tr("settings.language"),
-                trailingText: languageStore.selectedLanguageName,
-                systemImage: "globe",
-                colors: [Color(hex: "2EC4B6"), Color(hex: "3A86FF")]
-            ) {
-                navigator.push(LanguageSettingsView())
+            VStack(spacing: 0) {
+                ProfileMenuRow(
+                    title: L10n.tr("settings.language"),
+                    trailingText: languageStore.selectedLanguageName,
+                    systemImage: "globe",
+                    colors: [Color(hex: "2EC4B6"), Color(hex: "3A86FF")]
+                ) {
+                    navigator.push(LanguageSettingsView())
+                }
             }
         }
     }
@@ -359,6 +731,37 @@ private struct ProfileSettingsView: View {
 
     private var currentUsername: String {
         (viewModel.profile ?? AuthManager.shared.currentUser)?.username ?? ""
+    }
+
+    private var cacheCard: some View {
+        ProfileGroupedCard {
+            VStack(spacing: 0) {
+                ProfileMenuRow(
+                    title: L10n.tr("settings.cache.video"),
+                    trailingText: mediaCache.formattedUsage(),
+                    systemImage: "externaldrive.fill",
+                    colors: [Color(hex: "3A86FF"), Color(hex: "2EC4B6")]
+                ) {
+                    showClearVideoCacheAlert = true
+                }
+                ProfileRowDivider()
+                ProfileMenuRow(
+                    title: L10n.tr("settings.cache.account.clear"),
+                    systemImage: "person.crop.circle.badge.minus",
+                    colors: [Color(hex: "FF9F1C"), Color(hex: "FFBF69")]
+                ) {
+                    showClearAccountCacheAlert = true
+                }
+                ProfileRowDivider()
+                ProfileMenuRow(
+                    title: L10n.tr("settings.cache.all.clear"),
+                    systemImage: "trash.fill",
+                    colors: [AppColors.errorColor, Color(hex: "FF6B6B")]
+                ) {
+                    showClearAllCacheAlert = true
+                }
+            }
+        }
     }
 
     private var logoutCard: some View {
@@ -941,38 +1344,6 @@ private struct ProfileGroupedCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(AppColors.separator.opacity(0.7), lineWidth: 1)
             )
-    }
-}
-
-private struct ProfileCompletionMeter: View {
-    let progress: Int
-
-    private var normalizedProgress: CGFloat {
-        min(max(CGFloat(progress) / 100, 0), 1)
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(L10n.tr("profile.completeness"))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppColors.secondaryText)
-
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(AppColors.separator)
-
-                    Capsule()
-                        .fill(AppColors.accentGradient)
-                        .frame(width: proxy.size.width * normalizedProgress)
-                }
-            }
-            .frame(height: 5)
-
-            Text("\(progress)%")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(AppColors.accent)
-        }
     }
 }
 

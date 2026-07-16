@@ -57,4 +57,19 @@ enum LocalCache {
             try? FileManager.default.removeItem(at: cacheDir)
         }
     }
+
+    /// Removes only legacy JSON entries that are unambiguously scoped to one
+    /// account. Unscoped legacy keys are migrated before removal and are never
+    /// deleted as a side effect of a normal logout.
+    static func clearAccount(userID: String) {
+        guard !userID.isEmpty,
+              let files = try? FileManager.default.contentsOfDirectory(
+                at: cacheDir,
+                includingPropertiesForKeys: nil
+              ) else { return }
+        let encoded = userID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? userID
+        for file in files where file.lastPathComponent.contains(userID) || file.lastPathComponent.contains(encoded) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
 }

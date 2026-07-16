@@ -9,6 +9,7 @@ final class MessageStore {
 
     private var db: OpaquePointer?
     private let queue = DispatchQueue(label: "com.bbchat.messagestore", qos: .userInitiated)
+    private var activeOwnerID = ""
 
     private init() {
         openDatabase()
@@ -63,7 +64,8 @@ final class MessageStore {
 
         exec("""
             CREATE TABLE IF NOT EXISTS group_messages (
-                id INTEGER PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                id INTEGER NOT NULL,
                 group_id INTEGER NOT NULL,
                 sender_id TEXT NOT NULL,
                 msg_type TEXT NOT NULL,
@@ -73,14 +75,97 @@ final class MessageStore {
                 sender_avatar TEXT NOT NULL DEFAULT '',
                 reply_to_id INTEGER,
                 reply_to_json TEXT,
-                mentions TEXT
+                mentions TEXT,
+                script_context_json TEXT,
+                PRIMARY KEY (owner_id, id)
             )
         """)
-        exec("CREATE INDEX IF NOT EXISTS idx_gmsg_group ON group_messages (group_id)")
-        exec("CREATE INDEX IF NOT EXISTS idx_gmsg_ts ON group_messages (group_id, timestamp)")
+        migrateGroupMessagesTableIfNeeded()
+        addColumnIfNeeded(table: "group_messages", column: "script_context_json", definition: "TEXT")
+        exec("CREATE INDEX IF NOT EXISTS idx_gmsg_group ON group_messages (owner_id, group_id)")
+        exec("CREATE INDEX IF NOT EXISTS idx_gmsg_ts ON group_messages (owner_id, group_id, timestamp)")
 
+        migrateConversationsTableIfNeeded()
+        addColumnIfNeeded(table: "conversations", column: "conversation_kind", definition: "TEXT")
+        addColumnIfNeeded(table: "conversations", column: "script_room_id", definition: "TEXT")
+        addColumnIfNeeded(table: "conversations", column: "script_id", definition: "TEXT")
+    }
+
+    private func migrateGroupMessagesTableIfNeeded() {
+        let columns = tableColumnNames("group_messages")
+        guard !columns.isEmpty, !columns.contains("owner_id") else { return }
+        let legacyOwner = legacyOwnerID().replacingOccurrences(of: "'", with: "''")
+        exec("ALTER TABLE group_messages RENAME TO group_messages_legacy")
+        exec("""
+            CREATE TABLE group_messages (
+                owner_id TEXT NOT NULL,
+                id INTEGER NOT NULL,
+                group_id INTEGER NOT NULL,
+                sender_id TEXT NOT NULL,
+                msg_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                sender_nickname TEXT NOT NULL DEFAULT '',
+                sender_avatar TEXT NOT NULL DEFAULT '',
+                reply_to_id INTEGER,
+                reply_to_json TEXT,
+                mentions TEXT,
+                script_context_json TEXT,
+                PRIMARY KEY (owner_id, id)
+            )
+        """)
+        if !legacyOwner.isEmpty {
+            exec("""
+                INSERT OR IGNORE INTO group_messages
+                (owner_id, id, group_id, sender_id, msg_type, content, timestamp,
+                 sender_nickname, sender_avatar, reply_to_id, reply_to_json, mentions)
+                SELECT '\(legacyOwner)', id, group_id, sender_id, msg_type, content, timestamp,
+                       sender_nickname, sender_avatar, reply_to_id, reply_to_json, mentions
+                FROM group_messages_legacy
+            """)
+        }
+        exec("DROP TABLE group_messages_legacy")
+    }
+
+    private func legacyOwnerID() -> String {
+        if let id = UserDefaults.standard.string(forKey: "bbchat.last_active_account_id"), !id.isEmpty {
+            return id
+        }
+        guard let data = UserDefaults.standard.data(forKey: "cached_current_user"),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "" }
+        return (object["user_id"] as? String) ?? (object["userID"] as? String) ?? ""
+    }
+
+    func setActiveOwner(_ userID: String?) {
+        queue.sync { activeOwnerID = userID ?? "" }
+    }
+
+    private func migrateConversationsTableIfNeeded() {
+        let columns = tableColumnNames("conversations")
+        guard !columns.isEmpty else {
+            createConversationsTable()
+            return
+        }
+
+        guard !columns.contains("owner_id") else { return }
+
+        exec("ALTER TABLE conversations RENAME TO conversations_legacy")
+        createConversationsTable()
+        exec("""
+            INSERT OR IGNORE INTO conversations
+            (owner_id, id, type, name, avatar_url, last_message, last_message_time,
+             unread_count, subtitle, group_id, member_count)
+            SELECT '', id, type, name, avatar_url, last_message, last_message_time,
+                   unread_count, subtitle, group_id, member_count
+            FROM conversations_legacy
+        """)
+        exec("DROP TABLE conversations_legacy")
+    }
+
+    private func createConversationsTable() {
         exec("""
             CREATE TABLE IF NOT EXISTS conversations (
+                owner_id TEXT NOT NULL,
                 id TEXT NOT NULL,
                 type TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -91,9 +176,33 @@ final class MessageStore {
                 subtitle TEXT,
                 group_id INTEGER,
                 member_count INTEGER,
-                PRIMARY KEY (id, type)
+                conversation_kind TEXT,
+                script_room_id TEXT,
+                script_id TEXT,
+                PRIMARY KEY (owner_id, id, type)
             )
         """)
+        exec("CREATE INDEX IF NOT EXISTS idx_conversations_owner_time ON conversations (owner_id, last_message_time)")
+    }
+
+    private func tableColumnNames(_ tableName: String) -> Set<String> {
+        var names = Set<String>()
+        let sql = "PRAGMA table_info(\(tableName))"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return names }
+        defer { sqlite3_finalize(stmt) }
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let name = sqlite3_column_text(stmt, 1) {
+                names.insert(String(cString: name))
+            }
+        }
+        return names
+    }
+
+    private func addColumnIfNeeded(table: String, column: String, definition: String) {
+        guard !tableColumnNames(table).contains(column) else { return }
+        exec("ALTER TABLE \(table) ADD COLUMN \(column) \(definition)")
     }
 
     // MARK: - DM Messages
@@ -112,6 +221,12 @@ final class MessageStore {
                 self.insertMessage(msg)
             }
             self.exec("COMMIT")
+        }
+    }
+
+    func deleteMessage(id: Int) {
+        queue.sync { [weak self] in
+            _ = self?.exec("DELETE FROM messages WHERE id = \(id)")
         }
     }
 
@@ -195,6 +310,41 @@ final class MessageStore {
         return result
     }
 
+    /// Returns one locally persisted latest message per DM in a single query.
+    /// This lets the conversation list repair a stale server/cache preview
+    /// without issuing one SQLite query for every visible row.
+    func loadLatestDirectMessages(ownerID: String) -> [String: Message] {
+        var results: [String: Message] = [:]
+        queue.sync {
+            let owner = esc(ownerID)
+            let sql = """
+                SELECT m.id, m.sender_id, m.receiver_id, m.msg_type, m.content,
+                       m.timestamp, m.reply_to_id, m.reply_to_json, latest.contact_id
+                FROM messages AS m
+                INNER JOIN (
+                    SELECT CASE
+                               WHEN sender_id = '\(owner)' THEN receiver_id
+                               ELSE sender_id
+                           END AS contact_id,
+                           MAX(id) AS latest_id
+                    FROM messages
+                    WHERE sender_id = '\(owner)' OR receiver_id = '\(owner)'
+                    GROUP BY contact_id
+                ) AS latest ON latest.latest_id = m.id
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let message = readMessageRow(stmt),
+                      let contact = sqlite3_column_text(stmt, 8) else { continue }
+                results[String(cString: contact)] = message
+            }
+        }
+        return results
+    }
+
     func localMessageCount(userID: String, contactID: String) -> Int {
         var count = 0
         queue.sync {
@@ -258,7 +408,17 @@ final class MessageStore {
         }
     }
 
+    func deleteGroupMessage(id: Int) {
+        queue.sync { [weak self] in
+            guard let self, !self.activeOwnerID.isEmpty else { return }
+            _ = self.exec(
+                "DELETE FROM group_messages WHERE owner_id = '\(self.esc(self.activeOwnerID))' AND id = \(id)"
+            )
+        }
+    }
+
     private func insertGroupMessage(_ msg: GroupMessage) {
+        guard !activeOwnerID.isEmpty else { return }
         let replyJSON: String? = {
             guard let reply = msg.replyTo,
                   let data = try? JSONEncoder().encode(reply) else { return nil }
@@ -269,46 +429,59 @@ final class MessageStore {
                   let data = try? JSONEncoder().encode(m) else { return nil }
             return String(data: data, encoding: .utf8)
         }()
+        let scriptContextJSON: String? = {
+            guard let context = msg.scriptContext,
+                  let data = try? JSONEncoder().encode(context) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }()
 
         let sql = """
             INSERT OR REPLACE INTO group_messages
-            (id, group_id, sender_id, msg_type, content, timestamp,
-             sender_nickname, sender_avatar, reply_to_id, reply_to_json, mentions)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (owner_id, id, group_id, sender_id, msg_type, content, timestamp,
+             sender_nickname, sender_avatar, reply_to_id, reply_to_json, mentions, script_context_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         execBind(sql) { stmt in
-            sqlite3_bind_int64(stmt, 1, Int64(msg.id))
-            sqlite3_bind_int64(stmt, 2, Int64(msg.groupID))
-            Self.bindText(stmt, 3, msg.senderID)
-            Self.bindText(stmt, 4, msg.msgType)
-            Self.bindText(stmt, 5, msg.content)
-            Self.bindText(stmt, 6, msg.timestamp)
-            Self.bindText(stmt, 7, msg.senderNickname)
-            Self.bindText(stmt, 8, msg.senderAvatar)
+            Self.bindText(stmt, 1, activeOwnerID)
+            sqlite3_bind_int64(stmt, 2, Int64(msg.id))
+            sqlite3_bind_int64(stmt, 3, Int64(msg.groupID))
+            Self.bindText(stmt, 4, msg.senderID)
+            Self.bindText(stmt, 5, msg.msgType)
+            Self.bindText(stmt, 6, msg.content)
+            Self.bindText(stmt, 7, msg.timestamp)
+            Self.bindText(stmt, 8, msg.senderNickname)
+            Self.bindText(stmt, 9, msg.senderAvatar)
             if let rid = msg.replyToID {
-                sqlite3_bind_int64(stmt, 9, Int64(rid))
+                sqlite3_bind_int64(stmt, 10, Int64(rid))
             } else {
-                sqlite3_bind_null(stmt, 9)
+                sqlite3_bind_null(stmt, 10)
             }
-            Self.bindTextOrNull(stmt, 10, replyJSON)
-            Self.bindTextOrNull(stmt, 11, mentionsJSON)
+            Self.bindTextOrNull(stmt, 11, replyJSON)
+            Self.bindTextOrNull(stmt, 12, mentionsJSON)
+            Self.bindTextOrNull(stmt, 13, scriptContextJSON)
         }
     }
 
     func loadGroupMessages(groupID: Int, beforeID: Int? = nil, limit: Int = 30) -> [GroupMessage] {
         var results: [GroupMessage] = []
         queue.sync {
+            guard !activeOwnerID.isEmpty else { return }
+            let owner = esc(activeOwnerID)
             let sql: String
             if let bid = beforeID {
                 sql = """
-                    SELECT * FROM group_messages
-                    WHERE group_id = \(groupID) AND id < \(bid)
+                    SELECT id, group_id, sender_id, msg_type, content, timestamp,
+                           sender_nickname, sender_avatar, reply_to_id, reply_to_json, mentions, script_context_json
+                    FROM group_messages
+                    WHERE owner_id = '\(owner)' AND group_id = \(groupID) AND id < \(bid)
                     ORDER BY id DESC LIMIT \(limit)
                 """
             } else {
                 sql = """
-                    SELECT * FROM group_messages
-                    WHERE group_id = \(groupID)
+                    SELECT id, group_id, sender_id, msg_type, content, timestamp,
+                           sender_nickname, sender_avatar, reply_to_id, reply_to_json, mentions, script_context_json
+                    FROM group_messages
+                    WHERE owner_id = '\(owner)' AND group_id = \(groupID)
                     ORDER BY id DESC LIMIT \(limit)
                 """
             }
@@ -329,7 +502,8 @@ final class MessageStore {
     func latestGroupMessageID(groupID: Int) -> Int? {
         var result: Int?
         queue.sync {
-            let sql = "SELECT MAX(id) FROM group_messages WHERE group_id = \(groupID)"
+            guard !activeOwnerID.isEmpty else { return }
+            let sql = "SELECT MAX(id) FROM group_messages WHERE owner_id = '\(esc(activeOwnerID))' AND group_id = \(groupID)"
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
             defer { sqlite3_finalize(stmt) }
@@ -338,6 +512,39 @@ final class MessageStore {
             }
         }
         return result
+    }
+
+    /// Returns one locally persisted latest message per group in a single query.
+    func loadLatestGroupMessages() -> [Int: GroupMessage] {
+        var results: [Int: GroupMessage] = [:]
+        queue.sync {
+            guard !activeOwnerID.isEmpty else { return }
+            let owner = esc(activeOwnerID)
+            let sql = """
+                SELECT gm.id, gm.group_id, gm.sender_id, gm.msg_type, gm.content,
+                       gm.timestamp, gm.sender_nickname, gm.sender_avatar,
+                       gm.reply_to_id, gm.reply_to_json, gm.mentions, gm.script_context_json
+                FROM group_messages AS gm
+                INNER JOIN (
+                    SELECT group_id, MAX(id) AS latest_id
+                    FROM group_messages
+                    WHERE owner_id = '\(owner)'
+                    GROUP BY group_id
+                ) AS latest
+                    ON latest.group_id = gm.group_id
+                   AND latest.latest_id = gm.id
+                WHERE gm.owner_id = '\(owner)'
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let message = readGroupMessageRow(stmt) else { continue }
+                results[message.groupID] = message
+            }
+        }
+        return results
     }
 
     private func readGroupMessageRow(_ stmt: OpaquePointer?) -> GroupMessage? {
@@ -370,67 +577,88 @@ final class MessageStore {
             }
         }
 
+        var scriptContext: GroupMessageScriptContext?
+        if sqlite3_column_type(stmt, 11) != SQLITE_NULL,
+           let text = sqlite3_column_text(stmt, 11) {
+            let json = String(cString: text)
+            if let data = json.data(using: .utf8) {
+                scriptContext = try? JSONDecoder().decode(GroupMessageScriptContext.self, from: data)
+            }
+        }
+
         return GroupMessage(
             id: id, groupID: groupID, senderID: senderID,
             msgType: msgType, content: content, timestamp: timestamp,
             senderNickname: senderNickname, senderAvatar: senderAvatar,
-            replyToID: replyToID, replyTo: replyTo, mentions: mentions
+            replyToID: replyToID, replyTo: replyTo, mentions: mentions,
+            scriptContext: scriptContext
         )
     }
 
     // MARK: - Conversations
 
-    func saveConversations(_ convs: [Conversation]) {
+    func saveConversations(_ convs: [Conversation], ownerID: String) {
         queue.sync { [weak self] in
             guard let self = self else { return }
-            self.exec("DELETE FROM conversations")
+            self.exec("DELETE FROM conversations WHERE owner_id = '\(self.esc(ownerID))'")
             self.exec("BEGIN TRANSACTION")
             for c in convs {
-                self.insertConversation(c)
+                self.insertConversation(c, ownerID: ownerID)
             }
             self.exec("COMMIT")
         }
     }
 
-    func updateConversation(_ conv: Conversation) {
+    func updateConversation(_ conv: Conversation, ownerID: String) {
         queue.sync { [weak self] in
-            self?.insertConversation(conv)
+            self?.insertConversation(conv, ownerID: ownerID)
         }
     }
 
-    private func insertConversation(_ c: Conversation) {
+    private func insertConversation(_ c: Conversation, ownerID: String) {
         let sql = """
             INSERT OR REPLACE INTO conversations
-            (id, type, name, avatar_url, last_message, last_message_time,
-             unread_count, subtitle, group_id, member_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (owner_id, id, type, name, avatar_url, last_message, last_message_time,
+             unread_count, subtitle, group_id, member_count, conversation_kind, script_room_id, script_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         execBind(sql) { stmt in
-            Self.bindText(stmt, 1, c.id)
-            Self.bindText(stmt, 2, c.type)
-            Self.bindText(stmt, 3, c.name)
-            Self.bindText(stmt, 4, c.avatarURL)
-            Self.bindTextOrNull(stmt, 5, c.lastMessage)
-            Self.bindTextOrNull(stmt, 6, c.lastMessageTime)
-            sqlite3_bind_int(stmt, 7, Int32(c.unreadCount))
-            Self.bindTextOrNull(stmt, 8, c.subtitle)
+            Self.bindText(stmt, 1, ownerID)
+            Self.bindText(stmt, 2, c.id)
+            Self.bindText(stmt, 3, c.type)
+            Self.bindText(stmt, 4, c.name)
+            Self.bindText(stmt, 5, c.avatarURL)
+            Self.bindTextOrNull(stmt, 6, c.lastMessage)
+            Self.bindTextOrNull(stmt, 7, c.lastMessageTime)
+            sqlite3_bind_int(stmt, 8, Int32(c.unreadCount))
+            Self.bindTextOrNull(stmt, 9, c.subtitle)
             if let gid = c.groupID {
-                sqlite3_bind_int64(stmt, 9, Int64(gid))
-            } else {
-                sqlite3_bind_null(stmt, 9)
-            }
-            if let mc = c.memberCount {
-                sqlite3_bind_int(stmt, 10, Int32(mc))
+                sqlite3_bind_int64(stmt, 10, Int64(gid))
             } else {
                 sqlite3_bind_null(stmt, 10)
             }
+            if let mc = c.memberCount {
+                sqlite3_bind_int(stmt, 11, Int32(mc))
+            } else {
+                sqlite3_bind_null(stmt, 11)
+            }
+            Self.bindTextOrNull(stmt, 12, c.conversationKind)
+            Self.bindTextOrNull(stmt, 13, c.scriptRoomID)
+            Self.bindTextOrNull(stmt, 14, c.scriptID)
         }
     }
 
-    func loadConversations() -> [Conversation] {
+    func loadConversations(ownerID: String) -> [Conversation] {
         var results: [Conversation] = []
         queue.sync {
-            let sql = "SELECT * FROM conversations ORDER BY last_message_time DESC"
+            let sql = """
+                SELECT id, type, name, avatar_url, last_message, last_message_time,
+                       unread_count, subtitle, group_id, member_count,
+                       conversation_kind, script_room_id, script_id
+                FROM conversations
+                WHERE owner_id = '\(esc(ownerID))'
+                ORDER BY last_message_time DESC
+            """
             var stmt: OpaquePointer?
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
             defer { sqlite3_finalize(stmt) }
@@ -451,16 +679,42 @@ final class MessageStore {
                     ? Int(sqlite3_column_int64(stmt, 8)) : nil
                 let memberCount: Int? = sqlite3_column_type(stmt, 9) != SQLITE_NULL
                     ? Int(sqlite3_column_int(stmt, 9)) : nil
+                let conversationKind = sqlite3_column_type(stmt, 10) != SQLITE_NULL
+                    ? String(cString: sqlite3_column_text(stmt, 10)) : nil
+                let scriptRoomID = sqlite3_column_type(stmt, 11) != SQLITE_NULL
+                    ? String(cString: sqlite3_column_text(stmt, 11)) : nil
+                let scriptID = sqlite3_column_type(stmt, 12) != SQLITE_NULL
+                    ? String(cString: sqlite3_column_text(stmt, 12)) : nil
 
                 results.append(Conversation(
                     type: type, id: id, name: name, avatarURL: avatarURL,
                     lastMessage: lastMessage, lastMessageTime: lastMessageTime,
                     unreadCount: unreadCount, subtitle: subtitle,
-                    groupID: groupID, memberCount: memberCount
+                    groupID: groupID, memberCount: memberCount,
+                    conversationKind: conversationKind,
+                    scriptRoomID: scriptRoomID,
+                    scriptID: scriptID
                 ))
             }
         }
         return results
+    }
+
+    func hasOutgoingMessage(from senderID: String, to receiverID: String) -> Bool {
+        var hasMessage = false
+        queue.sync {
+            let sql = """
+                SELECT 1 FROM messages
+                WHERE sender_id = '\(esc(senderID))'
+                  AND receiver_id = '\(esc(receiverID))'
+                LIMIT 1
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(stmt) }
+            hasMessage = sqlite3_step(stmt) == SQLITE_ROW
+        }
+        return hasMessage
     }
 
     // MARK: - Cleanup
@@ -470,6 +724,16 @@ final class MessageStore {
             self?.exec("DELETE FROM messages")
             self?.exec("DELETE FROM group_messages")
             self?.exec("DELETE FROM conversations")
+        }
+    }
+
+    func clearAccount(userID: String) {
+        queue.sync { [weak self] in
+            guard let self else { return }
+            let owner = self.esc(userID)
+            self.exec("DELETE FROM messages WHERE sender_id = '\(owner)' OR receiver_id = '\(owner)'")
+            self.exec("DELETE FROM group_messages WHERE owner_id = '\(owner)'")
+            self.exec("DELETE FROM conversations WHERE owner_id = '\(owner)'")
         }
     }
 

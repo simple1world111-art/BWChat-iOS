@@ -16,7 +16,10 @@ struct ShortDramaActionRail: View {
             VStack(spacing: 6) {
                 Button(action: onOpenCreator) {
                     AvatarView(url: video.creator.avatarURL, size: 48)
-                        .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .stroke(Color.white, lineWidth: 2)
+                        )
                 }
                 .buttonStyle(.plain)
 

@@ -55,8 +55,26 @@ struct CallStartResponse: Decodable {
         case roomName = "room_name"
         case token
         case livekitUrl = "livekit_url"
+        case serverUrl = "server_url"
         case callType = "call_type"
         case participantCount = "participant_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        roomName = try container.decode(String.self, forKey: .roomName)
+        token = try container.decode(String.self, forKey: .token)
+        if let value = try container.decodeIfPresent(String.self, forKey: .livekitUrl),
+           !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            livekitUrl = value
+        } else if let value = try container.decodeIfPresent(String.self, forKey: .serverUrl),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            livekitUrl = value
+        } else {
+            livekitUrl = AppConfig.livekitURL
+        }
+        callType = try container.decode(String.self, forKey: .callType)
+        participantCount = try container.decodeIfPresent(Int.self, forKey: .participantCount)
     }
 }
 
@@ -69,6 +87,22 @@ struct CallJoinResponse: Decodable {
         case roomName = "room_name"
         case token
         case livekitUrl = "livekit_url"
+        case serverUrl = "server_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        roomName = try container.decode(String.self, forKey: .roomName)
+        token = try container.decode(String.self, forKey: .token)
+        if let value = try container.decodeIfPresent(String.self, forKey: .livekitUrl),
+           !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            livekitUrl = value
+        } else if let value = try container.decodeIfPresent(String.self, forKey: .serverUrl),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            livekitUrl = value
+        } else {
+            livekitUrl = AppConfig.livekitURL
+        }
     }
 }
 

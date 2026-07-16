@@ -12,6 +12,7 @@ class ContactsViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private var cancellables = Set<AnyCancellable>()
+    private var processedIncomingEvents: Set<String> = []
 
     init() {
         setupWebSocketListeners()
@@ -37,9 +38,6 @@ class ContactsViewModel: ObservableObject {
             contacts = try await APIService.shared.getContacts()
             UserCacheManager.shared.cacheContacts(contacts)
         } catch let error as APIError {
-            if case .unauthorized = error {
-                AuthManager.shared.logout()
-            }
             errorMessage = error.errorDescription
         } catch {
             errorMessage = L10n.tr("contacts.loadFailed")
@@ -58,7 +56,19 @@ class ContactsViewModel: ObservableObject {
     }
 
     func markAsRead(contactID: String) {
-        // Clear unread count locally
+        applyLocalRead(contactID: contactID)
+        // Tell server + sync app icon badge
+        Task {
+            try? await APIService.shared.markMessagesAsRead(contactID: contactID)
+            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+        }
+    }
+
+    private func applyLocalRead(contactID: String) {
+        UnreadBadgeStore.shared.setConversationUnreadCount(
+            0,
+            for: ConversationReadTarget.direct(userID: contactID).listIdentity
+        )
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
             let c = contacts[index]
             if c.unreadCount > 0 {
@@ -71,11 +81,6 @@ class ContactsViewModel: ObservableObject {
                     unreadCount: 0
                 )
             }
-        }
-        // Tell server + sync app icon badge
-        Task {
-            try? await APIService.shared.markMessagesAsRead(contactID: contactID)
-            await MainActor.run { PushService.shared.clearBadge() }
         }
     }
 
@@ -107,6 +112,15 @@ class ContactsViewModel: ObservableObject {
                 ImageCacheManager.shared.removeImages(for: urls)
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .conversationDidMarkRead)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let target = notification.object as? ConversationReadTarget,
+                      case .direct(let userID) = target else { return }
+                self?.applyLocalRead(contactID: userID)
+            }
+            .store(in: &cancellables)
     }
 
     private func handleNewMessage(_ message: Message) {
@@ -121,7 +135,10 @@ class ContactsViewModel: ObservableObject {
 
         // Suppress unread increment if user is actively viewing this chat
         let isViewingThisChat = isFromOther && WebSocketService.shared.activeChatUserID == contactID
-        let unreadDelta = (isFromOther && !isViewingThisChat) ? 1 : 0
+        let isNewIncomingEvent = !isFromOther || processedIncomingEvents.insert(
+            "\(contactID):\(message.id):\(message.timestamp)"
+        ).inserted
+        let unreadDelta = (isFromOther && !isViewingThisChat && isNewIncomingEvent) ? 1 : 0
 
         // Auto-mark as read on server if viewing this chat
         if isViewingThisChat {
@@ -130,11 +147,16 @@ class ContactsViewModel: ObservableObject {
 
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
             let existing = contacts[index]
+            guard Conversation.compareMessageTimes(existing.lastMessageTime, message.timestamp) != .orderedDescending else {
+                return
+            }
             let lastMsg: String
             if message.isImage {
                 lastMsg = L10n.tr("message.image")
             } else if message.isVideo {
                 lastMsg = L10n.tr("message.video")
+            } else if message.isSticker {
+                lastMsg = message.stickerPayload?.previewText ?? L10n.tr("message.sticker")
             } else if message.isGift {
                 lastMsg = GiftMessagePayload.previewText(content: message.content)
             } else {
@@ -146,11 +168,13 @@ class ContactsViewModel: ObservableObject {
                 avatarURL: existing.avatarURL,
                 lastMessage: lastMsg,
                 lastMessageTime: message.timestamp,
-                unreadCount: existing.unreadCount + unreadDelta
+                unreadCount: isViewingThisChat ? 0 : existing.unreadCount + unreadDelta
             )
             contacts[index] = updated
             // Re-sort
-            contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            contacts.sort {
+                Conversation.compareMessageTimes($0.lastMessageTime, $1.lastMessageTime) == .orderedDescending
+            }
         } else {
             // New contact not yet in list — reload to pick it up
             Task { await loadContacts() }
@@ -178,9 +202,14 @@ class ContactsViewModel: ObservableObject {
               let lastMessage = data["last_message"] as? String,
               let lastMessageTime = data["last_message_time"] as? String else { return }
         let msgType = data["msg_type"] as? String ?? data["last_message_type"] as? String
-        let previewMessage = (msgType == "gift" || GiftMessagePayload.parse(lastMessage) != nil)
-            ? GiftMessagePayload.previewText(content: lastMessage)
-            : lastMessage
+        let previewMessage: String
+        if let stickerPreview = StickerMessagePayload.previewText(content: lastMessage, msgType: msgType) {
+            previewMessage = stickerPreview
+        } else if msgType == "gift" || GiftMessagePayload.parse(lastMessage) != nil {
+            previewMessage = GiftMessagePayload.previewText(content: lastMessage)
+        } else {
+            previewMessage = lastMessage
+        }
 
         let myID = AuthManager.shared.currentUser?.userID
         let contactID = (senderID == myID) ? receiverID : senderID
@@ -189,6 +218,9 @@ class ContactsViewModel: ObservableObject {
         // Unread count is handled exclusively by handleNewMessage to avoid double-counting.
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
             let existing = contacts[index]
+            guard Conversation.compareMessageTimes(existing.lastMessageTime, lastMessageTime) != .orderedDescending else {
+                return
+            }
             let updated = Contact(
                 userID: existing.userID,
                 nickname: existing.nickname,
@@ -198,7 +230,9 @@ class ContactsViewModel: ObservableObject {
                 unreadCount: existing.unreadCount
             )
             contacts[index] = updated
-            contacts.sort { ($0.lastMessageTime ?? "") > ($1.lastMessageTime ?? "") }
+            contacts.sort {
+                Conversation.compareMessageTimes($0.lastMessageTime, $1.lastMessageTime) == .orderedDescending
+            }
         } else {
             // New contact not yet in list — reload to pick it up
             Task { await loadContacts() }

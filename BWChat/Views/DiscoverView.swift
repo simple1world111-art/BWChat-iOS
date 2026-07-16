@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import WebKit
 
 struct DiscoverView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
@@ -9,16 +8,24 @@ struct DiscoverView: View {
     @ObservedObject private var authManager = AuthManager.shared
     @StateObject private var momentsNotif = MomentsNotificationManager.shared
     @StateObject private var discoverConfig = DiscoverConfigStore()
-    @StateObject private var shortDramaFeed = ShortDramaFeedViewModel()
-    @State private var comingSoonItem: DiscoverComingSoonItem?
+    @State private var routeAlert: DynamicRouteAlert?
+    @State private var deferredRefreshTask: Task<Void, Never>?
+    @State private var hasRunInitialAppearRefresh = false
+    @State private var remoteSections: [DiscoverSection]?
+
+    private var displayedSections: [DiscoverSection] {
+        if let sections = remoteSections, !sections.isEmpty {
+            return sections
+        }
+        return discoverConfig.sections
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                RootTabTitle(localizedKey: "tab.discover")
-                    .padding(.bottom, 2)
+                discoverHeader
 
-                ForEach(discoverConfig.sections) { section in
+                ForEach(displayedSections) { section in
                     discoverCard {
                         ForEach(section.items) { item in
                             discoverRow(for: item, isLast: item.id == section.items.last?.id)
@@ -35,26 +42,69 @@ struct DiscoverView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: authManager.currentUser?.userID ?? "guest") {
-            await discoverConfig.load(force: true)
-            await momentsNotif.fetchFromServer()
-            preloadShortDramaIfAvailable()
+        .onAppear {
+            updateRemoteSectionsFromAppConfig()
+            scheduleDeferredRefresh(forceDiscoverConfig: !hasRunInitialAppearRefresh)
+            hasRunInitialAppearRefresh = true
+        }
+        .onDisappear {
+            cancelDeferredWork()
+        }
+        .onChange(of: authManager.currentUser?.userID ?? "guest") { _ in
+            scheduleDeferredRefresh(forceDiscoverConfig: true)
         }
         .onChange(of: scenePhase) { phase in
-            guard phase == .active else { return }
-            Task {
-                await discoverConfig.load()
-                await momentsNotif.fetchFromServer()
-                preloadShortDramaIfAvailable()
+            if phase == .active {
+                scheduleDeferredRefresh(forceDiscoverConfig: false)
+            } else {
+                cancelDeferredWork()
             }
         }
-        .alert(item: $comingSoonItem) { item in
+        .alert(item: $routeAlert) { item in
             Alert(
                 title: Text(item.title),
-                message: Text(item.message ?? L10n.tr("discover.comingSoon")),
+                message: Text(item.message),
                 dismissButton: .default(Text(L10n.tr("common.ok")))
             )
         }
+    }
+
+    private var discoverHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            RootTabTitle(localizedKey: "tab.discover")
+        }
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .center)
+        .padding(.bottom, 2)
+    }
+
+    @MainActor
+    private func updateRemoteSectionsFromAppConfig() {
+        let store = AppRemoteConfigStore.shared
+        guard store.source != .bundled,
+              let sections = store.config.discover?.effectiveSections,
+              !sections.isEmpty else {
+            remoteSections = nil
+            return
+        }
+        remoteSections = sections
+    }
+
+    private func scheduleDeferredRefresh(forceDiscoverConfig: Bool) {
+        deferredRefreshTask?.cancel()
+
+        deferredRefreshTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled else { return }
+
+            await discoverConfig.load(force: forceDiscoverConfig)
+            await momentsNotif.fetchFromServer()
+            updateRemoteSectionsFromAppConfig()
+        }
+    }
+
+    private func cancelDeferredWork() {
+        deferredRefreshTask?.cancel()
+        deferredRefreshTask = nil
     }
 
     private func discoverRow(for item: DiscoverItem, isLast: Bool) -> some View {
@@ -172,6 +222,9 @@ struct DiscoverView: View {
     }
 
     private func badgeValue(for item: DiscoverItem) -> Int? {
+        if isMomentsEntry(item) {
+            return momentsNotif.unreadCount
+        }
         switch item.badgeKey?.normalizedDiscoverToken {
         case "moments_unread", "moments":
             return momentsNotif.unreadCount
@@ -181,6 +234,9 @@ struct DiscoverView: View {
     }
 
     private func showsDot(for item: DiscoverItem) -> Bool {
+        if isMomentsEntry(item) {
+            return momentsNotif.hasNewMoments
+        }
         switch item.dotKey?.normalizedDiscoverToken {
         case "moments_new", "moments":
             return momentsNotif.hasNewMoments
@@ -189,79 +245,38 @@ struct DiscoverView: View {
         }
     }
 
+    private func isMomentsEntry(_ item: DiscoverItem) -> Bool {
+        item.id.normalizedDiscoverToken == "moments"
+            || item.route?.name?.normalizedDiscoverToken == "moments"
+    }
+
     private func handleTap(_ item: DiscoverItem) {
-        let route = item.route ?? DiscoverRoute(type: "native", name: item.id)
-        switch route.normalizedType {
-        case "native":
-            handleNativeRoute(route.name ?? item.id, item: item)
-        case "web", "h5", "url":
-            openWebRoute(route, item: item)
-        case "coming_soon", "comingsoon", "disabled":
-            showComingSoon(item, route: route)
-        default:
-            if route.url != nil {
-                openWebRoute(route, item: item)
-            } else {
-                showComingSoon(item, route: route)
-            }
+        // Keep the stable Discover `games` item native even when an older
+        // remote config still points it directly at playdot.games.
+        let route: DiscoverRoute
+        if item.id.normalizedDiscoverToken == "games" {
+            route = DiscoverRoute(type: "native", name: "game_center")
+        } else if item.id.normalizedDiscoverToken == "stories" {
+            // `stories` is the existing Discover entry localized as “剧本”.
+            // Keep its identity and placement while upgrading old remote configs
+            // that may still mark it as coming soon.
+            route = DiscoverRoute(type: "native", name: "script_center")
+        } else {
+            route = item.route ?? DiscoverRoute(type: "native", name: item.id)
+        }
+        let fallbackTitle = item.displayTitle(language: languageStore.activeLanguage)
+        switch DynamicRouteHandler.open(
+            DynamicRoute(discoverRoute: route),
+            navigator: navigator,
+            fallbackTitle: fallbackTitle
+        ) {
+        case .handled:
+            break
+        case .alert(let alert):
+            routeAlert = alert
         }
     }
 
-    private func handleNativeRoute(_ rawName: String, item: DiscoverItem) {
-        switch rawName.normalizedDiscoverToken {
-        case "moments":
-            momentsNotif.markFeedViewed()
-            navigator.push(MomentsView())
-        case "groups", "group", "group_list":
-            navigator.push(GroupListView().withUIKitBackButton())
-        case "nearby", "map", "map_dating":
-            navigator.push(MapDatingView())
-        case "short_drama", "shortdrama", "drama":
-            shortDramaFeed.startInitialPreload()
-            navigator.push(ShortDramaFeedView(viewModel: shortDramaFeed))
-        default:
-            showComingSoon(item, route: item.route)
-        }
-    }
-
-    private func preloadShortDramaIfAvailable() {
-        guard discoverConfig.sections.contains(where: { section in
-            section.items.contains { item in
-                item.id.normalizedDiscoverToken == "short_drama"
-                    || item.route?.name?.normalizedDiscoverToken == "short_drama"
-            }
-        }) else { return }
-        shortDramaFeed.startInitialPreload()
-    }
-
-    private func openWebRoute(_ route: DiscoverRoute, item: DiscoverItem) {
-        guard let urlString = route.url,
-              let url = URL(string: urlString),
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "")
-        else {
-            showComingSoon(item, route: route)
-            return
-        }
-
-        let title = route.displayTitle(
-            language: languageStore.activeLanguage,
-            fallback: item.displayTitle(language: languageStore.activeLanguage)
-        )
-        navigator.push(InAppWebView(url: url, title: title))
-    }
-
-    private func showComingSoon(_ item: DiscoverItem, route: DiscoverRoute?) {
-        comingSoonItem = DiscoverComingSoonItem(
-            title: item.displayTitle(language: languageStore.activeLanguage),
-            message: route?.displayMessage(language: languageStore.activeLanguage)
-        )
-    }
-}
-
-private struct DiscoverComingSoonItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String?
 }
 
 @MainActor
@@ -309,66 +324,6 @@ private final class DiscoverConfigStore: ObservableObject {
     }
 }
 
-// MARK: - In-App WebView
-
-struct InAppWebView: View {
-    let url: URL
-    let title: String
-    @State private var isLoading = true
-
-    var body: some View {
-        ZStack {
-            WebViewRepresentable(url: url, isLoading: $isLoading)
-                .ignoresSafeArea(edges: .bottom)
-
-            if isLoading {
-                ProgressView()
-                    .tint(AppColors.accent)
-                    .scaleEffect(1.2)
-            }
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .hidesTabBarOnPush()
-        .withUIKitBackButton()
-    }
-}
-
-struct WebViewRepresentable: UIViewRepresentable {
-    let url: URL
-    @Binding var isLoading: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView()
-        webView.navigationDelegate = context.coordinator
-        webView.allowsBackForwardNavigationGestures = true
-        webView.load(URLRequest(url: url))
-        return webView
-    }
-
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
-
-    class Coordinator: NSObject, WKNavigationDelegate {
-        var parent: WebViewRepresentable
-
-        init(_ parent: WebViewRepresentable) {
-            self.parent = parent
-        }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            parent.isLoading = false
-        }
-
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            parent.isLoading = true
-        }
-    }
-}
-
 @MainActor
 class MomentsNotificationManager: ObservableObject {
     static let shared = MomentsNotificationManager()
@@ -380,11 +335,13 @@ class MomentsNotificationManager: ObservableObject {
             let info = try await APIService.shared.getMomentsUnreadInfo()
             if unreadCount != info.unreadCount { unreadCount = info.unreadCount }
             if hasNewMoments != info.hasNewMoments { hasNewMoments = info.hasNewMoments }
+            UnreadBadgeStore.shared.setMomentsUnreadCount(info.unreadCount)
         } catch { }
     }
 
     func incrementBadge() {
         unreadCount += 1
+        UnreadBadgeStore.shared.incrementMomentsUnread()
     }
 
     func markFeedViewed() {
@@ -396,6 +353,7 @@ class MomentsNotificationManager: ObservableObject {
 
     func clearInteractionBadge() {
         unreadCount = 0
+        UnreadBadgeStore.shared.setMomentsUnreadCount(0)
         Task {
             try? await APIService.shared.markMomentsNotificationsRead()
         }

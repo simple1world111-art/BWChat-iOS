@@ -1,5 +1,5 @@
 "NSPhotoLibraryAddUsageDescription" = "BBchat 需要访问相册以保存图片和视频";
-"NSPhotoLibraryUsageDescription" = "BBchat 需要访问相册以发送图片";
+"NSPhotoLibraryUsageDescription" = "BBchat 需要访问相册以上传和发送图片及视频";
 "NSCameraUsageDescription" = "BBchat 需要使用摄像头进行视频通话";
 "NSMicrophoneUsageDescription" = "BBchat 需要使用麦克风进行语音和视频通话";
 "NSLocationWhenInUseUsageDescription" = "BBchat 需要使用你的位置来发现附近用户，并在你主动开启附近的人时共享模糊位置。";

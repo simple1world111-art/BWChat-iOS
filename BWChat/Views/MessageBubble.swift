@@ -17,15 +17,33 @@ struct MessageBubble: View {
     var onReply: ((Message) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
     var peerName: String?
+    var peerUserID: String?
+    var recipientAvatarURL: String?
 
     @State private var swipeOffset: CGFloat = 0
+
+    private var avatarUserID: String {
+        if isFromMe {
+            return AuthManager.shared.currentUser?.userID ?? message.senderID
+        }
+        return message.senderID
+    }
+
+    private var avatarAccessibilityName: String {
+        isFromMe ? L10n.tr("common.me") : (peerName ?? message.senderID)
+    }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
-                AvatarView(url: avatarURL, size: 36)
+                UserAvatarButton(
+                    userID: avatarUserID,
+                    avatarURL: avatarURL,
+                    size: 36,
+                    accessibilityName: avatarAccessibilityName
+                )
             }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
@@ -50,17 +68,35 @@ struct MessageBubble: View {
                         duration: message.voiceDuration,
                         isFromMe: isFromMe
                     )
+                } else if let stickerPayload = message.stickerPayload {
+                    StickerMessageBubble(
+                        payload: stickerPayload,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe
+                    )
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                        impactFeedback.impactOccurred()
+                        showMenu = true
+                    }
+                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                        Button(L10n.tr("common.reply")) { onReply?(message) }
+                        Button(L10n.tr("common.cancel"), role: .cancel) {}
+                    }
                 } else if let giftPayload = message.giftPayload {
                     giftBubble(giftPayload)
-                } else if let botSharePayload = BotSharePayload.decode(from: message.content) {
-                    BotShareCard(payload: botSharePayload, isFromMe: isFromMe)
                 } else {
                     textBubble
                 }
             }
 
             if isFromMe {
-                AvatarView(url: avatarURL, size: 36)
+                UserAvatarButton(
+                    userID: avatarUserID,
+                    avatarURL: avatarURL,
+                    size: 36,
+                    accessibilityName: avatarAccessibilityName
+                )
             }
 
             if !isFromMe { Spacer(minLength: 40) }
@@ -152,7 +188,11 @@ struct MessageBubble: View {
             payload: payload,
             timeText: message.formattedTime,
             isFromMe: isFromMe,
-            recipientFallback: isFromMe ? peerName : L10n.tr("common.me")
+            recipientFallback: isFromMe ? peerName : L10n.tr("common.me"),
+            recipientIDFallback: isFromMe
+                ? peerUserID
+                : AuthManager.shared.currentUser?.userID,
+            recipientAvatarFallback: recipientAvatarURL
         )
         .onLongPressGesture(minimumDuration: 0.5) {
             let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -371,9 +411,8 @@ class VoicePlayerManager: ObservableObject {
         guard let url = URL(string: fullURLString) else { return }
 
         var request = URLRequest(url: url)
-        if let token = AuthManager.shared.token {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
+        AuthRequestAuthorizer.addAuthHeader(&request, token: AuthManager.shared.token)
+        AuthRequestAuthorizer.logFinalRequest(request, expectsAuthorization: true)
 
         downloadTask = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let data = data, error == nil else { return }

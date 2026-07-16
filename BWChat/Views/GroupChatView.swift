@@ -15,6 +15,14 @@ private struct GroupMessageRenderItem: Identifiable {
     var id: Int { message.id }
 }
 
+private struct GroupPendingRenderItem: Identifiable {
+    let id: String
+    let createdAt: Date
+    let text: PendingGroupText?
+    let sticker: PendingGroupSticker?
+    let media: PendingGroupMedia?
+}
+
 struct GroupChatView: View {
     let group: ChatGroup
     var onMarkRead: (() -> Void)?
@@ -29,7 +37,10 @@ struct GroupChatView: View {
     @State private var showGroupDetail = false
     @State private var memberCount: Int
     @State private var shouldPopToRoot = false
-    @State private var showPlusMenu = false
+    @State private var activeComposerPanel: ComposerPanel?
+    @State private var pendingComposerPanel: ComposerPanel?
+    @State private var isReplacingStickerPanelWithKeyboard = false
+    @State private var isKeyboardLayoutVisible = false
     @State private var showGiftSheet = false
     @State private var highlightedMessageID: Int?
     @State private var isVoiceMode = false
@@ -37,11 +48,32 @@ struct GroupChatView: View {
     @State private var voiceCancelZone = false
     @State private var isInputFocused = false
     @State private var inputTextHeight: CGFloat = 40
+    @State private var composerPanelHeight: CGFloat = StickerPanel.preferredHeight
+    @State private var composerSelection = NSRange(location: 0, length: 0)
     @State private var isViewVisible = false
+    @State private var hasCompletedInitialLoad = false
     @State private var toastMessage: String?
     @State private var memberProfilesByID: [String: GroupMember]
 
     private let bottomScrollAnchorID = "group-chat-bottom-anchor"
+    private let composerPanelAnimation = Animation.easeInOut(duration: 0.25)
+    private let composerActionButtonHeight: CGFloat = 54
+
+    private var showsComposerMicrophone: Bool {
+        !isInputFocused && selectedComposerPanel == nil && viewModel.inputText.isEmpty
+    }
+
+    private var selectedComposerPanel: ComposerPanel? {
+        pendingComposerPanel ?? activeComposerPanel
+    }
+
+    private var reservesStickerPanelSpace: Bool {
+        !isVoiceMode && (
+            activeComposerPanel == .stickers
+                || isReplacingStickerPanelWithKeyboard
+                || isKeyboardLayoutVisible
+        )
+    }
 
     private var myAvatarURL: String {
         AuthManager.shared.currentUser?.avatarURL ?? ""
@@ -57,6 +89,19 @@ struct GroupChatView: View {
             previous = message.timestamp
         }
         return rows
+    }
+
+    private var renderedPendingItems: [GroupPendingRenderItem] {
+        let texts = viewModel.visiblePendingTexts.map {
+            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: $0, sticker: nil, media: nil)
+        }
+        let stickers = viewModel.visiblePendingStickers.map {
+            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: nil, sticker: $0, media: nil)
+        }
+        let media = viewModel.visiblePendingMedia.map {
+            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: nil, sticker: nil, media: $0)
+        }
+        return (texts + stickers + media).sorted { $0.createdAt < $1.createdAt }
     }
 
     init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
@@ -117,6 +162,165 @@ struct GroupChatView: View {
         WebSocketService.shared.activeGroupID = active ? group.id : nil
     }
 
+    private func markConversationRead() {
+        NotificationCenter.default.post(
+            name: .conversationDidMarkRead,
+            object: ConversationReadTarget.group(groupID: group.groupID)
+        )
+        if let onMarkRead {
+            onMarkRead()
+        } else {
+            viewModel.markConversationAsReadOnServer()
+        }
+    }
+
+    private func keyboardAnimation(from notification: Notification) -> Animation {
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        return .easeInOut(duration: max(duration, 0.18))
+    }
+
+    private func closeComposerPanelForKeyboard() {
+        // Ignore a stale keyboard-show callback once the user has requested a
+        // direct keyboard -> composer-panel transition.
+        guard pendingComposerPanel == nil else { return }
+        guard activeComposerPanel != nil else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            activeComposerPanel = nil
+        }
+    }
+
+    private func focusComposerTextInput() {
+        pendingComposerPanel = nil
+        isReplacingStickerPanelWithKeyboard = activeComposerPanel == .stickers
+        if isReplacingStickerPanelWithKeyboard {
+            isKeyboardLayoutVisible = true
+        }
+        if isVoiceMode {
+            withAnimation(.easeOut(duration: 0.12)) {
+                isVoiceMode = false
+            }
+        }
+
+        // Preserve the panel until keyboard presentation begins, then let the
+        // keyboard notification drive a synchronized panel-to-keyboard swap.
+        isInputFocused = true
+    }
+
+    private func dismissComposerInput() {
+        pendingComposerPanel = nil
+        isReplacingStickerPanelWithKeyboard = false
+        isInputFocused = false
+        withAnimation(composerPanelAnimation) {
+            activeComposerPanel = nil
+        }
+        hideKeyboard()
+    }
+
+    private func activateVoiceComposer() {
+        pendingComposerPanel = nil
+        isReplacingStickerPanelWithKeyboard = false
+        activeComposerPanel = nil
+        isInputFocused = false
+        hideKeyboard()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.easeOut(duration: 0.14)) {
+            isVoiceMode = true
+        }
+    }
+
+    private func toggleComposerPanel(_ panel: ComposerPanel) {
+        isReplacingStickerPanelWithKeyboard = false
+        let isClosing = selectedComposerPanel == panel
+        UISelectionFeedbackGenerator().selectionChanged()
+
+        if isClosing {
+            pendingComposerPanel = nil
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = nil
+            }
+            return
+        }
+
+        isVoiceMode = false
+        if isInputFocused {
+            // End text editing before inserting the panel so a representable
+            // refresh cannot re-request focus and clear the panel state.
+            isInputFocused = false
+            hideKeyboard()
+            pendingComposerPanel = panel
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = panel
+            }
+            completeComposerPanelTransitionAfterKeyboardDismiss(panel)
+        } else {
+            pendingComposerPanel = nil
+            hideKeyboard()
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = panel
+            }
+        }
+    }
+
+    private func completeComposerPanelTransitionAfterKeyboardDismiss(_ panel: ComposerPanel) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            guard pendingComposerPanel == panel, !isInputFocused, !isVoiceMode else { return }
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = panel
+            }
+            pendingComposerPanel = nil
+        }
+    }
+
+    private func handleKeyboardWillShow(_ notification: Notification) {
+        if !isReplacingStickerPanelWithKeyboard {
+            updateComposerPanelHeight(from: notification)
+        }
+        if isReplacingStickerPanelWithKeyboard {
+            isKeyboardLayoutVisible = true
+        } else {
+            withAnimation(keyboardAnimation(from: notification)) {
+                isKeyboardLayoutVisible = true
+            }
+        }
+        closeComposerPanelForKeyboard()
+    }
+
+    private func handleKeyboardWillHide(_ notification: Notification) {
+        withAnimation(keyboardAnimation(from: notification)) {
+            isKeyboardLayoutVisible = false
+        }
+        isInputFocused = false
+        isReplacingStickerPanelWithKeyboard = false
+        guard let panel = pendingComposerPanel, !isVoiceMode else { return }
+        withAnimation(keyboardAnimation(from: notification)) {
+            activeComposerPanel = panel
+        }
+    }
+
+    private func handleKeyboardDidShow() {
+        guard isReplacingStickerPanelWithKeyboard else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isReplacingStickerPanelWithKeyboard = false
+        }
+    }
+
+    private func updateComposerPanelHeight(from notification: Notification) {
+        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+        let bottomInset = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.bottom ?? 0
+        let availableHeight = keyboardFrame.height - bottomInset
+        composerPanelHeight = max(StickerPanel.minimumHeight, availableHeight)
+    }
+
     private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
         guard isViewVisible else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
@@ -156,22 +360,15 @@ struct GroupChatView: View {
                 scrollAction()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            guard isViewVisible else { return }
-            scrollAction()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard isViewVisible else { return }
-            scrollAction()
-        }
     }
 
-    private func previousTimestamp(for pending: PendingGroupText) -> String? {
-        guard let idx = viewModel.pendingTexts.firstIndex(where: { $0.id == pending.id }) else {
+    private func previousTimestamp(for pending: GroupPendingRenderItem) -> String? {
+        let pendingItems = renderedPendingItems
+        guard let idx = pendingItems.firstIndex(where: { $0.id == pending.id }) else {
             return viewModel.messages.last?.timestamp
         }
         if idx > 0 {
-            return viewModel.pendingTexts[idx - 1].createdAt.iso8601String
+            return pendingItems[idx - 1].createdAt.iso8601String
         }
         return viewModel.messages.last?.timestamp
     }
@@ -194,7 +391,7 @@ struct GroupChatView: View {
                                 .id(bottomScrollAnchorID)
 
                             LazyVStack(spacing: 4) {
-                                ForEach(viewModel.pendingTexts.reversed()) { pending in
+                                ForEach(renderedPendingItems.reversed()) { pending in
                                     VStack(spacing: 4) {
                                         if TimestampHelper.shouldShowTime(
                                             current: pending.createdAt.iso8601String,
@@ -203,8 +400,18 @@ struct GroupChatView: View {
                                             TimeSeparatorView(timestamp: pending.createdAt.iso8601String)
                                         }
 
-                                        PendingGroupBubble(pending: pending, avatarURL: myAvatarURL) {
-                                            Task { await viewModel.retryPendingText(pending) }
+                                        if let text = pending.text {
+                                            PendingGroupBubble(pending: text, avatarURL: myAvatarURL) {
+                                                Task { await viewModel.retryPendingText(text) }
+                                            }
+                                        } else if let sticker = pending.sticker {
+                                            PendingGroupStickerBubble(pending: sticker, avatarURL: myAvatarURL) {
+                                                Task { await viewModel.retryPendingSticker(sticker) }
+                                            }
+                                        } else if let media = pending.media {
+                                            PendingGroupMediaBubble(pending: media, avatarURL: myAvatarURL) {
+                                                viewModel.retryPendingMedia(media)
+                                            }
                                         }
                                     }
                                     .id(pendingScrollID(pending.id))
@@ -230,6 +437,7 @@ struct GroupChatView: View {
                                             senderAvatarURL: resolvedSenderAvatarURL(for: message, isFromMe: isFromMe),
                                             senderNickname: resolvedSenderNickname(for: message, isFromMe: isFromMe),
                                             onImageTap: { url, frame in
+                                                pendingComposerPanel = nil
                                                 isInputFocused = false
                                                 hideKeyboard()
                                                 let allImages = viewModel.messages.filter(\.isImage).map(\.content)
@@ -254,6 +462,7 @@ struct GroupChatView: View {
                                                 )
                                             },
                                             onVideoTap: { url in
+                                                pendingComposerPanel = nil
                                                 isInputFocused = false
                                                 hideKeyboard()
                                                 previewVideoURL = url
@@ -301,10 +510,16 @@ struct GroupChatView: View {
                     .onChange(of: viewModel.messages.last?.id) { _ in
                         scrollGroupChatToBottom(proxy: proxy)
                     }
-                    .onChange(of: viewModel.pendingTexts.count) { _ in
+                    .onChange(of: viewModel.visiblePendingTexts.count) { count in
+                        guard count > 0 else { return }
+                        scrollGroupChatToBottom(proxy: proxy)
+                    }
+                    .onChange(of: viewModel.visiblePendingStickers.count) { count in
+                        guard count > 0 else { return }
                         scrollGroupChatToBottom(proxy: proxy)
                     }
                     .task {
+                        guard !hasCompletedInitialLoad else { return }
                         async let messagesTask: () = viewModel.loadMessages()
                         async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
                         await messagesTask
@@ -317,16 +532,14 @@ struct GroupChatView: View {
                             LocalCache.save(detail, key: "group_detail_\(group.groupID)")
                         }
                         guard !Task.isCancelled, isViewVisible else { return }
-                        onMarkRead?()
+                        hasCompletedInitialLoad = true
                         scrollGroupChatToBottom(proxy: proxy, animated: false)
                     }
                 }
                 .contentShape(Rectangle())
                 .simultaneousGesture(
                     TapGesture().onEnded {
-                        isInputFocused = false
-                        showPlusMenu = false
-                        hideKeyboard()
+                        dismissComposerInput()
                     }
                 )
             }
@@ -342,12 +555,22 @@ struct GroupChatView: View {
 
             groupInputBar
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .sheet(isPresented: $viewModel.showMentionPicker) {
             MentionPickerView(groupID: group.groupID) { userID, nickname in
                 viewModel.addMention(userID: userID, nickname: nickname)
             }
         }
         .background(AppColors.secondaryBackground)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(L10n.tr("common.done")) {
+                    dismissComposerInput()
+                }
+                .font(.system(size: 15, weight: .semibold))
+            }
+        }
         .overlay(alignment: .top) {
             if let alertMsg = viewModel.mentionAlertMessage {
                 HStack(spacing: 10) {
@@ -423,20 +646,41 @@ struct GroupChatView: View {
         .onAppear {
             isViewVisible = true
             setActiveGroupChat(true)
+            markConversationRead()
+        }
+        .onChange(of: viewModel.errorMessage) { message in
+            guard let message,
+                  !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            toastMessage = message
+            viewModel.errorMessage = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            handleKeyboardWillShow(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            handleKeyboardWillHide(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            handleKeyboardDidShow()
         }
         .onDisappear {
             isViewVisible = false
+            isKeyboardLayoutVisible = false
             setActiveGroupChat(false)
         }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
+                pendingComposerPanel = nil
                 isInputFocused = false
+                activeComposerPanel = nil
                 hideKeyboard()
             }
         }
         .onChange(of: callManager.currentCall?.state) { newState in
             if newState == .connected || newState == .connecting {
+                pendingComposerPanel = nil
                 isInputFocused = false
+                activeComposerPanel = nil
                 hideKeyboard()
             }
         }
@@ -469,88 +713,166 @@ struct GroupChatView: View {
 
     private var groupInputBar: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isVoiceMode.toggle()
-                        if isVoiceMode { showPlusMenu = false }
-                    }
-                } label: {
-                    Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(AppColors.accent)
-                        .frame(width: 32, height: inputChromeHeight)
-                }
-                .buttonStyle(.plain)
-
+            HStack(alignment: .center, spacing: 6) {
                 if isVoiceMode {
                     groupHoldToRecordButton
+                        .overlay(alignment: .leading) {
+                            Button {
+                                focusComposerTextInput()
+                            } label: {
+                                Image(systemName: "keyboard")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundColor(recorder.isRecording ? .white : AppColors.accent)
+                                    .frame(width: 42, height: inputChromeHeight)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(recorder.isRecording)
+                        }
                 } else {
-                    ZStack(alignment: .topLeading) {
+                    ZStack(alignment: .leading) {
                         ChatInputTextView(
                             text: $viewModel.inputText,
                             isFocused: $isInputFocused,
-                            height: $inputTextHeight
-                        ) {
-                            viewModel.submitText()
-                        }
+                            height: $inputTextHeight,
+                            selectedRange: $composerSelection,
+                            onRequestFocus: focusComposerTextInput,
+                            onSend: { viewModel.submitText() }
+                        )
+                        .padding(.leading, showsComposerMicrophone ? 34 : 0)
                         .frame(height: inputTextHeight)
 
                         Text(L10n.tr("chat.input.placeholder"))
                             .font(.system(size: 16))
                             .foregroundColor(AppColors.tertiaryText)
-                            .padding(.top, 11)
-                            .padding(.leading, 2)
+                            .padding(.leading, showsComposerMicrophone ? 36 : 2)
                             .opacity(viewModel.inputText.isEmpty && !isInputFocused ? 1 : 0)
                             .allowsHitTesting(false)
+
+                        Button(action: activateVoiceComposer) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(AppColors.accent)
+                                .frame(width: 34, height: inputTextHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .opacity(showsComposerMicrophone ? 1 : 0)
+                        .scaleEffect(showsComposerMicrophone ? 1 : 0.82)
+                        .allowsHitTesting(showsComposerMicrophone)
+                        .animation(.easeOut(duration: 0.12), value: showsComposerMicrophone)
                     }
-                        .chatComposerFieldChrome(minHeight: inputChromeHeight)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isInputFocused = true }
+                    .frame(maxWidth: .infinity)
+                    .chatComposerFieldChrome(minHeight: inputChromeHeight)
                 }
 
-                if viewModel.isSendEnabled && !isVoiceMode {
-                    Button {
-                        viewModel.submitText()
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(AppColors.accentGradient)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
+                if !isVoiceMode {
+                    HStack(spacing: 2) {
+                            Button {
+                                toggleComposerPanel(.stickers)
+                            } label: {
+                                Image(systemName: activeComposerPanel == .stickers ? "face.smiling.fill" : "face.smiling")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(AppColors.accent)
+                                    .frame(width: 40, height: 40)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(
+                                ChatComposerActionButtonStyle(
+                                    isActive: activeComposerPanel == .stickers,
+                                    showsActiveBackground: false
+                                )
+                            )
+                            .accessibilityLabel(L10n.tr("chat.stickers"))
+                            .frame(width: 42, height: composerActionButtonHeight, alignment: .center)
+
+                            ZStack {
+                                Button {
+                                    viewModel.submitText()
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(AppColors.accentGradient)
+                                            .frame(width: 40, height: 40)
+                                        Image(systemName: "arrow.up")
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+                                    .contentShape(Circle())
+                                }
+                                .buttonStyle(ChatComposerActionButtonStyle(isActive: false))
+                                .opacity(viewModel.isSendEnabled ? 1 : 0)
+                                .allowsHitTesting(viewModel.isSendEnabled)
+
+                                Button {
+                                    toggleComposerPanel(.plus)
+                                } label: {
+                                    Image(systemName: activeComposerPanel == .plus ? "xmark.circle.fill" : "plus.circle.fill")
+                                        .font(.system(size: 28))
+                                        .foregroundColor(AppColors.accent)
+                                        .frame(width: 40, height: 40)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(
+                                    ChatComposerActionButtonStyle(
+                                        isActive: activeComposerPanel == .plus,
+                                        showsActiveBackground: false
+                                    )
+                                )
+                                .opacity(viewModel.isSendEnabled ? 0 : 1)
+                                .allowsHitTesting(!viewModel.isSendEnabled)
+                            }
+                            .frame(width: 42, height: composerActionButtonHeight, alignment: .center)
                         }
-                        .contentShape(Circle())
                     }
-                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
-                } else if !isVoiceMode {
-                    Button {
-                        isInputFocused = false
-                        withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() }
-                    } label: {
-                        Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 40, height: 40)
-                            .contentShape(Rectangle())
-                    }
-                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
+                }
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, isInputFocused || selectedComposerPanel != nil ? 5 : 12)
+
+            ZStack(alignment: .top) {
+                if activeComposerPanel == .stickers && !isVoiceMode {
+                    StickerPanel(
+                        onSend: { pack, sticker in
+                            Task { await viewModel.sendSticker(pack: pack, sticker: sticker) }
+                        },
+                        onInsertEmoji: insertEmoji
+                    )
+                } else if activeComposerPanel == .plus && !isVoiceMode {
+                    groupPlusMenu
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
-
-            if showPlusMenu && !isVoiceMode {
-                groupPlusMenu
+            .frame(maxWidth: .infinity)
+            .frame(
+                height: reservesStickerPanelSpace
+                    ? composerPanelHeight
+                    : nil,
+                alignment: .top
+            )
+            .clipped()
+            .background {
+                if reservesStickerPanelSpace {
+                    Color(uiColor: .secondarySystemBackground)
+                        .opacity(0.98)
+                        .ignoresSafeArea(edges: .bottom)
+                }
             }
         }
-        .chatComposerBarBackground()
+        .chatComposerBarBackground(
+            showsStickerPanel: selectedComposerPanel == .stickers || isReplacingStickerPanelWithKeyboard
+        )
     }
 
     private var inputChromeHeight: CGFloat {
         inputTextHeight + 14
+    }
+
+    private func insertEmoji(_ value: String) {
+        ComposerTextInsertion.insert(
+            value,
+            into: &viewModel.inputText,
+            selectedRange: &composerSelection
+        )
     }
 
     private var groupHoldToRecordButton: some View {
@@ -657,11 +979,12 @@ struct GroupChatView: View {
             }
             .onChange(of: selectedMediaItems) { items in
                 guard !items.isEmpty else { return }
-                showPlusMenu = false
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
                 let captured = items
                 selectedMediaItems = []
-                Task {
-                    for (index, item) in captured.enumerated() {
+                for (index, item) in captured.enumerated() {
+                    Task {
                         if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                             if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
                                 let data = try? Data(contentsOf: movie.url)
@@ -683,13 +1006,15 @@ struct GroupChatView: View {
             }
 
             GiftPlusMenuTile {
-                showPlusMenu = false
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
                 isInputFocused = false
                 showGiftSheet = true
             }
 
             Button {
-                showPlusMenu = false
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
                 CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .voice)
             } label: {
                 VStack(spacing: 6) {
@@ -702,7 +1027,8 @@ struct GroupChatView: View {
             }
 
             Button {
-                showPlusMenu = false
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
                 CallManager.shared.startGroupCall(groupID: group.groupID, groupName: group.name, type: .video)
             } label: {
                 VStack(spacing: 6) {
@@ -768,10 +1094,15 @@ struct GroupMessageBubble: View {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
-                AvatarView(url: displaySenderAvatarURL, size: 36)
-                    .onTapGesture {
+                UserAvatarButton(
+                    userID: message.senderID,
+                    avatarURL: displaySenderAvatarURL,
+                    size: 36,
+                    accessibilityName: displaySenderNickname,
+                    onLongPress: {
                         onMention?(message.senderID, displaySenderNickname)
                     }
+                )
             }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 3) {
@@ -813,13 +1144,12 @@ struct GroupMessageBubble: View {
                         duration: message.voiceDuration,
                         isFromMe: isFromMe
                     )
-                } else if let giftPayload = message.giftPayload {
-                    GiftMessageBubble(
-                        payload: giftPayload,
+                } else if let stickerPayload = message.stickerPayload {
+                    StickerMessageBubble(
+                        payload: stickerPayload,
                         timeText: message.formattedTime,
                         isFromMe: isFromMe,
-                        senderName: isFromMe ? nil : displaySenderNickname,
-                        recipientFallback: L10n.tr("group.member")
+                        senderName: isFromMe ? nil : displaySenderNickname
                     )
                     .onLongPressGesture(minimumDuration: 0.5) {
                         let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -835,16 +1165,30 @@ struct GroupMessageBubble: View {
                         }
                         Button(L10n.tr("common.cancel"), role: .cancel) {}
                     }
-                } else if let botSharePayload = BotSharePayload.decode(from: message.content) {
-                    VStack(alignment: isFromMe ? .trailing : .leading, spacing: 4) {
+                } else if let giftPayload = message.giftPayload {
+                    GiftMessageBubble(
+                        payload: giftPayload,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe,
+                        senderName: isFromMe ? nil : displaySenderNickname,
+                        recipientFallback: L10n.tr("group.member"),
+                        recipientAvatarFallback: giftPayload.recipientID == AuthManager.shared.currentUser?.userID
+                            ? myAvatarURL
+                            : nil
+                    )
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                        impactFeedback.impactOccurred()
+                        showMenu = true
+                    }
+                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                        Button(L10n.tr("common.reply")) { onReply?(message) }
                         if !isFromMe {
-                            Text(displaySenderNickname)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(AppColors.secondaryText)
-                                .lineLimit(1)
+                            Button("@\(displaySenderNickname)") {
+                                onMention?(message.senderID, displaySenderNickname)
+                            }
                         }
-
-                        BotShareCard(payload: botSharePayload, isFromMe: isFromMe)
+                        Button(L10n.tr("common.cancel"), role: .cancel) {}
                     }
                 } else {
                     TimestampedTextBubble(
@@ -872,7 +1216,12 @@ struct GroupMessageBubble: View {
             }
 
             if isFromMe {
-                AvatarView(url: myAvatarURL, size: 36)
+                UserAvatarButton(
+                    userID: AuthManager.shared.currentUser?.userID ?? message.senderID,
+                    avatarURL: myAvatarURL,
+                    size: 36,
+                    accessibilityName: L10n.tr("common.me")
+                )
             }
 
             if !isFromMe { Spacer(minLength: 40) }
@@ -926,7 +1275,107 @@ struct PendingGroupBubble: View {
                 )
             }
 
-            AvatarView(url: avatarURL, size: 36)
+            UserAvatarButton(
+                userID: AuthManager.shared.currentUser?.userID ?? "",
+                avatarURL: avatarURL,
+                size: 36,
+                accessibilityName: L10n.tr("common.me")
+            )
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+struct PendingGroupStickerBubble: View {
+    let pending: PendingGroupSticker
+    var avatarURL: String = ""
+    var onRetry: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Spacer(minLength: 40)
+            HStack(alignment: .center, spacing: 6) {
+                if pending.status == .failed {
+                    Button {
+                        onRetry?()
+                    } label: {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 20))
+                    }
+                }
+
+                if let payload = StickerMessagePayload.parse(pending.content) {
+                    StickerMessageBubble(
+                        payload: payload,
+                        timeText: pending.formattedTime,
+                        isFromMe: true
+                    )
+                }
+            }
+
+            UserAvatarButton(
+                userID: AuthManager.shared.currentUser?.userID ?? "",
+                avatarURL: avatarURL,
+                size: 36,
+                accessibilityName: L10n.tr("common.me")
+            )
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+struct PendingGroupMediaBubble: View {
+    let pending: PendingGroupMedia
+    var avatarURL: String = ""
+    var onRetry: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Spacer(minLength: 40)
+            HStack(alignment: .center, spacing: 6) {
+                if pending.status == .failed {
+                    Button(action: { onRetry?() }) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundColor(.red)
+                            .font(.system(size: 20))
+                    }
+                }
+
+                Group {
+                    if pending.msgType == "image", let image = UIImage(data: pending.data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        ZStack {
+                            Color.blue.opacity(0.1)
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(AppColors.secondaryText)
+                        }
+                    }
+                }
+                .frame(width: 200, height: 140)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(alignment: .bottomTrailing) {
+                    Text(pending.formattedTime)
+                        .font(.system(size: 10))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(.black.opacity(0.45), in: Capsule())
+                        .padding(6)
+                }
+                .opacity(pending.status == .sending ? 0.72 : 1)
+            }
+
+            UserAvatarButton(
+                userID: AuthManager.shared.currentUser?.userID ?? "",
+                avatarURL: avatarURL,
+                size: 36,
+                accessibilityName: L10n.tr("common.me")
+            )
         }
         .padding(.vertical, 2)
     }

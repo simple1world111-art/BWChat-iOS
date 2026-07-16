@@ -1,12 +1,11 @@
 import SwiftUI
+import UIKit
 
 enum ConversationPreviewFormatter {
+    @MainActor
     static func text(for content: String) -> String {
-        if let payload = BotSharePayload.decode(from: content) {
-            let name = payload.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            return name.isEmpty
-                ? L10n.tr("bot.share.preview.generic")
-                : L10n.tr("bot.share.preview", name)
+        if let stickerPreview = StickerMessagePayload.previewText(content: content) {
+            return stickerPreview
         }
         return content
     }
@@ -15,25 +14,53 @@ enum ConversationPreviewFormatter {
 struct ContactListView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = ConversationListViewModel()
-    @ObservedObject private var botStore = BotStore.shared
     @State private var showCreateGroup = false
     @State private var showAddFriendSheet = false
     @State private var showScannerComingSoon = false
-    @State private var showCreateBot = false
+    @State private var showMessageActions = false
     @State private var initialLoadUserID: String?
     @State private var initialLoadInFlightUserID: String?
     @State private var openSwipeActionID: ConversationSwipeActionID?
-    @State private var swipeCloseRequest = 0
+    @State private var searchText = ""
+    @State private var openingAgentConversationKey: String?
+    @State private var agentOpenError: String?
+    @FocusState private var isSearchFocused: Bool
+
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isSearchingConversations: Bool {
+        !trimmedSearchText.isEmpty
+    }
+
+    private var visibleConversations: [Conversation] {
+        guard isSearchingConversations else { return viewModel.conversations }
+        return viewModel.conversations.filter { matchesSearch($0, query: trimmedSearchText) }
+    }
+
+    private var showsNoSearchResults: Bool {
+        isSearchingConversations
+            && visibleConversations.isEmpty
+    }
 
     var body: some View {
         Group {
-            if viewModel.conversations.isEmpty && botStore.conversationBots.isEmpty && !viewModel.isLoading {
+            if viewModel.conversations.isEmpty && !viewModel.isLoading {
                 emptyStateView
             } else {
                 conversationListView
             }
         }
         .background(AppColors.secondaryBackground)
+        .background(
+            KeyboardDismissTapInstaller(
+                isEnabled: isSearchFocused,
+                consumesOutsideTaps: true,
+                onBackgroundTap: dismissMessageInputState
+            )
+        )
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
@@ -45,15 +72,17 @@ struct ContactListView: View {
         } message: {
             Text(L10n.tr("common.comingSoonMessage"))
         }
-        .sheet(isPresented: $showCreateBot) {
-            BotConfigView(mode: .create)
+        .alert("无法打开智能体", isPresented: Binding(
+            get: { agentOpenError != nil },
+            set: { if !$0 { agentOpenError = nil } }
+        )) {
+            Button(L10n.tr("common.ok"), role: .cancel) { agentOpenError = nil }
+        } message: {
+            Text(agentOpenError ?? "请稍后重试")
         }
         .refreshable {
             closeOpenSwipeAction()
-            async let conversations: () = viewModel.loadConversations()
-            async let bots: () = botStore.syncServerBots()
-            await conversations
-            await bots
+            await viewModel.loadConversations(forceRefresh: true)
         }
         .sheet(isPresented: $showCreateGroup) {
             CreateGroupView {
@@ -64,7 +93,7 @@ struct ContactListView: View {
             await loadInitialContentIfNeeded()
         }
         .onDisappear {
-            closeOpenSwipeAction()
+            dismissMessageInputState()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { notif in
             guard let senderID = Self.stringValue(notif.userInfo?["sender_id"]) else { return }
@@ -110,7 +139,14 @@ struct ContactListView: View {
     /// value side-steps the type-erasure mismatch.
     private func openConversation(_ conv: Conversation) {
         closeOpenSwipeAction()
-        if let gid = conv.groupID, conv.isGroup {
+        if conv.isAgentConversation {
+            openAgentConversation(conv)
+        } else if conv.isScriptRoom, let roomID = conv.scriptRoomID {
+            if let groupID = conv.resolvedGroupID {
+                viewModel.markGroupAsRead(groupID: groupID)
+            }
+            navigator.push(ScriptRoomChatView(roomID: roomID))
+        } else if conv.isGroup, let gid = conv.resolvedGroupID {
             let group = ChatGroup(
                 groupID: gid,
                 name: conv.name,
@@ -140,6 +176,44 @@ struct ContactListView: View {
         }
     }
 
+    private func openAgentConversation(_ row: Conversation) {
+        let key = row.listIdentity
+        guard openingAgentConversationKey != key else { return }
+        openingAgentConversationKey = key
+
+        Task {
+            defer { openingAgentConversationKey = nil }
+            do {
+                async let runtimeConfigRequest = try? APIService.shared.getAgentRuntimeConfig()
+                async let walletRequest = try? APIService.shared.getWalletBalance()
+
+                let conversation: AgentConversation
+                if let conversationID = row.agentConversationID, !conversationID.isBlank {
+                    conversation = try await APIService.shared.getAgentConversation(id: conversationID)
+                } else if let agentID = row.agentID, !agentID.isBlank {
+                    conversation = try await APIService.shared.createAgentConversation(
+                        agentID: agentID,
+                        greetingID: row.agentGreetingID ?? "default",
+                        idempotencyKey: UUID()
+                    )
+                    NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
+                } else {
+                    throw APIError.serverError(code: 400, message: "智能体会话信息不完整")
+                }
+
+                let runtimeConfig = await runtimeConfigRequest
+                let wallet = await walletRequest
+                navigator.push(AgentChatView(
+                    conversation: conversation,
+                    runtimeConfig: runtimeConfig,
+                    walletBalance: wallet?.balance
+                ))
+            } catch {
+                agentOpenError = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
     private func loadInitialContentIfNeeded() async {
         guard let userID = AuthManager.shared.currentUser?.userID, !userID.isEmpty else { return }
         guard initialLoadUserID != userID else { return }
@@ -147,16 +221,31 @@ struct ContactListView: View {
         initialLoadInFlightUserID = userID
         defer { initialLoadInFlightUserID = nil }
 
-        async let conversations: () = viewModel.loadConversations()
-        async let bots: () = botStore.syncServerBots()
-        await conversations
-        await bots
+        await viewModel.loadConversations()
         initialLoadUserID = userID
     }
 
     private func closeOpenSwipeAction() {
         guard openSwipeActionID != nil else { return }
-        swipeCloseRequest += 1
+        openSwipeActionID = nil
+    }
+
+    private func dismissSearchFocus() {
+        if isSearchFocused {
+            isSearchFocused = false
+        }
+        hideKeyboard()
+    }
+
+    private func dismissMessageInputState() {
+        closeOpenSwipeAction()
+        dismissSearchFocus()
+    }
+
+    private func consumeSearchDismissTapIfNeeded() -> Bool {
+        guard isSearchFocused else { return false }
+        dismissMessageInputState()
+        return true
     }
 
     private static func stringValue(_ value: Any?) -> String? {
@@ -173,92 +262,65 @@ struct ContactListView: View {
     }
 
     private var conversationListView: some View {
-        List {
-            messageHeader
-                .simultaneousGesture(TapGesture().onEnded(closeOpenSwipeAction))
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(
-                    top: AppSpacing.rootTabTopInset,
-                    leading: 16,
-                    bottom: 8,
-                    trailing: 16
-                ))
-                .listRowBackground(Color.clear)
+        let conversations = visibleConversations
 
-            ForEach(Array(botStore.conversationBots.enumerated()), id: \.element.id) { index, bot in
-                BotConversationRow(
-                    bot: bot,
-                    lastMessage: botStore.lastMessage(for: bot.id),
-                    showsDivider: index < botStore.conversationBots.count - 1 || !viewModel.conversations.isEmpty,
-                    isPinned: botStore.isBotPinned(bot)
-                )
-                .wrappedInSwipeActions(
-                    id: .bot(bot.id),
-                    openID: $openSwipeActionID,
-                    closeRequest: swipeCloseRequest,
-                    isPinned: botStore.isBotPinned(bot),
-                    pinTitle: botStore.isBotPinned(bot) ? L10n.tr("messages.unpin") : L10n.tr("messages.pin"),
-                    onRequestClose: closeOpenSwipeAction,
-                    onTap: {
-                        closeOpenSwipeAction()
-                        navigator.push(BotChatView(botID: bot.id))
-                    },
-                    onPin: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                            botStore.toggleBotPinned(bot)
-                        }
-                    },
-                    onDelete: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                            botStore.hideBotConversation(bot)
-                        }
-                    }
-                )
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                    .listRowBackground(Color.clear)
-            }
+        return ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 0) {
+                messageHeader
+                    .padding(.top, AppSpacing.rootTabTopInset)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                    .simultaneousGesture(TapGesture().onEnded(closeOpenSwipeAction))
 
-            ForEach(Array(viewModel.conversations.enumerated()), id: \.element.id) { index, conv in
-                ConversationRow(
-                    conversation: conv,
-                    showsDivider: index < viewModel.conversations.count - 1,
-                    isPinned: viewModel.isPinned(conv)
-                )
-                .wrappedInSwipeActions(
-                    id: .conversation(conv.id),
-                    openID: $openSwipeActionID,
-                    closeRequest: swipeCloseRequest,
-                    isPinned: viewModel.isPinned(conv),
-                    pinTitle: viewModel.isPinned(conv) ? L10n.tr("messages.unpin") : L10n.tr("messages.pin"),
-                    onRequestClose: closeOpenSwipeAction,
-                    onTap: {
-                        openConversation(conv)
-                    },
-                    onPin: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                            viewModel.togglePinned(conv)
+                messageSearchBox
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+
+                if showsNoSearchResults {
+                    searchEmptyRow
+                        .padding(.top, 28)
+                        .padding(.horizontal, 16)
+                }
+
+                ForEach(conversations, id: \.listIdentity) { conv in
+                    ConversationRow(
+                        conversation: conv,
+                        showsDivider: conv.listIdentity != conversations.last?.listIdentity,
+                        isPinned: viewModel.isPinned(conv)
+                    )
+                    .wrappedInSwipeActions(
+                        id: .conversation(conv.listIdentity),
+                        openID: $openSwipeActionID,
+                        isPinned: viewModel.isPinned(conv),
+                        pinTitle: viewModel.isPinned(conv) ? L10n.tr("messages.unpin") : L10n.tr("messages.pin"),
+                        onRequestClose: closeOpenSwipeAction,
+                        onTap: {
+                            guard !consumeSearchDismissTapIfNeeded() else { return }
+                            openConversation(conv)
+                        },
+                        onPin: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                viewModel.togglePinned(conv)
+                            }
+                        },
+                        onDelete: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                viewModel.deleteConversation(conv)
+                            }
                         }
-                    },
-                    onDelete: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                            viewModel.deleteConversation(conv)
-                        }
-                    }
-                )
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                    .listRowBackground(Color.clear)
+                    )
+                    .padding(.horizontal, 16)
+                }
+
+                // This is scrollable content, not an overlay or mask. Unlike a
+                // transparent List row, ScrollView preserves its full height,
+                // so the final card can always be pulled above the floating tab bar.
+                Color.clear
+                    .frame(height: AppListMetrics.rootTabBottomScrollableClearance)
+                    .accessibilityHidden(true)
             }
         }
-        .listStyle(.plain)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 6, coordinateSpace: .local)
-                .onChanged { value in
-                    guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                    closeOpenSwipeAction()
-                }
-        )
+        .scrollDismissesKeyboard(.interactively)
     }
 
     private var emptyStateView: some View {
@@ -266,6 +328,9 @@ struct ContactListView: View {
             messageHeader
                 .padding(.horizontal, 16)
                 .padding(.top, AppSpacing.rootTabTopInset)
+
+            messageSearchBox
+                .padding(.horizontal, 16)
 
             Spacer()
             ZStack {
@@ -287,6 +352,65 @@ struct ContactListView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var messageSearchBox: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(AppColors.tertiaryText)
+
+            TextField(L10n.tr("messages.search.placeholder"), text: $searchText)
+                .font(.system(size: 15))
+                .foregroundColor(AppColors.primaryText)
+                .focused($isSearchFocused)
+                .submitLabel(.search)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .onSubmit {
+                    dismissSearchFocus()
+                }
+                .onChange(of: searchText) { _ in
+                    closeOpenSwipeAction()
+                }
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    closeOpenSwipeAction()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppColors.tertiaryText)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("common.cancel"))
+            }
+        }
+        .padding(.horizontal, 13)
+        .frame(maxWidth: .infinity, minHeight: 42)
+        .background(AppColors.cardBackground)
+        .cornerRadius(12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isSearchFocused = true
+            closeOpenSwipeAction()
+        }
+    }
+
+    private var searchEmptyRow: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundColor(AppColors.tertiaryText)
+            Text(L10n.tr("messages.search.empty"))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(AppColors.secondaryText)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
+
     private var messageHeader: some View {
         HStack(alignment: .center, spacing: 12) {
             RootTabTitle(localizedKey: "tab.messages")
@@ -296,40 +420,131 @@ struct ContactListView: View {
     }
 
     private var messageActionsMenu: some View {
-        Menu {
-            Button {
-                closeOpenSwipeAction()
-                showCreateGroup = true
-            } label: {
-                Label(L10n.tr("messages.startGroup"), systemImage: "bubble.left.and.bubble.right")
-            }
-            Button {
-                closeOpenSwipeAction()
-                showAddFriendSheet = true
-            } label: {
-                Label(L10n.tr("messages.addFriend"), systemImage: "person.badge.plus")
-            }
-            Button {
-                closeOpenSwipeAction()
-                showScannerComingSoon = true
-            } label: {
-                Label(L10n.tr("messages.scan"), systemImage: "qrcode.viewfinder")
-            }
-            Button {
-                closeOpenSwipeAction()
-                showCreateBot = true
-            } label: {
-                Label(L10n.tr("messages.createBot"), systemImage: "sparkles")
-            }
+        Button {
+            closeOpenSwipeAction()
+            dismissSearchFocus()
+            showMessageActions.toggle()
         } label: {
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 25, weight: .semibold))
-                .foregroundStyle(AppColors.accentGradient)
-                .frame(width: 42, height: 42)
-                .contentShape(Rectangle())
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(AppColors.primaryText)
+                .frame(width: 40, height: 40)
+                .background {
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                        .overlay {
+                            Circle()
+                                .fill(Color.white.opacity(0.52))
+                        }
+                }
+                .overlay {
+                    Circle()
+                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                }
+                .shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 2)
+                .contentShape(Circle())
+        }
+        .frame(width: 44, height: 44)
+        .buttonStyle(.plain)
+        .popover(
+            isPresented: $showMessageActions,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .top
+        ) {
+            if #available(iOS 16.4, *) {
+                messageActionsPopover
+                    .presentationCompactAdaptation(.popover)
+                    .presentationBackground(.ultraThinMaterial)
+            } else {
+                messageActionsPopover
+            }
         }
         .accessibilityLabel(L10n.tr("messages.moreActions"))
     }
+
+    private var messageActionsPopover: some View {
+        VStack(spacing: 0) {
+            messageActionRow(
+                title: L10n.tr("messages.startGroup"),
+                systemImage: "bubble.left.and.bubble.right"
+            ) {
+                showCreateGroup = true
+            }
+            menuDivider
+            messageActionRow(
+                title: L10n.tr("messages.addFriend"),
+                systemImage: "person.badge.plus"
+            ) {
+                showAddFriendSheet = true
+            }
+            menuDivider
+            messageActionRow(
+                title: L10n.tr("messages.scan"),
+                systemImage: "qrcode.viewfinder"
+            ) {
+                showScannerComingSoon = true
+            }
+            menuDivider
+            messageActionRow(
+                title: "创建智能体",
+                systemImage: "person.crop.circle.badge.plus"
+            ) {
+                navigator.push(AgentCreatorView(mode: .create))
+            }
+        }
+        .frame(width: 210)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var menuDivider: some View {
+        Divider()
+            .padding(.leading, 48)
+    }
+
+    private func messageActionRow(
+        title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            dismissMessageActions()
+            closeOpenSwipeAction()
+            DispatchQueue.main.async(execute: action)
+        } label: {
+            HStack(spacing: 13) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundColor(AppColors.primaryText)
+                    .frame(width: 22)
+
+                Text(title)
+                    .font(.system(size: 16))
+                    .foregroundColor(AppColors.primaryText)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dismissMessageActions() {
+        showMessageActions = false
+    }
+
+    private func matchesSearch(_ conversation: Conversation, query: String) -> Bool {
+        [
+            conversation.name,
+            conversation.subtitle,
+            conversation.lastMessage.map(ConversationPreviewFormatter.text)
+        ]
+        .compactMap { $0 }
+        .contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
 }
 
 // MARK: - Chat list swipe container
@@ -343,7 +558,6 @@ private extension View {
     func wrappedInSwipeActions(
         id: ConversationSwipeActionID,
         openID: Binding<ConversationSwipeActionID?>,
-        closeRequest: Int,
         isPinned: Bool,
         pinTitle: String,
         onRequestClose: @escaping () -> Void,
@@ -354,7 +568,6 @@ private extension View {
         SwipeableConversationCell(
             id: id,
             openID: openID,
-            closeRequest: closeRequest,
             isPinned: isPinned,
             pinTitle: pinTitle,
             onRequestClose: onRequestClose,
@@ -370,7 +583,6 @@ private extension View {
 private struct SwipeableConversationCell<Content: View>: View {
     let id: ConversationSwipeActionID
     @Binding var openID: ConversationSwipeActionID?
-    let closeRequest: Int
     let isPinned: Bool
     let pinTitle: String
     let onRequestClose: () -> Void
@@ -382,16 +594,15 @@ private struct SwipeableConversationCell<Content: View>: View {
     private let avatarRevealOffset: CGFloat = 62
     private let actionWidth: CGFloat = 144
     private let actionHeight: CGFloat = AppListMetrics.conversationSwipeActionHeight
-    private let closeAnimationDuration: TimeInterval = 0.34
+    private let closeAnimationDuration: TimeInterval = 0.22
 
-    @State private var dragOffset: CGFloat = 0
     @State private var settledOffset: CGFloat = 0
-    @State private var closeAnimationToken = UUID()
+    @State private var intendedOpen = false
+    @State private var gestureTranslation: CGFloat = 0
 
     init(
         id: ConversationSwipeActionID,
         openID: Binding<ConversationSwipeActionID?>,
-        closeRequest: Int,
         isPinned: Bool,
         pinTitle: String,
         onRequestClose: @escaping () -> Void,
@@ -402,7 +613,6 @@ private struct SwipeableConversationCell<Content: View>: View {
     ) {
         self.id = id
         self._openID = openID
-        self.closeRequest = closeRequest
         self.isPinned = isPinned
         self.pinTitle = pinTitle
         self.onRequestClose = onRequestClose
@@ -415,21 +625,16 @@ private struct SwipeableConversationCell<Content: View>: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             content
-                .offset(x: dragOffset)
+                .offset(x: displayedOffset)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    if openID == id {
-                        closeWithSlide()
-                    } else if openID != nil {
-                        onRequestClose()
-                    } else {
-                        onTap()
-                    }
+                .overlay {
+                    HorizontalSwipeGestureSurface(
+                        onTap: handleContentTap,
+                        onChanged: handleHorizontalPanChanged,
+                        onEnded: handleHorizontalPanEnded,
+                        onCancelled: handleHorizontalPanCancelled
+                    )
                 }
-
-            if openID != nil {
-                dismissOverlay
-            }
 
             actionButtons
                 .frame(width: actionWidth, height: actionHeight)
@@ -438,21 +643,20 @@ private struct SwipeableConversationCell<Content: View>: View {
                 .allowsHitTesting(isOpen)
         }
         .clipped()
-        .simultaneousGesture(swipeGesture)
         .onChange(of: openID) { newValue in
             let shouldBeOpen = newValue == id
-            guard shouldBeOpen != isOpen else { return }
+            guard shouldBeOpen != intendedOpen else { return }
             setOpen(shouldBeOpen, updatesSharedState: false)
         }
-        .onChange(of: closeRequest) { _ in
-            guard openID == id || dragOffset < 0 else { return }
-            closeWithSlide()
-        }
+    }
+
+    private var displayedOffset: CGFloat {
+        min(0, max(-avatarRevealOffset, settledOffset + gestureTranslation))
     }
 
     private var actionProgress: CGFloat {
         guard avatarRevealOffset > 0 else { return 0 }
-        return min(1, max(0, -dragOffset / avatarRevealOffset))
+        return min(1, max(0, -displayedOffset / avatarRevealOffset))
     }
 
     private var isOpen: Bool {
@@ -462,8 +666,7 @@ private struct SwipeableConversationCell<Content: View>: View {
     private var actionButtons: some View {
         HStack(spacing: 0) {
             Button {
-                closeWithSlide()
-                onPin()
+                performAfterClosing(onPin)
             } label: {
                 actionLabel(title: pinTitle, systemImage: isPinned ? "pin.slash" : "pin.fill")
             }
@@ -473,8 +676,7 @@ private struct SwipeableConversationCell<Content: View>: View {
             .background(Color(hex: "F0A020"))
 
             Button {
-                closeWithSlide()
-                onDelete()
+                performAfterClosing(onDelete)
             } label: {
                 actionLabel(title: L10n.tr("common.delete"), systemImage: "trash")
             }
@@ -483,26 +685,6 @@ private struct SwipeableConversationCell<Content: View>: View {
             .frame(width: actionWidth / 2, height: actionHeight)
             .background(Color(hex: "E5484D"))
         }
-    }
-
-    private var dismissOverlay: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .onTapGesture {
-                closeFromOutsideInteraction()
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .local)
-                    .onChanged { _ in
-                        closeFromOutsideInteraction()
-                    }
-            )
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0, maximumDistance: 10_000)
-                    .onEnded { _ in
-                        closeFromOutsideInteraction()
-                    }
-            )
     }
 
     private func actionLabel(title: String, systemImage: String) -> some View {
@@ -518,127 +700,187 @@ private struct SwipeableConversationCell<Content: View>: View {
         .contentShape(Rectangle())
     }
 
-    private var swipeGesture: some Gesture {
-        DragGesture(minimumDistance: 10, coordinateSpace: .local)
-            .onChanged { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else {
-                    guard openID != nil else { return }
-                    if openID == id {
-                        closeWithSlide()
-                    } else {
-                        onRequestClose()
-                    }
-                    return
-                }
-                if openID != nil && openID != id {
-                    onRequestClose()
-                    return
-                }
-                let nextOffset = settledOffset + value.translation.width
-                dragOffset = min(0, max(-avatarRevealOffset, nextOffset))
-            }
-            .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let predictedOffset = settledOffset + value.predictedEndTranslation.width
-                let shouldOpen = predictedOffset < -avatarRevealOffset * 0.45
-                    || dragOffset < -avatarRevealOffset * 0.5
-                setOpen(shouldOpen)
-            }
-    }
-
-    private func closeFromOutsideInteraction() {
+    private func handleContentTap() {
         if openID == id {
             closeWithSlide()
-        } else {
+        } else if openID != nil {
             onRequestClose()
+        } else {
+            onTap()
         }
+    }
+
+    private func handleHorizontalPanChanged(_ translation: CGFloat) {
+        guard openID == nil || openID == id else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            gestureTranslation = translation
+        }
+    }
+
+    private func handleHorizontalPanEnded(translation: CGFloat, velocity: CGFloat) {
+        guard openID == nil || openID == id else {
+            gestureTranslation = 0
+            onRequestClose()
+            return
+        }
+
+        let currentOffset = min(
+            0,
+            max(-avatarRevealOffset, settledOffset + translation)
+        )
+        let projectedTranslation = translation + velocity * 0.18
+        let predictedOffset = settledOffset + projectedTranslation
+        let shouldOpen = predictedOffset < -avatarRevealOffset * 0.45
+            || currentOffset < -avatarRevealOffset * 0.5
+
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            settledOffset = currentOffset
+            gestureTranslation = 0
+        }
+        setOpen(shouldOpen)
+    }
+
+    private func handleHorizontalPanCancelled() {
+        let currentOffset = min(
+            0,
+            max(-avatarRevealOffset, settledOffset + gestureTranslation)
+        )
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            settledOffset = currentOffset
+            gestureTranslation = 0
+        }
+        setOpen(intendedOpen)
     }
 
     private func closeWithSlide() {
         setOpen(false)
     }
 
+    private func performAfterClosing(_ action: @escaping () -> Void) {
+        closeWithSlide()
+        DispatchQueue.main.asyncAfter(deadline: .now() + closeAnimationDuration * 0.72) {
+            action()
+        }
+    }
+
     private func setOpen(_ open: Bool, updatesSharedState: Bool = true) {
         let target = open ? -avatarRevealOffset : CGFloat.zero
-        closeAnimationToken = UUID()
-        let animationToken = closeAnimationToken
+        intendedOpen = open
 
         if updatesSharedState && open {
             openID = id
         }
 
         let animation: Animation = open
-            ? .interactiveSpring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.04)
+            ? .interactiveSpring(response: 0.24, dampingFraction: 0.9, blendDuration: 0.02)
             : .timingCurve(0.22, 0.61, 0.36, 1, duration: closeAnimationDuration)
 
         withAnimation(animation) {
-            dragOffset = target
+            settledOffset = target
         }
-        settledOffset = target
 
-        guard updatesSharedState, !open, openID == id else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + closeAnimationDuration) {
-            guard closeAnimationToken == animationToken, openID == id, abs(dragOffset) < 1 else { return }
+        if updatesSharedState && !open && openID == id {
             openID = nil
         }
     }
 }
 
-// MARK: - Bot row in conversation list
+/// A UIKit-backed horizontal pan surface. `gestureRecognizerShouldBegin` rejects
+/// vertical motion before recognition, so the ancestor ScrollView receives the
+/// same traditional bidirectional scroll behavior as a standard chat list.
+private struct HorizontalSwipeGestureSurface: UIViewRepresentable {
+    let onTap: () -> Void
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (_ translation: CGFloat, _ velocity: CGFloat) -> Void
+    let onCancelled: () -> Void
 
-struct BotConversationRow: View {
-    let bot: BotConfig
-    let lastMessage: BotChatMessage?
-    let showsDivider: Bool
-    var isPinned: Bool = false
+    func makeUIView(context: Context) -> GestureView {
+        let view = GestureView()
+        update(view)
+        return view
+    }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            BotAvatar(avatarURL: bot.avatarURL, emoji: bot.emoji, size: 50)
+    func updateUIView(_ uiView: GestureView, context: Context) {
+        update(uiView)
+    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(bot.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(AppColors.primaryText)
-                        .lineLimit(1)
-                    Text(L10n.tr("bot.label"))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(AppColors.accent)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(AppColors.accentLight)
-                        .cornerRadius(4)
+    private func update(_ view: GestureView) {
+        view.onTap = onTap
+        view.onChanged = onChanged
+        view.onEnded = onEnded
+        view.onCancelled = onCancelled
+    }
 
-                    if isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(Color(hex: "F0A020"))
-                    }
-                }
+    final class GestureView: UIView, UIGestureRecognizerDelegate {
+        var onTap: (() -> Void)?
+        var onChanged: ((CGFloat) -> Void)?
+        var onEnded: ((CGFloat, CGFloat) -> Void)?
+        var onCancelled: (() -> Void)?
 
-                if let msg = lastMessage {
-                    Text((msg.role == "user" ? L10n.tr("common.me.withColon") : "") + msg.content)
-                        .font(.system(size: 14))
-                        .foregroundColor(AppColors.secondaryText)
-                        .lineLimit(1)
-                } else {
-                    Text(bot.characterBackground.isEmpty ? L10n.tr("bot.chat.start") : bot.characterBackground)
-                        .font(.system(size: 14))
-                        .foregroundColor(AppColors.tertiaryText)
-                        .lineLimit(1)
-                }
-            }
+        private lazy var panRecognizer: UIPanGestureRecognizer = {
+            let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            recognizer.minimumNumberOfTouches = 1
+            recognizer.maximumNumberOfTouches = 1
+            recognizer.cancelsTouchesInView = true
+            recognizer.delegate = self
+            return recognizer
+        }()
 
-            Spacer(minLength: 4)
+        private lazy var tapRecognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+            recognizer.cancelsTouchesInView = true
+            return recognizer
+        }()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isAccessibilityElement = false
+            addGestureRecognizer(panRecognizer)
+            tapRecognizer.require(toFail: panRecognizer)
+            addGestureRecognizer(tapRecognizer)
         }
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)
-        .contentShape(Rectangle())
-        .overlay(alignment: .bottom) {
-            if showsDivider {
-                Divider()
-                    .padding(.leading, 62)
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === panRecognizer else { return true }
+            let velocity = panRecognizer.velocity(in: self)
+            return abs(velocity.x) > abs(velocity.y)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            gestureRecognizer === panRecognizer || otherGestureRecognizer === panRecognizer
+        }
+
+        @objc private func handleTap() {
+            onTap?()
+        }
+
+        @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            switch recognizer.state {
+            case .changed:
+                onChanged?(recognizer.translation(in: self).x)
+            case .ended:
+                onEnded?(
+                    recognizer.translation(in: self).x,
+                    recognizer.velocity(in: self).x
+                )
+            case .cancelled, .failed:
+                onCancelled?()
+            default:
+                break
             }
         }
     }
@@ -650,23 +892,34 @@ struct ConversationRow: View {
     let conversation: Conversation
     let showsDivider: Bool
     var isPinned: Bool = false
+    @ObservedObject private var unreadStore = UnreadBadgeStore.shared
+
+    private var unreadCount: Int {
+        unreadStore.conversationUnreadCount(for: conversation.listIdentity)
+            ?? conversation.unreadCount
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            if conversation.isGroup {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(hex: "5856D6").opacity(0.8), Color(hex: "764BA2").opacity(0.6)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 50, height: 50)
-                    Image(systemName: "person.3.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
+            if conversation.isAgentConversation {
+                AgentAvatarView(
+                    assetID: conversation.agentAvatarAssetID,
+                    size: 50,
+                    cornerRadius: 50 * 0.22
+                )
+            } else if conversation.isScriptRoom {
+                ScriptRemoteImage(
+                    urlString: conversation.avatarURL,
+                    cornerRadius: 10,
+                    fallbackSystemImage: "book.closed.fill"
+                )
+                .frame(width: 50, height: 50)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } else if conversation.isGroup {
+                if let groupID = conversation.resolvedGroupID {
+                    GroupMemberAvatarView(groupID: groupID, size: 50)
+                } else {
+                    GroupAvatarIcon(size: 50)
                 }
             } else {
                 AvatarView(url: conversation.avatarURL, size: 50)
@@ -678,6 +931,14 @@ struct ConversationRow: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(AppColors.primaryText)
                         .lineLimit(1)
+
+                    if conversation.isScriptRoom {
+                        ConversationKindBadge(text: L10n.tr("script.label"))
+                    }
+
+                    if conversation.isAgentConversation {
+                        ConversationKindBadge(text: "智能体")
+                    }
 
                     if isPinned {
                         Image(systemName: "pin.fill")
@@ -719,8 +980,8 @@ struct ConversationRow: View {
                     .font(.system(size: 12))
                     .foregroundColor(AppColors.tertiaryText)
 
-                if conversation.unreadCount > 0 {
-                    Text("\(min(conversation.unreadCount, 99))\(conversation.unreadCount > 99 ? "+" : "")")
+                if unreadCount > 0 {
+                    Text("\(min(unreadCount, 99))\(unreadCount > 99 ? "+" : "")")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 7)
@@ -739,5 +1000,20 @@ struct ConversationRow: View {
                     .padding(.leading, 62)
             }
         }
+    }
+}
+
+private struct ConversationKindBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(AppColors.accent)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(AppColors.accentLight)
+            .cornerRadius(4)
+            .fixedSize(horizontal: true, vertical: false)
     }
 }

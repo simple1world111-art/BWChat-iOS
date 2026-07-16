@@ -2,6 +2,7 @@
 // Main tab bar: Messages (unified), Contacts, Discover, Profile
 
 import SwiftUI
+import UIKit
 
 struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -10,101 +11,99 @@ struct MainTabView: View {
     @ObservedObject private var mediaSaveFeedback = MediaSaveFeedback.shared
     @ObservedObject private var appearanceStore = ChatAppearanceStore.shared
     @ObservedObject private var languageStore = AppLanguageStore.shared
+    @ObservedObject private var unreadBadgeStore = UnreadBadgeStore.shared
+    @State private var tabs = DynamicTabDescriptor.defaultTabs
+
+    private var tabBadges: [String: Int] {
+        [
+            "messages": unreadBadgeStore.chatUnreadCount,
+            "discover": unreadBadgeStore.momentsUnreadCount
+        ]
+    }
 
     var body: some View {
         ZStack {
             MainTabController(
                 selectedIndex: $selectedTab,
                 repairID: tabBarRepairID,
-                languageIdentifier: languageStore.activeLanguage.rawValue
+                languageIdentifier: languageStore.activeLanguage.rawValue,
+                tabs: tabs,
+                tabBadges: tabBadges
             )
                 .ignoresSafeArea(.container)
+                .ignoresSafeArea(.keyboard, edges: .bottom)
 
             ImageGalleryOverlay()
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openChat"))) { _ in
             selectedTab = 0
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openGroupChat"))) { _ in
             selectedTab = 0
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openMainTab)) { notification in
+            guard let tabID = notification.userInfo?["tabID"] as? String else { return }
+            if let index = tabs.firstIndex(where: { $0.id.normalizedDynamicToken == tabID.normalizedDynamicToken }) {
+                selectedTab = index
+            }
+        }
         .task(id: AuthManager.shared.currentUser?.userID ?? "") {
+            await refreshTabs()
             await appearanceStore.load()
+        }
+        .onChange(of: tabs.map(\.id)) { _ in
+            selectedTab = min(selectedTab, max(tabs.count - 1, 0))
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 tabBarRepairID += 1
+                Task { await refreshTabs() }
             }
         }
         .toast(message: $mediaSaveFeedback.toastMessage)
+    }
+
+    @MainActor
+    private func refreshTabs(force: Bool = false) async {
+        await AppRemoteConfigStore.shared.load(force: force)
+        let nextTabs = AppRemoteConfigStore.shared.config.effectiveTabs
+        guard nextTabs != tabs else { return }
+        tabs = nextTabs
+        selectedTab = min(selectedTab, max(nextTabs.count - 1, 0))
     }
 }
 
 // MARK: - Contacts Tab (Friends + Requests)
 
 struct ContactsTabView: View {
+    let isRootTab: Bool
+
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = FriendsViewModel()
     @StateObject private var groupsViewModel = GroupsViewModel()
-    @ObservedObject private var botStore = BotStore.shared
+    @ObservedObject private var appConfig = AppRemoteConfigStore.shared
+    @State private var routeAlert: DynamicRouteAlert?
+
+    init(isRootTab: Bool = true) {
+        self.isRootTab = isRootTab
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                RootTabTitle(localizedKey: "tab.contacts")
-                    .padding(.horizontal, 16)
-                    .padding(.top, AppSpacing.rootTabTopInset)
-                    .padding(.bottom, 12)
-
-                // Quick actions - friend requests link
-                VStack(spacing: 0) {
-                    Button {
-                        navigator.push(FriendRequestsView())
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(AppColors.warningColor.opacity(0.12))
-                                    .frame(width: 40, height: 40)
-                                Image(systemName: "person.crop.circle.badge.clock")
-                                    .font(.system(size: 17))
-                                    .foregroundColor(AppColors.warningColor)
-                            }
-
-                            Text(L10n.tr("contacts.friendRequests"))
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(AppColors.primaryText)
-
-                            Spacer()
-
-                            if !viewModel.friendRequests.isEmpty {
-                                Text("\(viewModel.friendRequests.count)")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(AppColors.unreadBadge)
-                                    .cornerRadius(10)
-                            }
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(AppColors.tertiaryText)
-                        }
+                if isRootTab {
+                    RootTabTitle(localizedKey: "tab.contacts")
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
-                    }
+                        .padding(.top, AppSpacing.rootTabTopInset)
+                        .padding(.bottom, 12)
+                } else {
+                    Color.clear
+                        .frame(height: 16)
                 }
-                .background(AppColors.cardBackground)
-                .cornerRadius(14)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
 
-                myGroupsCard
+                dynamicContactModules
                     .padding(.bottom, 12)
-
-                aiCompanionCard
 
                 // Friends list
                 if viewModel.friends.isEmpty && !viewModel.isLoading {
@@ -177,29 +176,146 @@ struct ContactsTabView: View {
             .padding(.bottom, 20)
         }
         .background(AppColors.secondaryBackground)
-        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .modifier(ContactsNavigationChrome(isRootTab: isRootTab))
         .task(id: AuthManager.shared.currentUser?.userID ?? "") {
+            async let config: () = appConfig.load()
             async let friends: () = viewModel.loadFriends()
             async let requests: () = viewModel.loadFriendRequests()
-            async let bots: () = botStore.syncServerBots()
             async let groups: () = groupsViewModel.loadGroups()
+            await config
             await friends
             await requests
-            await bots
             await groups
         }
         .refreshable {
-            async let friends: () = viewModel.loadFriends()
-            async let requests: () = viewModel.loadFriendRequests()
-            async let bots: () = botStore.syncServerBots()
-            async let groups: () = groupsViewModel.loadGroups()
+            async let config: () = appConfig.load(force: true)
+            async let friends: () = viewModel.loadFriends(forceRefresh: true)
+            async let requests: () = viewModel.loadFriendRequests(forceRefresh: true)
+            async let groups: () = groupsViewModel.loadGroups(forceRefresh: true)
+            await config
             await friends
             await requests
-            await bots
             await groups
         }
+        .alert(item: $routeAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(L10n.tr("common.ok")))
+            )
+        }
+    }
+
+    private var dynamicContactModules: some View {
+        VStack(spacing: 10) {
+            ForEach(appConfig.config.effectiveContactModules) { section in
+                ForEach(section.items) { item in
+                    contactModuleRow(item)
+                        .frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)
+                        .background(AppColors.cardBackground)
+                        .cornerRadius(14)
+                        .padding(.horizontal, 16)
+                }
+            }
+        }
+    }
+
+    private func contactModuleRow(_ item: DynamicSectionItem) -> some View {
+        Button {
+            switch DynamicRouteHandler.open(
+                item.route ?? DynamicRoute(type: "native", name: item.id),
+                navigator: navigator,
+                fallbackTitle: item.displayTitle()
+            ) {
+            case .handled:
+                break
+            case .alert(let alert):
+                routeAlert = alert
+            }
+        } label: {
+            HStack(spacing: 12) {
+                if item.id.normalizedDynamicToken == "my_groups" {
+                    GroupAvatarIcon(size: 40)
+                } else if ["agent_hub", "ai_companions"].contains(item.id.normalizedDynamicToken) {
+                    AgentAvatarView(assetID: nil, size: 40)
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(iconFill(for: item.displayColors))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: resolvedSystemImage(item.systemImage))
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.displayTitle())
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    if let subtitle = item.displaySubtitle() {
+                        Text(subtitle)
+                            .font(.system(size: 12))
+                            .foregroundColor(AppColors.secondaryText)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                if let trailingText = contactTrailingText(for: item) {
+                    Text(trailingText)
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(1)
+                }
+
+                if item.id.normalizedDynamicToken == "friend_requests", !viewModel.friendRequests.isEmpty {
+                    Text("\(viewModel.friendRequests.count)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(AppColors.unreadBadge)
+                        .cornerRadius(10)
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func contactTrailingText(for item: DynamicSectionItem) -> String? {
+        switch item.id.normalizedDynamicToken {
+        case "my_groups":
+            return L10n.tr("contacts.myGroups.count", groupsViewModel.groups.count)
+        case "agent_hub", "ai_companions":
+            return "Agent Platform"
+        default:
+            return nil
+        }
+    }
+
+    private func iconFill(for colors: [Color]) -> AnyShapeStyle {
+        if colors.count >= 2 {
+            return AnyShapeStyle(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+        return AnyShapeStyle(colors.first ?? AppColors.accent)
+    }
+
+    private func resolvedSystemImage(_ image: String?) -> String {
+        guard let image, UIImage(systemName: image) != nil else { return "sparkles" }
+        return image
     }
 
     private var myGroupsCard: some View {
@@ -207,21 +323,7 @@ struct ContactsTabView: View {
             navigator.push(GroupListView(mode: .myGroups).withUIKitBackButton())
         } label: {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(hex: "34C759"), Color(hex: "00B894")],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 42, height: 42)
-
-                    Image(systemName: "person.3.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                }
+                GroupAvatarIcon(size: 42)
 
                 Text(L10n.tr("contacts.myGroups"))
                     .font(.system(size: 16, weight: .medium))
@@ -249,222 +351,41 @@ struct ContactsTabView: View {
         .padding(.horizontal, 16)
     }
 
-    private var aiCompanionCard: some View {
-        Button {
-            navigator.push(AIBotListView())
-        } label: {
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(hex: "8B7CFF"), Color(hex: "C779FF")],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 42, height: 42)
-
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                Text(L10n.tr("contacts.aiCompanions"))
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(AppColors.primaryText)
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text(L10n.tr("contacts.aiCompanions.count", botStore.bots.count))
-                    .font(.system(size: 13))
-                    .foregroundColor(AppColors.secondaryText)
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(AppColors.tertiaryText)
-            }
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)
-            .background(AppColors.cardBackground)
-            .cornerRadius(14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-    }
 }
 
-// MARK: - AI Bot List
+private struct ContactsNavigationChrome: ViewModifier {
+    let isRootTab: Bool
 
-private struct AIBotListView: View {
-    @EnvironmentObject private var navigator: UIKitNavigator
-    @ObservedObject private var botStore = BotStore.shared
-    @State private var showCreateBot = false
-
-    var body: some View {
-        Group {
-            if botStore.bots.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(Array(botStore.bots.enumerated()), id: \.element.id) { index, bot in
-                            Button {
-                                navigator.push(BotChatView(botID: bot.id))
-                            } label: {
-                                AIBotListRow(
-                                    bot: bot,
-                                    lastMessage: botStore.lastMessage(for: bot.id),
-                                    showsDivider: index < botStore.bots.count - 1
-                                )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .background(AppColors.cardBackground)
-                    .cornerRadius(14)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, 24)
-                }
-            }
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isRootTab {
+            content
+                .navigationTitle("")
+                .toolbar(.hidden, for: .navigationBar)
+        } else {
+            content
+                .navigationTitle(L10n.tr("tab.contacts"))
+                .hidesTabBarOnPush()
+                .withUIKitBackButton()
         }
-        .background(AppColors.secondaryBackground)
-        .navigationTitle(L10n.tr("contacts.aiCompanions"))
-        .navigationBarTitleDisplayMode(.inline)
-        .hidesTabBarOnPush()
-        .withUIKitBackButton()
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showCreateBot = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(AppColors.accentGradient)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel(L10n.tr("messages.createBot"))
-            }
-        }
-        .sheet(isPresented: $showCreateBot) {
-            BotConfigView(mode: .create)
-        }
-        .task {
-            await botStore.syncServerBots()
-        }
-        .refreshable {
-            await botStore.syncServerBots()
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            ZStack {
-                Circle()
-                    .fill(AppColors.accent.opacity(0.08))
-                    .frame(width: 74, height: 74)
-                Image(systemName: "sparkles")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(AppColors.accentGradient)
-            }
-            Text(L10n.tr("contacts.aiCompanions.emptyTitle"))
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(AppColors.secondaryText)
-            Button {
-                showCreateBot = true
-            } label: {
-                Text(L10n.tr("messages.createBot"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(AppColors.accentGradient)
-                    .cornerRadius(12)
-            }
-            .buttonStyle(.plain)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct AIBotListRow: View {
-    let bot: BotConfig
-    let lastMessage: BotChatMessage?
-    let showsDivider: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            BotAvatar(avatarURL: bot.avatarURL, emoji: bot.emoji, size: 48)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(bot.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(AppColors.primaryText)
-                        .lineLimit(1)
-
-                    Text(L10n.tr("bot.label"))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(AppColors.accent)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(AppColors.accentLight)
-                        .cornerRadius(4)
-                }
-
-                Text(subtitle)
-                    .font(.system(size: 14))
-                    .foregroundColor(AppColors.secondaryText)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(AppColors.tertiaryText)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .overlay(alignment: .bottom) {
-            if showsDivider {
-                Divider()
-                    .padding(.leading, 76)
-            }
-        }
-    }
-
-    private var subtitle: String {
-        if let lastMessage {
-            return (lastMessage.role == "user" ? L10n.tr("common.me.withColon") : "")
-                + ConversationPreviewFormatter.text(for: lastMessage.content)
-        }
-        return bot.characterBackground.isEmpty ? L10n.tr("bot.chat.start") : bot.characterBackground
     }
 }
 
 // MARK: - Group List View
 
 struct GroupListView: View {
-    enum Mode: Equatable {
+    enum Mode: String, CaseIterable, Identifiable {
         case publicGroups
         case myGroups
 
-        var navigationTitleKey: String {
+        var id: String { rawValue }
+
+        var tabTitleKey: String {
             switch self {
             case .publicGroups:
-                return "discover.groups"
+                return "groups.tab.recommended"
             case .myGroups:
-                return "contacts.myGroups"
+                return "groups.tab.myGroups"
             }
         }
 
@@ -490,14 +411,14 @@ struct GroupListView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = GroupsViewModel()
     @State private var showCreateGroup = false
-    let mode: Mode
+    @State private var selectedMode: Mode
 
     init(mode: Mode = .publicGroups) {
-        self.mode = mode
+        _selectedMode = State(initialValue: mode)
     }
 
     private var displayedGroups: [ChatGroup] {
-        switch mode {
+        switch selectedMode {
         case .publicGroups:
             return viewModel.groups.filter(\.isPublic)
         case .myGroups:
@@ -510,18 +431,11 @@ struct GroupListView: View {
             if displayedGroups.isEmpty && !viewModel.isLoading {
                 VStack(spacing: 14) {
                     Spacer()
-                    ZStack {
-                        Circle()
-                            .fill(AppColors.groupAccent.opacity(0.08))
-                            .frame(width: 70, height: 70)
-                        Image(systemName: "person.3")
-                            .font(.system(size: 28))
-                            .foregroundColor(AppColors.groupAccent.opacity(0.5))
-                    }
-                    Text(L10n.tr(mode.emptyTitleKey))
+                    GroupAvatarIcon(size: 70)
+                    Text(L10n.tr(selectedMode.emptyTitleKey))
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(AppColors.secondaryText)
-                    Text(L10n.tr(mode.emptySubtitleKey))
+                    Text(L10n.tr(selectedMode.emptySubtitleKey))
                         .font(.system(size: 14))
                         .foregroundColor(AppColors.tertiaryText)
                     Spacer()
@@ -547,23 +461,28 @@ struct GroupListView: View {
             }
         }
         .background(AppColors.secondaryBackground)
-        .navigationTitle(L10n.tr(mode.navigationTitleKey))
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                GroupListModePicker(selection: $selectedMode)
+            }
+
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showCreateGroup = true
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(AppColors.accentGradient)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(AppColors.primaryText)
+                        .frame(width: 34, height: 34)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.tr("group.create.title"))
             }
         }
         .sheet(isPresented: $showCreateGroup) {
-            CreateGroupView(initialIsPublic: mode == .publicGroups) {
+            CreateGroupView(initialIsPublic: selectedMode == .publicGroups) {
                 Task { await viewModel.loadGroups() }
             }
         }
@@ -571,8 +490,23 @@ struct GroupListView: View {
             await viewModel.loadGroups()
         }
         .refreshable {
-            await viewModel.loadGroups()
+            await viewModel.loadGroups(forceRefresh: true)
         }
+    }
+}
+
+private struct GroupListModePicker: View {
+    @Binding var selection: GroupListView.Mode
+
+    var body: some View {
+        SystemSegmentedTabs(
+            items: GroupListView.Mode.allCases,
+            selection: $selection,
+            title: { L10n.tr($0.tabTitleKey) },
+            accessibilityIdentifier: "group.top.tabs"
+        )
+        .frame(width: 196)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -580,24 +514,17 @@ struct GroupListView: View {
 
 struct GroupRow: View {
     let group: ChatGroup
+    @ObservedObject private var unreadStore = UnreadBadgeStore.shared
+
+    private var unreadCount: Int {
+        unreadStore.conversationUnreadCount(
+            for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
+        ) ?? group.unreadCount
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            // Group avatar
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "5856D6").opacity(0.8), Color(hex: "764BA2").opacity(0.6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 48, height: 48)
-                Image(systemName: "person.3.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(.white)
-            }
+            GroupMemberAvatarView(groupID: group.groupID, size: 48)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
@@ -633,8 +560,8 @@ struct GroupRow: View {
                     .font(.system(size: 12))
                     .foregroundColor(AppColors.tertiaryText)
 
-                if group.unreadCount > 0 {
-                    Text("\(group.unreadCount)")
+                if unreadCount > 0 {
+                    Text("\(min(unreadCount, 99))\(unreadCount > 99 ? "+" : "")")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 7)

@@ -45,6 +45,7 @@ struct ReplyPreviewBar: View {
         case "image": return L10n.tr("message.image")
         case "video": return L10n.tr("message.video")
         case "voice": return L10n.tr("message.voice")
+        case "sticker": return StickerMessagePayload.previewText(content: content, msgType: msgType) ?? L10n.tr("message.sticker")
         case "gift": return GiftMessagePayload.previewText(content: content)
         default: return content
         }
@@ -92,6 +93,7 @@ struct QuotedMessageView: View {
         case "image": return L10n.tr("message.image")
         case "video": return L10n.tr("message.video")
         case "voice": return L10n.tr("message.voice")
+        case "sticker": return StickerMessagePayload.previewText(content: content, msgType: msgType) ?? L10n.tr("message.sticker")
         case "gift": return GiftMessagePayload.previewText(content: content)
         default: return content
         }

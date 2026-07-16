@@ -54,7 +54,7 @@ class AuthViewModel: ObservableObject {
                 password: password,
                 deviceToken: deviceToken
             )
-            AuthManager.shared.login(token: token, refreshToken: refreshToken, user: user)
+            try AuthManager.shared.login(token: token, refreshToken: refreshToken, user: user)
 
             // Connect WebSocket
             WebSocketService.shared.connect()
@@ -85,7 +85,7 @@ class AuthViewModel: ObservableObject {
                 nickname: nickname.isBlank ? nil : nickname,
                 deviceToken: deviceToken
             )
-            AuthManager.shared.login(token: token, refreshToken: refreshToken, user: user)
+            try AuthManager.shared.login(token: token, refreshToken: refreshToken, user: user)
 
             WebSocketService.shared.connect()
             PushService.shared.requestPermission()

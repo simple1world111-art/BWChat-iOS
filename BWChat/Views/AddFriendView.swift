@@ -6,6 +6,7 @@ import SwiftUI
 struct AddFriendView: View {
     @StateObject private var viewModel = FriendsViewModel()
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var navigator: UIKitNavigator
 
     var body: some View {
         NavigationStack {
@@ -76,9 +77,15 @@ struct AddFriendView: View {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(viewModel.searchResults) { user in
-                                SearchUserRow(user: user) {
-                                    Task { await viewModel.sendFriendRequest(to: user.userID) }
-                                }
+                                SearchUserRow(
+                                    user: user,
+                                    onOpenProfile: {
+                                        navigator.push(UserProfileView(userID: user.userID))
+                                    },
+                                    onAdd: {
+                                        Task { await viewModel.sendFriendRequest(to: user.userID) }
+                                    }
+                                )
                                 Divider().padding(.leading, 72)
                             }
                         }
@@ -112,16 +119,25 @@ struct AddFriendView: View {
 
 struct SearchUserRow: View {
     let user: SearchUser
+    let onOpenProfile: () -> Void
     let onAdd: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            AvatarView(url: user.avatarURL, size: 44)
+            UserAvatarButton(
+                userID: user.userID,
+                avatarURL: user.avatarURL,
+                size: 44,
+                accessibilityName: user.nickname
+            )
 
-            Text(user.nickname)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(AppColors.primaryText)
-                .lineLimit(1)
+            Button(action: onOpenProfile) {
+                Text(user.nickname)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.plain)
 
             Spacer(minLength: 4)
 
