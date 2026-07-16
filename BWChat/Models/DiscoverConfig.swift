@@ -64,7 +64,7 @@ struct DiscoverConfigData: Codable, Equatable {
                     systemImage: "gamecontroller.fill",
                     colors: ["FF6B6B", "FF8E53"],
                     order: 10,
-                    route: DiscoverRoute(type: "web", url: "https://playdot.games")
+                    route: DiscoverRoute(type: "native", name: "game_center")
                 ),
                 DiscoverItem(
                     id: "short_drama",
@@ -94,7 +94,7 @@ struct DiscoverConfigData: Codable, Equatable {
                     systemImage: "book.closed.fill",
                     colors: ["7F5AF0", "FF7A90"],
                     order: 10,
-                    route: DiscoverRoute(type: "coming_soon")
+                    route: DiscoverRoute(type: "native", name: "script_center")
                 ),
                 DiscoverItem(
                     id: "groups",

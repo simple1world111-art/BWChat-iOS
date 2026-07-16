@@ -8,6 +8,14 @@ import AVFoundation
 import AudioToolbox
 import LiveKit
 
+private enum CallManagerError: LocalizedError {
+    case invalidLiveKitURL
+
+    var errorDescription: String? {
+        L10n.tr("call.error.invalidServer")
+    }
+}
+
 @MainActor
 class CallManager: ObservableObject {
     static let shared = CallManager()
@@ -21,6 +29,7 @@ class CallManager: ObservableObject {
     @Published var isMinimized = false
     @Published var isFrontCamera = true
     @Published var isRemotePrimary = true
+    @Published var errorMessage: String?
 
     // LiveKit room & participants
     @Published var room: Room?
@@ -33,6 +42,11 @@ class CallManager: ObservableObject {
     private var roomDelegate: RoomDelegateHandler?
     private var ringtonePlayer: AVAudioPlayer?
     private var ringtoneTimer: Task<Void, Never>?
+    private var connectionTimeoutTask: Task<Void, Never>?
+    private var ringTimeoutTask: Task<Void, Never>?
+
+    private let connectionTimeout: UInt64 = 20_000_000_000
+    private let outgoingRingTimeout: UInt64 = 45_000_000_000
 
     private init() {
         setupSignalingListeners()
@@ -52,6 +66,59 @@ class CallManager: ObservableObject {
         isMinimized = false
     }
 
+    @discardableResult
+    func receiveIncomingCall(
+        callerID: String,
+        callerName: String,
+        callerAvatar: String,
+        roomName: String,
+        callType: CallType
+    ) -> Bool {
+        guard currentCall == nil else {
+            WebSocketService.shared.sendCallBusy(targetID: callerID)
+            return false
+        }
+
+        currentCall = CallSession(
+            remoteUserID: callerID,
+            remoteNickname: callerName,
+            remoteAvatarURL: callerAvatar,
+            callType: callType,
+            isOutgoing: false,
+            state: .incoming,
+            startedAt: Date(),
+            roomName: roomName
+        )
+        playRingtone(isOutgoing: false)
+        return true
+    }
+
+    @discardableResult
+    func receiveIncomingGroupCall(
+        callerID: String,
+        groupID: Int,
+        groupName: String,
+        roomName: String,
+        callType: CallType
+    ) -> Bool {
+        guard currentCall == nil else { return false }
+
+        currentCall = CallSession(
+            remoteUserID: callerID,
+            remoteNickname: groupName,
+            remoteAvatarURL: "",
+            callType: callType,
+            isOutgoing: false,
+            state: .incoming,
+            startedAt: Date(),
+            roomName: roomName,
+            groupID: groupID,
+            groupName: groupName
+        )
+        playRingtone(isOutgoing: false)
+        return true
+    }
+
     func startCall(to userID: String, nickname: String, avatarURL: String, type: CallType) {
         guard currentCall == nil else { return }
         dismissKeyboard()
@@ -65,23 +132,28 @@ class CallManager: ObservableObject {
             state: .outgoing,
             startedAt: Date()
         )
-
-        playRingtone(isOutgoing: true)
+        let callID = currentCall?.id
 
         Task {
+            guard await ensureMediaPermissions(for: type),
+                  currentCall?.id == callID else { return }
+            playRingtone(isOutgoing: true)
+
             do {
                 let resp = try await APIService.shared.startCall(targetID: userID, callType: type.rawValue)
-                let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
+                guard currentCall?.id == callID else { return }
+                let livekitURL = try normalizedLiveKitURL(resp.livekitUrl)
                 if var call = currentCall {
                     call.roomName = resp.roomName
                     call.livekitToken = resp.token
                     call.livekitURL = livekitURL
                     currentCall = call
                 }
+                startOutgoingRingTimeout(for: callID)
                 await connectToRoom(url: livekitURL, token: resp.token, isVideo: type == .video)
             } catch {
                 print("[CallManager] Failed to start call: \(error)")
-                await safeEndCall()
+                failCall(L10n.tr("call.error.start", error.localizedDescription))
             }
         }
     }
@@ -89,37 +161,41 @@ class CallManager: ObservableObject {
     // MARK: - Accept (Incoming — works for both 1v1 and group)
 
     func acceptCall() {
-        guard var call = currentCall, call.state == .incoming else { return }
+        guard let call = currentCall, call.state == .incoming else { return }
         dismissKeyboard()
-        call.state = .connecting
-        currentCall = call
-        stopRingtone()
+        let callID = call.id
 
         Task {
-            do {
-                if let groupID = call.groupID {
-                    let resp = try await APIService.shared.startGroupCall(groupID: groupID, callType: call.callType.rawValue)
-                    let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
-                    if var c = currentCall {
-                        c.roomName = resp.roomName
-                        c.livekitToken = resp.token
-                        c.livekitURL = livekitURL
-                        currentCall = c
-                    }
-                    await connectToRoom(url: livekitURL, token: resp.token, isVideo: call.callType == .video)
-                } else {
-                    let resp = try await APIService.shared.joinCall(roomName: call.roomName)
-                    let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
-                    if var c = currentCall {
-                        c.livekitToken = resp.token
-                        c.livekitURL = livekitURL
-                        currentCall = c
-                    }
-                    await connectToRoom(url: livekitURL, token: resp.token, isVideo: call.callType == .video)
+            guard await ensureMediaPermissions(for: call.callType) else {
+                if call.groupID == nil, !call.remoteUserID.isEmpty {
+                    WebSocketService.shared.sendCallReject(
+                        targetID: call.remoteUserID,
+                        reason: "permission_denied"
+                    )
                 }
+                return
+            }
+            guard currentCall?.id == callID else { return }
+            if var current = currentCall {
+                current.state = .connecting
+                currentCall = current
+            }
+            stopRingtone()
+
+            do {
+                let resp = try await APIService.shared.joinCall(roomName: call.roomName)
+                guard currentCall?.id == callID else { return }
+                let livekitURL = try normalizedLiveKitURL(resp.livekitUrl)
+                if var current = currentCall {
+                    current.roomName = resp.roomName
+                    current.livekitToken = resp.token
+                    current.livekitURL = livekitURL
+                    currentCall = current
+                }
+                await connectToRoom(url: livekitURL, token: resp.token, isVideo: call.callType == .video)
             } catch {
                 print("[CallManager] Failed to join call: \(error)")
-                await safeEndCall()
+                failCall(L10n.tr("call.error.join", error.localizedDescription))
             }
         }
     }
@@ -141,11 +217,15 @@ class CallManager: ObservableObject {
             groupID: groupID,
             groupName: groupName
         )
+        let callID = currentCall?.id
 
         Task {
+            guard await ensureMediaPermissions(for: type),
+                  currentCall?.id == callID else { return }
             do {
                 let resp = try await APIService.shared.startGroupCall(groupID: groupID, callType: type.rawValue)
-                let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
+                guard currentCall?.id == callID else { return }
+                let livekitURL = try normalizedLiveKitURL(resp.livekitUrl)
                 if var call = currentCall {
                     call.roomName = resp.roomName
                     call.livekitToken = resp.token
@@ -155,7 +235,7 @@ class CallManager: ObservableObject {
                 await connectToRoom(url: livekitURL, token: resp.token, isVideo: type == .video)
             } catch {
                 print("[CallManager] Failed to start group call: \(error)")
-                await safeEndCall()
+                failCall(L10n.tr("call.error.start", error.localizedDescription))
             }
         }
     }
@@ -176,11 +256,15 @@ class CallManager: ObservableObject {
             groupID: groupID,
             groupName: groupName
         )
+        let callID = currentCall?.id
 
         Task {
+            guard await ensureMediaPermissions(for: callType),
+                  currentCall?.id == callID else { return }
             do {
                 let resp = try await APIService.shared.joinCall(roomName: roomName)
-                let livekitURL = resolvedLiveKitURL(resp.livekitUrl)
+                guard currentCall?.id == callID else { return }
+                let livekitURL = try normalizedLiveKitURL(resp.livekitUrl)
                 if var call = currentCall {
                     call.livekitToken = resp.token
                     call.livekitURL = livekitURL
@@ -189,7 +273,7 @@ class CallManager: ObservableObject {
                 await connectToRoom(url: livekitURL, token: resp.token, isVideo: callType == .video)
             } catch {
                 print("[CallManager] Failed to join group call: \(error)")
-                await safeEndCall()
+                failCall(L10n.tr("call.error.join", error.localizedDescription))
             }
         }
     }
@@ -202,16 +286,21 @@ class CallManager: ObservableObject {
         self.roomDelegate = handler
         newRoom.add(delegate: handler)
         self.room = newRoom
+        AudioManager.shared.isSpeakerOutputPreferred = isSpeakerOn
+        startConnectionTimeout(for: newRoom)
 
         do {
             let connectOptions = ConnectOptions(autoSubscribe: true)
             try await newRoom.connect(url: url, token: token, connectOptions: connectOptions)
+            guard room === newRoom else {
+                await newRoom.disconnect()
+                return
+            }
+            connectionTimeoutTask?.cancel()
+            connectionTimeoutTask = nil
 
             // Publish local audio
             try await newRoom.localParticipant.setMicrophone(enabled: true)
-
-            // Configure audio AFTER LiveKit setup to override its defaults
-            configureAudioSession()
 
             // Publish local video with higher quality, explicitly using front camera
             if isVideo {
@@ -251,13 +340,9 @@ class CallManager: ObservableObject {
             updateRemoteParticipants()
         } catch {
             print("[CallManager] Room connect failed: \(error)")
-            await safeEndCall()
+            guard room === newRoom else { return }
+            failCall(L10n.tr("call.error.connection"))
         }
-    }
-
-    private func safeEndCall() async {
-        try? await Task.sleep(nanoseconds: 600_000_000)
-        endCallLocally()
     }
 
     // MARK: - Controls
@@ -291,20 +376,9 @@ class CallManager: ObservableObject {
 
     func toggleSpeaker() {
         isSpeakerOn.toggle()
-        let session = AVAudioSession.sharedInstance()
-        do {
-            if isSpeakerOn {
-                try session.setCategory(.playAndRecord, mode: .videoChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
-                try session.setActive(true)
-                try session.overrideOutputAudioPort(.speaker)
-            } else {
-                try session.overrideOutputAudioPort(.none)
-                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
-                try session.setActive(true)
-            }
-        } catch {
-            print("[CallManager] toggleSpeaker error: \(error)")
-        }
+        // LiveKit 2.x owns AVAudioSession while its audio engine is running.
+        // Updating the SDK preference avoids racing its automatic configuration.
+        AudioManager.shared.isSpeakerOutputPreferred = isSpeakerOn
     }
 
     func toggleLocalVideo() {
@@ -391,6 +465,8 @@ class CallManager: ObservableObject {
             let isGroup = currentCall?.groupID != nil
             if isGroup || hasRemoteAudio {
                 stopRingtone()
+                ringTimeoutTask?.cancel()
+                ringTimeoutTask = nil
                 if var call = currentCall {
                     call.state = .connected
                     currentCall = call
@@ -403,9 +479,47 @@ class CallManager: ObservableObject {
 
     // MARK: - Private
 
-    private func resolvedLiveKitURL(_ serverURL: String) -> String {
-        let configuredURL = AppConfig.livekitURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        return configuredURL.isEmpty ? serverURL : configuredURL
+    private func normalizedLiveKitURL(_ serverURL: String) throws -> String {
+        let value = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw CallManagerError.invalidLiveKitURL
+        }
+
+        let resolvedValue: String
+        if value.hasPrefix("/") {
+            guard var base = URLComponents(string: AppConfig.apiBaseURL),
+                  base.host != nil else {
+                throw CallManagerError.invalidLiveKitURL
+            }
+            base.path = value
+            base.query = nil
+            base.fragment = nil
+            resolvedValue = base.string ?? ""
+        } else {
+            resolvedValue = value
+        }
+
+        guard var components = URLComponents(string: resolvedValue),
+              let scheme = components.scheme?.lowercased(),
+              components.host != nil else {
+            throw CallManagerError.invalidLiveKitURL
+        }
+
+        switch scheme {
+        case "wss", "ws":
+            break
+        case "https":
+            components.scheme = "wss"
+        case "http":
+            components.scheme = "ws"
+        default:
+            throw CallManagerError.invalidLiveKitURL
+        }
+
+        guard let normalized = components.string, !normalized.isEmpty else {
+            throw CallManagerError.invalidLiveKitURL
+        }
+        return normalized
     }
 
     func endCallLocally() {
@@ -416,6 +530,10 @@ class CallManager: ObservableObject {
 
         durationTimer?.cancel()
         durationTimer = nil
+        connectionTimeoutTask?.cancel()
+        connectionTimeoutTask = nil
+        ringTimeoutTask?.cancel()
+        ringTimeoutTask = nil
         callDuration = 0
         isMuted = false
         isSpeakerOn = true
@@ -439,31 +557,72 @@ class CallManager: ObservableObject {
             await roomToClean?.disconnect()
         }
 
-        deactivateAudioSession()
-
-        if let call = endedCall, call.groupID == nil, !call.remoteUserID.isEmpty {
+        if let call = endedCall,
+           call.groupID == nil,
+           !call.remoteUserID.isEmpty,
+           !call.isOutgoing || !call.roomName.isEmpty {
             Task { await sendCallRecord(call: call, duration: duration) }
         }
     }
 
-    private func configureAudioSession() {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            // Use .defaultToSpeaker option so speaker is the default output;
-            // .voiceChat mode forces earpiece, so use .videoChat for speaker default.
-            let mode: AVAudioSession.Mode = isSpeakerOn ? .videoChat : .voiceChat
-            var options: AVAudioSession.CategoryOptions = [.allowBluetoothHFP]
-            if isSpeakerOn { options.insert(.defaultToSpeaker) }
-            try session.setCategory(.playAndRecord, mode: mode, options: options)
-            try session.setActive(true)
-            try session.overrideOutputAudioPort(isSpeakerOn ? .speaker : .none)
-        } catch {
-            print("[CallManager] configureAudioSession error: \(error)")
+    private func failCall(_ message: String) {
+        errorMessage = message
+        endCallLocally()
+    }
+
+    private func startConnectionTimeout(for targetRoom: Room) {
+        connectionTimeoutTask?.cancel()
+        let timeout = connectionTimeout
+        connectionTimeoutTask = Task { [weak self, weak targetRoom] in
+            try? await Task.sleep(nanoseconds: timeout)
+            guard !Task.isCancelled,
+                  let self,
+                  let targetRoom,
+                  self.room === targetRoom else { return }
+            self.failCall(L10n.tr("call.error.connection"))
         }
     }
 
-    private func deactivateAudioSession() {
-        _ = try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    private func startOutgoingRingTimeout(for callID: UUID?) {
+        ringTimeoutTask?.cancel()
+        let timeout = outgoingRingTimeout
+        ringTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeout)
+            guard !Task.isCancelled,
+                  let self,
+                  self.currentCall?.id == callID,
+                  self.currentCall?.state == .outgoing else { return }
+            self.endCall()
+        }
+    }
+
+    private func ensureMediaPermissions(for callType: CallType) async -> Bool {
+        guard await requestAccess(for: .audio) else {
+            failCall(L10n.tr("call.error.permission.microphone"))
+            return false
+        }
+        if callType == .video, !(await requestAccess(for: .video)) {
+            failCall(L10n.tr("call.error.permission.camera"))
+            return false
+        }
+        return true
+    }
+
+    private func requestAccess(for mediaType: AVMediaType) async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: mediaType) {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                AVCaptureDevice.requestAccess(for: mediaType) { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        case .denied, .restricted:
+            return false
+        @unknown default:
+            return false
+        }
     }
 
     private func startDurationTimer() {
@@ -486,52 +645,46 @@ class CallManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] data in
                 guard let self = self else { return }
-                guard let callerID = Self.stringValue(data["caller_id"]),
-                      let callerName = Self.stringValue(data["caller_name"]),
-                      let roomName = Self.stringValue(data["room_name"]),
-                      let typeStr = Self.stringValue(data["call_type"]),
-                      let callType = CallType(rawValue: typeStr) else { return }
+                guard let callerID = Self.firstString(data, keys: ["caller_id", "from_user_id", "user_id"]),
+                      let roomName = Self.firstString(data, keys: ["room_name", "room"]),
+                      let callType = Self.callTypeValue(data["call_type"] ?? data["type"]) else { return }
 
-                let callerAvatar = Self.stringValue(data["caller_avatar"]) ?? ""
-
-                if self.currentCall != nil {
-                    WebSocketService.shared.sendCallBusy(targetID: callerID)
-                    return
-                }
-
-                self.currentCall = CallSession(
-                    remoteUserID: callerID,
-                    remoteNickname: callerName,
-                    remoteAvatarURL: callerAvatar,
-                    callType: callType,
-                    isOutgoing: false,
-                    state: .incoming,
-                    startedAt: Date(),
-                    roomName: roomName
+                _ = self.receiveIncomingCall(
+                    callerID: callerID,
+                    callerName: Self.firstString(data, keys: ["caller_name", "caller_nickname", "nickname"]) ?? callerID,
+                    callerAvatar: Self.firstString(data, keys: ["caller_avatar", "avatar_url", "avatar"]) ?? "",
+                    roomName: roomName,
+                    callType: callType
                 )
-                self.playRingtone(isOutgoing: false)
             }
             .store(in: &cancellables)
 
         // Call ended by remote
         WebSocketService.shared.callEndPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.endCallLocally()
+            .sink { [weak self] senderID in
+                guard let self,
+                      self.isCurrentOneToOneCall(from: senderID) else { return }
+                self.endCallLocally()
             }
             .store(in: &cancellables)
 
         WebSocketService.shared.callRejectPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.endCallLocally()
+            .sink { [weak self] data in
+                guard let self else { return }
+                let senderID = Self.firstString(data, keys: ["from_user_id", "caller_id", "user_id"])
+                guard self.isCurrentOneToOneCall(from: senderID ?? "") else { return }
+                self.endCallLocally()
             }
             .store(in: &cancellables)
 
         WebSocketService.shared.callBusyPublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.endCallLocally()
+            .sink { [weak self] senderID in
+                guard let self,
+                      self.isCurrentOneToOneCall(from: senderID) else { return }
+                self.endCallLocally()
             }
             .store(in: &cancellables)
 
@@ -541,26 +694,17 @@ class CallManager: ObservableObject {
             .sink { [weak self] data in
                 guard let self = self else { return }
                 guard let groupID = Self.intValue(data["group_id"]),
-                      let groupName = Self.stringValue(data["group_name"]),
-                      let roomName = Self.stringValue(data["room_name"]),
-                      let typeStr = Self.stringValue(data["call_type"]),
-                      let callType = CallType(rawValue: typeStr) else { return }
+                      let groupName = Self.firstString(data, keys: ["group_name", "name"]),
+                      let roomName = Self.firstString(data, keys: ["room_name", "room"]),
+                      let callType = Self.callTypeValue(data["call_type"] ?? data["type"]) else { return }
 
-                if self.currentCall != nil { return }
-
-                self.currentCall = CallSession(
-                    remoteUserID: Self.stringValue(data["caller_id"]) ?? "",
-                    remoteNickname: groupName,
-                    remoteAvatarURL: "",
-                    callType: callType,
-                    isOutgoing: false,
-                    state: .incoming,
-                    startedAt: Date(),
-                    roomName: roomName,
+                _ = self.receiveIncomingGroupCall(
+                    callerID: Self.firstString(data, keys: ["caller_id", "from_user_id", "user_id"]) ?? "",
                     groupID: groupID,
-                    groupName: groupName
+                    groupName: groupName,
+                    roomName: roomName,
+                    callType: callType
                 )
-                self.playRingtone(isOutgoing: false)
             }
             .store(in: &cancellables)
 
@@ -580,6 +724,24 @@ class CallManager: ObservableObject {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
         return nil
+    }
+
+    private static func firstString(_ data: [String: Any], keys: [String]) -> String? {
+        keys.lazy.compactMap { stringValue(data[$0]) }.first
+    }
+
+    static func callTypeValue(_ value: Any?) -> CallType? {
+        guard let value = stringValue(value)?.lowercased() else { return nil }
+        switch value {
+        case "voice", "audio": return .voice
+        case "video": return .video
+        default: return nil
+        }
+    }
+
+    private func isCurrentOneToOneCall(from senderID: String) -> Bool {
+        guard let call = currentCall, call.groupID == nil else { return false }
+        return senderID.isEmpty || call.remoteUserID == senderID
     }
 
     private static func intValue(_ value: Any?) -> Int? {

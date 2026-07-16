@@ -80,7 +80,101 @@ final class UIKitNavigator: ObservableObject {
     }
 }
 
+private struct DynamicTabScreenRootView: View {
+    let screenID: String
+    let title: String
+
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @StateObject private var screenStore: DynamicScreenStore
+    @State private var routeAlert: DynamicRouteAlert?
+
+    init(screenID: String, title: String) {
+        self.screenID = screenID
+        self.title = title
+        self._screenStore = StateObject(wrappedValue: DynamicScreenStore(screenID: screenID))
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                Text(screenStore.screen?.displayTitle() ?? title)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(AppColors.primaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, AppSpacing.rootTabTopInset)
+
+                ForEach((screenStore.screen?.components ?? []).filter(\.isVisible)) { component in
+                    DynamicComponentRenderer(component: component, onRoute: openRoute)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .task {
+            await screenStore.load()
+        }
+        .refreshable {
+            await screenStore.load(force: true)
+        }
+        .alert(item: $routeAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(L10n.tr("common.ok")))
+            )
+        }
+    }
+
+    private func openRoute(_ route: DynamicRoute?) {
+        switch DynamicRouteHandler.open(route, navigator: navigator, fallbackTitle: title) {
+        case .handled:
+            break
+        case .alert(let alert):
+            routeAlert = alert
+        }
+    }
+}
+
+private struct DynamicTabPlaceholderView: View {
+    let title: String
+
+    var body: some View {
+        VStack(spacing: 14) {
+            RootTabTitle(localizedKey: "tab.discover")
+                .opacity(0)
+                .frame(height: 1)
+
+            Spacer()
+            Image(systemName: "sparkles.rectangle.stack")
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundColor(AppColors.tertiaryText)
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(AppColors.primaryText)
+            Text(L10n.tr("discover.comingSoon"))
+                .font(.system(size: 14))
+                .foregroundColor(AppColors.secondaryText)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 24)
+        .background(AppColors.secondaryBackground)
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
 final class NavigableHostingController: UIHostingController<AnyView> {
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateRootTabBarSafeArea()
+    }
+
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled =
@@ -90,6 +184,36 @@ final class NavigableHostingController: UIHostingController<AnyView> {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         navigationController?.repairNavigationSurface()
+        updateRootTabBarSafeArea()
+    }
+
+    /// iOS 26's floating tab bar overlays child view controllers instead of
+    /// contributing its full height to their safe area. Bridge the tab bar
+    /// controller's unobscured content guide into SwiftUI so Lists can scroll
+    /// their final row completely above the floating bar.
+    private func updateRootTabBarSafeArea() {
+        guard #available(iOS 26.0, *),
+              let navigationController,
+              navigationController.viewControllers.first === self,
+              let tabBarController,
+              !tabBarController.tabBar.isHidden
+        else {
+            if additionalSafeAreaInsets.bottom != 0 {
+                additionalSafeAreaInsets.bottom = 0
+            }
+            return
+        }
+
+        let contentFrame = tabBarController.contentLayoutGuide.layoutFrame
+        guard !contentFrame.isEmpty else { return }
+
+        let unobscuredFrame = tabBarController.view.convert(contentFrame, to: view)
+        let coveredBottomHeight = max(view.bounds.maxY - unobscuredFrame.maxY, 0)
+        let systemBottomInset = max(view.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom, 0)
+        let requiredAdditionalInset = max(coveredBottomHeight - systemBottomInset, 0)
+
+        guard abs(additionalSafeAreaInsets.bottom - requiredAdditionalInset) > 0.5 else { return }
+        additionalSafeAreaInsets.bottom = requiredAdditionalInset
     }
 }
 
@@ -266,6 +390,8 @@ struct MainTabController: UIViewControllerRepresentable {
     @Binding var selectedIndex: Int
     let repairID: Int
     let languageIdentifier: String
+    let tabs: [DynamicTabDescriptor]
+    let tabBadges: [String: Int]
 
     func makeCoordinator() -> Coordinator {
         Coordinator(selectedIndex: $selectedIndex)
@@ -274,7 +400,6 @@ struct MainTabController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UITabBarController {
         let tb = UITabBarController()
         tb.delegate = context.coordinator
-        tb.tabBar.tintColor = UIColor(AppColors.accent)
 
         // Force a classic opaque tab bar appearance.
         // iOS 18 defaults to a minimizable/floating pill bar whose transition
@@ -285,63 +410,84 @@ struct MainTabController: UIViewControllerRepresentable {
         appearance.configureWithOpaqueBackground()
         tb.tabBar.standardAppearance = appearance
         tb.tabBar.scrollEdgeAppearance = appearance
+        Self.applyTabBarSelectedColor(to: tb.tabBar)
 
-        tb.viewControllers = [
-            Self.makeTab(
-                root: ContactListView(),
-                title: L10n.tr("tab.messages"),
-                image: "bubble.left.and.bubble.right",
-                selected: "bubble.left.and.bubble.right.fill",
-                coordinator: context.coordinator
-            ),
-            Self.makeTab(
-                root: ContactsTabView(),
-                title: L10n.tr("tab.contacts"),
-                image: "person.crop.circle",
-                selected: "person.crop.circle.fill",
-                coordinator: context.coordinator
-            ),
-            Self.makeTab(
-                root: MapDatingView(isRootTab: true),
-                title: L10n.tr("tab.map"),
-                image: "map",
-                selected: "map.fill",
-                coordinator: context.coordinator
-            ),
-            Self.makeTab(
-                root: DiscoverView(),
-                title: L10n.tr("tab.discover"),
-                image: "safari",
-                selected: "safari.fill",
-                coordinator: context.coordinator
-            ),
-            Self.makeTab(
-                root: ProfileView(),
-                title: L10n.tr("tab.profile"),
-                image: "gearshape",
-                selected: "gearshape.fill",
-                coordinator: context.coordinator
-            ),
-        ]
-        tb.selectedIndex = selectedIndex
+        context.coordinator.tabSignature = Self.signature(for: tabs)
+        tb.viewControllers = Self.makeTabs(from: tabs, coordinator: context.coordinator)
+        tb.selectedIndex = min(selectedIndex, max((tb.viewControllers?.count ?? 1) - 1, 0))
+        Self.applyTabItems(to: tb, tabs: tabs, badges: tabBadges)
         return tb
     }
 
     func updateUIViewController(_ tb: UITabBarController, context: Context) {
+        let nextSignature = Self.signature(for: tabs)
+        if context.coordinator.tabSignature != nextSignature {
+            context.coordinator.resetRetainedNavigationObjects()
+            context.coordinator.tabSignature = nextSignature
+            tb.viewControllers = Self.makeTabs(from: tabs, coordinator: context.coordinator)
+        }
+
+        if selectedIndex >= (tb.viewControllers?.count ?? 0) {
+            selectedIndex = max((tb.viewControllers?.count ?? 1) - 1, 0)
+        }
         if tb.selectedIndex != selectedIndex {
             tb.selectedIndex = selectedIndex
         }
         _ = repairID
         _ = languageIdentifier
-        Self.applyTabTitles(to: tb)
+        Self.applyTabBarSelectedColor(to: tb.tabBar)
+        Self.applyTabItems(to: tb, tabs: tabs, badges: tabBadges)
         context.coordinator.repairRootTabBarIfNeeded(in: tb)
     }
 
-    private static func makeTab<V: View>(
-        root: V,
+    private static func applyTabBarSelectedColor(to tabBar: UITabBar) {
+        let selectedColor = legacySelectedTabColor
+        let appearance = tabBar.standardAppearance
+
+        [
+            appearance.stackedLayoutAppearance,
+            appearance.inlineLayoutAppearance,
+            appearance.compactInlineLayoutAppearance
+        ].forEach { itemAppearance in
+            itemAppearance.normal.iconColor = nil
+            itemAppearance.normal.titleTextAttributes = [:]
+            itemAppearance.selected.iconColor = selectedColor
+            itemAppearance.selected.titleTextAttributes = [.foregroundColor: selectedColor]
+        }
+
+        tabBar.tintColor = selectedColor
+        tabBar.unselectedItemTintColor = nil
+        tabBar.standardAppearance = appearance
+        tabBar.scrollEdgeAppearance = appearance
+    }
+
+    private static func makeTabs(
+        from tabs: [DynamicTabDescriptor],
+        coordinator: Coordinator
+    ) -> [UIViewController] {
+        let usableTabs = tabs.isEmpty ? DynamicTabDescriptor.defaultTabs : tabs
+        return usableTabs.map { descriptor in
+            let legacyIcons = legacyIconNames(for: descriptor)
+            let imageName = validatedSystemImage(legacyIcons?.image ?? descriptor.systemImage, fallback: "circle")
+            let selectedName = validatedSystemImage(
+                legacyIcons?.selected ?? descriptor.selectedSystemImage ?? descriptor.systemImage,
+                fallback: "circle.fill"
+            )
+            return makeTab(
+                root: rootView(for: descriptor),
+                title: descriptor.displayTitle(),
+                image: templateSymbol(named: imageName),
+                selectedImage: templateSymbol(named: selectedName),
+                coordinator: coordinator
+            )
+        }
+    }
+
+    private static func makeTab(
+        root: AnyView,
         title: String,
-        image: String,
-        selected: String,
+        image: UIImage?,
+        selectedImage: UIImage?,
         coordinator: Coordinator
     ) -> UIViewController {
         let navigator = UIKitNavigator()
@@ -364,30 +510,143 @@ struct MainTabController: UIViewControllerRepresentable {
         nav.viewControllers = [host]
         nav.tabBarItem = UITabBarItem(
             title: title,
-            image: UIImage(systemName: image),
-            selectedImage: UIImage(systemName: selected)
+            image: image,
+            selectedImage: selectedImage
         )
         return nav
     }
 
-    private static func applyTabTitles(to tabBarController: UITabBarController) {
-        let titles = [
-            L10n.tr("tab.messages"),
-            L10n.tr("tab.contacts"),
-            L10n.tr("tab.map"),
-            L10n.tr("tab.discover"),
-            L10n.tr("tab.profile"),
-        ]
-
+    private static func applyTabItems(to tabBarController: UITabBarController, tabs: [DynamicTabDescriptor], badges: [String: Int]) {
         tabBarController.viewControllers?.enumerated().forEach { index, controller in
-            guard titles.indices.contains(index) else { return }
-            controller.tabBarItem.title = titles[index]
+            guard tabs.indices.contains(index) else { return }
+            let descriptor = tabs[index]
+            let legacyIcons = legacyIconNames(for: descriptor)
+            let imageName = validatedSystemImage(legacyIcons?.image ?? descriptor.systemImage, fallback: "circle")
+            let selectedName = validatedSystemImage(
+                legacyIcons?.selected ?? descriptor.selectedSystemImage ?? descriptor.systemImage,
+                fallback: "circle.fill"
+            )
+
+            controller.tabBarItem.title = descriptor.displayTitle()
+            controller.tabBarItem.image = templateSymbol(named: imageName)
+            controller.tabBarItem.selectedImage = templateSymbol(named: selectedName)
+            controller.tabBarItem.setTitleTextAttributes([.foregroundColor: legacySelectedTabColor], for: .selected)
+            controller.tabBarItem.setTitleTextAttributes([:], for: .normal)
+            let badgeCount = badgeCount(for: descriptor, badges: badges)
+            controller.tabBarItem.badgeValue = badgeCount > 0 ? badgeText(badgeCount) : nil
+            controller.tabBarItem.badgeColor = .systemRed
         }
+    }
+
+    private static func badgeCount(for descriptor: DynamicTabDescriptor, badges: [String: Int]) -> Int {
+        let name = normalizedTabName(for: descriptor)
+        if let count = badges[name] {
+            return count
+        }
+        switch descriptor.badgeKey?.normalizedDynamicToken {
+        case "messages_unread", "chat_unread", "conversations_unread", "messages":
+            return badges["messages"] ?? 0
+        case "moments_unread", "moments":
+            return badges["discover"] ?? 0
+        default:
+            return 0
+        }
+    }
+
+    private static func badgeText(_ count: Int) -> String {
+        count > 99 ? "99+" : "\(count)"
+    }
+
+    private static func rootView(for descriptor: DynamicTabDescriptor) -> AnyView {
+        let route = descriptor.route ?? DynamicRoute(type: descriptor.normalizedType, name: descriptor.id)
+        let name = normalizedTabName(for: descriptor)
+
+        switch name {
+        case "messages":
+            return AnyView(ContactListView())
+        case "contacts":
+            return AnyView(ContactsTabView())
+        case "map", "nearby":
+            return AnyView(MapDatingView(isRootTab: true))
+        case "discover":
+            return AnyView(DiscoverView())
+        case "profile":
+            return AnyView(ProfileView())
+        default:
+            switch route.normalizedType {
+            case "screen":
+                return AnyView(DynamicTabScreenRootView(
+                    screenID: route.screenID ?? route.name ?? descriptor.id,
+                    title: descriptor.displayTitle()
+                ))
+            case "web", "h5", "url":
+                if let urlString = route.url,
+                   let url = URL(string: urlString),
+                   AppRemoteConfigStore.shared.config.webViewPolicy.allows(url) {
+                    return AnyView(InAppWebView(url: url, title: descriptor.displayTitle()))
+                }
+                return AnyView(DynamicTabPlaceholderView(title: descriptor.displayTitle()))
+            default:
+                return AnyView(DynamicTabPlaceholderView(title: descriptor.displayTitle()))
+            }
+        }
+    }
+
+    private static func validatedSystemImage(_ name: String?, fallback: String) -> String {
+        guard let name, UIImage(systemName: name) != nil else { return fallback }
+        return name
+    }
+
+    private static var legacySelectedTabColor: UIColor {
+        .black
+    }
+
+    private static func templateSymbol(named name: String) -> UIImage? {
+        UIImage(systemName: name)?.withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func normalizedTabName(for descriptor: DynamicTabDescriptor) -> String {
+        let route = descriptor.route ?? DynamicRoute(type: descriptor.normalizedType, name: descriptor.id)
+        return route.normalizedName.isEmpty ? descriptor.id.normalizedDynamicToken : route.normalizedName
+    }
+
+    private static func legacyIconNames(for descriptor: DynamicTabDescriptor) -> (image: String, selected: String)? {
+        switch normalizedTabName(for: descriptor) {
+        case "messages":
+            return ("bubble.left.and.bubble.right", "bubble.left.and.bubble.right.fill")
+        case "contacts":
+            return ("person.crop.circle", "person.crop.circle.fill")
+        case "map", "nearby":
+            return ("map", "map.fill")
+        case "discover":
+            return ("safari", "safari.fill")
+        case "profile":
+            return ("gearshape", "gearshape.fill")
+        default:
+            return nil
+        }
+    }
+
+    private static func signature(for tabs: [DynamicTabDescriptor]) -> String {
+        tabs.map {
+            [
+                $0.id,
+                $0.displayTitle(),
+                $0.systemImage ?? "",
+                $0.selectedSystemImage ?? "",
+                $0.route?.normalizedType ?? "",
+                $0.route?.name ?? "",
+                $0.route?.url ?? "",
+                $0.route?.screenID ?? ""
+            ].joined(separator: ":")
+        }
+        .joined(separator: "|")
     }
 
     final class Coordinator: NSObject, UITabBarControllerDelegate {
         var selectedIndex: Binding<Int>
         let tabBarAlphaFix = TabBarAlphaFixDelegate()
+        var tabSignature = ""
         private var interactivePopDelegates: [InteractivePopDelegate] = []
         private var swipeBackCoordinators: [SwipeBackCoordinator] = []
         private var navigators: [UIKitNavigator] = []
@@ -406,6 +665,12 @@ struct MainTabController: UIViewControllerRepresentable {
 
         func retain(_ navigator: UIKitNavigator) {
             navigators.append(navigator)
+        }
+
+        func resetRetainedNavigationObjects() {
+            interactivePopDelegates.removeAll()
+            swipeBackCoordinators.removeAll()
+            navigators.removeAll()
         }
 
         func tabBarController(

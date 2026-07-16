@@ -1,5 +1,5 @@
 // BBchat/Views/LoginView.swift
-// Branded login page using the plush BBchat visual system.
+// Branded login page using the BBchat cat mascot system.
 
 import SwiftUI
 
@@ -14,12 +14,23 @@ struct LoginView: View {
         case password
     }
 
+    private var catMood: AuthCatMood {
+        switch focusedField {
+        case .some(.username):
+            return .peek
+        case .some(.password):
+            return .coverEyes
+        case .none:
+            return .idle
+        }
+    }
+
     var body: some View {
         GeometryReader { geo in
             let isEditing = focusedField != nil
 
             ZStack {
-                AuthPlushBackground()
+                AuthWhiteBackground()
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: isEditing ? 10 : 15) {
@@ -31,117 +42,121 @@ struct LoginView: View {
                             subtitle: L10n.tr("auth.login.subtitle")
                         )
 
-                        AuthFormCard {
-                            VStack(spacing: 14) {
-                                AuthFieldChrome(
-                                    systemImage: "person.fill",
-                                    isFocused: focusedField == .username
-                                ) {
-                                    HStack(spacing: 8) {
-                                        ZStack(alignment: .leading) {
-                                            if viewModel.username.isEmpty {
-                                                AuthFieldPlaceholder(L10n.tr("auth.username"))
-                                            }
+                        AuthCatFormStack(mood: catMood) {
+                            AuthFormCard {
+                                VStack(spacing: 14) {
+                                    AuthFieldChrome(
+                                        systemImage: "person.fill",
+                                        isFocused: focusedField == .username
+                                    ) {
+                                        HStack(spacing: 8) {
+                                            ZStack(alignment: .leading) {
+                                                if viewModel.username.isEmpty {
+                                                    AuthFieldPlaceholder(L10n.tr("auth.username"))
+                                                }
 
-                                            TextField("", text: $viewModel.username)
-                                                .textContentType(.username)
-                                                .autocapitalization(.none)
-                                                .disableAutocorrection(true)
+                                                TextField("", text: $viewModel.username)
+                                                    .textContentType(.username)
+                                                    .autocapitalization(.none)
+                                                    .disableAutocorrection(true)
+                                                    .font(.system(size: 16, weight: .medium))
+                                                    .foregroundColor(AuthPalette.inputText)
+                                                    .focused($focusedField, equals: .username)
+                                                    .submitLabel(.next)
+                                                    .onSubmit { focusedField = .password }
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                                            if !viewModel.username.isEmpty {
+                                                Button {
+                                                    viewModel.username = ""
+                                                } label: {
+                                                    Image(systemName: "xmark.circle.fill")
+                                                        .font(.system(size: 15, weight: .semibold))
+                                                        .foregroundColor(AuthPalette.mutedText.opacity(0.55))
+                                                }
+                                                .buttonStyle(.plain)
+                                                .accessibilityLabel(L10n.tr("common.clear"))
+                                            }
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { focusField(.username) }
+
+                                    AuthFieldChrome(
+                                        systemImage: "lock.fill",
+                                        isFocused: focusedField == .password
+                                    ) {
+                                        HStack(spacing: 8) {
+                                            ZStack(alignment: .leading) {
+                                                if viewModel.password.isEmpty {
+                                                    AuthFieldPlaceholder(L10n.tr("auth.password"))
+                                                }
+
+                                                Group {
+                                                    if showPassword {
+                                                        TextField("", text: $viewModel.password)
+                                                            .textContentType(.password)
+                                                    } else {
+                                                        SecureField("", text: $viewModel.password)
+                                                            .textContentType(.password)
+                                                    }
+                                                }
                                                 .font(.system(size: 16, weight: .medium))
                                                 .foregroundColor(AuthPalette.inputText)
-                                                .focused($focusedField, equals: .username)
-                                                .submitLabel(.next)
-                                                .onSubmit { focusedField = .password }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                                .focused($focusedField, equals: .password)
+                                                .submitLabel(.go)
+                                                .onSubmit { submitLoginIfPossible() }
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                                        if !viewModel.username.isEmpty {
                                             Button {
-                                                viewModel.username = ""
+                                                showPassword.toggle()
                                             } label: {
-                                                Image(systemName: "xmark.circle.fill")
+                                                Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
                                                     .font(.system(size: 15, weight: .semibold))
-                                                    .foregroundColor(AuthPalette.mutedText.opacity(0.55))
+                                                    .foregroundColor(AuthPalette.mutedText.opacity(0.72))
                                             }
                                             .buttonStyle(.plain)
+                                            .accessibilityLabel(L10n.tr(showPassword ? "password.hide" : "password.show"))
                                         }
                                     }
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture { focusedField = .username }
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { focusField(.password) }
 
-                                AuthFieldChrome(
-                                    systemImage: "lock.fill",
-                                    isFocused: focusedField == .password
-                                ) {
-                                    HStack(spacing: 8) {
-                                        ZStack(alignment: .leading) {
-                                            if viewModel.password.isEmpty {
-                                                AuthFieldPlaceholder(L10n.tr("auth.password"))
-                                            }
-
-                                            Group {
-                                                if showPassword {
-                                                    TextField("", text: $viewModel.password)
-                                                        .textContentType(.password)
-                                                } else {
-                                                    SecureField("", text: $viewModel.password)
-                                                        .textContentType(.password)
-                                                }
-                                            }
-                                            .font(.system(size: 16, weight: .medium))
-                                            .foregroundColor(AuthPalette.inputText)
-                                            .focused($focusedField, equals: .password)
-                                            .submitLabel(.go)
-                                            .onSubmit { submitLoginIfPossible() }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                                        Button {
-                                            showPassword.toggle()
-                                        } label: {
-                                            Image(systemName: showPassword ? "eye.slash.fill" : "eye.fill")
-                                                .font(.system(size: 15, weight: .semibold))
-                                                .foregroundColor(AuthPalette.mutedText.opacity(0.72))
-                                        }
-                                        .buttonStyle(.plain)
+                                    if let error = viewModel.errorMessage {
+                                        AuthInlineMessage(
+                                            message: error,
+                                            systemImage: "exclamationmark.triangle.fill",
+                                            color: AppColors.errorColor
+                                        )
                                     }
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture { focusedField = .password }
 
-                                if let error = viewModel.errorMessage {
-                                    AuthInlineMessage(
-                                        message: error,
-                                        systemImage: "exclamationmark.triangle.fill",
-                                        color: AppColors.errorColor
-                                    )
-                                }
-
-                                AuthPrimaryButton(
-                                    title: L10n.tr("auth.login.action"),
-                                    isLoading: viewModel.isLoading,
-                                    isEnabled: viewModel.isLoginEnabled
-                                ) {
-                                    submitLoginIfPossible()
-                                }
-                                .padding(.top, 4)
-
-                                Button {
-                                    showRegister = true
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Text(L10n.tr("auth.noAccount"))
-                                            .foregroundColor(AuthPalette.mutedText)
-                                        Text(L10n.tr("auth.registerNow"))
-                                            .foregroundColor(AuthPalette.coral)
-                                            .fontWeight(.semibold)
+                                    AuthPrimaryButton(
+                                        title: L10n.tr("auth.login.action"),
+                                        isLoading: viewModel.isLoading,
+                                        isEnabled: viewModel.isLoginEnabled
+                                    ) {
+                                        submitLoginIfPossible()
                                     }
-                                    .font(.system(size: 14, weight: .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.top, 2)
+                                    .padding(.top, 4)
+
+                                    Button {
+                                        showRegister = true
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Text(L10n.tr("auth.noAccount"))
+                                                .foregroundColor(AuthPalette.mutedText)
+                                            Text(L10n.tr("auth.registerNow"))
+                                                .foregroundColor(AuthPalette.coral)
+                                                .fontWeight(.semibold)
+                                        }
+                                        .font(.system(size: 14, weight: .medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.top, 2)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
 
@@ -151,7 +166,9 @@ struct LoginView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, max(geo.safeAreaInsets.bottom, 14))
                     .frame(minHeight: geo.size.height)
-                    .animation(.easeInOut(duration: 0.24), value: isEditing)
+                    .contentShape(Rectangle())
+                    .onTapGesture { dismissKeyboard() }
+                    .animation(AuthMotion.focusShift, value: isEditing)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
@@ -159,7 +176,7 @@ struct LoginView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button(L10n.tr("common.done")) { focusedField = nil }
+                Button(L10n.tr("common.done")) { dismissKeyboard() }
                     .font(.system(size: 15, weight: .semibold))
             }
         }
@@ -170,28 +187,40 @@ struct LoginView: View {
 
     private func submitLoginIfPossible() {
         guard viewModel.isLoginEnabled else { return }
-        focusedField = nil
+        dismissKeyboard()
         Task { await viewModel.login() }
+    }
+
+    private func focusField(_ field: Field) {
+        DispatchQueue.main.async {
+            focusedField = field
+        }
+    }
+
+    private func dismissKeyboard() {
+        focusedField = nil
+        hideKeyboard()
     }
 }
 
 enum AuthPalette {
-    static let blue = Color(hex: "55C7F2")
+    static let blue = Color(hex: "4BB7E8")
     static let coral = Color(hex: "FF6C7C")
-    static let amber = Color(hex: "FFC76D")
-    static let violet = Color(hex: "24103F")
-    static let deepViolet = Color(hex: "130826")
-    static let cardFill = Color(hex: "24103F").opacity(0.72)
-    static let cardStroke = Color.white.opacity(0.18)
-    static let fieldFill = Color.white.opacity(0.13)
-    static let fieldStroke = Color.white.opacity(0.18)
-    static let inputText = Color(hex: "FFF9FF")
-    static let placeholderText = Color(hex: "E5DDF2").opacity(0.72)
-    static let mutedText = Color(hex: "D8D0EA")
-    static let disabledFill = Color.white.opacity(0.12)
+    static let tailGreen = Color(hex: "57DDBB")
+    static let amber = Color(hex: "F4B642")
+    static let ink = Color(hex: "20222E")
+    static let softInk = Color(hex: "4A5160")
+    static let cardFill = Color.white
+    static let cardStroke = Color(hex: "E9ECF2")
+    static let fieldFill = Color(hex: "F6F8FB")
+    static let fieldStroke = Color(hex: "E2E7EF")
+    static let inputText = ink
+    static let placeholderText = Color(hex: "8E96A6")
+    static let mutedText = Color(hex: "6B7280")
+    static let disabledFill = Color(hex: "D9DEE7")
 
     static let actionGradient = LinearGradient(
-        colors: [blue, coral],
+        colors: [tailGreen, coral],
         startPoint: .leading,
         endPoint: .trailing
     )
@@ -200,71 +229,145 @@ enum AuthPalette {
 enum AuthLayout {
     static func loginTopSpacing(height: CGFloat, isEditing: Bool) -> CGFloat {
         if isEditing {
-            return max(min(height * 0.18, 156), 118)
+            return max(min(height * 0.05, 44), 14)
         }
-        return max(min(height * 0.42, 348), 286)
+        return max(min(height * 0.10, 84), 54)
     }
 
     static func registerTopSpacing(height: CGFloat, isEditing: Bool) -> CGFloat {
         if isEditing {
-            return max(min(height * 0.08, 74), 28)
+            return max(min(height * 0.035, 30), 10)
         }
-        return max(min(height * 0.34, 286), 220)
+        return max(min(height * 0.07, 58), 28)
+    }
+
+    static let catFormTopPadding: CGFloat = 142
+    static let catSize: CGFloat = 258
+    static let catFloatingPeekOffset: CGFloat = -43
+}
+
+enum AuthMotion {
+    static let focusShift: Animation = .spring(response: 0.36, dampingFraction: 0.88, blendDuration: 0.04)
+    static let catMood: Animation = .spring(response: 0.42, dampingFraction: 0.90, blendDuration: 0.08)
+}
+
+enum AuthCatMood: CaseIterable, Equatable, Identifiable {
+    case idle
+    case peek
+    case coverEyes
+
+    var id: String { assetName }
+
+    var assetName: String {
+        switch self {
+        case .idle:
+            return "auth_cat_idle"
+        case .peek:
+            return "auth_cat_peek"
+        case .coverEyes:
+            return "auth_cat_cover"
+        }
+    }
+
+    var artworkScale: CGFloat {
+        switch self {
+        case .idle:
+            return 1.26
+        case .peek:
+            return 0.90
+        case .coverEyes:
+            return 1.22
+        }
+    }
+
+    var artworkOffset: CGSize {
+        switch self {
+        case .idle:
+            return CGSize(width: 0, height: 0)
+        case .peek:
+            return CGSize(width: 0, height: 0)
+        case .coverEyes:
+            return CGSize(width: 0, height: -3)
+        }
     }
 }
 
-struct AuthPlushBackground: View {
+struct AuthWhiteBackground: View {
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .top) {
-                Image("AuthPortraitBackdrop")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .blur(radius: 20)
-                    .scaleEffect(1.08)
-                    .opacity(0.50)
-                    .ignoresSafeArea()
+        Color.white.ignoresSafeArea()
+    }
+}
 
-                LinearGradient(
-                    colors: [
-                        AuthPalette.deepViolet,
-                        AuthPalette.violet,
-                        Color(hex: "1A0C2C")
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+struct AuthCatFormStack<Content: View>: View {
+    let mood: AuthCatMood
+    let content: Content
 
-                Image("AuthPortraitBackdrop")
+    init(mood: AuthCatMood, @ViewBuilder content: () -> Content) {
+        self.mood = mood
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            AuthPeekCatView(mood: mood, hiddenMood: .peek)
+                .frame(width: AuthLayout.catSize, height: AuthLayout.catSize)
+                .zIndex(0)
+
+            content
+                .padding(.top, AuthLayout.catFormTopPadding)
+                .zIndex(1)
+
+            AuthFloatingPeekCatView(mood: mood)
+                .frame(width: AuthLayout.catSize, height: AuthLayout.catSize)
+                .offset(y: AuthLayout.catFloatingPeekOffset)
+                .zIndex(3)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+struct AuthPeekCatView: View {
+    let mood: AuthCatMood
+    var hiddenMood: AuthCatMood?
+
+    var body: some View {
+        ZStack {
+            ForEach(AuthCatMood.allCases) { candidate in
+                Image(candidate.assetName)
                     .resizable()
                     .scaledToFit()
-                    .frame(width: geo.size.width)
-                    .offset(y: -max(geo.safeAreaInsets.top * 0.22, 8))
-                    .ignoresSafeArea(edges: .top)
-
-                LinearGradient(
-                    colors: [
-                        Color.clear,
-                        AuthPalette.deepViolet.opacity(0.20),
-                        AuthPalette.deepViolet.opacity(0.86)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
-
-                RadialGradient(
-                    colors: [AuthPalette.amber.opacity(0.18), Color.clear],
-                    center: .top,
-                    startRadius: 20,
-                    endRadius: max(geo.size.width * 0.85, 320)
-                )
-                .ignoresSafeArea()
+                    .scaleEffect(candidate == mood ? candidate.artworkScale : candidate.artworkScale * 0.98)
+                    .offset(candidate == mood ? candidate.artworkOffset : candidate.inactiveArtworkOffset)
+                    .opacity(candidate == mood && candidate != hiddenMood ? 1 : 0)
             }
         }
+        .animation(AuthMotion.catMood, value: mood)
+        .compositingGroup()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+struct AuthFloatingPeekCatView: View {
+    let mood: AuthCatMood
+
+    var body: some View {
+        Image(AuthCatMood.peek.assetName)
+            .resizable()
+            .scaledToFit()
+            .scaleEffect(mood == .peek ? AuthCatMood.peek.artworkScale : AuthCatMood.peek.artworkScale * 0.98)
+            .offset(mood == .peek ? AuthCatMood.peek.artworkOffset : AuthCatMood.peek.inactiveArtworkOffset)
+            .opacity(mood == .peek ? 1 : 0)
+            .animation(AuthMotion.catMood, value: mood)
+            .compositingGroup()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+private extension AuthCatMood {
+    var inactiveArtworkOffset: CGSize {
+        CGSize(width: artworkOffset.width, height: artworkOffset.height + 4)
     }
 }
 
@@ -276,18 +379,17 @@ struct AuthTitleLockup: View {
         VStack(spacing: 6) {
             Text(title)
                 .font(.system(size: 35, weight: .heavy, design: .rounded))
-                .foregroundColor(.white)
+                .foregroundColor(AuthPalette.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.78)
 
             Text(subtitle)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(.white.opacity(0.78))
+                .foregroundColor(AuthPalette.mutedText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.82)
         }
         .frame(maxWidth: .infinity)
-        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
     }
 }
 
@@ -302,15 +404,14 @@ struct AuthFormCard<Content: View>: View {
         content
             .padding(16)
             .background(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(AuthPalette.cardFill)
             )
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(AuthPalette.cardStroke, lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.32), radius: 24, x: 0, y: 14)
+            .shadow(color: Color.black.opacity(0.08), radius: 20, x: 0, y: 10)
     }
 }
 
@@ -344,7 +445,7 @@ struct AuthFieldChrome<Content: View>: View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(isFocused ? AuthPalette.coral : AuthPalette.blue)
+                .foregroundColor(isFocused ? AuthPalette.tailGreen : AuthPalette.softInk.opacity(0.62))
                 .frame(width: 22)
 
             content
@@ -357,7 +458,7 @@ struct AuthFieldChrome<Content: View>: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 17, style: .continuous)
-                .stroke(isFocused ? AuthPalette.coral.opacity(0.78) : AuthPalette.fieldStroke, lineWidth: 1)
+                .stroke(isFocused ? AuthPalette.tailGreen.opacity(0.82) : AuthPalette.fieldStroke, lineWidth: 1)
         )
     }
 }

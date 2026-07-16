@@ -52,3 +52,18 @@ struct FriendInfo: Codable, Identifiable, Hashable {
         case addedAt = "added_at"
     }
 }
+
+enum FriendCacheKeys {
+    static func friends(for userID: String?) -> String {
+        "friends.\(normalizedUserID(userID))"
+    }
+
+    static func requests(for userID: String?) -> String {
+        "friend_requests.\(normalizedUserID(userID))"
+    }
+
+    private static func normalizedUserID(_ userID: String?) -> String {
+        let trimmed = userID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "anonymous" : trimmed
+    }
+}

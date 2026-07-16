@@ -9,7 +9,6 @@ enum ChatBackgroundTargetType: String, Codable, CaseIterable {
     case global
     case dm
     case group
-    case bot
 }
 
 struct ChatBackground: Codable, Equatable, Identifiable {

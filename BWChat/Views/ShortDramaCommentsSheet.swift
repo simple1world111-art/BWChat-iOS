@@ -7,6 +7,8 @@ struct ShortDramaCommentsSheet: View {
     let video: ShortDramaVideo
     let onCommentSent: (ShortDramaComment) -> Void
 
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var navigator: UIKitNavigator
     @State private var comments: [ShortDramaComment] = []
     @State private var draftText = ""
     @State private var isLoading = false
@@ -15,6 +17,10 @@ struct ShortDramaCommentsSheet: View {
     @State private var hasMore = true
     @State private var nextCursor: String?
     @State private var errorMessage: String?
+
+    private var cacheKey: CacheKey? {
+        CacheKey.current(namespace: "short-drama-comments", key: video.id)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,7 +75,10 @@ struct ShortDramaCommentsSheet: View {
                     .padding(.top, 48)
                 } else {
                     ForEach(comments) { comment in
-                        ShortDramaCommentRow(comment: comment)
+                        ShortDramaCommentRow(
+                            comment: comment,
+                            onOpenProfile: { openProfile(userID: comment.userID) }
+                        )
                             .onAppear {
                                 loadMoreIfNeeded(currentCommentID: comment.id)
                             }
@@ -122,13 +131,31 @@ struct ShortDramaCommentsSheet: View {
 
     private func loadInitial() async {
         guard comments.isEmpty, !isLoading else { return }
+        if let key = cacheKey,
+           let cached: CachedSnapshot<ShortDramaCommentsPage> = AppCacheRepository.shared.cachedValue(for: key) {
+            comments = cached.value.comments
+            hasMore = cached.value.hasMore
+            nextCursor = cached.value.nextCursor
+        }
         isLoading = true
         defer { isLoading = false }
         do {
-            let page = try await APIService.shared.getShortDramaComments(videoID: video.id)
+            let page: ShortDramaCommentsPage
+            if let key = cacheKey {
+                page = try await AppCacheRepository.shared.loadValue(
+                    key: key,
+                    policy: .shortLived,
+                    forceRefresh: false
+                ) {
+                    try await APIService.shared.getShortDramaComments(videoID: self.video.id)
+                }
+            } else {
+                page = try await APIService.shared.getShortDramaComments(videoID: video.id)
+            }
             comments = page.comments
             hasMore = page.hasMore
             nextCursor = page.nextCursor
+            persistComments()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -152,6 +179,7 @@ struct ShortDramaCommentsSheet: View {
             comments.append(contentsOf: page.comments.filter { !existingIDs.contains($0.id) })
             hasMore = page.hasMore
             nextCursor = page.nextCursor
+            persistComments()
         } catch { }
     }
 
@@ -180,6 +208,7 @@ struct ShortDramaCommentsSheet: View {
                 comments[index] = sent
             }
             onCommentSent(sent)
+            persistComments()
         } catch {
             comments.removeAll { $0.id == temporaryID }
             draftText = content
@@ -187,21 +216,49 @@ struct ShortDramaCommentsSheet: View {
         }
         isSending = false
     }
+
+    private func persistComments() {
+        guard let key = cacheKey else { return }
+        AppCacheRepository.shared.save(
+            ShortDramaCommentsPage(
+                comments: Array(comments.prefix(200)),
+                hasMore: hasMore,
+                nextCursor: nextCursor
+            ),
+            for: key,
+            policy: .shortLived
+        )
+    }
+
+    private func openProfile(userID: String) {
+        guard !userID.isBlank else { return }
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            navigator.push(UserProfileView(userID: userID))
+        }
+    }
 }
 
 private struct ShortDramaCommentRow: View {
     let comment: ShortDramaComment
+    let onOpenProfile: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            AvatarView(url: comment.avatarURL, size: 36)
+            Button(action: onOpenProfile) {
+                AvatarView(url: comment.avatarURL, size: 36)
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Text(comment.nickname)
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(AppColors.primaryText)
-                        .lineLimit(1)
+                    Button(action: onOpenProfile) {
+                        Text(comment.nickname)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(AppColors.primaryText)
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
 
                     if !comment.createdAt.isBlank {
                         Text(TimestampHelper.formatListTime(comment.createdAt))

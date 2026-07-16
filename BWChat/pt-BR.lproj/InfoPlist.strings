@@ -1,5 +1,5 @@
 "NSPhotoLibraryAddUsageDescription" = "O BBchat precisa de permissão para salvar fotos e vídeos na sua biblioteca.";
-"NSPhotoLibraryUsageDescription" = "O BBchat precisa acessar a biblioteca de fotos para enviar imagens.";
+"NSPhotoLibraryUsageDescription" = "O BBchat usa a fototeca para enviar fotos e vídeos.";
 "NSCameraUsageDescription" = "O BBchat precisa usar a câmera para chamadas de vídeo.";
 "NSMicrophoneUsageDescription" = "O BBchat precisa usar o microfone para chamadas de voz e vídeo.";
 "NSLocationWhenInUseUsageDescription" = "O BBchat usa sua localização para encontrar usuários próximos e compartilha uma localização aproximada apenas quando você ativa Nearby.";

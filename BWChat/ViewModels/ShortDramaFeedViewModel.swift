@@ -4,6 +4,49 @@
 import AVFoundation
 import Foundation
 
+enum ShortDramaMediaSecurity {
+    static func authorizationHeaders(
+        for mediaURL: URL,
+        apiBaseURL: String,
+        token: String?
+    ) -> [String: String]? {
+        guard let apiURL = URL(string: apiBaseURL),
+              sameOrigin(mediaURL, apiURL),
+              isInsideAPIPath(mediaURL.path, apiBasePath: apiURL.path) else {
+            return nil
+        }
+        var request = URLRequest(url: mediaURL)
+        guard AuthRequestAuthorizer.addAuthHeader(&request, token: token),
+              let authorization = request.value(forHTTPHeaderField: "Authorization") else {
+            return nil
+        }
+        return ["Authorization": authorization]
+    }
+
+    private static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host?.lowercased() == rhs.host?.lowercased()
+            && effectivePort(for: lhs) == effectivePort(for: rhs)
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
+    }
+
+    private static func isInsideAPIPath(_ mediaPath: String, apiBasePath: String) -> Bool {
+        let normalizedBasePath = apiBasePath.hasSuffix("/")
+            ? String(apiBasePath.dropLast())
+            : apiBasePath
+        guard !normalizedBasePath.isEmpty, normalizedBasePath != "/" else { return true }
+        return mediaPath == normalizedBasePath || mediaPath.hasPrefix(normalizedBasePath + "/")
+    }
+}
+
 @MainActor
 final class ShortDramaFeedViewModel: ObservableObject {
     @Published private(set) var videos: [ShortDramaVideo] = []
@@ -13,6 +56,10 @@ final class ShortDramaFeedViewModel: ObservableObject {
     @Published private(set) var isManuallyPaused = false
     @Published var selectedVideoID: String?
     @Published var errorMessage: String?
+
+    let seriesID: String?
+    private let initialEpisodeID: String?
+    private let initialPositionSeconds: Double
 
     private var activeVideoID: String?
     private var nextCursor: String?
@@ -24,6 +71,24 @@ final class ShortDramaFeedViewModel: ObservableObject {
     private var lastReportedProgressSeconds: [String: Double] = [:]
     private var warmingVideoIDs = Set<String>()
     private var warmedVideoIDs = Set<String>()
+    private var audioProbeTasks: [String: Task<Void, Never>] = [:]
+    private var loopObservers: [String: PlaybackLoopObserver] = [:]
+    private var loopingVideoIDs = Set<String>()
+    private var didConfigurePlaybackAudioSession = false
+
+    init(seriesID: String? = nil, initialEpisodeID: String? = nil, initialPositionSeconds: Double = 0) {
+        self.seriesID = seriesID
+        self.initialEpisodeID = initialEpisodeID
+        self.initialPositionSeconds = max(0, initialPositionSeconds)
+        if let key = Self.cacheKey(seriesID: seriesID),
+           let cached: CachedSnapshot<ShortDramaFeedPage> = AppCacheRepository.shared.cachedValue(for: key) {
+            videos = cached.value.videos
+            hasMore = cached.value.hasMore
+            nextCursor = cached.value.nextCursor
+            selectedVideoID = initialEpisodeID.flatMap { id in videos.contains(where: { $0.id == id }) ? id : nil }
+                ?? videos.first?.id
+        }
+    }
 
     var visibleVideos: [ShortDramaVideo] {
         guard !videos.isEmpty else { return [] }
@@ -99,12 +164,19 @@ final class ShortDramaFeedViewModel: ObservableObject {
     private func performInitialLoad() async -> Bool {
         errorMessage = nil
         do {
-            let page = try await APIService.shared.getShortDramaFeed()
+            let page = try await loadPage(forceRefresh: false)
             guard !Task.isCancelled else { return false }
-            videos = page.videos.filter { !$0.streamingURLString.isBlank }
+            videos = normalizedVideos(page.videos)
             hasMore = page.hasMore
             nextCursor = page.nextCursor
-            if let first = videos.first {
+            persistFeed()
+            if let initialEpisodeID,
+               let initialIndex = videos.firstIndex(where: { $0.id == initialEpisodeID }) {
+                videos[initialIndex].playbackPositionSeconds = initialPositionSeconds
+                selectedVideoID = initialEpisodeID
+                preparePlayerWindow(around: initialIndex)
+                preloadNext(after: initialIndex)
+            } else if let first = videos.first {
                 selectedVideoID = first.id
                 preparePlayerWindow(around: 0)
                 preloadNext(after: 0)
@@ -120,6 +192,8 @@ final class ShortDramaFeedViewModel: ObservableObject {
     func refresh() async {
         pauseAll()
         cancelProgressReports()
+        cancelAudioProbes()
+        removeAllLoopObservers()
         players.removeAll()
         initialLoadTask?.cancel()
         initialLoadTask = nil
@@ -133,10 +207,11 @@ final class ShortDramaFeedViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let page = try await APIService.shared.getShortDramaFeed()
-            videos = page.videos.filter { !$0.streamingURLString.isBlank }
+            let page = try await loadPage(forceRefresh: true)
+            videos = normalizedVideos(page.videos)
             hasMore = page.hasMore
             nextCursor = page.nextCursor
+            persistFeed()
             if let first = videos.first {
                 selectedVideoID = first.id
                 activate(videoID: first.id)
@@ -164,7 +239,10 @@ final class ShortDramaFeedViewModel: ObservableObject {
         preparePlayerWindow(around: index)
         if isManuallyPaused {
             isManuallyPaused = false
-            players[videoID]?.playImmediately(atRate: 1)
+            configurePlaybackAudioSession()
+            makeAudible(players[videoID])
+            players[videoID]?.play()
+            scheduleMediaCache(for: videos[index])
         } else {
             isManuallyPaused = true
             players[videoID]?.pause()
@@ -174,6 +252,18 @@ final class ShortDramaFeedViewModel: ObservableObject {
 
     private func focus(videoID: String, updateSelection: Bool) {
         guard let index = videos.firstIndex(where: { $0.id == videoID }) else { return }
+        let video = videos[index]
+        ShortDramaHistoryStore.shared.save(
+            seriesID: video.dramaID.isBlank ? (seriesID ?? "") : video.dramaID,
+            episodeID: video.id,
+            positionSeconds: video.playbackPositionSeconds
+        )
+        guard !video.requiresUnlock else {
+            players[videoID]?.pause()
+            activeVideoID = videoID
+            if updateSelection { selectedVideoID = videoID }
+            return
+        }
         let previousID = activeVideoID
         if previousID != videoID {
             if let previousID {
@@ -189,8 +279,11 @@ final class ShortDramaFeedViewModel: ObservableObject {
         }
         preparePlayerWindow(around: index)
         if !isManuallyPaused {
+            configurePlaybackAudioSession()
             warmPlayerIfNeeded(videoID)
-            players[videoID]?.playImmediately(atRate: 1)
+            makeAudible(players[videoID])
+            players[videoID]?.play()
+            scheduleMediaCache(for: video)
         }
         preloadNext(after: index)
         loadMoreIfNeeded(currentIndex: index)
@@ -210,7 +303,9 @@ final class ShortDramaFeedViewModel: ObservableObject {
 
     func resumeAfterForeground() {
         guard let activeVideoID, !isManuallyPaused else { return }
-        players[activeVideoID]?.playImmediately(atRate: 1)
+        configurePlaybackAudioSession()
+        makeAudible(players[activeVideoID])
+        players[activeVideoID]?.play()
     }
 
     func leaveFeed() {
@@ -218,6 +313,9 @@ final class ShortDramaFeedViewModel: ObservableObject {
             scheduleProgressReport(videoID: activeVideoID)
         }
         pauseAll()
+        videos.forEach { MediaCacheManager.shared.cancelScheduledCache(mediaID: "short-drama:\($0.id)") }
+        cancelAudioProbes()
+        removeAllLoopObservers()
     }
 
     func toggleLike(videoID: String) {
@@ -300,6 +398,9 @@ final class ShortDramaFeedViewModel: ObservableObject {
             players[videoID] = nil
             warmingVideoIDs.remove(videoID)
             warmedVideoIDs.remove(videoID)
+            audioProbeTasks[videoID]?.cancel()
+            audioProbeTasks[videoID] = nil
+            removeLoopObserver(for: videoID)
             lastReportedProgressSeconds.removeValue(forKey: videoID)
         }
     }
@@ -316,19 +417,261 @@ final class ShortDramaFeedViewModel: ObservableObject {
     }
 
     private func makePlayer(for video: ShortDramaVideo) -> AVPlayer? {
-        guard let url = resolvedMediaURL(video.streamingURLString) else { return nil }
-        let asset = AVURLAsset(url: url)
-        let item = AVPlayerItem(asset: asset)
-        item.preferredForwardBufferDuration = 3
-        item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
+        guard !video.requiresUnlock else { return nil }
+        let candidates = mediaCandidates(for: video)
+        guard let primary = candidates.first else { return nil }
+        let url = primary.url
+        let playbackURL = MediaCacheManager.shared.localURL(mediaID: "short-drama:\(video.id)") ?? url
+        let asset = makeAsset(for: playbackURL)
+        let item = makePlayerItem(asset: asset)
 
         let player = AVPlayer(playerItem: item)
         player.actionAtItemEnd = .none
-        player.automaticallyWaitsToMinimizeStalling = false
+        player.automaticallyWaitsToMinimizeStalling = true
+        makeAudible(player)
+        observeLoop(for: video.id, player: player, item: item)
         if video.playbackPositionSeconds > 1 {
             player.seek(to: CMTime(seconds: video.playbackPositionSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         }
+        probeAudioAndFallbackIfNeeded(
+            videoID: video.id,
+            primaryLabel: primary.label,
+            primaryURL: url,
+            primaryAsset: asset,
+            player: player,
+            fallbackCandidates: Array(candidates.dropFirst())
+        )
         return player
+    }
+
+    private func makePlayerItem(asset: AVURLAsset) -> AVPlayerItem {
+        let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = 3
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
+        return item
+    }
+
+    private func makeAsset(for url: URL) -> AVURLAsset {
+        let headers = ShortDramaMediaSecurity.authorizationHeaders(
+            for: url,
+            apiBaseURL: APIService.shared.baseURL,
+            token: AuthManager.shared.token
+        )
+        let options: [String: Any]? = headers.map { ["AVURLAssetHTTPHeaderFieldsKey": $0] }
+        return AVURLAsset(url: url, options: options)
+    }
+
+    private func scheduleMediaCache(for video: ShortDramaVideo) {
+        guard !video.requiresUnlock, let remoteURL = mediaCandidates(for: video).first?.url else { return }
+        let headers = ShortDramaMediaSecurity.authorizationHeaders(
+            for: remoteURL,
+            apiBaseURL: APIService.shared.baseURL,
+            token: AuthManager.shared.token
+        )
+        MediaCacheManager.shared.scheduleCache(
+            mediaID: "short-drama:\(video.id)",
+            remoteURL: remoteURL,
+            authorizationHeaders: headers
+        )
+    }
+
+    private func mediaCandidates(for video: ShortDramaVideo) -> [(label: String, url: URL)] {
+        var candidates: [(String, String)] = [("primary", video.streamingURLString)]
+        if let mp4URL = nonEmpty(video.mp4URL) {
+            candidates.append(("mp4_url", mp4URL))
+        }
+        if let playURL = nonEmpty(video.playURL) {
+            candidates.append(("play_url", playURL))
+        }
+        if let hlsURL = nonEmpty(video.hlsURL) {
+            candidates.append(("hls_url", hlsURL))
+        }
+
+        var seen = Set<String>()
+        return candidates.compactMap { label, rawValue in
+            guard let url = resolvedMediaURL(rawValue) else { return nil }
+            let key = url.absoluteString
+            guard seen.insert(key).inserted else { return nil }
+            return (label, url)
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func probeAudioAndFallbackIfNeeded(
+        videoID: String,
+        primaryLabel: String,
+        primaryURL: URL,
+        primaryAsset: AVURLAsset,
+        player: AVPlayer,
+        fallbackCandidates: [(label: String, url: URL)]
+    ) {
+        guard !fallbackCandidates.isEmpty else { return }
+        audioProbeTasks[videoID]?.cancel()
+        audioProbeTasks[videoID] = Task { [weak self, weak player] in
+            let hasAudio = await Self.assetHasAudio(primaryAsset)
+            guard !Task.isCancelled, hasAudio == false else { return }
+            await MainActor.run { [weak self, weak player] in
+                guard let self,
+                      let player,
+                      player.currentItem?.asset === primaryAsset,
+                      let fallback = fallbackCandidates.first else { return }
+
+                #if DEBUG
+                print("[ShortDrama] \(videoID) primary \(primaryLabel) has no audio track: \(primaryURL.absoluteString). Fallback to \(fallback.label): \(fallback.url.absoluteString)")
+                #endif
+
+                let fallbackAsset = self.makeAsset(for: fallback.url)
+                let fallbackItem = self.makePlayerItem(asset: fallbackAsset)
+                let currentTime = player.currentTime()
+                let shouldResume = player.rate > 0
+                player.replaceCurrentItem(with: fallbackItem)
+                self.makeAudible(player)
+                self.observeLoop(for: videoID, player: player, item: fallbackItem)
+                if currentTime.seconds.isFinite, currentTime.seconds > 0 {
+                    player.seek(to: currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+                if shouldResume {
+                    player.play()
+                }
+                self.audioProbeTasks[videoID] = nil
+            }
+        }
+    }
+
+    private static func assetHasAudio(_ asset: AVURLAsset) async -> Bool? {
+        await withCheckedContinuation { continuation in
+            asset.loadValuesAsynchronously(forKeys: ["tracks"]) {
+                var error: NSError?
+                let status = asset.statusOfValue(forKey: "tracks", error: &error)
+                guard status == .loaded else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: !asset.tracks(withMediaType: .audio).isEmpty)
+            }
+        }
+    }
+
+    private func configurePlaybackAudioSession() {
+        guard !didConfigurePlaybackAudioSession else { return }
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
+            try session.setActive(true)
+            didConfigurePlaybackAudioSession = true
+        } catch {
+            didConfigurePlaybackAudioSession = false
+        }
+    }
+
+    private func makeAudible(_ player: AVPlayer?) {
+        player?.isMuted = false
+        player?.volume = 1
+    }
+
+    private func observeLoop(for videoID: String, player: AVPlayer, item: AVPlayerItem) {
+        removeLoopObserver(for: videoID)
+
+        let endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self, weak player, weak item] _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let player, let item else { return }
+                self?.loopIfNeeded(videoID: videoID, player: player, item: item, requireNearEnd: false)
+            }
+        }
+
+        let timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.35, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self, weak player, weak item] _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let player, let item else { return }
+                self?.loopIfNeeded(videoID: videoID, player: player, item: item, requireNearEnd: true)
+            }
+        }
+
+        let failureObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { notification in
+            #if DEBUG
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            print("[ShortDrama] \(videoID) playback failed: \(error?.localizedDescription ?? item.error?.localizedDescription ?? "unknown error")")
+            #endif
+        }
+
+        let statusObservation = item.observe(\.status, options: [.new]) { item, _ in
+            guard item.status == .failed else { return }
+            #if DEBUG
+            let details = item.errorLog()?.events
+                .suffix(3)
+                .map { "status=\($0.errorStatusCode) domain=\($0.errorDomain) comment=\($0.errorComment ?? "")" }
+                .joined(separator: " | ") ?? ""
+            print("[ShortDrama] \(videoID) item failed: \(item.error?.localizedDescription ?? "unknown error") \(details)")
+            #endif
+        }
+
+        loopObservers[videoID] = PlaybackLoopObserver(
+            player: player,
+            endObserver: endObserver,
+            timeObserver: timeObserver,
+            failureObserver: failureObserver,
+            statusObservation: statusObservation
+        )
+    }
+
+    private func loopIfNeeded(videoID: String, player: AVPlayer, item: AVPlayerItem, requireNearEnd: Bool) {
+        guard activeVideoID == videoID,
+              !isManuallyPaused,
+              player.currentItem === item,
+              !loopingVideoIDs.contains(videoID) else { return }
+
+        if requireNearEnd {
+            let duration = item.duration.seconds
+            let current = player.currentTime().seconds
+            guard player.rate > 0,
+                  duration.isFinite,
+                  duration > 0.5,
+                  current.isFinite,
+                  current >= max(0, duration - 0.25) else { return }
+        }
+
+        loopingVideoIDs.insert(videoID)
+        makeAudible(player)
+        player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak player, weak item] _ in
+            Task { @MainActor [weak self, weak player, weak item] in
+                guard let self else { return }
+                self.loopingVideoIDs.remove(videoID)
+                guard let player,
+                      let item,
+                      self.activeVideoID == videoID,
+                      !self.isManuallyPaused,
+                      player.currentItem === item else { return }
+                self.makeAudible(player)
+                player.play()
+            }
+        }
+    }
+
+    private func removeLoopObserver(for videoID: String) {
+        guard let observer = loopObservers.removeValue(forKey: videoID) else { return }
+        NotificationCenter.default.removeObserver(observer.endObserver)
+        NotificationCenter.default.removeObserver(observer.failureObserver)
+        observer.statusObservation.invalidate()
+        observer.player.removeTimeObserver(observer.timeObserver)
+        loopingVideoIDs.remove(videoID)
+    }
+
+    private func removeAllLoopObservers() {
+        Array(loopObservers.keys).forEach(removeLoopObserver)
     }
 
     private func warmPlayerIfNeeded(_ videoID: String) {
@@ -369,6 +712,7 @@ final class ShortDramaFeedViewModel: ObservableObject {
     }
 
     private func loadMoreIfNeeded(currentIndex: Int) {
+        guard seriesID == nil else { return }
         guard currentIndex >= videos.count - 3,
               hasMore,
               !isLoadingMore else { return }
@@ -387,7 +731,10 @@ final class ShortDramaFeedViewModel: ObservableObject {
             videos.append(contentsOf: page.videos.filter { !existingIDs.contains($0.id) && !$0.streamingURLString.isBlank })
             hasMore = page.hasMore
             nextCursor = page.nextCursor
-        } catch { }
+            persistFeed()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func scheduleProgressReport(videoID: String) {
@@ -399,6 +746,12 @@ final class ShortDramaFeedViewModel: ObservableObject {
 
         if let index = videos.firstIndex(where: { $0.id == videoID }) {
             videos[index].playbackPositionSeconds = seconds
+            let video = videos[index]
+            ShortDramaHistoryStore.shared.save(
+                seriesID: video.dramaID.isBlank ? (seriesID ?? "") : video.dramaID,
+                episodeID: video.id,
+                positionSeconds: seconds
+            )
         }
 
         if let lastSeconds = lastReportedProgressSeconds[videoID],
@@ -431,6 +784,19 @@ final class ShortDramaFeedViewModel: ObservableObject {
         progressReportTasks.values.forEach { $0.cancel() }
         progressReportTasks.removeAll()
         progressReportTokens.removeAll()
+    }
+
+    private func cancelAudioProbes() {
+        audioProbeTasks.values.forEach { $0.cancel() }
+        audioProbeTasks.removeAll()
+    }
+
+    private struct PlaybackLoopObserver {
+        let player: AVPlayer
+        let endObserver: NSObjectProtocol
+        let timeObserver: Any
+        let failureObserver: NSObjectProtocol
+        let statusObservation: NSKeyValueObservation
     }
 
     private func pauseAll() {
@@ -467,5 +833,75 @@ final class ShortDramaFeedViewModel: ObservableObject {
     private var selectedIndex: Int? {
         guard let selectedVideoID else { return nil }
         return videos.firstIndex { $0.id == selectedVideoID }
+    }
+
+    func video(videoID: String?) -> ShortDramaVideo? {
+        guard let videoID else { return nil }
+        return videos.first { $0.id == videoID }
+    }
+
+    func unlock(videoID: String) async -> Bool {
+        guard let index = videos.firstIndex(where: { $0.id == videoID }) else { return false }
+        do {
+            let result = try await APIService.shared.unlockShortDramaEpisode(videoID: videoID)
+            if let balance = result.walletBalance {
+                WalletStore.shared.applyServerBalance(balance)
+            }
+            if let unlocked = result.video {
+                videos[index] = unlocked
+            } else {
+                videos[index].isUnlocked = true
+            }
+            preparePlayerWindow(around: index)
+            activate(videoID: videoID)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func loadPage(forceRefresh: Bool) async throws -> ShortDramaFeedPage {
+        let fetch: () async throws -> ShortDramaFeedPage = {
+            guard let seriesID = self.seriesID else {
+                return try await APIService.shared.getShortDramaFeed()
+            }
+            let series = try await APIService.shared.getShortDramaSeriesDetail(seriesID: seriesID)
+            return ShortDramaFeedPage(videos: series.episodes, hasMore: false, nextCursor: nil)
+        }
+        guard let key = Self.cacheKey(seriesID: seriesID) else { return try await fetch() }
+        return try await AppCacheRepository.shared.loadValue(
+            key: key,
+            policy: .mediaFeed,
+            forceRefresh: forceRefresh,
+            fetch: fetch
+        )
+    }
+
+    private func persistFeed() {
+        guard let key = Self.cacheKey(seriesID: seriesID) else { return }
+        AppCacheRepository.shared.save(
+            ShortDramaFeedPage(
+                videos: Array(videos.prefix(200)),
+                hasMore: hasMore,
+                nextCursor: nextCursor
+            ),
+            for: key,
+            policy: .mediaFeed
+        )
+    }
+
+    private static func cacheKey(seriesID: String?) -> CacheKey? {
+        CacheKey.current(namespace: "short-drama-feed", key: seriesID ?? "recommended")
+    }
+
+    private func normalizedVideos(_ source: [ShortDramaVideo]) -> [ShortDramaVideo] {
+        source
+            .filter { !$0.streamingURLString.isBlank || $0.requiresUnlock }
+            .sorted {
+                let lhs = $0.episodeNumber ?? Int.max
+                let rhs = $1.episodeNumber ?? Int.max
+                return lhs == rhs ? $0.id < $1.id : lhs < rhs
+            }
     }
 }

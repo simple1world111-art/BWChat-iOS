@@ -4,6 +4,36 @@
 import Foundation
 import UIKit
 
+enum AuthRequestAuthorizer {
+    /// The only place in the client that constructs an HTTP Authorization
+    /// value. `setValue` replaces any stale header, so refresh retries can
+    /// never retain the previous access token or add a second Bearer prefix.
+    @discardableResult
+    static func addAuthHeader(_ request: inout URLRequest, token rawToken: String?) -> Bool {
+        guard let token = AuthTokenNormalizer.normalize(rawToken) else {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+            return false
+        }
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return true
+    }
+
+    static func logFinalRequest(_ request: URLRequest, expectsAuthorization: Bool) {
+        #if DEBUG
+        let value = request.value(forHTTPHeaderField: "Authorization")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasBearerScheme = value?.lowercased().hasPrefix("bearer ") == true
+        let token = hasBearerScheme ? AuthTokenNormalizer.normalize(value) : nil
+        let metadata = AuthTokenDiagnostics.metadata(for: token)
+        print(
+            "[AuthRequest] final method=\(request.httpMethod ?? "GET") path=\(request.url?.path ?? "") "
+                + "expected=\(expectsAuthorization) present=\(value != nil) bearer=\(hasBearerScheme) "
+                + "token_length=\(metadata.length) sha256=\(metadata.sha256Prefix)"
+        )
+        #endif
+    }
+}
+
 enum APIError: Error, LocalizedError {
     case invalidURL
     case invalidResponse
@@ -17,10 +47,60 @@ enum APIError: Error, LocalizedError {
         case .invalidURL: return L10n.tr("api.invalidURL")
         case .invalidResponse: return L10n.tr("api.invalidResponse")
         case .unauthorized: return L10n.tr("api.unauthorized")
-        case .serverError(_, let message): return message
-        case .networkError(let error): return L10n.tr("api.networkError", error.localizedDescription)
+        case .serverError(let code, let message):
+            // Gateway/proxy bodies are often raw HTML (for example "502 Bad Gateway").
+            // Keep that detail in diagnostics, but never surface infrastructure text in UI.
+            return (500...599).contains(code) ? L10n.tr("api.serverUnavailable") : message
+        case .networkError: return L10n.tr("api.networkUnavailable")
         case .decodingError: return L10n.tr("api.decodingError")
         }
+    }
+}
+
+enum TransientHTTPRetryPolicy {
+    static let maximumRetryCount = 2
+    private static let retryableStatusCodes: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
+    private static let retryableURLErrorCodes: Set<URLError.Code> = [
+        .timedOut,
+        .cannotFindHost,
+        .cannotConnectToHost,
+        .dnsLookupFailed,
+        .networkConnectionLost,
+        .notConnectedToInternet
+    ]
+
+    static func shouldRetry(method: String?, statusCode: Int, retryCount: Int) -> Bool {
+        guard retryCount < maximumRetryCount else { return false }
+        guard retryableStatusCodes.contains(statusCode) else { return false }
+        return isIdempotent(method: method)
+    }
+
+    static func shouldRetry(method: String?, error: Error, retryCount: Int) -> Bool {
+        guard retryCount < maximumRetryCount else { return false }
+        guard let urlError = error as? URLError,
+              retryableURLErrorCodes.contains(urlError.code) else { return false }
+        return isIdempotent(method: method)
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
+    }
+
+    private static func isIdempotent(method: String?) -> Bool {
+        switch method?.uppercased() {
+        case "GET", "HEAD": return true
+        default: return false
+        }
+    }
+
+    static func delayNanoseconds(response: HTTPURLResponse, retryCount: Int) -> UInt64 {
+        if let retryAfter = response.value(forHTTPHeaderField: "Retry-After"),
+           let seconds = Double(retryAfter),
+           seconds >= 0 {
+            return UInt64(min(seconds, 2) * 1_000_000_000)
+        }
+        let delays: [UInt64] = [350_000_000, 900_000_000]
+        return delays[min(retryCount, delays.count - 1)]
     }
 }
 
@@ -28,6 +108,205 @@ struct APIResponseWrapper<T: Decodable>: Decodable {
     let code: Int
     let message: String
     let data: T?
+
+    func requiredData() throws -> T {
+        guard let data else {
+            throw APIError.serverError(
+                code: code,
+                message: message.isBlank ? L10n.tr("api.invalidResponse") : message
+            )
+        }
+        return data
+    }
+}
+
+struct AgentSummaryRemoteResponse: Decodable {
+    private struct Container: Decodable {
+        let agent: AgentSummary?
+        let draft: AgentSummary?
+        let item: AgentSummary?
+    }
+
+    let code: Int
+    let message: String
+    let agent: AgentSummary?
+
+    private enum CodingKeys: String, CodingKey {
+        case code, message, data, agent, draft, item
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        code = (try? container?.decodeIfPresent(Int.self, forKey: .code)) ?? 0
+        message = (try? container?.decodeIfPresent(String.self, forKey: .message)) ?? ""
+
+        if let value = try? container?.decodeIfPresent(AgentSummary.self, forKey: .data) {
+            agent = value
+            return
+        }
+        if let value = try? container?.decodeIfPresent(Container.self, forKey: .data) {
+            agent = value.agent ?? value.draft ?? value.item
+            return
+        }
+        if let value = try? container?.decodeIfPresent(AgentSummary.self, forKey: .agent) {
+            agent = value
+            return
+        }
+        if let value = try? container?.decodeIfPresent(AgentSummary.self, forKey: .draft) {
+            agent = value
+            return
+        }
+        if let value = try? container?.decodeIfPresent(AgentSummary.self, forKey: .item) {
+            agent = value
+            return
+        }
+        if let direct = try? AgentSummary(from: decoder) {
+            agent = direct
+            return
+        }
+        if container != nil {
+            agent = nil
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unsupported agent response envelope"
+            )
+        )
+    }
+
+    func requiredAgent() throws -> AgentSummary {
+        guard let agent else {
+            throw APIError.serverError(
+                code: code,
+                message: message.isBlank ? L10n.tr("api.invalidResponse") : message
+            )
+        }
+        return agent
+    }
+}
+
+struct AgentConversationRemoteResponse: Decodable {
+    private struct Container: Decodable {
+        let conversation: AgentConversation?
+        let item: AgentConversation?
+    }
+
+    let code: Int
+    let message: String
+    let conversation: AgentConversation?
+
+    private enum CodingKeys: String, CodingKey {
+        case code, message, data, conversation, item
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        code = (try? container?.decodeIfPresent(Int.self, forKey: .code)) ?? 0
+        message = (try? container?.decodeIfPresent(String.self, forKey: .message)) ?? ""
+
+        if let value = try? container?.decodeIfPresent(AgentConversation.self, forKey: .data) {
+            conversation = value
+            return
+        }
+        if let value = try? container?.decodeIfPresent(Container.self, forKey: .data) {
+            conversation = value.conversation ?? value.item
+            return
+        }
+        if let value = try? container?.decodeIfPresent(AgentConversation.self, forKey: .conversation) {
+            conversation = value
+            return
+        }
+        if let value = try? container?.decodeIfPresent(AgentConversation.self, forKey: .item) {
+            conversation = value
+            return
+        }
+        if let direct = try? AgentConversation(from: decoder) {
+            conversation = direct
+            return
+        }
+        if container != nil {
+            conversation = nil
+            return
+        }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unsupported agent conversation response envelope"
+            )
+        )
+    }
+
+    func requiredConversation() throws -> AgentConversation {
+        guard let conversation else {
+            throw APIError.serverError(
+                code: code,
+                message: message.isBlank ? L10n.tr("api.invalidResponse") : message
+            )
+        }
+        return conversation
+    }
+}
+
+struct AppRemoteConfigFetchResult {
+    let config: AppRemoteConfig?
+    let etag: String?
+    let notModified: Bool
+}
+
+struct DynamicScreenFetchResult {
+    let screen: DynamicScreen?
+    let etag: String?
+    let notModified: Bool
+}
+
+private struct ConditionalHTTPResult<T: Decodable> {
+    let value: T?
+    let etag: String?
+    let notModified: Bool
+}
+
+private struct AppRemoteConfigRemoteResponse: Decodable {
+    let config: AppRemoteConfig
+
+    private enum CodingKeys: String, CodingKey {
+        case code
+        case message
+        case data
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try? decoder.container(keyedBy: CodingKeys.self)
+        if container?.contains(.data) == true || container?.contains(.code) == true {
+            let wrapped = try APIResponseWrapper<AppRemoteConfig>(from: decoder)
+            guard let config = wrapped.data else {
+                throw DecodingError.valueNotFound(
+                    AppRemoteConfig.self,
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath + [CodingKeys.data],
+                        debugDescription: "Missing app remote config data"
+                    )
+                )
+            }
+            self.config = config
+            return
+        }
+        self.config = try AppRemoteConfig(from: decoder)
+    }
+}
+
+private struct DynamicScreenRemoteResponse: Decodable {
+    let screen: DynamicScreen
+
+    init(from decoder: Decoder) throws {
+        if let wrapped = try? APIResponseWrapper<DynamicScreen>(from: decoder),
+           let screen = wrapped.data {
+            self.screen = screen
+            return
+        }
+        self.screen = try DynamicScreen(from: decoder)
+    }
 }
 
 private struct DiscoverConfigRemoteResponse: Decodable {
@@ -68,6 +347,36 @@ private struct DetailErrorResponse: Decodable {
         let message: String?
     }
     let detail: Detail?
+}
+
+private struct StructuredErrorResponse: Decodable {
+    struct ErrorData: Decodable {
+        let errorCode: String?
+        let fieldErrors: [String: String]?
+
+        private enum CodingKeys: String, CodingKey {
+            case errorCode = "error_code"
+            case fieldErrors = "field_errors"
+        }
+    }
+
+    let message: String?
+    let data: ErrorData?
+
+    var userFacingMessage: String? {
+        let fieldMessages = (data?.fieldErrors ?? [:])
+            .sorted { $0.key < $1.key }
+            .map(\.value)
+        let messages = [message]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            + fieldMessages
+        guard !messages.isEmpty else { return nil }
+        var seen = Set<String>()
+        return messages
+            .filter { seen.insert($0).inserted }
+            .joined(separator: "\n")
+    }
 }
 
 private struct GiftDirectMessageResponseData: Decodable {
@@ -209,6 +518,7 @@ class APIService {
         guard let data = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
         }
+        AuthTokenDiagnostics.log("login-response-raw", token: data.token)
         return (data.token, data.refreshToken, data.user)
     }
 
@@ -343,6 +653,63 @@ class APIService {
         return response.config
     }
 
+    func fetchAppRemoteConfig(ifNoneMatch: String? = nil) async throws -> AppRemoteConfigFetchResult {
+        guard let url = URL(string: baseURL + "/app/config") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        applyAppConfigHeaders(to: &request, ifNoneMatch: ifNoneMatch)
+
+        let hasToken = AuthManager.shared.token != nil
+        if hasToken {
+            addAuthHeader(&request)
+        }
+
+        let response: ConditionalHTTPResult<AppRemoteConfigRemoteResponse> = try await performConditional(
+            request,
+            allowRetry: hasToken,
+            logoutOnUnauthorized: false
+        )
+        return AppRemoteConfigFetchResult(
+            config: response.value?.config,
+            etag: response.etag,
+            notModified: response.notModified
+        )
+    }
+
+    func fetchDynamicScreen(screenID: String, ifNoneMatch: String? = nil) async throws -> DynamicScreenFetchResult {
+        let escapedID = Self.pathComponent(screenID)
+        guard let url = URL(string: baseURL + "/app/screens/\(escapedID)") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        applyAppConfigHeaders(to: &request, ifNoneMatch: ifNoneMatch)
+
+        let hasToken = AuthManager.shared.token != nil
+        if hasToken {
+            addAuthHeader(&request)
+        }
+
+        let response: ConditionalHTTPResult<DynamicScreenRemoteResponse> = try await performConditional(
+            request,
+            allowRetry: hasToken,
+            logoutOnUnauthorized: false
+        )
+        return DynamicScreenFetchResult(
+            screen: response.value?.screen,
+            etag: response.etag,
+            notModified: response.notModified
+        )
+    }
+
     /// Attempt to refresh the token, coalescing concurrent requests.
     private func attemptTokenRefresh() async throws {
         if isRefreshing {
@@ -356,8 +723,11 @@ class APIService {
         isRefreshing = true
         do {
             let (newToken, newRefreshToken, user) = try await refreshTokens()
-            AuthManager.shared.token = newToken
-            AuthManager.shared.refreshToken = newRefreshToken
+            try AuthManager.shared.updateSessionTokens(
+                accessToken: newToken,
+                refreshToken: newRefreshToken,
+                source: "refresh"
+            )
             AuthManager.shared.updateUser(user)
             isRefreshing = false
             let continuations = refreshContinuations
@@ -384,7 +754,7 @@ class APIService {
         }
 
         let response: APIResponseWrapper<ContactsData> = try await get(path: "/chat/contacts")
-        return response.data?.contacts ?? []
+        return try response.requiredData().contacts
     }
 
     func getConversations() async throws -> [Conversation] {
@@ -393,7 +763,7 @@ class APIService {
         }
 
         let response: APIResponseWrapper<ConversationsData> = try await get(path: "/chat/conversations")
-        return response.data?.conversations ?? []
+        return try response.requiredData().conversations
     }
 
     // MARK: - Messages
@@ -422,8 +792,8 @@ class APIService {
             path: "/chat/messages/\(contactID)",
             queryItems: queryItems
         )
-        let data = response.data
-        return (data?.messages ?? [], data?.hasMore ?? false)
+        let data = try response.requiredData()
+        return (data.messages, data.hasMore)
     }
 
     func markMessagesAsRead(contactID: String) async throws {
@@ -456,9 +826,31 @@ class APIService {
         return msg
     }
 
+    func sendStickerMessage(
+        receiverID: String,
+        packID: String,
+        stickerID: String,
+        replyToID: Int? = nil
+    ) async throws -> Message {
+        var body: [String: Any] = [
+            "receiver_id": receiverID,
+            "pack_id": packID,
+            "sticker_id": stickerID
+        ]
+        if let replyToID {
+            body["reply_to_id"] = replyToID
+        }
+
+        let response: APIResponseWrapper<Message> = try await postJSON(path: "/chat/messages/sticker", body: body)
+        guard let msg = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return msg
+    }
+
     func getGiftCatalog() async throws -> [GiftCatalogItem] {
         let response: APIResponseWrapper<GiftCatalogResponseData> = try await get(path: "/wallet/gifts/catalog")
-        return response.data?.gifts ?? []
+        return try response.requiredData().gifts
     }
 
     func sendGiftMessage(receiverID: String, giftID: String) async throws -> Message {
@@ -638,7 +1030,7 @@ class APIService {
             path: "/friends/search",
             queryItems: [URLQueryItem(name: "keyword", value: keyword)]
         )
-        return response.data?.users ?? []
+        return try response.requiredData().users
     }
 
     func getFriendList() async throws -> [FriendInfo] {
@@ -647,7 +1039,7 @@ class APIService {
         }
 
         let response: APIResponseWrapper<FriendListData> = try await get(path: "/friends/list")
-        return response.data?.friends ?? []
+        return try response.requiredData().friends
     }
 
     func getFriendRequests() async throws -> [FriendRequest] {
@@ -656,7 +1048,7 @@ class APIService {
         }
 
         let response: APIResponseWrapper<RequestsData> = try await get(path: "/friends/requests")
-        return response.data?.requests ?? []
+        return try response.requiredData().requests
     }
 
     func sendFriendRequest(targetUserID: String) async throws -> String {
@@ -755,7 +1147,7 @@ class APIService {
     func getNearbyMapUsers(
         lat: Double,
         lng: Double,
-        radiusM: Int = 10_000,
+        radiusM: Int? = nil,
         limit: Int = 50,
         gender: String? = nil,
         minAge: Int? = nil,
@@ -765,10 +1157,12 @@ class APIService {
         var queryItems = [
             URLQueryItem(name: "lat", value: "\(lat)"),
             URLQueryItem(name: "lng", value: "\(lng)"),
-            URLQueryItem(name: "radius_m", value: "\(radiusM)"),
             URLQueryItem(name: "limit", value: "\(limit)"),
             URLQueryItem(name: "include_friends", value: includeFriends ? "true" : "false")
         ]
+        if let radiusM {
+            queryItems.append(URLQueryItem(name: "radius_m", value: "\(radiusM)"))
+        }
         if let gender, !gender.isBlank {
             queryItems.append(URLQueryItem(name: "gender", value: gender))
         }
@@ -783,13 +1177,13 @@ class APIService {
             path: "/map/nearby",
             queryItems: queryItems
         )
-        return response.data ?? MapUsersResponseData(users: [])
+        return try response.requiredData()
     }
 
     func getFriendMapUsers(
         lat: Double?,
         lng: Double?,
-        radiusM: Int?,
+        radiusM: Int? = nil,
         limit: Int = 50
     ) async throws -> MapUsersResponseData {
         var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
@@ -807,7 +1201,7 @@ class APIService {
             path: "/map/friends",
             queryItems: queryItems
         )
-        return response.data ?? MapUsersResponseData(users: [])
+        return try response.requiredData()
     }
 
     func getMapUserDetail(userID: String, lat: Double?, lng: Double?) async throws -> MapUser {
@@ -896,7 +1290,7 @@ class APIService {
         }
 
         let response: APIResponseWrapper<GroupsData> = try await get(path: "/groups/list")
-        return response.data?.groups ?? []
+        return try response.requiredData().groups
     }
 
     func createGroup(name: String, memberIDs: [String], isPublic: Bool = false) async throws {
@@ -932,8 +1326,8 @@ class APIService {
             path: "/groups/\(groupID)/messages",
             queryItems: queryItems
         )
-        let data = response.data
-        return (data?.messages ?? [], data?.hasMore ?? false)
+        let data = try response.requiredData()
+        return (data.messages, data.hasMore)
     }
 
     func sendGroupText(
@@ -956,6 +1350,34 @@ class APIService {
 
         let response: APIResponseWrapper<GroupMessage> = try await postJSON(
             path: "/groups/\(groupID)/messages/text",
+            body: body
+        )
+        guard let msg = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return msg
+    }
+
+    func sendGroupSticker(
+        groupID: Int,
+        packID: String,
+        stickerID: String,
+        replyToID: Int? = nil,
+        clientMessageID: String? = nil
+    ) async throws -> GroupMessage {
+        var body: [String: Any] = [
+            "pack_id": packID,
+            "sticker_id": stickerID
+        ]
+        if let replyToID {
+            body["reply_to_id"] = replyToID
+        }
+        if let clientMessageID {
+            body["client_message_id"] = clientMessageID
+        }
+
+        let response: APIResponseWrapper<GroupMessage> = try await postJSON(
+            path: "/groups/\(groupID)/messages/sticker",
             body: body
         )
         guard let msg = response.data else {
@@ -1241,6 +1663,20 @@ class APIService {
         return response.data ?? FollowRelationship(userID: userID, followedByMe: false)
     }
 
+    func getRecommendedUsers(limit: Int = 18, excludeUserID: String? = nil) async throws -> [FollowUser] {
+        var queryItems = [
+            URLQueryItem(name: "limit", value: "\(min(max(limit, 1), 50))")
+        ]
+        if let excludeUserID, !excludeUserID.isBlank {
+            queryItems.append(URLQueryItem(name: "exclude_user_id", value: excludeUserID))
+        }
+        let response: APIResponseWrapper<FollowUsersPage> = try await get(
+            path: "/users/recommended",
+            queryItems: queryItems
+        )
+        return try response.requiredData().users
+    }
+
     func getFollowing(userID: String? = nil, page: Int = 1, limit: Int = 30) async throws -> FollowUsersPage {
         var queryItems = [
             URLQueryItem(name: "page", value: "\(page)"),
@@ -1253,7 +1689,7 @@ class APIService {
             path: "/follows/following",
             queryItems: queryItems
         )
-        return response.data ?? FollowUsersPage(users: [], hasMore: false, nextPage: nil)
+        return try response.requiredData()
     }
 
     func getFollowers(userID: String? = nil, page: Int = 1, limit: Int = 30) async throws -> FollowUsersPage {
@@ -1268,435 +1704,7 @@ class APIService {
             path: "/follows/followers",
             queryItems: queryItems
         )
-        return response.data ?? FollowUsersPage(users: [], hasMore: false, nextPage: nil)
-    }
-
-    // MARK: - Chatbot Bots
-
-    func getChatbotBots() async throws -> [BotConfig] {
-        struct BotsData: Decodable {
-            let bots: [BotConfig]
-
-            enum CodingKeys: String, CodingKey {
-                case bots
-                case items
-                case data
-            }
-
-            init(from decoder: Decoder) throws {
-                if let list = try? [BotConfig](from: decoder) {
-                    bots = list
-                    return
-                }
-
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                bots = try container.decodeIfPresent([BotConfig].self, forKey: .bots)
-                    ?? container.decodeIfPresent([BotConfig].self, forKey: .items)
-                    ?? container.decodeIfPresent([BotConfig].self, forKey: .data)
-                    ?? []
-            }
-        }
-
-        let response: APIResponseWrapper<BotsData> = try await get(path: "/chatbot/bots")
-        return response.data?.bots ?? []
-    }
-
-    func getPublicChatbotBots(limit: Int = 60) async throws -> [BotConfig] {
-        struct BotsData: Decodable {
-            let bots: [BotConfig]
-
-            enum CodingKeys: String, CodingKey {
-                case bots
-                case items
-                case data
-            }
-
-            init(from decoder: Decoder) throws {
-                if let list = try? [BotConfig](from: decoder) {
-                    bots = list
-                    return
-                }
-
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                bots = try container.decodeIfPresent([BotConfig].self, forKey: .bots)
-                    ?? container.decodeIfPresent([BotConfig].self, forKey: .items)
-                    ?? container.decodeIfPresent([BotConfig].self, forKey: .data)
-                    ?? []
-            }
-        }
-
-        let response: APIResponseWrapper<BotsData> = try await get(
-            path: "/chatbot/bots/public",
-            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")]
-        )
-        return response.data?.bots ?? []
-    }
-
-    func createChatbotBot(_ bot: BotConfig) async throws -> BotConfig {
-        let response: APIResponseWrapper<ChatbotBotData> = try await postJSON(
-            path: "/chatbot/bots",
-            body: Self.chatbotBotBody(bot)
-        )
-        guard let bot = response.data?.bot else {
-            throw APIError.serverError(code: response.code, message: response.message)
-        }
-        return bot
-    }
-
-    func updateChatbotBot(_ bot: BotConfig) async throws -> BotConfig {
-        let response: APIResponseWrapper<ChatbotBotData> = try await putJSON(
-            path: "/chatbot/bots/\(Self.pathComponent(bot.id))",
-            body: Self.chatbotBotBody(bot)
-        )
-        guard let updated = response.data?.bot else {
-            throw APIError.serverError(code: response.code, message: response.message)
-        }
-        return updated
-    }
-
-    func deleteChatbotBot(botID: String) async throws {
-        guard let url = URL(string: baseURL + "/chatbot/bots/\(Self.pathComponent(botID))") else {
-            throw APIError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        addAuthHeader(&request)
-        let _: APIResponseWrapper<EmptyData> = try await perform(request)
-    }
-
-    func uploadBotAvatar(botID: String, imageData: Data, filename: String) async throws -> String {
-        struct AvatarData: Decodable {
-            let avatarUrl: String
-            enum CodingKeys: String, CodingKey {
-                case avatarUrl = "avatar_url"
-            }
-        }
-
-        let compressed = Self.compressImageForUpload(imageData, maxDimension: 640, quality: 0.78, maxBytes: 500_000)
-        let response: APIResponseWrapper<AvatarData> = try await uploadImage(
-            path: "/chatbot/bots/\(Self.pathComponent(botID))/avatar",
-            fieldName: nil,
-            fieldValue: nil,
-            imageData: compressed,
-            filename: filename
-        )
-        guard let data = response.data else {
-            throw APIError.serverError(code: response.code, message: response.message)
-        }
-        return data.avatarUrl
-    }
-
-    func generateChatbotCharacterBackground(
-        name: String,
-        gender: String
-    ) async throws -> String {
-        var body: [String: Any] = [
-            "gender": BotConfig.normalizedGender(gender)
-        ]
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedName.isEmpty {
-            body["name"] = trimmedName
-        }
-
-        let data = try await generateChatbotSetting(
-            path: "/chatbot/bots/generate-character-background",
-            body: body
-        )
-        return try Self.generatedText(
-            data.characterBackgroundText,
-            fallbackMessage: L10n.tr("bot.config.characterBackground.generateFailed")
-        )
-    }
-
-    func generateChatbotOpeningLine(
-        name: String,
-        gender: String,
-        characterBackground: String?
-    ) async throws -> String {
-        var body: [String: Any] = [
-            "gender": BotConfig.normalizedGender(gender)
-        ]
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedName.isEmpty {
-            body["name"] = trimmedName
-        }
-        if let characterBackground,
-           !characterBackground.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["character_background"] = characterBackground
-        }
-
-        let data = try await generateChatbotSetting(
-            path: "/chatbot/bots/generate-opening-line",
-            body: body
-        )
-        return try Self.generatedText(
-            data.openingLineText,
-            fallbackMessage: L10n.tr("bot.config.openingLine.generateFailed")
-        )
-    }
-
-    private func generateChatbotSetting(
-        path: String,
-        body: [String: Any]
-    ) async throws -> ChatbotGeneratedSettingData {
-        let response: APIResponseWrapper<ChatbotGeneratedSettingData> = try await postJSON(
-            path: path,
-            body: body
-        )
-        if response.code != 0 {
-            print("[ChatbotGenerate] \(path) code=\(response.code) message=\(response.message)")
-        }
-        guard let data = response.data else {
-            print("[ChatbotGenerate] \(path) missing data code=\(response.code) message=\(response.message)")
-            throw APIError.serverError(code: response.code, message: response.message)
-        }
-        if data.isEmpty {
-            print("[ChatbotGenerate] \(path) empty generated text: \(data.debugSummary)")
-        }
-        return data
-    }
-
-    private struct ChatbotBotData: Decodable {
-        let bot: BotConfig?
-
-        enum CodingKeys: String, CodingKey {
-            case bot
-            case item
-            case data
-            case id
-            case botID = "bot_id"
-            case name
-            case displayName = "display_name"
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            if let bot = try container.decodeIfPresent(BotConfig.self, forKey: .bot) {
-                self.bot = bot
-                return
-            }
-            if let bot = try container.decodeIfPresent(BotConfig.self, forKey: .item) {
-                self.bot = bot
-                return
-            }
-            if let bot = try container.decodeIfPresent(BotConfig.self, forKey: .data) {
-                self.bot = bot
-                return
-            }
-            if container.contains(.id)
-                || container.contains(.botID)
-                || container.contains(.name)
-                || container.contains(.displayName) {
-                self.bot = try BotConfig(from: decoder)
-                return
-            }
-            self.bot = nil
-        }
-    }
-
-    private struct ChatbotGeneratedSettingData: Decodable {
-        let characterBackground: String?
-        let openingLine: String?
-        let text: String?
-        let content: String?
-        let result: String?
-        let generatedText: String?
-        let value: String?
-        let output: String?
-        let background: String?
-        let persona: String?
-        let opening: String?
-        let line: String?
-        let nested: [ChatbotGeneratedSettingData]
-
-        enum CodingKeys: String, CodingKey {
-            case characterBackground = "character_background"
-            case characterBackgroundCamel = "characterBackground"
-            case openingLine = "opening_line"
-            case openingLineCamel = "openingLine"
-            case text
-            case content
-            case result
-            case generated
-            case generatedText = "generated_text"
-            case generatedTextCamel = "generatedText"
-            case value
-            case output
-            case background
-            case persona
-            case opening
-            case line
-            case payload
-            case data
-        }
-
-        init(from decoder: Decoder) throws {
-            if let container = try? decoder.singleValueContainer(),
-               let value = try? container.decode(String.self) {
-                characterBackground = nil
-                openingLine = nil
-                text = value
-                content = nil
-                result = nil
-                generatedText = nil
-                self.value = nil
-                output = nil
-                background = nil
-                persona = nil
-                opening = nil
-                line = nil
-                nested = []
-                return
-            }
-
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            characterBackground = Self.decodeString(
-                from: container,
-                keys: [.characterBackground, .characterBackgroundCamel]
-            )
-            openingLine = Self.decodeString(
-                from: container,
-                keys: [.openingLine, .openingLineCamel]
-            )
-            text = Self.decodeString(from: container, keys: [.text])
-            content = Self.decodeString(from: container, keys: [.content])
-            result = Self.decodeString(from: container, keys: [.result, .generated])
-            generatedText = Self.decodeString(from: container, keys: [.generatedText, .generatedTextCamel])
-            value = Self.decodeString(from: container, keys: [.value])
-            output = Self.decodeString(from: container, keys: [.output])
-            background = Self.decodeString(from: container, keys: [.background])
-            persona = Self.decodeString(from: container, keys: [.persona])
-            opening = Self.decodeString(from: container, keys: [.opening])
-            line = Self.decodeString(from: container, keys: [.line])
-
-            nested = [.data, .payload, .result, .generated].compactMap { key in
-                try? container.decode(ChatbotGeneratedSettingData.self, forKey: key)
-            }
-        }
-
-        var characterBackgroundText: String? {
-            Self.firstNonBlank(
-                characterBackground,
-                background,
-                persona,
-                text,
-                content,
-                result,
-                generatedText,
-                value,
-                output,
-                nested.compactMap(\.characterBackgroundText).first
-            )
-        }
-
-        var openingLineText: String? {
-            Self.firstNonBlank(
-                openingLine,
-                opening,
-                line,
-                text,
-                content,
-                result,
-                generatedText,
-                value,
-                output,
-                nested.compactMap(\.openingLineText).first
-            )
-        }
-
-        var isEmpty: Bool {
-            characterBackgroundText == nil && openingLineText == nil
-        }
-
-        var debugSummary: String {
-            let fields = [
-                "character_background": characterBackground,
-                "opening_line": openingLine,
-                "text": text,
-                "content": content,
-                "result": result,
-                "generated_text": generatedText,
-                "value": value,
-                "output": output,
-                "background": background,
-                "persona": persona,
-                "opening": opening,
-                "line": line
-            ]
-            let nonEmpty = fields.compactMap { key, value -> String? in
-                guard let text = Self.sanitized(value) else { return nil }
-                return "\(key)=\(String(text.prefix(40)))"
-            }
-            if !nonEmpty.isEmpty {
-                return nonEmpty.joined(separator: ", ")
-            }
-            return "no known text fields, nested=\(nested.count)"
-        }
-
-        private static func decodeString(
-            from container: KeyedDecodingContainer<CodingKeys>,
-            keys: [CodingKeys]
-        ) -> String? {
-            for key in keys {
-                if let value = try? container.decodeIfPresent(String.self, forKey: key),
-                   let sanitized = sanitized(value) {
-                    return sanitized
-                }
-            }
-            return nil
-        }
-
-        private static func firstNonBlank(_ values: String?...) -> String? {
-            for value in values {
-                if let sanitized = sanitized(value) {
-                    return sanitized
-                }
-            }
-            return nil
-        }
-
-        private static func sanitized(_ value: String?) -> String? {
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !trimmed.isEmpty else { return nil }
-            guard trimmed.lowercased() != "success" else { return nil }
-            return trimmed
-        }
-    }
-
-    private static func generatedText(_ value: String?, fallbackMessage: String) throws -> String {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else {
-            throw APIError.serverError(code: 2002, message: fallbackMessage)
-        }
-        return trimmed
-    }
-
-    private static func chatbotBotBody(_ bot: BotConfig) -> [String: Any] {
-        let name = bot.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let emoji = bot.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sourceBotID = bot.sourceBotID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let originBotID = bot.originBotID.trimmingCharacters(in: .whitespacesAndNewlines)
-        var body: [String: Any] = [
-            "name": name.isEmpty ? L10n.tr("bot.label") : name,
-            "emoji": emoji.isEmpty ? "🤖" : emoji,
-            "gender": BotConfig.normalizedGender(bot.gender),
-            "character_background": bot.characterBackground
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            "opening_line": bot.openingLine
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            "avatar_url": bot.avatarURL,
-            "is_public": bot.isPublic
-        ]
-        if !sourceBotID.isEmpty {
-            body["source_bot_id"] = sourceBotID
-        }
-        if !originBotID.isEmpty {
-            body["origin_bot_id"] = originBotID
-        } else if !sourceBotID.isEmpty {
-            body["origin_bot_id"] = sourceBotID
-        }
-        return body
+        return try response.requiredData()
     }
 
     // MARK: - Chat Appearance
@@ -1707,7 +1715,7 @@ class APIService {
         }
 
         let response: APIResponseWrapper<BackgroundsData> = try await get(path: "/chat/backgrounds")
-        return response.data?.backgrounds ?? []
+        return try response.requiredData().backgrounds
     }
 
     func uploadChatBackground(
@@ -1773,7 +1781,7 @@ class APIService {
 
     func getWalletTransactions() async throws -> [WalletTransaction] {
         let response: APIResponseWrapper<WalletTransactionsResponseData> = try await get(path: "/wallet/transactions")
-        return response.data?.transactions ?? []
+        return try response.requiredData().transactions
     }
 
     func confirmWalletIAPPurchase(
@@ -1841,7 +1849,7 @@ class APIService {
 
     func getWalletWithdrawals() async throws -> [WalletWithdrawal] {
         let response: APIResponseWrapper<WalletWithdrawalsResponseData> = try await get(path: "/wallet/withdrawals")
-        return response.data?.withdrawals ?? []
+        return try response.requiredData().withdrawals
     }
 
     func cancelWalletWithdrawal(id: String) async throws -> WalletWithdrawal? {
@@ -1852,34 +1860,488 @@ class APIService {
         return response.data?.withdrawal
     }
 
+    // MARK: - Interactive Scripts
+
+    func getScriptCategories() async throws -> [ScriptCategory] {
+        let response: APIResponseWrapper<ScriptCategoriesData> = try await get(path: "/scripts/categories")
+        return try response.requiredData().categories.sorted { lhs, rhs in
+            (lhs.sortOrder, lhs.id) < (rhs.sortOrder, rhs.id)
+        }
+    }
+
+    func getScripts(
+        scope: ScriptScope,
+        categoryID: String? = nil,
+        cursor: String? = nil,
+        limit: Int = 20
+    ) async throws -> ScriptPage {
+        var queryItems = [
+            URLQueryItem(name: "scope", value: scope.rawValue),
+            URLQueryItem(name: "limit", value: "\(min(max(limit, 1), 50))")
+        ]
+        if let categoryID, !categoryID.isBlank {
+            queryItems.append(URLQueryItem(name: "category_id", value: categoryID))
+        }
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let response: APIResponseWrapper<ScriptPage> = try await get(
+            path: "/scripts",
+            queryItems: queryItems
+        )
+        return try response.requiredData()
+    }
+
+    func getScript(scriptID: String) async throws -> InteractiveScript {
+        let response: APIResponseWrapper<ScriptSingleData> = try await get(
+            path: "/scripts/\(Self.pathComponent(scriptID))"
+        )
+        return try response.requiredData().script
+    }
+
+    func createScript(body: [String: Any]) async throws -> InteractiveScript {
+        let response: APIResponseWrapper<ScriptSingleData> = try await postJSON(
+            path: "/scripts",
+            body: body
+        )
+        return try response.requiredData().script
+    }
+
+    func updateScript(scriptID: String, body: [String: Any]) async throws -> InteractiveScript {
+        let response: APIResponseWrapper<ScriptSingleData> = try await patchJSON(
+            path: "/scripts/\(Self.pathComponent(scriptID))",
+            body: body
+        )
+        return try response.requiredData().script
+    }
+
+    func deleteScript(scriptID: String) async throws {
+        guard let url = URL(string: baseURL + "/scripts/\(Self.pathComponent(scriptID))") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        addAuthHeader(&request)
+        let _: APIResponseWrapper<EmptyData> = try await perform(request)
+    }
+
+    func uploadScriptAsset(
+        business: ScriptAssetBusiness,
+        imageData: Data,
+        filename: String = "script.jpg"
+    ) async throws -> ScriptAsset {
+        guard let url = URL(string: baseURL + "/scripts/assets") else {
+            throw APIError.invalidURL
+        }
+        let compressed = Self.compressImageForUpload(
+            imageData,
+            maxDimension: business == .cover ? 1600 : 800,
+            quality: 0.8,
+            maxBytes: business == .cover ? 1_500_000 : 700_000
+        )
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 90
+        addAuthHeader(&request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"business\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(business.rawValue)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(compressed)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let response: APIResponseWrapper<ScriptAsset> = try await perform(request)
+        let asset = try response.requiredData()
+        guard !asset.url.isBlank else { throw APIError.invalidResponse }
+        return asset
+    }
+
+    func createScriptRoom(
+        scriptID: String,
+        playerRoleID: String,
+        idempotencyKey: String
+    ) async throws -> ScriptRoomCreationData {
+        guard let url = URL(string: baseURL + "/scripts/\(Self.pathComponent(scriptID))/rooms") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["player_role_id": playerRoleID])
+        addAuthHeader(&request)
+        let response: APIResponseWrapper<ScriptRoomCreationData> = try await perform(request)
+        return try response.requiredData()
+    }
+
+    func getScriptRoom(roomID: String) async throws -> ScriptRoom {
+        let response: APIResponseWrapper<ScriptRoomEnvelope> = try await get(
+            path: "/script-rooms/\(Self.pathComponent(roomID))"
+        )
+        return try response.requiredData().room
+    }
+
+    func submitScriptTurn(
+        roomID: String,
+        content: String,
+        clientMessageID: String
+    ) async throws -> ScriptTurnResponse {
+        let response: APIResponseWrapper<ScriptTurnResponse> = try await postJSON(
+            path: "/script-rooms/\(Self.pathComponent(roomID))/turns",
+            body: [
+                "content": content,
+                "client_message_id": clientMessageID
+            ]
+        )
+        return try response.requiredData()
+    }
+
+    func retryScriptTurn(roomID: String, turnID: String) async throws -> ScriptTurnResponse {
+        let response: APIResponseWrapper<ScriptTurnResponse> = try await postJSON(
+            path: "/script-rooms/\(Self.pathComponent(roomID))/turns/\(Self.pathComponent(turnID))/retry",
+            body: [:]
+        )
+        return try response.requiredData()
+    }
+
+    func endScriptRoom(roomID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/script-rooms/\(Self.pathComponent(roomID))/end",
+            body: [:]
+        )
+    }
+
+    // MARK: - Agent Platform
+
+    func getAgentRuntimeConfig() async throws -> AgentRuntimeConfig {
+        let response: APIResponseWrapper<AgentRuntimeConfig> = try await get(path: "/agents/runtime-config")
+        return try response.requiredData()
+    }
+
+    func getPublicAgents(limit: Int = 60) async throws -> [AgentSummary] {
+        struct AgentListData: Decodable {
+            let agents: [AgentSummary]
+
+            private enum CodingKeys: String, CodingKey { case agents, items }
+
+            init(from decoder: Decoder) throws {
+                if let list = try? [AgentSummary](from: decoder) {
+                    agents = list
+                    return
+                }
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                agents = try container.decodeIfPresent([AgentSummary].self, forKey: .agents)
+                    ?? container.decodeIfPresent([AgentSummary].self, forKey: .items)
+                    ?? []
+            }
+        }
+
+        let response: APIResponseWrapper<AgentListData> = try await get(
+            path: "/agents/public",
+            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")]
+        )
+        return try response.requiredData().agents
+    }
+
+    func getInstalledAgents() async throws -> [AgentSummary] {
+        struct AgentListData: Decodable {
+            let agents: [AgentSummary]
+
+            private enum CodingKeys: String, CodingKey { case agents, items }
+
+            init(from decoder: Decoder) throws {
+                if let list = try? [AgentSummary](from: decoder) {
+                    agents = list
+                    return
+                }
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                agents = try container.decodeIfPresent([AgentSummary].self, forKey: .agents)
+                    ?? container.decodeIfPresent([AgentSummary].self, forKey: .items)
+                    ?? []
+            }
+        }
+
+        let response: APIResponseWrapper<AgentListData> = try await get(path: "/agents/installed")
+        return try response.requiredData().agents
+    }
+
+    func getAgent(id: String) async throws -> AgentSummary {
+        let response: AgentSummaryRemoteResponse = try await get(
+            path: "/agents/\(Self.pathComponent(id))"
+        )
+        return try response.requiredAgent()
+    }
+
+    func installAgent(id: String) async throws -> AgentSummary {
+        let response: AgentSummaryRemoteResponse = try await postJSON(
+            path: "/agents/\(Self.pathComponent(id))/install",
+            body: [:]
+        )
+        return try response.requiredAgent()
+    }
+
+    func uninstallAgent(id: String) async throws {
+        guard let url = URL(string: baseURL + "/agents/\(Self.pathComponent(id))/install") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        addAuthHeader(&request)
+        let _: APIResponseWrapper<EmptyData> = try await perform(request)
+    }
+
+    func createAgentConversation(
+        agentID: String,
+        greetingID: String = "default",
+        idempotencyKey: UUID
+    ) async throws -> AgentConversation {
+        let response: AgentConversationRemoteResponse = try await agentJSONRequest(
+            method: "POST",
+            path: "/agent-conversations",
+            body: ["agent_id": agentID, "greeting_id": greetingID],
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredConversation()
+    }
+
+    func getAgentConversations() async throws -> [AgentConversation] {
+        struct ConversationListData: Decodable {
+            let conversations: [AgentConversation]
+
+            private enum CodingKeys: String, CodingKey { case conversations, items }
+
+            init(from decoder: Decoder) throws {
+                if let list = try? [AgentConversation](from: decoder) {
+                    conversations = list
+                    return
+                }
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                conversations = try container.decodeIfPresent([AgentConversation].self, forKey: .conversations)
+                    ?? container.decodeIfPresent([AgentConversation].self, forKey: .items)
+                    ?? []
+            }
+        }
+        let response: APIResponseWrapper<ConversationListData> = try await get(path: "/agent-conversations")
+        return try response.requiredData().conversations
+    }
+
+    func getAgentConversation(id: String) async throws -> AgentConversation {
+        let response: AgentConversationRemoteResponse = try await get(
+            path: "/agent-conversations/\(Self.pathComponent(id))"
+        )
+        return try response.requiredConversation()
+    }
+
+    func getAgentMessages(
+        conversationID: String,
+        beforeSequence: Int? = nil,
+        limit: Int = 30
+    ) async throws -> ([AgentMessage], Bool) {
+        struct MessagesData: Decodable {
+            let messages: [AgentMessage]
+            let hasMore: Bool
+
+            enum CodingKeys: String, CodingKey {
+                case messages
+                case hasMore = "has_more"
+            }
+        }
+
+        var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let beforeSequence {
+            queryItems.append(URLQueryItem(name: "before_sequence", value: "\(beforeSequence)"))
+        }
+        let response: APIResponseWrapper<MessagesData> = try await get(
+            path: "/agent-conversations/\(Self.pathComponent(conversationID))/messages",
+            queryItems: queryItems
+        )
+        let data = try response.requiredData()
+        return (data.messages, data.hasMore)
+    }
+
+    func uploadAgentChatImage(
+        _ data: Data,
+        filename: String,
+        idempotencyKey: UUID
+    ) async throws -> String {
+        let compressed = Self.compressImageForUpload(data)
+        let response: APIResponseWrapper<AgentImageUpload> = try await uploadAgentImage(
+            path: "/agent-assets/images",
+            imageData: compressed,
+            filename: filename,
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData().assetID
+    }
+
+    func uploadAgentReference(
+        _ data: Data,
+        filename: String,
+        idempotencyKey: UUID
+    ) async throws -> AgentReferenceUpload {
+        guard let image = UIImage(data: data) else { throw APIError.invalidResponse }
+        let shortSide = min(image.size.width, image.size.height)
+        let ratio = image.size.width / max(image.size.height, 1)
+        guard shortSide >= 512, (0.5...2).contains(ratio) else {
+            throw APIError.serverError(code: 400, message: "参考图短边至少 512 像素，宽高比需在 1:2 到 2:1 之间")
+        }
+        let compressed = Self.compressImageForUpload(data, maxDimension: 1600, quality: 0.82, maxBytes: 2_000_000)
+        let response: APIResponseWrapper<AgentReferenceUpload> = try await uploadAgentImage(
+            path: "/agent-assets/reference-images",
+            imageData: compressed,
+            filename: filename,
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData()
+    }
+
+    func createAgent(
+        payload: [String: Any],
+        idempotencyKey: UUID
+    ) async throws -> AgentSummary {
+        let response: AgentSummaryRemoteResponse = try await agentJSONRequest(
+            method: "POST",
+            path: "/agents",
+            body: payload,
+            idempotencyKey: idempotencyKey,
+            timeout: 30
+        )
+        return try response.requiredAgent()
+    }
+
+    func updateAgentDraft(
+        id: String,
+        expectedRevision: Int,
+        patch: [String: Any]
+    ) async throws -> AgentSummary {
+        let response: AgentSummaryRemoteResponse = try await agentJSONRequest(
+            method: "PATCH",
+            path: "/agents/\(Self.pathComponent(id))/draft",
+            body: ["expected_revision": expectedRevision, "patch": patch],
+            idempotencyKey: nil,
+            timeout: 30
+        )
+        return try response.requiredAgent()
+    }
+
+    func publishAgent(id: String, idempotencyKey: UUID) async throws -> AgentVersion {
+        let response: APIResponseWrapper<AgentVersion> = try await agentJSONRequest(
+            method: "POST",
+            path: "/agents/\(Self.pathComponent(id))/publish",
+            body: [:],
+            idempotencyKey: idempotencyKey,
+            timeout: 30
+        )
+        return try response.requiredData()
+    }
+
+    func createAgentTurn(
+        conversationID: String,
+        clientMessageID: UUID,
+        parts: [[String: Any]],
+        replyToID: String? = nil,
+        idempotencyKey: UUID
+    ) async throws -> AgentTurnAccepted {
+        var body: [String: Any] = [
+            "client_message_id": clientMessageID.uuidString,
+            "parts": parts
+        ]
+        if let replyToID { body["reply_to_id"] = replyToID }
+        let response: APIResponseWrapper<AgentTurnAccepted> = try await agentJSONRequest(
+            method: "POST",
+            path: "/agent-conversations/\(Self.pathComponent(conversationID))/turns",
+            body: body,
+            idempotencyKey: idempotencyKey,
+            timeout: 30
+        )
+        return try response.requiredData()
+    }
+
+    func getAgentTurn(id: String) async throws -> AgentTurnResult {
+        let response: APIResponseWrapper<AgentTurnResult> = try await get(
+            path: "/agent-turns/\(Self.pathComponent(id))"
+        )
+        return try response.requiredData()
+    }
+
+    func unlockAgentMedia(id: String, idempotencyKey: UUID) async throws -> AgentMediaUnlock {
+        let response: APIResponseWrapper<AgentMediaUnlock> = try await agentJSONRequest(
+            method: "POST",
+            path: "/agent-media/\(Self.pathComponent(id))/unlock",
+            body: [:],
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData()
+    }
+
+    func loadAgentMedia(path: String, range: String? = nil) async throws -> AgentMediaResponse {
+        guard let url = MediaURLResolver.resolve(path, apiBaseURL: baseURL) else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let range { request.setValue(range, forHTTPHeaderField: "Range") }
+        addAuthHeader(&request)
+        return try await performRaw(request)
+    }
+
+    private func agentJSONRequest<T: Decodable>(
+        method: String,
+        path: String,
+        body: [String: Any],
+        idempotencyKey: UUID?,
+        timeout: TimeInterval = 15
+    ) async throws -> T {
+        guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(idempotencyKey.uuidString, forHTTPHeaderField: "Idempotency-Key")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        addAuthHeader(&request)
+        return try await perform(request)
+    }
+
+    private func uploadAgentImage<T: Decodable>(
+        path: String,
+        imageData: Data,
+        filename: String,
+        idempotencyKey: UUID
+    ) async throws -> T {
+        guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 90
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(idempotencyKey.uuidString, forHTTPHeaderField: "Idempotency-Key")
+        addAuthHeader(&request)
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"image\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        return try await perform(request)
+    }
+
     // MARK: - Image Loading
 
     func loadImage(path: String) async throws -> Data {
-        let urlString: String
-        if path.hasPrefix("http") {
-            urlString = path
-        } else if path.hasPrefix("/api/v1/") {
-            urlString = baseURL.replacingOccurrences(of: "/api/v1", with: "") + path
-        } else if path.hasPrefix("/") {
-            urlString = baseURL + path
-        } else {
-            urlString = baseURL + "/" + path
-        }
-
-        guard let url = URL(string: urlString) else {
-            throw APIError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        if let token = AuthManager.shared.token {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw APIError.invalidResponse
-        }
-        return data
+        try await loadAgentMedia(path: path).data
     }
 
     /// Authenticated GET for images, videos, or any media path (same URL rules as `loadImage`).
@@ -2024,6 +2486,22 @@ class APIService {
         return try await perform(request, allowRetry: auth, logoutOnUnauthorized: auth)
     }
 
+    private func patchJSON<T: Decodable>(
+        path: String,
+        body: [String: Any]
+    ) async throws -> T {
+        guard let url = URL(string: baseURL + path) else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        addAuthHeader(&request)
+        return try await perform(request)
+    }
+
     private func uploadImage<T: Decodable>(
         path: String,
         fieldName: String?,
@@ -2106,7 +2584,90 @@ class APIService {
         return try await perform(request)
     }
 
+    // MARK: - Game Center
+
+    func getRecommendedGames(limit: Int = 50, cursor: String? = nil) async throws -> GameCatalogPage {
+        var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let response: APIResponseWrapper<GameCatalogPage> = try await get(
+            path: "/games/recommended",
+            queryItems: queryItems
+        )
+        guard response.code == 0, let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func getPlayedGames(limit: Int = 50, cursor: String? = nil) async throws -> GameCatalogPage {
+        var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let response: APIResponseWrapper<GameCatalogPage> = try await get(
+            path: "/games/played",
+            queryItems: queryItems
+        )
+        guard response.code == 0, let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func createGameSession(gameID: String) async throws -> GameSession {
+        let response: APIResponseWrapper<GameSession> = try await postJSON(
+            path: "/games/\(Self.pathComponent(gameID))/sessions",
+            body: [:]
+        )
+        guard response.code == 0, let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
     // MARK: - Short Drama
+
+    func getShortDramaSeriesFeed(
+        filter: ShortDramaSeriesFilter,
+        cursor: String? = nil,
+        limit: Int = 12
+    ) async throws -> ShortDramaSeriesPage {
+        var queryItems = [
+            URLQueryItem(name: "tab", value: filter.rawValue),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+
+        let response: APIResponseWrapper<ShortDramaSeriesPage> = try await get(
+            path: "/short-drama/series",
+            queryItems: queryItems
+        )
+        return try response.requiredData()
+    }
+
+    func getUserShortDramaSeries(
+        creatorUserID: String,
+        cursor: String? = nil,
+        limit: Int = 12
+    ) async throws -> ShortDramaSeriesPage {
+        var queryItems = [
+            URLQueryItem(name: "creator_user_id", value: creatorUserID),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+
+        let response: APIResponseWrapper<ShortDramaSeriesPage> = try await get(
+            path: "/short-drama/series",
+            queryItems: queryItems
+        )
+        return try response.requiredData()
+    }
 
     func getShortDramaFeed(cursor: String? = nil, limit: Int = 12) async throws -> ShortDramaFeedPage {
         var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
@@ -2118,7 +2679,188 @@ class APIService {
             path: "/short-drama/feed",
             queryItems: queryItems
         )
-        return response.data ?? ShortDramaFeedPage(videos: [], hasMore: false, nextCursor: nil)
+        return try response.requiredData()
+    }
+
+    func getMyShortDramaSeries(cursor: String? = nil, limit: Int = 20) async throws -> ShortDramaStudioPage {
+        var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+
+        let response: APIResponseWrapper<ShortDramaStudioPage> = try await get(
+            path: "/short-drama/mine",
+            queryItems: queryItems
+        )
+        return try response.requiredData()
+    }
+
+    func createShortDramaSeries(
+        title: String,
+        intro: String,
+        coverData: Data,
+        coverFilename: String
+    ) async throws -> ShortDramaSeries {
+        let response: APIResponseWrapper<ShortDramaSeries> = try await shortDramaMultipartRequest(
+            path: "/short-drama/series",
+            method: "POST",
+            fields: [
+                ("title", title),
+                ("intro", intro)
+            ],
+            files: [
+                ShortDramaMultipartFile(
+                    name: "cover",
+                    filename: coverFilename,
+                    mimeType: Self.mimeType(for: coverFilename, fallback: "image/jpeg"),
+                    data: coverData
+                )
+            ],
+            timeout: 180
+        )
+        guard let series = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return series
+    }
+
+    func updateShortDramaSeries(
+        seriesID: String,
+        title: String,
+        intro: String,
+        coverData: Data?,
+        coverFilename: String?
+    ) async throws -> ShortDramaSeries {
+        var files: [ShortDramaMultipartFile] = []
+        if let coverData, let coverFilename {
+            files.append(ShortDramaMultipartFile(
+                name: "cover",
+                filename: coverFilename,
+                mimeType: Self.mimeType(for: coverFilename, fallback: "image/jpeg"),
+                data: coverData
+            ))
+        }
+
+        let response: APIResponseWrapper<ShortDramaSeries> = try await shortDramaMultipartRequest(
+            path: "/short-drama/series/\(Self.pathComponent(seriesID))",
+            method: "PATCH",
+            fields: [
+                ("title", title),
+                ("intro", intro)
+            ],
+            files: files,
+            timeout: 180
+        )
+        guard let series = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return series
+    }
+
+    func getShortDramaSeriesDetail(seriesID: String) async throws -> ShortDramaSeries {
+        let response: APIResponseWrapper<ShortDramaSeries> = try await get(
+            path: "/short-drama/series/\(Self.pathComponent(seriesID))"
+        )
+        guard let series = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return series
+    }
+
+    func uploadShortDramaEpisode(
+        seriesID: String,
+        title: String,
+        intro: String,
+        episodeNumber: Int,
+        videoData: Data,
+        videoFilename: String,
+        coverData: Data,
+        coverFilename: String,
+        unlockPriceCatFood: Int? = nil
+    ) async throws -> ShortDramaEpisodeUploadResult {
+        var fields: [(String, String)] = [
+            ("title", title),
+            ("intro", intro),
+            ("episode_number", "\(episodeNumber)")
+        ]
+        if let unlockPriceCatFood {
+            fields.append(("unlock_price_cat_food", "\(min(max(unlockPriceCatFood, 0), 100))"))
+        }
+        let response: APIResponseWrapper<ShortDramaEpisodeUploadResult> = try await shortDramaMultipartRequest(
+            path: "/short-drama/series/\(Self.pathComponent(seriesID))/episodes",
+            method: "POST",
+            fields: fields,
+            files: [
+                ShortDramaMultipartFile(
+                    name: "video",
+                    filename: videoFilename,
+                    mimeType: Self.mimeType(for: videoFilename, fallback: "video/mp4"),
+                    data: videoData
+                ),
+                ShortDramaMultipartFile(
+                    name: "cover",
+                    filename: coverFilename,
+                    mimeType: Self.mimeType(for: coverFilename, fallback: "image/jpeg"),
+                    data: coverData
+                )
+            ],
+            timeout: 600
+        )
+        return response.data ?? ShortDramaEpisodeUploadResult(video: nil, status: nil)
+    }
+
+    func updateShortDramaEpisode(
+        videoID: String,
+        title: String,
+        intro: String,
+        episodeNumber: Int,
+        unlockPriceCatFood: Int
+    ) async throws -> ShortDramaVideo {
+        let response: APIResponseWrapper<ShortDramaVideo> = try await patchJSON(
+            path: "/short-drama/videos/\(Self.pathComponent(videoID))",
+            body: [
+                "title": title,
+                "intro": intro,
+                "episode_number": episodeNumber,
+                "unlock_price_cat_food": min(max(unlockPriceCatFood, 0), 100)
+            ]
+        )
+        guard let video = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return video
+    }
+
+    func submitShortDramaSeries(seriesID: String) async throws -> ShortDramaSeries {
+        let response: APIResponseWrapper<ShortDramaSeries> = try await postJSON(
+            path: "/short-drama/series/\(Self.pathComponent(seriesID))/submit",
+            body: [:]
+        )
+        guard let series = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return series
+    }
+
+    func unlockShortDramaEpisode(videoID: String) async throws -> ShortDramaUnlockResult {
+        let response: APIResponseWrapper<ShortDramaUnlockResult> = try await postJSON(
+            path: "/short-drama/videos/\(Self.pathComponent(videoID))/unlock",
+            body: [:]
+        )
+        guard let result = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return result
+    }
+
+    func deleteShortDramaEpisode(videoID: String) async throws {
+        guard let url = URL(string: baseURL + "/short-drama/videos/\(Self.pathComponent(videoID))") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        addAuthHeader(&request)
+        let _: APIResponseWrapper<EmptyData> = try await perform(request)
     }
 
     func setShortDramaLiked(videoID: String, liked: Bool) async throws -> ShortDramaInteractionResult {
@@ -2168,7 +2910,7 @@ class APIService {
             path: "/short-drama/videos/\(Self.pathComponent(videoID))/comments",
             queryItems: queryItems
         )
-        return response.data ?? ShortDramaCommentsPage(comments: [], hasMore: false, nextCursor: nil)
+        return try response.requiredData()
     }
 
     func sendShortDramaComment(videoID: String, content: String) async throws -> ShortDramaComment {
@@ -2207,9 +2949,80 @@ class APIService {
         let _: APIResponseWrapper<EmptyData> = try await perform(request)
     }
 
+    private struct ShortDramaMultipartFile: Sendable {
+        let name: String
+        let filename: String
+        let mimeType: String
+        let data: Data
+    }
+
+    private func shortDramaMultipartRequest<T: Decodable>(
+        path: String,
+        method: String,
+        fields: [(String, String)],
+        files: [ShortDramaMultipartFile],
+        timeout: TimeInterval
+    ) async throws -> APIResponseWrapper<T> {
+        guard let url = URL(string: baseURL + path) else {
+            throw APIError.invalidURL
+        }
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = timeout
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        addAuthHeader(&request)
+
+        let body = await Self.shortDramaMultipartBody(boundary: boundary, fields: fields, files: files)
+        return try await performUpload(request, body: body)
+    }
+
+    nonisolated private static func shortDramaMultipartBody(
+        boundary: String,
+        fields: [(String, String)],
+        files: [ShortDramaMultipartFile]
+    ) async -> Data {
+        await Task.detached(priority: .utility) {
+            var body = Data()
+            for field in fields {
+                appendMomentTextField(name: field.0, value: field.1, boundary: boundary, to: &body)
+            }
+            for file in files {
+                appendShortDramaFileField(file, boundary: boundary, to: &body)
+            }
+            body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+            return body
+        }.value
+    }
+
+    nonisolated private static func appendShortDramaFileField(
+        _ file: ShortDramaMultipartFile,
+        boundary: String,
+        to body: inout Data
+    ) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(file.name)\"; filename=\"\(file.filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(file.mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(file.data)
+        body.append("\r\n".data(using: .utf8)!)
+    }
+
+    nonisolated private static func mimeType(for filename: String, fallback: String) -> String {
+        switch filename.lowercased().split(separator: ".").last {
+        case "mov": return "video/quicktime"
+        case "m4v": return "video/x-m4v"
+        case "mp4": return "video/mp4"
+        case "heic": return "image/heic"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        default: return fallback
+        }
+    }
+
     // MARK: - Moments
 
-    func getMomentsFeed(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool) {
+    /// Personalized feed containing posts from users followed by the current user.
+    func getMomentsFollowing(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool) {
         struct FeedData: Decodable {
             let moments: [Moment]
             let hasMore: Bool
@@ -2222,7 +3035,8 @@ class APIService {
         var path = "/moments/feed?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
         let response: APIResponseWrapper<FeedData> = try await get(path: path)
-        return (response.data?.moments ?? [], response.data?.hasMore ?? false)
+        let data = try response.requiredData()
+        return (data.moments, data.hasMore)
     }
 
     func getMomentsWorld(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool) {
@@ -2238,7 +3052,8 @@ class APIService {
         var path = "/moments/world?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
         let response: APIResponseWrapper<FeedData> = try await get(path: path)
-        return (response.data?.moments ?? [], response.data?.hasMore ?? false)
+        let data = try response.requiredData()
+        return (data.moments, data.hasMore)
     }
 
     func createMoment(content: String, imageDataList: [(Data, String)]) async throws -> Moment {
@@ -2364,10 +3179,11 @@ class APIService {
             }
         }
 
-        var path = "/moments/user/\(userID)?limit=\(limit)"
+        var path = "/moments/user/\(Self.pathComponent(userID))?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
         let response: APIResponseWrapper<FeedData> = try await get(path: path)
-        return (response.data?.moments ?? [], response.data?.hasMore ?? false)
+        let data = try response.requiredData()
+        return (data.moments, data.hasMore)
     }
 
     func toggleMomentLike(momentID: Int) async throws -> Bool {
@@ -2435,8 +3251,8 @@ class APIService {
             }
         }
         let response: APIResponseWrapper<UnreadData> = try await get(path: "/moments/notifications/unread")
-        let data = response.data
-        return (data?.unreadCount ?? 0, data?.hasNewMoments ?? false)
+        let data = try response.requiredData()
+        return (data.unreadCount, data.hasNewMoments)
     }
 
     func getMomentsNotifications(limit: Int = 50) async throws -> [MomentsNotification] {
@@ -2444,7 +3260,7 @@ class APIService {
             let notifications: [MomentsNotification]
         }
         let response: APIResponseWrapper<NotifData> = try await get(path: "/moments/notifications/list?limit=\(limit)")
-        return response.data?.notifications ?? []
+        return try response.requiredData().notifications
     }
 
     func markMomentsNotificationsRead() async throws {
@@ -2465,10 +3281,20 @@ class APIService {
 
     private struct EmptyData: Decodable {}
 
-    private func addAuthHeader(_ request: inout URLRequest) {
-        if let token = AuthManager.shared.token {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    private func applyAppConfigHeaders(to request: inout URLRequest, ifNoneMatch: String?) {
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(AppLanguageStore.shared.activeLanguage.localeIdentifier, forHTTPHeaderField: "Accept-Language")
+        request.setValue(AppBuildInfo.appVersion, forHTTPHeaderField: "X-App-Version")
+        request.setValue("\(AppBuildInfo.buildNumber)", forHTTPHeaderField: "X-App-Build")
+        request.setValue("iOS", forHTTPHeaderField: "X-Platform")
+        request.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
+        if let ifNoneMatch, !ifNoneMatch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue(ifNoneMatch, forHTTPHeaderField: "If-None-Match")
         }
+    }
+
+    private func addAuthHeader(_ request: inout URLRequest) {
+        AuthRequestAuthorizer.addAuthHeader(&request, token: AuthManager.shared.token)
     }
 
     private func perform<T: Decodable>(
@@ -2482,6 +3308,13 @@ class APIService {
             logoutOnUnauthorized: logoutOnUnauthorized
         ) { request in
             try await self.session.data(for: request)
+        } decode: { data, request, _ in
+            do {
+                return try JSONDecoder().decode(T.self, from: data)
+            } catch {
+                Self.logDecodingError(error, data: data, request: request, type: T.self)
+                throw APIError.decodingError(error)
+            }
         }
     }
 
@@ -2497,20 +3330,232 @@ class APIService {
             logoutOnUnauthorized: logoutOnUnauthorized
         ) { request in
             try await self.session.upload(for: request, from: body)
+        } decode: { data, _, _ in
+            do {
+                return try JSONDecoder().decode(T.self, from: data)
+            } catch {
+                throw APIError.decodingError(error)
+            }
         }
     }
 
-    private func performTransport<T: Decodable>(
+    private func performRaw(
         _ request: URLRequest,
-        allowRetry: Bool,
-        logoutOnUnauthorized: Bool,
-        operation: @escaping (URLRequest) async throws -> (Data, URLResponse)
-    ) async throws -> T {
+        allowRetry: Bool = true,
+        logoutOnUnauthorized: Bool = true
+    ) async throws -> AgentMediaResponse {
+        try await performTransport(
+            request,
+            allowRetry: allowRetry,
+            logoutOnUnauthorized: logoutOnUnauthorized
+        ) { request in
+            try await self.session.data(for: request)
+        } decode: { data, _, response in
+            AgentMediaResponse(
+                data: data,
+                mimeType: response.value(forHTTPHeaderField: "Content-Type"),
+                contentRange: response.value(forHTTPHeaderField: "Content-Range"),
+                contentLength: response.value(forHTTPHeaderField: "Content-Length").flatMap(Int64.init),
+                acceptsRanges: response.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased() == "bytes"
+            )
+        }
+    }
+
+    private func performConditional<T: Decodable>(
+        _ request: URLRequest,
+        allowRetry: Bool = true,
+        logoutOnUnauthorized: Bool = false,
+        transientRetryCount: Int = 0
+    ) async throws -> ConditionalHTTPResult<T> {
+        var finalRequest = request
+        let expectsAuthorization = allowRetry
+            || request.value(forHTTPHeaderField: "Authorization") != nil
+        if expectsAuthorization {
+            addAuthHeader(&finalRequest)
+        }
+        AuthRequestAuthorizer.logFinalRequest(
+            finalRequest,
+            expectsAuthorization: expectsAuthorization
+        )
+
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await operation(request)
+            (data, response) = try await session.data(for: finalRequest)
         } catch {
+            if TransientHTTPRetryPolicy.isCancellation(error) {
+                throw CancellationError()
+            }
+            if TransientHTTPRetryPolicy.shouldRetry(
+                method: finalRequest.httpMethod,
+                error: error,
+                retryCount: transientRetryCount
+            ) {
+                try await retryTransientRequest(
+                    finalRequest,
+                    error: error,
+                    retryCount: transientRetryCount
+                )
+                return try await performConditional(
+                    finalRequest,
+                    allowRetry: allowRetry,
+                    logoutOnUnauthorized: logoutOnUnauthorized,
+                    transientRetryCount: transientRetryCount + 1
+                )
+            }
+            Self.logTransportError(error, request: finalRequest)
+            throw APIError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        if httpResponse.statusCode == 304 {
+            return ConditionalHTTPResult(
+                value: nil,
+                etag: httpResponse.value(forHTTPHeaderField: "ETag"),
+                notModified: true
+            )
+        }
+
+        if httpResponse.statusCode == 401 && allowRetry {
+            do {
+                try await attemptTokenRefresh()
+            } catch APIError.unauthorized {
+                if logoutOnUnauthorized {
+                    AuthManager.shared.logout()
+                }
+                throw APIError.unauthorized
+            } catch {
+                throw error
+            }
+
+            var retryRequest = finalRequest
+            addAuthHeader(&retryRequest)
+            return try await performConditional(
+                retryRequest,
+                allowRetry: false,
+                logoutOnUnauthorized: logoutOnUnauthorized,
+                transientRetryCount: transientRetryCount
+            )
+        }
+
+        if httpResponse.statusCode == 401 {
+            if logoutOnUnauthorized {
+                AuthManager.shared.logout()
+            }
+            throw APIError.unauthorized
+        }
+
+        if TransientHTTPRetryPolicy.shouldRetry(
+            method: finalRequest.httpMethod,
+            statusCode: httpResponse.statusCode,
+            retryCount: transientRetryCount
+        ) {
+            try await retryTransientRequest(
+                finalRequest,
+                response: httpResponse,
+                retryCount: transientRetryCount
+            )
+            return try await performConditional(
+                finalRequest,
+                allowRetry: allowRetry,
+                logoutOnUnauthorized: logoutOnUnauthorized,
+                transientRetryCount: transientRetryCount + 1
+            )
+        }
+
+        if !(200..<300).contains(httpResponse.statusCode) {
+            throw Self.httpError(from: data, response: httpResponse, path: finalRequest.url?.path ?? "")
+        }
+
+        do {
+            return ConditionalHTTPResult(
+                value: try JSONDecoder().decode(T.self, from: data),
+                etag: httpResponse.value(forHTTPHeaderField: "ETag"),
+                notModified: false
+            )
+        } catch {
+            throw APIError.decodingError(error)
+        }
+    }
+
+    private static func httpError(from data: Data, response: HTTPURLResponse, path: String) -> APIError {
+        let decoder = JSONDecoder()
+        let fallback = HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
+        let message: String
+        let detailResponse = try? decoder.decode(DetailErrorResponse.self, from: data)
+        let envelopeResponse = try? decoder.decode(APIResponseWrapper<EmptyData>.self, from: data)
+        if let detailMessage = detailResponse?.detail?.message,
+           !detailMessage.isEmpty {
+            message = detailMessage
+        } else if let structuredResponse = try? decoder.decode(StructuredErrorResponse.self, from: data),
+                  let structuredMessage = structuredResponse.userFacingMessage {
+            message = structuredMessage
+        } else if let errorResponse = envelopeResponse {
+            message = errorResponse.message
+        } else if let body = String(data: data, encoding: .utf8), !body.isEmpty {
+            message = String(body.prefix(240))
+        } else {
+            message = fallback
+        }
+        let requestID = response.value(forHTTPHeaderField: "X-Request-ID")
+            ?? response.value(forHTTPHeaderField: "X-Correlation-ID")
+            ?? "-"
+        print("[APIService] HTTP \(response.statusCode) \(path) request_id=\(requestID): \(message)")
+        let envelopeCode = envelopeResponse.flatMap { $0.code == 0 ? nil : $0.code }
+        let businessCode = detailResponse?.detail?.code ?? envelopeCode
+        return APIError.serverError(code: businessCode ?? response.statusCode, message: message)
+    }
+
+    private func performTransport<T>(
+        _ request: URLRequest,
+        allowRetry: Bool,
+        logoutOnUnauthorized: Bool,
+        transientRetryCount: Int = 0,
+        operation: @escaping (URLRequest) async throws -> (Data, URLResponse),
+        decode: @escaping (Data, URLRequest, HTTPURLResponse) throws -> T
+    ) async throws -> T {
+        var finalRequest = request
+        let expectsAuthorization = allowRetry
+            || request.value(forHTTPHeaderField: "Authorization") != nil
+        if expectsAuthorization {
+            addAuthHeader(&finalRequest)
+        }
+        AuthRequestAuthorizer.logFinalRequest(
+            finalRequest,
+            expectsAuthorization: expectsAuthorization
+        )
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await operation(finalRequest)
+        } catch {
+            if TransientHTTPRetryPolicy.isCancellation(error) {
+                throw CancellationError()
+            }
+            if TransientHTTPRetryPolicy.shouldRetry(
+                method: finalRequest.httpMethod,
+                error: error,
+                retryCount: transientRetryCount
+            ) {
+                try await retryTransientRequest(
+                    finalRequest,
+                    error: error,
+                    retryCount: transientRetryCount
+                )
+                return try await performTransport(
+                    finalRequest,
+                    allowRetry: allowRetry,
+                    logoutOnUnauthorized: logoutOnUnauthorized,
+                    transientRetryCount: transientRetryCount + 1,
+                    operation: operation,
+                    decode: decode
+                )
+            }
+            Self.logTransportError(error, request: finalRequest)
             throw APIError.networkError(error)
         }
 
@@ -2541,15 +3586,15 @@ class APIService {
                 throw error
             }
             // Rebuild request with new token
-            var retryRequest = request
-            if let newToken = AuthManager.shared.token {
-                retryRequest.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-            }
+            var retryRequest = finalRequest
+            addAuthHeader(&retryRequest)
             return try await performTransport(
                 retryRequest,
                 allowRetry: false,
                 logoutOnUnauthorized: logoutOnUnauthorized,
-                operation: operation
+                transientRetryCount: transientRetryCount,
+                operation: operation,
+                decode: decode
             )
         }
 
@@ -2560,34 +3605,105 @@ class APIService {
             throw APIError.unauthorized
         }
 
-        if !(200..<300).contains(httpResponse.statusCode) {
-            let decoder = JSONDecoder()
-            let fallback = HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
-            let message: String
-            if let detailResponse = try? decoder.decode(DetailErrorResponse.self, from: data),
-               let detailMessage = detailResponse.detail?.message,
-               !detailMessage.isEmpty {
-                message = detailMessage
-            } else if let errorResponse = try? decoder.decode(APIResponseWrapper<EmptyData>.self, from: data) {
-                message = errorResponse.message
-            } else if let body = String(data: data, encoding: .utf8), !body.isEmpty {
-                message = String(body.prefix(240))
-            } else {
-                message = fallback
-            }
-            print("[APIService] HTTP \(httpResponse.statusCode) \(request.url?.path ?? ""): \(message)")
-            throw APIError.serverError(code: httpResponse.statusCode, message: message)
+        if TransientHTTPRetryPolicy.shouldRetry(
+            method: finalRequest.httpMethod,
+            statusCode: httpResponse.statusCode,
+            retryCount: transientRetryCount
+        ) {
+            try await retryTransientRequest(
+                finalRequest,
+                response: httpResponse,
+                retryCount: transientRetryCount
+            )
+            return try await performTransport(
+                finalRequest,
+                allowRetry: allowRetry,
+                logoutOnUnauthorized: logoutOnUnauthorized,
+                transientRetryCount: transientRetryCount + 1,
+                operation: operation,
+                decode: decode
+            )
         }
 
-        do {
-            let decoder = JSONDecoder()
-            return try decoder.decode(T.self, from: data)
-        } catch {
-            if request.url?.path.contains("/chatbot/bots/generate") == true {
-                let body = String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
-                print("[APIService] Decode error \(request.url?.path ?? ""): \(error). body=\(String(body.prefix(800)))")
-            }
-            throw APIError.decodingError(error)
+        if !(200..<300).contains(httpResponse.statusCode) {
+            throw Self.httpError(from: data, response: httpResponse, path: finalRequest.url?.path ?? "")
         }
+
+        return try decode(data, finalRequest, httpResponse)
+    }
+
+    private func retryTransientRequest(
+        _ request: URLRequest,
+        response: HTTPURLResponse,
+        retryCount: Int
+    ) async throws {
+        let delay = TransientHTTPRetryPolicy.delayNanoseconds(
+            response: response,
+            retryCount: retryCount
+        )
+        #if DEBUG
+        print(
+            "[APIService] transient HTTP \(response.statusCode) "
+                + "\(request.url?.path ?? "") retry=\(retryCount + 1)/\(TransientHTTPRetryPolicy.maximumRetryCount)"
+        )
+        #endif
+        try await Task.sleep(nanoseconds: delay)
+    }
+
+    private func retryTransientRequest(
+        _ request: URLRequest,
+        error: Error,
+        retryCount: Int
+    ) async throws {
+        let delays: [UInt64] = [350_000_000, 900_000_000]
+        let delay = delays[min(retryCount, delays.count - 1)]
+        #if DEBUG
+        let nsError = error as NSError
+        print(
+            "[APIService] transient transport failure \(request.url?.path ?? "") "
+                + "domain=\(nsError.domain) code=\(nsError.code) "
+                + "retry=\(retryCount + 1)/\(TransientHTTPRetryPolicy.maximumRetryCount)"
+        )
+        #endif
+        try await Task.sleep(nanoseconds: delay)
+    }
+
+    private static func logTransportError(_ error: Error, request: URLRequest) {
+        let nsError = error as NSError
+        print(
+            "[APIService] transport failure \(request.httpMethod ?? "GET") "
+                + "\(request.url?.path ?? "") domain=\(nsError.domain) code=\(nsError.code)"
+        )
+    }
+
+    private static func logDecodingError<T>(
+        _ error: Error,
+        data: Data,
+        request: URLRequest,
+        type: T.Type
+    ) {
+        #if DEBUG
+        let codingPath: [CodingKey]
+        let description: String
+        switch error {
+        case let DecodingError.keyNotFound(_, context),
+             let DecodingError.typeMismatch(_, context),
+             let DecodingError.valueNotFound(_, context),
+             let DecodingError.dataCorrupted(context):
+            codingPath = context.codingPath
+            description = context.debugDescription
+        default:
+            codingPath = []
+            description = error.localizedDescription
+        }
+        let path = codingPath.map(\.stringValue).joined(separator: ".")
+        let topLevelKeys = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?
+            .keys.sorted().joined(separator: ",") ?? "-"
+        print(
+            "[APIService] decode failure \(request.url?.path ?? "") "
+                + "type=\(String(describing: type)) coding_path=\(path.isEmpty ? "-" : path) "
+                + "bytes=\(data.count) top_keys=\(topLevelKeys) detail=\(description)"
+        )
+        #endif
     }
 }

@@ -57,8 +57,16 @@ struct GroupDetailView: View {
             // Render from cache immediately (no spinner) while we refresh
             // from the server in the background. Only first-ever open
             // blocks on the network.
-            if detail == nil, let cached = LocalCache.load(GroupDetail.self, key: cacheKey) {
-                detail = cached
+            if detail == nil,
+               let key = snapshotKey,
+               let cached: CachedSnapshot<GroupDetail> = AppCacheRepository.shared.cachedValue(for: key) {
+                detail = cached.value
+            } else if detail == nil,
+                      let legacy = LocalCache.load(GroupDetail.self, key: cacheKey),
+                      let key = snapshotKey {
+                detail = legacy
+                AppCacheRepository.shared.save(legacy, for: key, policy: .profile)
+                LocalCache.clear(key: cacheKey)
             }
             await loadDetail()
         }
@@ -209,7 +217,12 @@ struct GroupDetailView: View {
 
     private func memberRow(_ member: GroupMember, detail: GroupDetail) -> some View {
         HStack(spacing: 12) {
-            AvatarView(url: member.avatarURL, size: 42)
+            UserAvatarButton(
+                userID: member.userID,
+                avatarURL: member.avatarURL,
+                size: 42,
+                accessibilityName: member.nickname
+            )
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -412,14 +425,32 @@ struct GroupDetailView: View {
         if showLoader { isLoading = true }
         defer { isLoading = false }
         do {
-            let fetched = try await APIService.shared.getGroupDetail(groupID: groupID)
+            let fetched: GroupDetail
+            if let key = snapshotKey {
+                fetched = try await AppCacheRepository.shared.loadValue(
+                    key: key,
+                    policy: .profile,
+                    forceRefresh: false
+                ) {
+                    try await APIService.shared.getGroupDetail(groupID: groupID)
+                }
+            } else {
+                fetched = try await APIService.shared.getGroupDetail(groupID: groupID)
+            }
             if detail != fetched {
                 detail = fetched
             }
-            LocalCache.save(fetched, key: cacheKey)
+            if let key = snapshotKey {
+                AppCacheRepository.shared.save(fetched, for: key, policy: .profile)
+                LocalCache.clear(key: cacheKey)
+            }
         } catch {
             if detail == nil { errorMessage = L10n.tr("group.loadFailed") }
         }
+    }
+
+    private var snapshotKey: CacheKey? {
+        CacheKey.current(namespace: "group-detail", key: "\(groupID)")
     }
 
     private func renameGroup() async {
@@ -488,18 +519,18 @@ struct GroupDetailView: View {
         var optimistic = current
         optimistic.isPublic = isPublic
         detail = optimistic
-        LocalCache.save(optimistic, key: cacheKey)
+        if let key = snapshotKey { AppCacheRepository.shared.save(optimistic, for: key, policy: .profile) }
 
         do {
             try await APIService.shared.updateGroupVisibility(groupID: groupID, isPublic: isPublic)
             await loadDetail()
         } catch let error as APIError {
             detail = current
-            LocalCache.save(current, key: cacheKey)
+            if let key = snapshotKey { AppCacheRepository.shared.save(current, for: key, policy: .profile) }
             errorMessage = error.errorDescription
         } catch {
             detail = current
-            LocalCache.save(current, key: cacheKey)
+            if let key = snapshotKey { AppCacheRepository.shared.save(current, for: key, policy: .profile) }
             errorMessage = L10n.tr("group.publicSettingFailed")
         }
 

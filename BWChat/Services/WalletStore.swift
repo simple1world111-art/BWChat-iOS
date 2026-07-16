@@ -109,11 +109,14 @@ final class WalletStore: ObservableObject {
     private var updatesTask: Task<Void, Never>?
 
     private var productIDs: [String] {
-        AppConfig.catFoodProducts.map(\.productID)
+        (AppRemoteConfigStore.shared.config.wallet?.effectiveCatFoodProducts ?? AppConfig.catFoodProducts)
+            .map(\.productID)
     }
 
     private var coinsByProductID: [String: Int] {
-        Dictionary(uniqueKeysWithValues: AppConfig.catFoodProducts.map { ($0.productID, $0.coins) })
+        Dictionary(uniqueKeysWithValues: (AppRemoteConfigStore.shared.config.wallet?.effectiveCatFoodProducts ?? AppConfig.catFoodProducts).map {
+            ($0.productID, $0.coins)
+        })
     }
 
     private var currentUserID: String {
@@ -139,6 +142,8 @@ final class WalletStore: ObservableObject {
     private init() {
         if isReviewScreenshotMode {
             applyServerBalance(0)
+        } else {
+            restoreSnapshots()
         }
         updatesTask = Task { [weak self] in
             await self?.syncUnfinishedTransactions()
@@ -207,7 +212,7 @@ final class WalletStore: ObservableObject {
         usdtPayoutAccount = WalletUSDTPayoutAccount()
     }
 
-    func refreshBalanceFromServer() async {
+    func refreshBalanceFromServer(forceRefresh: Bool = false) async {
         if isReviewScreenshotMode {
             balance = balance ?? 0
             balanceLoadError = nil
@@ -219,15 +224,22 @@ final class WalletStore: ObservableObject {
         balanceLoadError = nil
         defer { isLoadingBalance = false }
 
+        guard let key = CacheKey.current(namespace: "wallet", key: "balance") else { return }
         do {
-            let serverBalance = try await APIService.shared.getWalletBalance()
+            let serverBalance: WalletBalanceResponseData = try await AppCacheRepository.shared.loadValue(
+                key: key,
+                policy: .walletBalance,
+                forceRefresh: forceRefresh
+            ) {
+                try await APIService.shared.getWalletBalance()
+            }
             applyServerBalance(serverBalance)
         } catch {
             balanceLoadError = L10n.tr("wallet.balance.loadFailedWithError", error.localizedDescription)
         }
     }
 
-    func loadTransactions() async {
+    func loadTransactions(forceRefresh: Bool = false) async {
         if isReviewScreenshotMode {
             transactions = []
             transactionLoadError = nil
@@ -239,14 +251,21 @@ final class WalletStore: ObservableObject {
         transactionLoadError = nil
         defer { isLoadingTransactions = false }
 
+        guard let key = CacheKey.current(namespace: "wallet", key: "transactions") else { return }
         do {
-            transactions = try await APIService.shared.getWalletTransactions()
+            transactions = Array(try await AppCacheRepository.shared.loadValue(
+                key: key,
+                policy: .list,
+                forceRefresh: forceRefresh
+            ) {
+                try await APIService.shared.getWalletTransactions()
+            }.prefix(500))
         } catch {
             transactionLoadError = L10n.tr("wallet.transactions.loadFailedWithError", error.localizedDescription)
         }
     }
 
-    func loadWithdrawals() async {
+    func loadWithdrawals(forceRefresh: Bool = false) async {
         if isReviewScreenshotMode {
             withdrawals = []
             withdrawalLoadError = nil
@@ -258,13 +277,37 @@ final class WalletStore: ObservableObject {
         withdrawalLoadError = nil
         defer { isLoadingWithdrawals = false }
 
+        guard let key = CacheKey.current(namespace: "wallet", key: "withdrawals") else { return }
         do {
-            withdrawals = try await APIService.shared.getWalletWithdrawals()
+            withdrawals = Array(try await AppCacheRepository.shared.loadValue(
+                key: key,
+                policy: .list,
+                forceRefresh: forceRefresh
+            ) {
+                try await APIService.shared.getWalletWithdrawals()
+            }.prefix(500))
         } catch let error where isMissingWithdrawalEndpoint(error) {
             withdrawals = []
             withdrawalLoadError = L10n.tr("wallet.withdrawal.serviceUnavailable")
         } catch {
             withdrawalLoadError = L10n.tr("wallet.withdrawals.loadFailedWithError", error.localizedDescription)
+        }
+    }
+
+    private func restoreSnapshots() {
+        if let key = CacheKey.current(namespace: "wallet", key: "balance"),
+           let cached: CachedSnapshot<WalletBalanceResponseData> = AppCacheRepository.shared.cachedValue(for: key) {
+            applyServerBalance(cached.value)
+        } else {
+            reloadBalance()
+        }
+        if let key = CacheKey.current(namespace: "wallet", key: "transactions"),
+           let cached: CachedSnapshot<[WalletTransaction]> = AppCacheRepository.shared.cachedValue(for: key) {
+            transactions = cached.value
+        }
+        if let key = CacheKey.current(namespace: "wallet", key: "withdrawals"),
+           let cached: CachedSnapshot<[WalletWithdrawal]> = AppCacheRepository.shared.cachedValue(for: key) {
+            withdrawals = cached.value
         }
     }
 
@@ -388,7 +431,9 @@ final class WalletStore: ObservableObject {
             return
         }
 
-        guard force || products.isEmpty else { return }
+        let ids = productIDs
+        let loadedIDs = Set(products.map(\.id))
+        guard force || !ids.allSatisfy({ loadedIDs.contains($0) }) else { return }
         guard !isLoadingProducts else { return }
 
         isLoadingProducts = true
@@ -396,8 +441,8 @@ final class WalletStore: ObservableObject {
         defer { isLoadingProducts = false }
 
         do {
-            let fetched = try await Product.products(for: productIDs)
-            let order = Dictionary(uniqueKeysWithValues: productIDs.enumerated().map { ($0.element, $0.offset) })
+            let fetched = try await Product.products(for: ids)
+            let order = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
             products = fetched.sorted {
                 (order[$0.id] ?? Int.max) < (order[$1.id] ?? Int.max)
             }

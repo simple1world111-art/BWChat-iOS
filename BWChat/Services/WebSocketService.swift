@@ -40,6 +40,7 @@ class WebSocketService: ObservableObject {
     let groupRemovedPublisher = PassthroughSubject<Int, Never>()
     let groupRenamedPublisher = PassthroughSubject<(Int, String), Never>()
     let cacheCleanupPublisher = PassthroughSubject<[String], Never>()
+    let scriptTurnStatePublisher = PassthroughSubject<ScriptTurnState, Never>()
 
     // Call signaling
     let callOfferPublisher = PassthroughSubject<[String: Any], Never>()
@@ -120,7 +121,10 @@ class WebSocketService: ObservableObject {
     }
 
     func connect() {
-        guard let token = AuthManager.shared.token else { return }
+        guard let token = AuthTokenNormalizer.normalize(AuthManager.shared.token) else {
+            AuthTokenDiagnostics.log("websocket-missing-token", token: nil)
+            return
+        }
         guard !isConnecting && webSocketTask == nil else { return }
         isManuallyDisconnected = false
         isConnecting = true
@@ -129,11 +133,19 @@ class WebSocketService: ObservableObject {
         heartbeatTask?.cancel()
         heartbeatTask = nil
 
-        let urlString = AppConfig.wsBaseURL + "?token=\(token)"
-        guard let url = URL(string: urlString) else {
+        guard var components = URLComponents(string: AppConfig.wsBaseURL) else {
             isConnecting = false
             return
         }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "token" }
+        queryItems.append(URLQueryItem(name: "token", value: token))
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            isConnecting = false
+            return
+        }
+        AuthTokenDiagnostics.log("websocket-connect", token: token)
 
         let config = URLSessionConfiguration.default
         config.waitsForConnectivity = true
@@ -291,13 +303,20 @@ class WebSocketService: ObservableObject {
                 cacheCleanupPublisher.send(urls)
             }
 
+        case "script_turn_state":
+            if let stateData = json["data"],
+               let stateJSON = try? JSONSerialization.data(withJSONObject: stateData),
+               let state = try? JSONDecoder().decode(ScriptTurnState.self, from: stateJSON) {
+                scriptTurnStatePublisher.send(state)
+            }
+
         case "call_invite":
-            if let d = json["data"] as? [String: Any] {
+            if let d = Self.dictionaryValue(json["data"]) {
                 callOfferPublisher.send(d)
             }
 
         case "call_offer":
-            if let d = json["data"] as? [String: Any] {
+            if let d = Self.dictionaryValue(json["data"]) {
                 callOfferPublisher.send(d)
             }
 
@@ -312,24 +331,24 @@ class WebSocketService: ObservableObject {
             }
 
         case "call_end":
-            if let d = json["data"] as? [String: Any],
-               let fromUser = d["from_user_id"] as? String {
+            if let d = Self.dictionaryValue(json["data"]) {
+                let fromUser = Self.firstString(d, keys: ["from_user_id", "caller_id", "user_id"]) ?? ""
                 callEndPublisher.send(fromUser)
             }
 
         case "call_reject":
-            if let d = json["data"] as? [String: Any] {
+            if let d = Self.dictionaryValue(json["data"]) {
                 callRejectPublisher.send(d)
             }
 
         case "call_busy":
-            if let d = json["data"] as? [String: Any],
-               let fromUser = d["from_user_id"] as? String {
+            if let d = Self.dictionaryValue(json["data"]) {
+                let fromUser = Self.firstString(d, keys: ["from_user_id", "caller_id", "user_id"]) ?? ""
                 callBusyPublisher.send(fromUser)
             }
 
         case "group_call_invite":
-            if let d = json["data"] as? [String: Any] {
+            if let d = Self.dictionaryValue(json["data"]) {
                 groupCallInvitePublisher.send(d)
             }
 
@@ -414,6 +433,26 @@ class WebSocketService: ObservableObject {
                 Task { @MainActor in self?.handleDisconnect(error: error) }
             }
         }
+    }
+
+    private static func dictionaryValue(_ value: Any?) -> [String: Any]? {
+        if let dictionary = value as? [String: Any] {
+            return dictionary
+        }
+        if let string = value as? String,
+           let data = string.data(using: .utf8),
+           let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return dictionary
+        }
+        return nil
+    }
+
+    private static func firstString(_ data: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let string = data[key] as? String { return string }
+            if let number = data[key] as? NSNumber { return number.stringValue }
+        }
+        return nil
     }
 
     private static func intValue(_ value: Any?) -> Int? {
@@ -516,12 +555,22 @@ class WebSocketService: ObservableObject {
             return
         }
 
+        scheduleReconnect()
+    }
+
+    private func scheduleReconnect(retryTokenRefresh: Bool = false) {
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             guard let self = self else { return }
             let delay = self.reconnectDelay
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
+            if retryTokenRefresh {
+                // A transport/server failure does not prove that the refresh
+                // token is invalid. Allow a later handshake to try again once
+                // the backend has recovered.
+                self.tokenRefreshAttempted = false
+            }
             self.reconnectDelay = min(self.reconnectDelay * 2, self.maxReconnectDelay)
             self.connect()
         }
@@ -529,22 +578,29 @@ class WebSocketService: ObservableObject {
 
     /// Called when the WS server signals an expired/invalid token. Use the
     /// refresh token to obtain a new access token (same as the HTTP path's
-    /// `attemptTokenRefresh`), persist it, then reconnect. If refresh fails
-    /// (e.g. refresh token also expired), log the user out so the UI
-    /// returns to the login screen instead of looping on dead tokens.
+    /// `attemptTokenRefresh`), persist it, then reconnect. Clear the local
+    /// session only when the refresh token is definitively rejected. Backend
+    /// restarts, timeouts, decoding failures, and 5xx responses must preserve
+    /// the Keychain tokens and retry with backoff.
     @MainActor
     private func refreshTokenAndReconnect() async {
         do {
             let (newToken, newRefresh, user) = try await APIService.shared.refreshTokens()
-            AuthManager.shared.token = newToken
-            AuthManager.shared.refreshToken = newRefresh
+            try AuthManager.shared.updateSessionTokens(
+                accessToken: newToken,
+                refreshToken: newRefresh,
+                source: "websocket-refresh"
+            )
             AuthManager.shared.updateUser(user)
             print("[WS] token refreshed, reconnecting")
             reconnectDelay = 1
             connect()
-        } catch {
-            print("[WS] token refresh failed: \(error) — logging out")
+        } catch APIError.unauthorized {
+            print("[WS] refresh token rejected — logging out")
             AuthManager.shared.logout()
+        } catch {
+            print("[WS] token refresh temporarily failed: \(error) — preserving session")
+            scheduleReconnect(retryTokenRefresh: true)
         }
     }
 }

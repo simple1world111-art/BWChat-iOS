@@ -23,6 +23,7 @@
 		A10014 /* APIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* APIService.swift */; };
 		A10015 /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* WebSocketService.swift */; };
 		A10016 /* PushService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* PushService.swift */; };
+		A10800 /* BackgroundUploadCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10800 /* BackgroundUploadCoordinator.swift */; };
 		A10017 /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* AuthManager.swift */; };
 		A10018 /* ImageCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* ImageCacheManager.swift */; };
 		A10019 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* AvatarView.swift */; };
@@ -72,10 +73,6 @@
 		A10109 /* MediaLibrarySaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10109 /* MediaLibrarySaver.swift */; };
 		A10110 /* UIKitNav.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10110 /* UIKitNav.swift */; };
 		A10111 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10111 /* WalletView.swift */; };
-		A10112 /* ChatbotAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10112 /* ChatbotAPI.swift */; };
-		A10113 /* BotConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10113 /* BotConfig.swift */; };
-		A10114 /* BotChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10114 /* BotChatView.swift */; };
-		A10115 /* BotConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10115 /* BotConfigView.swift */; };
 		A10116 /* LocalCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10116 /* LocalCache.swift */; };
 		A10117 /* ChatAppearanceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10117 /* ChatAppearanceStore.swift */; };
 		A10118 /* ChatBackgroundSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10118 /* ChatBackgroundSettingsView.swift */; };
@@ -102,6 +99,48 @@
 			A10408 /* ShortDramaVideoPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10408 /* ShortDramaVideoPage.swift */; };
 			A10409 /* ShortDramaActionRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10409 /* ShortDramaActionRail.swift */; };
 			A10410 /* ShortDramaCommentsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10410 /* ShortDramaCommentsSheet.swift */; };
+			A10411 /* ShortDramaSeriesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10411 /* ShortDramaSeriesListView.swift */; };
+			A10412 /* ShortDramaUnifiedEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10412 /* ShortDramaUnifiedEditorView.swift */; };
+			A10500 /* DynamicConfigModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10500 /* DynamicConfigModels.swift */; };
+			A10501 /* AppRemoteConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10501 /* AppRemoteConfigStore.swift */; };
+			A10502 /* RemoteAssetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10502 /* RemoteAssetManager.swift */; };
+			A10503 /* DynamicScreenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10503 /* DynamicScreenStore.swift */; };
+			A10504 /* DynamicRouteHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10504 /* DynamicRouteHandler.swift */; };
+			A10505 /* DynamicScreenView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10505 /* DynamicScreenView.swift */; };
+			A10506 /* InAppWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10506 /* InAppWebView.swift */; };
+			A10508 /* Sticker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10508 /* Sticker.swift */; };
+			A10509 /* StickerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10509 /* StickerViews.swift */; };
+			A10510 /* GameCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10510 /* GameCenter.swift */; };
+		A10511 /* GameCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10511 /* GameCenterView.swift */; };
+		A10610 /* CacheRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10610 /* CacheRepository.swift */; };
+		A10611 /* MediaCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10611 /* MediaCacheManager.swift */; };
+		A10600 /* GameCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10600 /* GameCenterTests.swift */; };
+		A10601 /* ShortDramaPlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10601 /* ShortDramaPlaybackTests.swift */; };
+		A10613 /* StickerPickerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10613 /* StickerPickerTests.swift */; };
+		A10614 /* MomentsFollowingFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10614 /* MomentsFollowingFeedTests.swift */; };
+		A10615 /* AuthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10615 /* AuthSessionTests.swift */; };
+		A10616 /* MapDatingResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10616 /* MapDatingResponseTests.swift */; };
+		A10617 /* APIResponseContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10617 /* APIResponseContractTests.swift */; };
+		A10620 /* GoogleMobileAds in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10002 /* GoogleMobileAds */; };
+		A10621 /* GoogleUserMessagingPlatform in Frameworks */ = {isa = PBXBuildFile; productRef = PKG10003 /* GoogleUserMessagingPlatform */; };
+		A10622 /* AdRewardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10622 /* AdRewardService.swift */; };
+		A10700 /* InteractiveScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10700 /* InteractiveScript.swift */; };
+		A10701 /* InteractiveScriptViewModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10701 /* InteractiveScriptViewModels.swift */; };
+		A10702 /* ScriptCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10702 /* ScriptCenterView.swift */; };
+		A10703 /* ScriptDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10703 /* ScriptDetailView.swift */; };
+		A10704 /* ScriptEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10704 /* ScriptEditorView.swift */; };
+		A10705 /* ScriptRoleEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10705 /* ScriptRoleEditorView.swift */; };
+		A10706 /* ScriptRoomChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10706 /* ScriptRoomChatView.swift */; };
+		A10710 /* InteractiveScriptContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10710 /* InteractiveScriptContractTests.swift */; };
+		A10711 /* ConversationListActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10711 /* ConversationListActionTests.swift */; };
+		A10900 /* AgentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10900 /* AgentModels.swift */; };
+		A10901 /* AgentCatalogViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10901 /* AgentCatalogViewModel.swift */; };
+		A10902 /* AgentChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10902 /* AgentChatViewModel.swift */; };
+		A10903 /* AgentHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10903 /* AgentHubView.swift */; };
+		A10904 /* AgentChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10904 /* AgentChatView.swift */; };
+		A10905 /* AgentMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10905 /* AgentMessageView.swift */; };
+		A10906 /* AgentCreatorViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10906 /* AgentCreatorViewModel.swift */; };
+		A10907 /* AgentCreatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10907 /* AgentCreatorView.swift */; };
 	/* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -111,6 +150,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = T10002;
 			remoteInfo = BWChatNotificationService;
+		};
+		C10002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = P10001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = T10001;
+			remoteInfo = BWChat;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -143,6 +189,7 @@
 		B10012 /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		B10013 /* ImagePreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePreviewView.swift; sourceTree = "<group>"; };
 		B10014 /* APIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIService.swift; sourceTree = "<group>"; };
+		B10800 /* BackgroundUploadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundUploadCoordinator.swift; sourceTree = "<group>"; };
 		B10015 /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
 		B10016 /* PushService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushService.swift; sourceTree = "<group>"; };
 		B10017 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
@@ -196,10 +243,6 @@
 		B10109 /* MediaLibrarySaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibrarySaver.swift; sourceTree = "<group>"; };
 		B10110 /* UIKitNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIKitNav.swift; sourceTree = "<group>"; };
 		B10111 /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
-		B10112 /* ChatbotAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatbotAPI.swift; sourceTree = "<group>"; };
-		B10113 /* BotConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotConfig.swift; sourceTree = "<group>"; };
-		B10114 /* BotChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotChatView.swift; sourceTree = "<group>"; };
-		B10115 /* BotConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotConfigView.swift; sourceTree = "<group>"; };
 		B10116 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
 		B10117 /* ChatAppearanceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatAppearanceStore.swift; sourceTree = "<group>"; };
 		B10118 /* ChatBackgroundSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBackgroundSettingsView.swift; sourceTree = "<group>"; };
@@ -244,8 +287,49 @@
 			B10408 /* ShortDramaVideoPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaVideoPage.swift; sourceTree = "<group>"; };
 			B10409 /* ShortDramaActionRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaActionRail.swift; sourceTree = "<group>"; };
 			B10410 /* ShortDramaCommentsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaCommentsSheet.swift; sourceTree = "<group>"; };
+			B10411 /* ShortDramaSeriesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaSeriesListView.swift; sourceTree = "<group>"; };
+			B10412 /* ShortDramaUnifiedEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaUnifiedEditorView.swift; sourceTree = "<group>"; };
+			B10500 /* DynamicConfigModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicConfigModels.swift; sourceTree = "<group>"; };
+			B10501 /* AppRemoteConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRemoteConfigStore.swift; sourceTree = "<group>"; };
+			B10502 /* RemoteAssetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAssetManager.swift; sourceTree = "<group>"; };
+			B10503 /* DynamicScreenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicScreenStore.swift; sourceTree = "<group>"; };
+			B10504 /* DynamicRouteHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicRouteHandler.swift; sourceTree = "<group>"; };
+			B10505 /* DynamicScreenView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicScreenView.swift; sourceTree = "<group>"; };
+			B10506 /* InAppWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Web/InAppWebView.swift; sourceTree = "<group>"; };
+			B10508 /* Sticker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sticker.swift; sourceTree = "<group>"; };
+			B10509 /* StickerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickerViews.swift; sourceTree = "<group>"; };
+			B10510 /* GameCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameCenter.swift; sourceTree = "<group>"; };
+		B10511 /* GameCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameCenterView.swift; sourceTree = "<group>"; };
+		B10610 /* CacheRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheRepository.swift; sourceTree = "<group>"; };
+		B10611 /* MediaCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCacheManager.swift; sourceTree = "<group>"; };
+		B10600 /* GameCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameCenterTests.swift; sourceTree = "<group>"; };
+		B10601 /* ShortDramaPlaybackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortDramaPlaybackTests.swift; sourceTree = "<group>"; };
+		B10613 /* StickerPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickerPickerTests.swift; sourceTree = "<group>"; };
+		B10614 /* MomentsFollowingFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MomentsFollowingFeedTests.swift; sourceTree = "<group>"; };
+		B10615 /* AuthSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionTests.swift; sourceTree = "<group>"; };
+		B10616 /* MapDatingResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapDatingResponseTests.swift; sourceTree = "<group>"; };
+		B10617 /* APIResponseContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIResponseContractTests.swift; sourceTree = "<group>"; };
+		B10622 /* AdRewardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdRewardService.swift; sourceTree = "<group>"; };
+		B10700 /* InteractiveScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveScript.swift; sourceTree = "<group>"; };
+		B10701 /* InteractiveScriptViewModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveScriptViewModels.swift; sourceTree = "<group>"; };
+		B10702 /* ScriptCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptCenterView.swift; sourceTree = "<group>"; };
+		B10703 /* ScriptDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptDetailView.swift; sourceTree = "<group>"; };
+		B10704 /* ScriptEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptEditorView.swift; sourceTree = "<group>"; };
+		B10705 /* ScriptRoleEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptRoleEditorView.swift; sourceTree = "<group>"; };
+		B10706 /* ScriptRoomChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptRoomChatView.swift; sourceTree = "<group>"; };
+		B10710 /* InteractiveScriptContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveScriptContractTests.swift; sourceTree = "<group>"; };
+		B10711 /* ConversationListActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListActionTests.swift; sourceTree = "<group>"; };
+		B10900 /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
+		B10901 /* AgentCatalogViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCatalogViewModel.swift; sourceTree = "<group>"; };
+		B10902 /* AgentChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatViewModel.swift; sourceTree = "<group>"; };
+		B10903 /* AgentHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHubView.swift; sourceTree = "<group>"; };
+		B10904 /* AgentChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatView.swift; sourceTree = "<group>"; };
+		B10905 /* AgentMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMessageView.swift; sourceTree = "<group>"; };
+		B10906 /* AgentCreatorViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCreatorViewModel.swift; sourceTree = "<group>"; };
+		B10907 /* AgentCreatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCreatorView.swift; sourceTree = "<group>"; };
 			PR10001 /* BBchat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BBchat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		PR10002 /* BWChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BWChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		PR10003 /* BWChatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BWChatTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -253,12 +337,21 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10620 /* GoogleMobileAds in Frameworks */,
+				A10621 /* GoogleUserMessagingPlatform in Frameworks */,
 				A10097 /* LiveKit in Frameworks */,
 				A10108 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F10002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F10003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -273,6 +366,7 @@
 			children = (
 				G10001 /* BWChat */,
 				G10009 /* BWChatNotificationService */,
+				G10011 /* BWChatTests */,
 				G10010 /* Products */,
 				B10108 /* libsqlite3.tbd */,
 			);
@@ -309,12 +403,16 @@
 				B10090 /* Call.swift */,
 				B10100 /* Conversation.swift */,
 				B10101 /* Moment.swift */,
-				B10113 /* BotConfig.swift */,
 					B10210 /* Gift.swift */,
 					B10220 /* MapDating.swift */,
 					B10341 /* DiscoverConfig.swift */,
 					B10400 /* Follow.swift */,
 					B10401 /* ShortDrama.swift */,
+					B10500 /* DynamicConfigModels.swift */,
+					B10508 /* Sticker.swift */,
+					B10510 /* GameCenter.swift */,
+					B10700 /* InteractiveScript.swift */,
+					B10900 /* AgentModels.swift */,
 				);
 				path = Models;
 				sourceTree = "<group>";
@@ -335,6 +433,10 @@
 					B10402 /* FollowListViewModel.swift */,
 					B10403 /* UserProfileViewModel.swift */,
 					B10404 /* ShortDramaFeedViewModel.swift */,
+					B10701 /* InteractiveScriptViewModels.swift */,
+					B10901 /* AgentCatalogViewModel.swift */,
+					B10902 /* AgentChatViewModel.swift */,
+					B10906 /* AgentCreatorViewModel.swift */,
 				);
 				path = ViewModels;
 				sourceTree = "<group>";
@@ -359,8 +461,6 @@
 				B10050 /* VideoPlayerView.swift */,
 				B10070 /* ProfileView.swift */,
 				B10111 /* WalletView.swift */,
-				B10114 /* BotChatView.swift */,
-				B10115 /* BotConfigView.swift */,
 				B10118 /* ChatBackgroundSettingsView.swift */,
 				B10071 /* EditProfileView.swift */,
 				B10092 /* CallView.swift */,
@@ -375,6 +475,20 @@
 					B10408 /* ShortDramaVideoPage.swift */,
 					B10409 /* ShortDramaActionRail.swift */,
 					B10410 /* ShortDramaCommentsSheet.swift */,
+					B10411 /* ShortDramaSeriesListView.swift */,
+					B10412 /* ShortDramaUnifiedEditorView.swift */,
+					B10505 /* DynamicScreenView.swift */,
+					B10506 /* InAppWebView.swift */,
+					B10511 /* GameCenterView.swift */,
+					B10702 /* ScriptCenterView.swift */,
+					B10703 /* ScriptDetailView.swift */,
+					B10704 /* ScriptEditorView.swift */,
+					B10705 /* ScriptRoleEditorView.swift */,
+					B10706 /* ScriptRoomChatView.swift */,
+					B10903 /* AgentHubView.swift */,
+					B10904 /* AgentChatView.swift */,
+					B10905 /* AgentMessageView.swift */,
+					B10907 /* AgentCreatorView.swift */,
 				);
 				path = Views;
 				sourceTree = "<group>";
@@ -383,13 +497,19 @@
 			isa = PBXGroup;
 			children = (
 				B10014 /* APIService.swift */,
+				B10800 /* BackgroundUploadCoordinator.swift */,
 				B10015 /* WebSocketService.swift */,
 				B10016 /* PushService.swift */,
 				B10107 /* MessageStore.swift */,
 				B10109 /* MediaLibrarySaver.swift */,
-				B10112 /* ChatbotAPI.swift */,
 				B10117 /* ChatAppearanceStore.swift */,
 				B10119 /* WalletStore.swift */,
+				B10501 /* AppRemoteConfigStore.swift */,
+				B10502 /* RemoteAssetManager.swift */,
+				B10503 /* DynamicScreenStore.swift */,
+				B10504 /* DynamicRouteHandler.swift */,
+				B10610 /* CacheRepository.swift */,
+				B10622 /* AdRewardService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -402,6 +522,7 @@
 				B10073 /* UserCacheManager.swift */,
 				B10091 /* CallManager.swift */,
 				B10340 /* AppLanguageStore.swift */,
+				B10611 /* MediaCacheManager.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -418,6 +539,7 @@
 				B10093 /* MentionPickerView.swift */,
 				B10094 /* ReplyPreviewBar.swift */,
 				B10211 /* GiftViews.swift */,
+				B10509 /* StickerViews.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -449,8 +571,25 @@
 			children = (
 				PR10001 /* BBchat.app */,
 				PR10002 /* BWChatNotificationService.appex */,
+				PR10003 /* BWChatTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		G10011 /* BWChatTests */ = {
+			isa = PBXGroup;
+			children = (
+				B10600 /* GameCenterTests.swift */,
+				B10601 /* ShortDramaPlaybackTests.swift */,
+				B10613 /* StickerPickerTests.swift */,
+				B10614 /* MomentsFollowingFeedTests.swift */,
+				B10615 /* AuthSessionTests.swift */,
+				B10616 /* MapDatingResponseTests.swift */,
+				B10617 /* APIResponseContractTests.swift */,
+				B10710 /* InteractiveScriptContractTests.swift */,
+				B10711 /* ConversationListActionTests.swift */,
+			);
+			path = BWChatTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -473,6 +612,8 @@
 			name = BWChat;
 			packageProductDependencies = (
 				PKG10001 /* LiveKit */,
+				PKG10002 /* GoogleMobileAds */,
+				PKG10003 /* GoogleUserMessagingPlatform */,
 			);
 			productName = BBchat;
 			productReference = PR10001 /* BBchat.app */;
@@ -494,6 +635,23 @@
 			productReference = PR10002 /* BWChatNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		T10003 /* BWChatTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL10003 /* Build configuration list for PBXNativeTarget "BWChatTests" */;
+			buildPhases = (
+				S10003 /* Sources */,
+				F10003 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D10002 /* PBXTargetDependency */,
+			);
+			name = BWChatTests;
+			productName = BWChatTests;
+			productReference = PR10003 /* BWChatTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -509,6 +667,10 @@
 					};
 					T10002 = {
 						CreatedOnToolsVersion = 15.2;
+					};
+					T10003 = {
+						CreatedOnToolsVersion = 15.2;
+						TestTargetID = T10001;
 					};
 				};
 			};
@@ -533,6 +695,8 @@
 			packageReferences = (
 				SPKG10001 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 				SPKG10002 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+				SPKG10003 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */,
+				SPKG10004 /* XCRemoteSwiftPackageReference "swift-package-manager-google-user-messaging-platform" */,
 			);
 			productRefGroup = G10010 /* Products */;
 			projectDirPath = "";
@@ -540,6 +704,7 @@
 			targets = (
 				T10001 /* BWChat */,
 				T10002 /* BWChatNotificationService */,
+				T10003 /* BWChatTests */,
 			);
 		};
 /* End PBXProject section */
@@ -580,6 +745,7 @@
 				A10014 /* APIService.swift in Sources */,
 				A10015 /* WebSocketService.swift in Sources */,
 				A10016 /* PushService.swift in Sources */,
+				A10800 /* BackgroundUploadCoordinator.swift in Sources */,
 				A10017 /* AuthManager.swift in Sources */,
 				A10018 /* ImageCacheManager.swift in Sources */,
 				A10073 /* UserCacheManager.swift in Sources */,
@@ -591,10 +757,14 @@
 				A10023 /* Extensions.swift in Sources */,
 				A10110 /* UIKitNav.swift in Sources */,
 				A10111 /* WalletView.swift in Sources */,
-				A10112 /* ChatbotAPI.swift in Sources */,
-				A10113 /* BotConfig.swift in Sources */,
-				A10114 /* BotChatView.swift in Sources */,
-				A10115 /* BotConfigView.swift in Sources */,
+				A10900 /* AgentModels.swift in Sources */,
+				A10901 /* AgentCatalogViewModel.swift in Sources */,
+				A10902 /* AgentChatViewModel.swift in Sources */,
+				A10903 /* AgentHubView.swift in Sources */,
+				A10904 /* AgentChatView.swift in Sources */,
+				A10905 /* AgentMessageView.swift in Sources */,
+				A10906 /* AgentCreatorViewModel.swift in Sources */,
+				A10907 /* AgentCreatorView.swift in Sources */,
 				A10117 /* ChatAppearanceStore.swift in Sources */,
 				A10118 /* ChatBackgroundSettingsView.swift in Sources */,
 				A10119 /* WalletStore.swift in Sources */,
@@ -650,6 +820,29 @@
 					A10408 /* ShortDramaVideoPage.swift in Sources */,
 					A10409 /* ShortDramaActionRail.swift in Sources */,
 					A10410 /* ShortDramaCommentsSheet.swift in Sources */,
+					A10411 /* ShortDramaSeriesListView.swift in Sources */,
+					A10412 /* ShortDramaUnifiedEditorView.swift in Sources */,
+					A10500 /* DynamicConfigModels.swift in Sources */,
+					A10501 /* AppRemoteConfigStore.swift in Sources */,
+					A10502 /* RemoteAssetManager.swift in Sources */,
+					A10503 /* DynamicScreenStore.swift in Sources */,
+					A10504 /* DynamicRouteHandler.swift in Sources */,
+					A10505 /* DynamicScreenView.swift in Sources */,
+					A10506 /* InAppWebView.swift in Sources */,
+					A10508 /* Sticker.swift in Sources */,
+					A10509 /* StickerViews.swift in Sources */,
+					A10510 /* GameCenter.swift in Sources */,
+					A10511 /* GameCenterView.swift in Sources */,
+					A10610 /* CacheRepository.swift in Sources */,
+					A10611 /* MediaCacheManager.swift in Sources */,
+					A10622 /* AdRewardService.swift in Sources */,
+					A10700 /* InteractiveScript.swift in Sources */,
+					A10701 /* InteractiveScriptViewModels.swift in Sources */,
+					A10702 /* ScriptCenterView.swift in Sources */,
+					A10703 /* ScriptDetailView.swift in Sources */,
+					A10704 /* ScriptEditorView.swift in Sources */,
+					A10705 /* ScriptRoleEditorView.swift in Sources */,
+					A10706 /* ScriptRoomChatView.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -661,6 +854,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		S10003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10600 /* GameCenterTests.swift in Sources */,
+				A10601 /* ShortDramaPlaybackTests.swift in Sources */,
+				A10613 /* StickerPickerTests.swift in Sources */,
+				A10614 /* MomentsFollowingFeedTests.swift in Sources */,
+				A10615 /* AuthSessionTests.swift in Sources */,
+				A10616 /* MapDatingResponseTests.swift in Sources */,
+				A10617 /* APIResponseContractTests.swift in Sources */,
+				A10710 /* InteractiveScriptContractTests.swift in Sources */,
+				A10711 /* ConversationListActionTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -668,6 +877,11 @@
 			isa = PBXTargetDependency;
 			target = T10002 /* BWChatNotificationService */;
 			targetProxy = C10001 /* PBXContainerItemProxy */;
+		};
+		D10002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = T10001 /* BWChat */;
+			targetProxy = C10002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -769,11 +983,11 @@
 		BC10003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = BBchatAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BWChat/BWChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChat/Info.plist;
@@ -797,11 +1011,11 @@
 		BC10004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = BBchatAppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = BWChat/BWChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChat/Info.plist;
@@ -827,7 +1041,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BWChatNotificationService/BWChatNotificationService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
@@ -853,7 +1067,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = BWChatNotificationService/BWChatNotificationService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
@@ -871,6 +1085,48 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		BC10007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = A5U93R249R;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.appTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BBchat.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BBchat";
+			};
+			name = Debug;
+		};
+		BC10008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = A5U93R249R;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.bwchat.appTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/BBchat.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BBchat";
 			};
 			name = Release;
 		};
@@ -904,6 +1160,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		CL10003 /* Build configuration list for PBXNativeTarget "BWChatTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BC10007 /* Debug */,
+				BC10008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -924,6 +1189,22 @@
 				minimumVersion = 1.28.0;
 			};
 		};
+		SPKG10003 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googleads/swift-package-manager-google-mobile-ads.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 13.0.0;
+			};
+		};
+		SPKG10004 /* XCRemoteSwiftPackageReference "swift-package-manager-google-user-messaging-platform" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googleads/swift-package-manager-google-user-messaging-platform.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -931,6 +1212,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = SPKG10001 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
 			productName = LiveKit;
+		};
+		PKG10002 /* GoogleMobileAds */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPKG10003 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */;
+			productName = GoogleMobileAds;
+		};
+		PKG10003 /* GoogleUserMessagingPlatform */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPKG10004 /* XCRemoteSwiftPackageReference "swift-package-manager-google-user-messaging-platform" */;
+			productName = GoogleUserMessagingPlatform;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

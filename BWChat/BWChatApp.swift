@@ -10,6 +10,7 @@ struct BWChatApp: App {
 
     @ObservedObject private var callManager = CallManager.shared
     @ObservedObject private var walletStore = WalletStore.shared
+    @ObservedObject private var remoteConfigStore = AppRemoteConfigStore.shared
 
 
     var body: some Scene {
@@ -17,6 +18,7 @@ struct BWChatApp: App {
             ZStack {
                 SplashScreen()
                     .appLocalizedEnvironment()
+                    .environmentObject(remoteConfigStore)
                     .preferredColorScheme(nil)
                     .onChange(of: scenePhase) { newPhase in
                         handleScenePhase(newPhase)
@@ -57,8 +59,12 @@ struct BWChatApp: App {
                 }
             }
             .onAppear {
-                Task { await refreshWalletBalanceIfNeeded() }
+                Task {
+                    await remoteConfigStore.load()
+                    await refreshWalletBalanceIfNeeded()
+                }
             }
+            .toast(message: $callManager.errorMessage, duration: 4)
         }
     }
 
@@ -67,9 +73,9 @@ struct BWChatApp: App {
         case .active:
             // App returned to foreground — ensure push & WebSocket are alive
             Task { @MainActor in
+                await remoteConfigStore.load()
                 await refreshWalletBalanceIfNeeded()
                 PushService.shared.reregisterIfNeeded()
-                PushService.shared.clearBadge()
                 if AuthManager.shared.isLoggedIn && !WebSocketService.shared.isConnected {
                     WebSocketService.shared.connect()
                 }
@@ -139,14 +145,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         postConversationReloadIfNeeded(userInfo)
-
-        // Update badge count from the push payload
-        if let aps = userInfo["aps"] as? [String: Any],
-           let badge = aps["badge"] as? Int {
-            Task { @MainActor in
-                UIApplication.shared.applicationIconBadgeNumber = badge
-            }
-        }
+        // APNs has already applied `aps.badge` while the app was suspended.
+        // Do not copy that aggregate into UIKit here: the in-app source of
+        // truth is the per-conversation unread store, refreshed above.
         completionHandler(.newData)
     }
 
@@ -159,55 +160,10 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let userInfo = notification.request.content.userInfo
+        let callPayload = Self.normalizedNotificationPayload(userInfo)
         postConversationReloadIfNeeded(userInfo)
 
-        // Incoming 1v1 call push — show call UI directly
-        if let pushType = userInfo["push_type"] as? String, pushType == "call",
-           let callerID = Self.stringValue(userInfo["caller_id"]),
-           let callerName = userInfo["caller_name"] as? String,
-           let roomName = userInfo["room_name"] as? String,
-           let callTypeStr = userInfo["call_type"] as? String,
-           let callType = CallType(rawValue: callTypeStr) {
-            let callerAvatar = userInfo["caller_avatar"] as? String ?? ""
-            Task { @MainActor in
-                guard CallManager.shared.currentCall == nil else { return }
-                CallManager.shared.currentCall = CallSession(
-                    remoteUserID: callerID,
-                    remoteNickname: callerName,
-                    remoteAvatarURL: callerAvatar,
-                    callType: callType,
-                    isOutgoing: false,
-                    state: .incoming,
-                    startedAt: Date(),
-                    roomName: roomName
-                )
-            }
-            completionHandler([.sound])
-            return
-        }
-
-        // Incoming group call push — show group call UI directly
-        if let pushType = userInfo["push_type"] as? String, pushType == "group_call",
-           let groupID = Self.intValue(userInfo["group_id"]),
-           let groupName = userInfo["group_name"] as? String,
-           let roomName = userInfo["room_name"] as? String,
-           let callTypeStr = userInfo["call_type"] as? String,
-           let callType = CallType(rawValue: callTypeStr) {
-            Task { @MainActor in
-                guard CallManager.shared.currentCall == nil else { return }
-                CallManager.shared.currentCall = CallSession(
-                    remoteUserID: Self.stringValue(userInfo["caller_id"]) ?? "",
-                    remoteNickname: groupName,
-                    remoteAvatarURL: "",
-                    callType: callType,
-                    isOutgoing: false,
-                    state: .incoming,
-                    startedAt: Date(),
-                    roomName: roomName,
-                    groupID: groupID,
-                    groupName: groupName
-                )
-            }
+        if scheduleIncomingCall(from: callPayload) {
             completionHandler([.sound])
             return
         }
@@ -252,66 +208,33 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
+        let callPayload = Self.normalizedNotificationPayload(userInfo)
         postConversationReloadIfNeeded(userInfo)
 
-        // Handle incoming 1v1 call push
-        if let pushType = userInfo["push_type"] as? String, pushType == "call",
-           let callerID = Self.stringValue(userInfo["caller_id"]),
-           let callerName = userInfo["caller_name"] as? String,
-           let roomName = userInfo["room_name"] as? String,
-           let callTypeStr = userInfo["call_type"] as? String,
-           let callType = CallType(rawValue: callTypeStr) {
-            let callerAvatar = userInfo["caller_avatar"] as? String ?? ""
-            Task { @MainActor in
-                guard CallManager.shared.currentCall == nil else { return }
-                CallManager.shared.currentCall = CallSession(
-                    remoteUserID: callerID,
-                    remoteNickname: callerName,
-                    remoteAvatarURL: callerAvatar,
-                    callType: callType,
-                    isOutgoing: false,
-                    state: .incoming,
-                    startedAt: Date(),
-                    roomName: roomName
-                )
-            }
-            completionHandler()
-            return
-        }
-
-        // Handle incoming group call push
-        if let pushType = userInfo["push_type"] as? String, pushType == "group_call",
-           let groupID = Self.intValue(userInfo["group_id"]),
-           let groupName = userInfo["group_name"] as? String,
-           let roomName = userInfo["room_name"] as? String,
-           let callTypeStr = userInfo["call_type"] as? String,
-           let callType = CallType(rawValue: callTypeStr) {
-            Task { @MainActor in
-                guard CallManager.shared.currentCall == nil else { return }
-                CallManager.shared.currentCall = CallSession(
-                    remoteUserID: Self.stringValue(userInfo["caller_id"]) ?? "",
-                    remoteNickname: groupName,
-                    remoteAvatarURL: "",
-                    callType: callType,
-                    isOutgoing: false,
-                    state: .incoming,
-                    startedAt: Date(),
-                    roomName: roomName,
-                    groupID: groupID,
-                    groupName: groupName
-                )
-            }
+        if scheduleIncomingCall(from: callPayload) {
             completionHandler()
             return
         }
 
         if let groupID = Self.intValue(userInfo["group_id"]) {
+            Task { @MainActor in
+                UnreadBadgeStore.shared.setConversationUnreadCount(
+                    0,
+                    for: ConversationReadTarget.group(groupID: groupID).listIdentity
+                )
+            }
             NotificationCenter.default.post(
                 name: .init("openGroupChat"),
                 object: nil,
                 userInfo: ["group_id": groupID]
             )
         } else if let senderID = Self.stringValue(userInfo["sender_id"]) {
+            Task { @MainActor in
+                UnreadBadgeStore.shared.setConversationUnreadCount(
+                    0,
+                    for: ConversationReadTarget.direct(userID: senderID).listIdentity
+                )
+            }
             NotificationCenter.default.post(
                 name: .init("openChat"),
                 object: nil,
@@ -319,15 +242,90 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             )
         }
 
-        Task { @MainActor in
-            PushService.shared.clearBadge()
-        }
         completionHandler()
     }
 
     private func postConversationReloadIfNeeded(_ userInfo: [AnyHashable: Any]) {
         guard userInfo["sender_id"] != nil || userInfo["group_id"] != nil else { return }
         NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
+    }
+
+    private func scheduleIncomingCall(from payload: [AnyHashable: Any]) -> Bool {
+        guard let pushType = Self.firstString(payload, keys: ["push_type", "event_type"])?.lowercased(),
+              let roomName = Self.firstString(payload, keys: ["room_name", "room"]),
+              let callType = Self.callTypeValue(payload["call_type"] ?? payload["media_type"]) else {
+            return false
+        }
+
+        if pushType == "call" || pushType == "call_invite" {
+            guard let callerID = Self.firstString(payload, keys: ["caller_id", "from_user_id", "user_id"]) else {
+                return false
+            }
+            let callerName = Self.firstString(payload, keys: ["caller_name", "caller_nickname", "nickname"]) ?? callerID
+            let callerAvatar = Self.firstString(payload, keys: ["caller_avatar", "avatar_url", "avatar"]) ?? ""
+            Task { @MainActor in
+                CallManager.shared.receiveIncomingCall(
+                    callerID: callerID,
+                    callerName: callerName,
+                    callerAvatar: callerAvatar,
+                    roomName: roomName,
+                    callType: callType
+                )
+            }
+            return true
+        }
+
+        if pushType == "group_call" || pushType == "group_call_invite" {
+            guard let groupID = Self.intValue(payload["group_id"]),
+                  let groupName = Self.firstString(payload, keys: ["group_name", "name"]) else {
+                return false
+            }
+            let callerID = Self.firstString(payload, keys: ["caller_id", "from_user_id", "user_id"]) ?? ""
+            Task { @MainActor in
+                CallManager.shared.receiveIncomingGroupCall(
+                    callerID: callerID,
+                    groupID: groupID,
+                    groupName: groupName,
+                    roomName: roomName,
+                    callType: callType
+                )
+            }
+            return true
+        }
+
+        return false
+    }
+
+    private static func normalizedNotificationPayload(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        var result = userInfo
+        let nested: [String: Any]?
+        if let dictionary = userInfo["data"] as? [String: Any] {
+            nested = dictionary
+        } else if let string = userInfo["data"] as? String,
+                  let data = string.data(using: .utf8),
+                  let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            nested = dictionary
+        } else {
+            nested = nil
+        }
+
+        nested?.forEach { key, value in
+            if result[key] == nil { result[key] = value }
+        }
+        return result
+    }
+
+    private static func firstString(_ data: [AnyHashable: Any], keys: [String]) -> String? {
+        keys.lazy.compactMap { stringValue(data[$0]) }.first
+    }
+
+    private static func callTypeValue(_ value: Any?) -> CallType? {
+        guard let value = stringValue(value)?.lowercased() else { return nil }
+        switch value {
+        case "voice", "audio": return .voice
+        case "video": return .video
+        default: return nil
+        }
     }
 
     private static func intValue(_ value: Any?) -> Int? {

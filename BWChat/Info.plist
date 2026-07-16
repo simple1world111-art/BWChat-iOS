@@ -17,11 +17,13 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconName</key>
-    <string>AppIcon</string>
+    <string>BBchatAppIcon</string>
     <key>CFBundleShortVersionString</key>
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-1877504503518465~7347579927</string>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
     <key>UISupportedInterfaceOrientations</key>
@@ -45,7 +47,7 @@
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>BBchat 需要访问相册以保存图片和视频</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>BBchat 需要访问相册以发送图片</string>
+    <string>BBchat 需要访问相册以上传和发送图片及视频</string>
     <key>NSCameraUsageDescription</key>
     <string>BBchat 需要使用摄像头进行视频通话</string>
     <key>NSMicrophoneUsageDescription</key>

@@ -38,6 +38,11 @@ final class FollowListViewModel: ObservableObject {
     init(kind: FollowListKind, userID: String?) {
         self.kind = kind
         self.userID = userID
+        if let key = cacheKey,
+           let cached: CachedSnapshot<FollowUsersPage> = AppCacheRepository.shared.cachedValue(for: key) {
+            users = cached.value.users
+            nextPage = cached.value.nextPage
+        }
     }
 
     var hasMore: Bool {
@@ -48,14 +53,13 @@ final class FollowListViewModel: ObservableObject {
         guard force || !hasLoaded else { return }
         hasLoaded = true
         nextPage = 1
-        users = []
-        await loadPage(showBlockingLoader: true)
+        await loadPage(showBlockingLoader: users.isEmpty, forceRefresh: force)
     }
 
     func refresh() async {
         hasLoaded = true
         nextPage = 1
-        await loadPage(showBlockingLoader: users.isEmpty)
+        await loadPage(showBlockingLoader: users.isEmpty, forceRefresh: true)
     }
 
     func loadMoreIfNeeded(currentUserID: String) {
@@ -63,7 +67,7 @@ final class FollowListViewModel: ObservableObject {
               nextPage != nil,
               !isLoading,
               !isLoadingMore else { return }
-        Task { await loadPage(showBlockingLoader: false) }
+        Task { await loadPage(showBlockingLoader: false, forceRefresh: false) }
     }
 
     func toggleFollow(userID: String) {
@@ -88,7 +92,7 @@ final class FollowListViewModel: ObservableObject {
         }
     }
 
-    private func loadPage(showBlockingLoader: Bool) async {
+    private func loadPage(showBlockingLoader: Bool, forceRefresh: Bool) async {
         guard let page = nextPage else { return }
         if showBlockingLoader {
             isLoading = true
@@ -102,12 +106,24 @@ final class FollowListViewModel: ObservableObject {
         }
 
         do {
+            let fetchPage: () async throws -> FollowUsersPage = {
+                switch self.kind {
+                case .following:
+                    return try await APIService.shared.getFollowing(userID: self.userID, page: page)
+                case .followers:
+                    return try await APIService.shared.getFollowers(userID: self.userID, page: page)
+                }
+            }
             let result: FollowUsersPage
-            switch kind {
-            case .following:
-                result = try await APIService.shared.getFollowing(userID: userID, page: page)
-            case .followers:
-                result = try await APIService.shared.getFollowers(userID: userID, page: page)
+            if page == 1, let key = cacheKey {
+                result = try await AppCacheRepository.shared.loadValue(
+                    key: key,
+                    policy: .profile,
+                    forceRefresh: forceRefresh,
+                    fetch: fetchPage
+                )
+            } else {
+                result = try await fetchPage()
             }
 
             if page == 1 {
@@ -117,6 +133,7 @@ final class FollowListViewModel: ObservableObject {
                 users.append(contentsOf: result.users.filter { !existingIDs.contains($0.userID) })
             }
             nextPage = result.hasMore ? (result.nextPage ?? page + 1) : nil
+            persist()
             result.users.forEach {
                 UserCacheManager.shared.cacheUser(userID: $0.userID, username: $0.username, nickname: $0.nickname, avatarURL: $0.avatarURL)
             }
@@ -125,6 +142,21 @@ final class FollowListViewModel: ObservableObject {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private var cacheKey: CacheKey? {
+        let subject = userID ?? AuthManager.shared.currentUser?.userID ?? "me"
+        let list = kind == .following ? "following" : "followers"
+        return CacheKey.current(namespace: "follows", key: "\(subject).\(list)")
+    }
+
+    private func persist() {
+        guard let key = cacheKey else { return }
+        AppCacheRepository.shared.save(
+            FollowUsersPage(users: Array(users.prefix(500)), hasMore: nextPage != nil, nextPage: nextPage),
+            for: key,
+            policy: .profile
+        )
     }
 
     private func applyRelationship(_ relationship: FollowRelationship, to userID: String) {

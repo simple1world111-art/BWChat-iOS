@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct ShortDramaCreator: Decodable, Identifiable, Equatable, Hashable {
+struct ShortDramaCreator: Codable, Identifiable, Equatable, Hashable {
     let userID: String
     let username: String
     let nickname: String
@@ -68,9 +68,37 @@ struct ShortDramaCreator: Decodable, Identifiable, Equatable, Hashable {
         self.followsMe = container.flexBool(for: .followsMe) ?? false
         self.isFriend = container.flexBool(for: .isFriend) ?? false
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(username, forKey: .username)
+        try container.encode(nickname, forKey: .nickname)
+        try container.encode(avatarURL, forKey: .avatarURL)
+        try container.encode(followedByMe, forKey: .followedByMe)
+        try container.encode(followsMe, forKey: .followsMe)
+        try container.encode(isFriend, forKey: .isFriend)
+    }
+
+    func fillingMissingFields(from fallback: ShortDramaCreator) -> ShortDramaCreator {
+        let shouldUseFallbackIdentity = userID.isBlank
+        let resolvedUserID = shouldUseFallbackIdentity ? fallback.userID : userID
+        let identitiesMatch = resolvedUserID == fallback.userID
+        let defaultNickname = L10n.tr("profile.defaultUser")
+
+        return ShortDramaCreator(
+            userID: resolvedUserID,
+            username: username.isBlank && identitiesMatch ? fallback.username : username,
+            nickname: (nickname.isBlank || nickname == defaultNickname) && identitiesMatch ? fallback.nickname : nickname,
+            avatarURL: avatarURL.isBlank && identitiesMatch ? fallback.avatarURL : avatarURL,
+            followedByMe: identitiesMatch ? (followedByMe || fallback.followedByMe) : followedByMe,
+            followsMe: identitiesMatch ? (followsMe || fallback.followsMe) : followsMe,
+            isFriend: identitiesMatch ? (isFriend || fallback.isFriend) : isFriend
+        )
+    }
 }
 
-struct ShortDramaVideo: Decodable, Identifiable, Equatable {
+struct ShortDramaVideo: Codable, Identifiable, Equatable {
     let id: String
     let dramaID: String
     var creator: ShortDramaCreator
@@ -89,6 +117,11 @@ struct ShortDramaVideo: Decodable, Identifiable, Equatable {
     var commentCount: Int
     var likedByMe: Bool
     var favoritedByMe: Bool
+    let publishStatus: ShortDramaPublishStatus?
+    let statusMessage: String?
+    let unlockPriceCatFood: Int?
+    var isUnlocked: Bool
+    let isOwnedByCurrentUser: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -130,6 +163,21 @@ struct ShortDramaVideo: Decodable, Identifiable, Equatable {
         case likedByMe = "liked_by_me"
         case favoritedByMe = "favorited_by_me"
         case collectedByMe = "collected_by_me"
+        case status
+        case publishStatus = "publish_status"
+        case statusMessage = "status_message"
+        case reviewReason = "review_reason"
+        case rejectionReason = "rejection_reason"
+        case rejectReason = "reject_reason"
+        case failureReason = "failure_reason"
+        case reason
+        case message
+        case unlockPriceCatFood = "unlock_price_cat_food"
+        case unlockPriceCatFoodCamel = "unlockPriceCatFood"
+        case isUnlocked = "is_unlocked"
+        case isUnlockedCamel = "isUnlocked"
+        case isOwnedByCurrentUser = "is_owned_by_current_user"
+        case isOwnedByCurrentUserCamel = "isOwnedByCurrentUser"
     }
 
     var streamingURLString: String {
@@ -160,6 +208,10 @@ struct ShortDramaVideo: Decodable, Identifiable, Equatable {
         return L10n.tr("shortDrama.episode", episodeNumber)
     }
 
+    var requiresUnlock: Bool {
+        (unlockPriceCatFood ?? 0) > 0 && !isUnlocked && !isOwnedByCurrentUser
+    }
+
     init(
         id: String,
         dramaID: String = "",
@@ -178,7 +230,12 @@ struct ShortDramaVideo: Decodable, Identifiable, Equatable {
         favoriteCount: Int = 0,
         commentCount: Int = 0,
         likedByMe: Bool = false,
-        favoritedByMe: Bool = false
+        favoritedByMe: Bool = false,
+        publishStatus: ShortDramaPublishStatus? = nil,
+        statusMessage: String? = nil,
+        unlockPriceCatFood: Int? = nil,
+        isUnlocked: Bool = false,
+        isOwnedByCurrentUser: Bool = false
     ) {
         self.id = id
         self.dramaID = dramaID
@@ -198,6 +255,11 @@ struct ShortDramaVideo: Decodable, Identifiable, Equatable {
         self.commentCount = commentCount
         self.likedByMe = likedByMe
         self.favoritedByMe = favoritedByMe
+        self.publishStatus = publishStatus
+        self.statusMessage = statusMessage
+        self.unlockPriceCatFood = unlockPriceCatFood.flatMap { $0 > 0 ? min($0, 100) : nil }
+        self.isUnlocked = isUnlocked
+        self.isOwnedByCurrentUser = isOwnedByCurrentUser
     }
 
     init(from decoder: Decoder) throws {
@@ -261,10 +323,477 @@ struct ShortDramaVideo: Decodable, Identifiable, Equatable {
         self.favoritedByMe = container.flexBool(for: .favoritedByMe)
             ?? container.flexBool(for: .collectedByMe)
             ?? false
+        self.publishStatus = (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .publishStatus))
+            ?? (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .status))
+        self.statusMessage = container.flexString(for: .statusMessage)
+            ?? container.flexString(for: .failureReason)
+            ?? container.flexString(for: .reviewReason)
+            ?? container.flexString(for: .rejectionReason)
+            ?? container.flexString(for: .rejectReason)
+            ?? container.flexString(for: .reason)
+            ?? container.flexString(for: .message)
+        let decodedUnlockPrice = container.flexInt(for: .unlockPriceCatFood)
+            ?? container.flexInt(for: .unlockPriceCatFoodCamel)
+        self.unlockPriceCatFood = decodedUnlockPrice.flatMap { $0 > 0 ? min($0, 100) : nil }
+        self.isUnlocked = container.flexBool(for: .isUnlocked)
+            ?? container.flexBool(for: .isUnlockedCamel)
+            ?? false
+        self.isOwnedByCurrentUser = container.flexBool(for: .isOwnedByCurrentUser)
+            ?? container.flexBool(for: .isOwnedByCurrentUserCamel)
+            ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(dramaID, forKey: .dramaID)
+        try container.encode(creator, forKey: .creator)
+        try container.encode(dramaTitle, forKey: .dramaTitle)
+        try container.encode(title, forKey: .title)
+        try container.encode(intro, forKey: .intro)
+        try container.encodeIfPresent(episodeNumber, forKey: .episodeNumber)
+        try container.encode(coverURL, forKey: .coverURL)
+        try container.encode(playURL, forKey: .playURL)
+        try container.encodeIfPresent(hlsURL, forKey: .hlsURL)
+        try container.encodeIfPresent(mp4URL, forKey: .mp4URL)
+        try container.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
+        try container.encode(playbackPositionSeconds, forKey: .playbackPositionSeconds)
+        try container.encode(likeCount, forKey: .likeCount)
+        try container.encode(favoriteCount, forKey: .favoriteCount)
+        try container.encode(commentCount, forKey: .commentCount)
+        try container.encode(likedByMe, forKey: .likedByMe)
+        try container.encode(favoritedByMe, forKey: .favoritedByMe)
+        try container.encodeIfPresent(publishStatus, forKey: .publishStatus)
+        try container.encodeIfPresent(statusMessage, forKey: .statusMessage)
+        try container.encodeIfPresent(unlockPriceCatFood, forKey: .unlockPriceCatFood)
+        try container.encode(isUnlocked, forKey: .isUnlocked)
+        try container.encode(isOwnedByCurrentUser, forKey: .isOwnedByCurrentUser)
+    }
+
+    func fillingSeriesMetadata(
+        seriesID: String,
+        seriesTitle: String,
+        seriesIntro: String,
+        seriesCoverURL: String,
+        seriesCreator: ShortDramaCreator
+    ) -> ShortDramaVideo {
+        ShortDramaVideo(
+            id: id,
+            dramaID: dramaID.isBlank ? seriesID : dramaID,
+            creator: creator.fillingMissingFields(from: seriesCreator),
+            dramaTitle: dramaTitle.isBlank ? seriesTitle : dramaTitle,
+            title: title,
+            intro: intro.isBlank ? seriesIntro : intro,
+            episodeNumber: episodeNumber,
+            coverURL: coverURL.isBlank ? seriesCoverURL : coverURL,
+            playURL: playURL,
+            hlsURL: hlsURL,
+            mp4URL: mp4URL,
+            durationSeconds: durationSeconds,
+            playbackPositionSeconds: playbackPositionSeconds,
+            likeCount: likeCount,
+            favoriteCount: favoriteCount,
+            commentCount: commentCount,
+            likedByMe: likedByMe,
+            favoritedByMe: favoritedByMe,
+            publishStatus: publishStatus,
+            statusMessage: statusMessage,
+            unlockPriceCatFood: unlockPriceCatFood,
+            isUnlocked: isUnlocked,
+            isOwnedByCurrentUser: isOwnedByCurrentUser
+        )
     }
 }
 
-struct ShortDramaComment: Decodable, Identifiable, Equatable {
+enum ShortDramaSeriesFilter: String, CaseIterable, Identifiable {
+    case recommended
+    case watched
+
+    var id: String { rawValue }
+
+    var localizedTitle: String {
+        switch self {
+        case .recommended: return L10n.tr("shortDrama.tab.recommended")
+        case .watched: return L10n.tr("shortDrama.tab.watched")
+        }
+    }
+}
+
+enum ShortDramaPublishStatus: String, Codable, Equatable, Hashable {
+    case draft
+    case processing
+    case reviewing
+    case published
+    case rejected
+    case failed
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = (try? container.decode(String.self))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let rawValue {
+            switch rawValue {
+            case "draft", "草稿":
+                self = .draft
+            case "processing", "transcoding", "encoding", "queued", "uploading", "pending_transcode", "处理中", "处理", "转码中", "上传中":
+                self = .processing
+            case "reviewing", "review", "pending", "audit", "auditing", "pending_review", "under_review", "in_review", "审核中", "待审核":
+                self = .reviewing
+            case "published", "online", "approved", "ready", "complete", "completed", "success", "succeeded", "active", "available", "released", "public", "已发布", "发布成功", "已上线", "通过", "审核通过", "已完成":
+                self = .published
+            case "rejected", "reject", "blocked", "disabled", "content_rejected", "review_rejected", "moderation_rejected", "已拒绝", "拒绝", "审核拒绝", "审核不通过", "未通过", "内容违规", "违规":
+                self = .rejected
+            case "failed", "failure", "error", "processing_failed", "process_failed", "transcode_failed", "transcoding_failed", "encoding_failed", "upload_failed", "media_failed", "处理失败", "转码失败", "上传失败", "失败":
+                self = .failed
+            default:
+                self = .unknown
+            }
+            return
+        }
+
+        if let intValue = try? container.decode(Int.self) {
+            switch intValue {
+            case 0: self = .draft
+            case 1: self = .processing
+            case 2: self = .reviewing
+            case 3: self = .published
+            case 4: self = .rejected
+            case 5: self = .failed
+            default: self = .unknown
+            }
+            return
+        }
+
+        self = .unknown
+    }
+
+    var localizedTitle: String {
+        switch self {
+        case .draft: return L10n.tr("shortDrama.draft")
+        case .processing: return L10n.tr("shortDrama.processing")
+        case .reviewing: return L10n.tr("shortDrama.reviewing")
+        case .published: return L10n.tr("shortDrama.published")
+        case .rejected: return L10n.tr("shortDrama.rejected")
+        case .failed: return L10n.tr("shortDrama.failed")
+        case .unknown: return L10n.tr("shortDrama.status.unknown")
+        }
+    }
+
+    var isPending: Bool {
+        self == .processing || self == .reviewing
+    }
+
+    var needsAttention: Bool {
+        self == .rejected || self == .failed
+    }
+}
+
+struct ShortDramaSeries: Codable, Identifiable, Equatable {
+    let seriesID: String
+    let title: String
+    let intro: String
+    let coverURL: String
+    let episodeCount: Int
+    let status: ShortDramaPublishStatus
+    let statusMessage: String?
+    let updatedAt: String
+    let episodes: [ShortDramaVideo]
+    let creator: ShortDramaCreator
+    let resumeEpisodeID: String?
+    let resumePositionSeconds: Double
+    let lastWatchedAt: String?
+
+    var id: String { seriesID }
+
+    enum CodingKeys: String, CodingKey {
+        case seriesID = "series_id"
+        case dramaID = "drama_id"
+        case id
+        case title
+        case name
+        case intro
+        case description
+        case summary
+        case coverURL = "cover_url"
+        case posterURL = "poster_url"
+        case thumbnailURL = "thumbnail_url"
+        case episodeCount = "episode_count"
+        case episodesCount = "episodes_count"
+        case status
+        case publishStatus = "publish_status"
+        case statusMessage = "status_message"
+        case reviewReason = "review_reason"
+        case rejectionReason = "rejection_reason"
+        case rejectReason = "reject_reason"
+        case failureReason = "failure_reason"
+        case reason
+        case message
+        case updatedAt = "updated_at"
+        case createdAt = "created_at"
+        case episodes
+        case videos
+        case items
+        case creator
+        case author
+        case user
+        case resumeEpisodeID = "resume_episode_id"
+        case resumeEpisodeIDCamel = "resumeEpisodeID"
+        case resumePositionSeconds = "resume_position_seconds"
+        case resumePositionSecondsCamel = "resumePositionSeconds"
+        case lastWatchedAt = "last_watched_at"
+        case lastWatchedAtCamel = "lastWatchedAt"
+    }
+
+    init(
+        seriesID: String,
+        title: String,
+        intro: String = "",
+        coverURL: String = "",
+        episodeCount: Int = 0,
+        status: ShortDramaPublishStatus = .draft,
+        statusMessage: String? = nil,
+        updatedAt: String = "",
+        episodes: [ShortDramaVideo] = [],
+        creator: ShortDramaCreator = ShortDramaCreator(userID: "", nickname: L10n.tr("profile.defaultUser"), avatarURL: ""),
+        resumeEpisodeID: String? = nil,
+        resumePositionSeconds: Double = 0,
+        lastWatchedAt: String? = nil
+    ) {
+        self.seriesID = seriesID
+        self.title = title
+        self.intro = intro
+        self.coverURL = coverURL
+        self.episodeCount = episodeCount
+        self.status = status
+        self.statusMessage = statusMessage
+        self.updatedAt = updatedAt
+        self.episodes = episodes
+        self.creator = creator
+        self.resumeEpisodeID = resumeEpisodeID
+        self.resumePositionSeconds = resumePositionSeconds
+        self.lastWatchedAt = lastWatchedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedEpisodes = (try? container.decodeIfPresent([ShortDramaVideo].self, forKey: .episodes))
+            ?? (try? container.decodeIfPresent([ShortDramaVideo].self, forKey: .videos))
+            ?? (try? container.decodeIfPresent([ShortDramaVideo].self, forKey: .items))
+            ?? []
+        let decodedSeriesID = container.flexString(for: .seriesID)
+            ?? container.flexString(for: .dramaID)
+            ?? container.flexString(for: .id)
+            ?? UUID().uuidString
+        let decodedTitle = container.flexString(for: .title)
+            ?? container.flexString(for: .name)
+            ?? L10n.tr("shortDrama.series.untitled")
+        let decodedIntro = container.flexString(for: .intro)
+            ?? container.flexString(for: .description)
+            ?? container.flexString(for: .summary)
+            ?? ""
+        let decodedCoverURL = container.flexString(for: .coverURL)
+            ?? container.flexString(for: .posterURL)
+            ?? container.flexString(for: .thumbnailURL)
+            ?? ""
+        let decodedCreator = (try? container.decodeIfPresent(ShortDramaCreator.self, forKey: .creator))
+            ?? (try? container.decodeIfPresent(ShortDramaCreator.self, forKey: .author))
+            ?? (try? container.decodeIfPresent(ShortDramaCreator.self, forKey: .user))
+            ?? decodedEpisodes.first?.creator
+            ?? ShortDramaCreator(userID: "", nickname: L10n.tr("profile.defaultUser"), avatarURL: "")
+
+        self.seriesID = decodedSeriesID
+        self.title = decodedTitle
+        self.intro = decodedIntro
+        self.coverURL = decodedCoverURL
+        self.episodeCount = container.flexInt(for: .episodeCount)
+            ?? container.flexInt(for: .episodesCount)
+            ?? decodedEpisodes.count
+        self.status = (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .status))
+            ?? (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .publishStatus))
+            ?? .draft
+        self.statusMessage = container.flexString(for: .statusMessage)
+            ?? container.flexString(for: .failureReason)
+            ?? container.flexString(for: .reviewReason)
+            ?? container.flexString(for: .rejectionReason)
+            ?? container.flexString(for: .rejectReason)
+            ?? container.flexString(for: .reason)
+            ?? container.flexString(for: .message)
+        self.updatedAt = container.flexString(for: .updatedAt)
+            ?? container.flexString(for: .createdAt)
+            ?? ""
+        self.episodes = decodedEpisodes.map {
+            $0.fillingSeriesMetadata(
+                seriesID: decodedSeriesID,
+                seriesTitle: decodedTitle,
+                seriesIntro: decodedIntro,
+                seriesCoverURL: decodedCoverURL,
+                seriesCreator: decodedCreator
+            )
+        }
+        self.creator = decodedCreator
+        self.resumeEpisodeID = container.flexString(for: .resumeEpisodeID)
+            ?? container.flexString(for: .resumeEpisodeIDCamel)
+        self.resumePositionSeconds = container.flexDouble(for: .resumePositionSeconds)
+            ?? container.flexDouble(for: .resumePositionSecondsCamel)
+            ?? 0
+        self.lastWatchedAt = container.flexString(for: .lastWatchedAt)
+            ?? container.flexString(for: .lastWatchedAtCamel)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(seriesID, forKey: .seriesID)
+        try container.encode(title, forKey: .title)
+        try container.encode(intro, forKey: .intro)
+        try container.encode(coverURL, forKey: .coverURL)
+        try container.encode(episodeCount, forKey: .episodeCount)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(statusMessage, forKey: .statusMessage)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(episodes, forKey: .episodes)
+        try container.encode(creator, forKey: .creator)
+        try container.encodeIfPresent(resumeEpisodeID, forKey: .resumeEpisodeID)
+        try container.encode(resumePositionSeconds, forKey: .resumePositionSeconds)
+        try container.encodeIfPresent(lastWatchedAt, forKey: .lastWatchedAt)
+    }
+}
+
+typealias ShortDramaSeriesPage = ShortDramaStudioPage
+
+struct ShortDramaUnlockResult: Decodable, Equatable {
+    let video: ShortDramaVideo?
+    let walletBalance: WalletBalanceResponseData?
+
+    enum CodingKeys: String, CodingKey {
+        case video
+        case episode
+        case walletBalance = "wallet_balance"
+        case walletBalanceCamel = "walletBalance"
+        case balance
+    }
+
+    init(video: ShortDramaVideo?, walletBalance: WalletBalanceResponseData?) {
+        self.video = video
+        self.walletBalance = walletBalance
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.video = (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .video))
+            ?? (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .episode))
+        self.walletBalance = (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .walletBalance))
+            ?? (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .walletBalanceCamel))
+            ?? container.flexInt(for: .balance).map(WalletBalanceResponseData.init(balance:))
+    }
+}
+
+struct ShortDramaStudioPage: Codable, Equatable {
+    let series: [ShortDramaSeries]
+    let hasMore: Bool
+    let nextCursor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case series
+        case items
+        case list
+        case hasMore = "has_more"
+        case nextCursor = "next_cursor"
+        case cursor
+    }
+
+    init(series: [ShortDramaSeries], hasMore: Bool, nextCursor: String?) {
+        self.series = series
+        self.hasMore = hasMore
+        self.nextCursor = nextCursor
+    }
+
+    init(from decoder: Decoder) throws {
+        if let series = try? [ShortDramaSeries](from: decoder) {
+            self.series = series
+            self.hasMore = false
+            self.nextCursor = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.series = (try? container.decodeIfPresent([ShortDramaSeries].self, forKey: .series))
+            ?? (try? container.decodeIfPresent([ShortDramaSeries].self, forKey: .items))
+            ?? (try? container.decodeIfPresent([ShortDramaSeries].self, forKey: .list))
+            ?? []
+        let decodedNextCursor = container.flexString(for: .nextCursor)
+            ?? container.flexString(for: .cursor)
+        self.nextCursor = decodedNextCursor
+        self.hasMore = container.flexBool(for: .hasMore) ?? (decodedNextCursor?.trimmedNonEmpty != nil)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(series, forKey: .series)
+        try container.encode(hasMore, forKey: .hasMore)
+        try container.encodeIfPresent(nextCursor, forKey: .nextCursor)
+    }
+}
+
+struct ShortDramaEpisodeUploadResult: Decodable, Equatable {
+    let video: ShortDramaVideo?
+    let status: ShortDramaPublishStatus?
+    let statusMessage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case video
+        case episode
+        case item
+        case status
+        case publishStatus = "publish_status"
+        case statusMessage = "status_message"
+        case reviewReason = "review_reason"
+        case rejectionReason = "rejection_reason"
+        case rejectReason = "reject_reason"
+        case failureReason = "failure_reason"
+        case reason
+        case message
+        case id
+        case videoID = "video_id"
+    }
+
+    init(video: ShortDramaVideo?, status: ShortDramaPublishStatus?, statusMessage: String? = nil) {
+        self.video = video
+        self.status = status
+        self.statusMessage = statusMessage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let nestedVideo = (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .video))
+            ?? (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .episode))
+            ?? (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .item))
+
+        let resolvedVideo: ShortDramaVideo?
+        if let nestedVideo {
+            resolvedVideo = nestedVideo
+        } else if container.flexString(for: .videoID) != nil || container.flexString(for: .id) != nil {
+            resolvedVideo = try? ShortDramaVideo(from: decoder)
+        } else {
+            resolvedVideo = nil
+        }
+        self.video = resolvedVideo
+        self.status = (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .status))
+            ?? (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .publishStatus))
+            ?? resolvedVideo?.publishStatus
+        self.statusMessage = container.flexString(for: .statusMessage)
+            ?? container.flexString(for: .failureReason)
+            ?? container.flexString(for: .reviewReason)
+            ?? container.flexString(for: .rejectionReason)
+            ?? container.flexString(for: .rejectReason)
+            ?? container.flexString(for: .reason)
+            ?? container.flexString(for: .message)
+            ?? resolvedVideo?.statusMessage
+    }
+}
+
+struct ShortDramaComment: Codable, Identifiable, Equatable {
     let id: String
     let videoID: String
     let userID: String
@@ -317,9 +846,20 @@ struct ShortDramaComment: Decodable, Identifiable, Equatable {
             ?? ""
         self.createdAt = container.flexString(for: .createdAt) ?? ""
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(videoID, forKey: .videoID)
+        try container.encode(userID, forKey: .userID)
+        try container.encode(nickname, forKey: .nickname)
+        try container.encode(avatarURL, forKey: .avatarURL)
+        try container.encode(content, forKey: .content)
+        try container.encode(createdAt, forKey: .createdAt)
+    }
 }
 
-struct ShortDramaFeedPage: Decodable, Equatable {
+struct ShortDramaFeedPage: Codable, Equatable {
     let videos: [ShortDramaVideo]
     let hasMore: Bool
     let nextCursor: String?
@@ -372,9 +912,16 @@ struct ShortDramaFeedPage: Decodable, Equatable {
         }
         return []
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(videos, forKey: .videos)
+        try container.encode(hasMore, forKey: .hasMore)
+        try container.encodeIfPresent(nextCursor, forKey: .nextCursor)
+    }
 }
 
-struct ShortDramaCommentsPage: Decodable, Equatable {
+struct ShortDramaCommentsPage: Codable, Equatable {
     let comments: [ShortDramaComment]
     let hasMore: Bool
     let nextCursor: String?
@@ -409,6 +956,14 @@ struct ShortDramaCommentsPage: Decodable, Equatable {
         self.comments = decodedComments
         self.nextCursor = nextCursor
         self.hasMore = container.flexBool(for: .hasMore) ?? (nextCursor?.trimmedNonEmpty != nil)
+    }
+
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(comments, forKey: .comments)
+        try container.encode(hasMore, forKey: .hasMore)
+        try container.encodeIfPresent(nextCursor, forKey: .nextCursor)
     }
 
     private static func decodeComments(from container: KeyedDecodingContainer<CodingKeys>) -> [ShortDramaComment] {

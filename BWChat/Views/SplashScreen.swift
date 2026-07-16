@@ -1,5 +1,5 @@
 // BWChat/Views/SplashScreen.swift
-// Premium launch screen with gradient animation
+// Launch screen aligned with the white BBchat auth system.
 
 import SwiftUI
 
@@ -41,30 +41,30 @@ struct SplashScreen: View {
 
     private var splashView: some View {
         ZStack {
-            AuthPlushBackground()
+            AuthWhiteBackground()
 
             VStack(spacing: 14) {
                 Spacer()
 
                 Text(AppConfig.appName)
                     .font(.system(size: 36, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(AuthPalette.ink)
                     .scaleEffect(logoScale)
                     .opacity(logoOpacity)
 
                 Text(L10n.tr("splash.entering"))
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.76))
+                    .foregroundColor(AuthPalette.mutedText)
                     .opacity(logoOpacity)
 
                 Text(L10n.tr("splash.tagline"))
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.58))
+                    .foregroundColor(AuthPalette.mutedText.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .opacity(logoOpacity)
 
                 ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .progressViewStyle(CircularProgressViewStyle(tint: AuthPalette.tailGreen))
                     .padding(.top, 6)
                     .opacity(logoOpacity)
 
@@ -139,8 +139,11 @@ struct SplashScreen: View {
             // Access token expired — attempt refresh
             do {
                 let (newToken, newRefreshToken, user) = try await APIService.shared.refreshTokens()
-                authManager.token = newToken
-                authManager.refreshToken = newRefreshToken
+                try authManager.updateSessionTokens(
+                    accessToken: newToken,
+                    refreshToken: newRefreshToken,
+                    source: "splash-refresh"
+                )
                 authManager.updateUser(user)
                 resumeAuthenticatedSession()
             } catch {

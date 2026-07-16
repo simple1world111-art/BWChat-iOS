@@ -26,6 +26,7 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published var successMessage: String?
     @Published var authorizationStatus: CLAuthorizationStatus
+    @Published private(set) var usersLoadErrorMessage: String?
 
     private let locationManager = CLLocationManager()
     private var authorizationContinuation: CheckedContinuation<Bool, Never>?
@@ -49,15 +50,10 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     var displayedUsers: [MapUser] {
-        guard canDisplayMapUsers else { return [] }
         switch mode {
         case .nearby: return nearbyUsers
         case .friends: return friendUsers
         }
-    }
-
-    var canDisplayMapUsers: Bool {
-        isMapEnabled
     }
 
     var canUpdateLocation: Bool {
@@ -112,11 +108,34 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             applyPresence(presence)
         } catch {
             errorMessage = apiMessage(error)
+            if let apiError = error as? APIError, case .unauthorized = apiError {
+                return
+            }
         }
 
-        selectedVisibilityScope = .everyone
-        selectedOnlineStatus = .online
-        await setOnline()
+        if isMapEnabled, selectedOnlineStatus == .online {
+            let granted = await requestLocationPermissionIfNeeded()
+            guard granted else {
+                errorMessage = L10n.tr("map.location.permissionEnableRequired")
+                return
+            }
+            resumeForegroundUpdates()
+            if let location = await requestCurrentLocation() {
+                do {
+                    try await uploadLocation(location, force: true)
+                } catch {
+                    applyLocalLocation(location)
+                    await refreshUsers()
+                    errorMessage = apiMessage(error)
+                }
+            } else {
+                await refreshUsers()
+            }
+        } else {
+            selectedVisibilityScope = .everyone
+            selectedOnlineStatus = .online
+            await refreshUsersForCurrentViewer()
+        }
     }
 
     func enableMapDating() async {
@@ -317,16 +336,10 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     func refreshUsers() async {
-        guard canDisplayMapUsers else {
-            nearbyUsers = []
-            friendUsers = []
-            nearbyEffectiveRadiusM = nil
-            friendEffectiveRadiusM = nil
-            return
-        }
         guard !isRefreshingUsers else { return }
 
         isRefreshingUsers = true
+        usersLoadErrorMessage = nil
         defer { isRefreshingUsers = false }
 
         do {
@@ -334,29 +347,42 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             switch mode {
             case .nearby:
                 guard let coordinate else {
-                    nearbyUsers = []
-                    nearbyEffectiveRadiusM = nil
+                    let message = isAuthorized
+                        ? L10n.tr("map.location.required")
+                        : L10n.tr("map.location.permissionRefreshRequired")
+                    usersLoadErrorMessage = message
+                    errorMessage = message
                     return
                 }
                 let response = try await APIService.shared.getNearbyMapUsers(
                     lat: coordinate.latitude,
                     lng: coordinate.longitude,
-                    radiusM: queryRadiusM,
                     includeFriends: true
                 )
                 nearbyUsers = response.users
+                warnIfUsersCannotBeMapped(response.users)
                 applyUsersMetadata(response, for: .nearby)
             case .friends:
                 let response = try await APIService.shared.getFriendMapUsers(
                     lat: coordinate?.latitude,
-                    lng: coordinate?.longitude,
-                    radiusM: coordinate == nil ? nil : queryRadiusM
+                    lng: coordinate?.longitude
                 )
                 friendUsers = response.users
+                warnIfUsersCannotBeMapped(response.users)
                 applyUsersMetadata(response, for: .friends)
             }
         } catch {
-            errorMessage = apiMessage(error)
+            let message = apiMessage(error)
+            usersLoadErrorMessage = message
+            errorMessage = message
+        }
+    }
+
+    func retryLoadingUsers() async {
+        if mode == .nearby, requestCoordinate == nil {
+            await refreshUsersForCurrentViewer()
+        } else {
+            await refreshUsers()
         }
     }
 
@@ -453,10 +479,6 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             mapCenter = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         }
 
-        if !canDisplayMapUsers {
-            nearbyUsers = []
-            friendUsers = []
-        }
     }
 
     private func applyClosedState() {
@@ -489,6 +511,27 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             nearbyEffectiveRadiusM = response.effectiveRadiusM
         case .friends:
             friendEffectiveRadiusM = response.effectiveRadiusM
+        }
+    }
+
+    private func refreshUsersForCurrentViewer() async {
+        let granted = await requestLocationPermissionIfNeeded()
+        if granted, let location = await requestCurrentLocation() {
+            applyLocalLocation(location)
+        } else if mode == .nearby {
+            errorMessage = granted ? L10n.tr("map.location.required") : L10n.tr("map.location.permissionRefreshRequired")
+        }
+
+        await refreshUsers()
+    }
+
+    private func warnIfUsersCannotBeMapped(_ users: [MapUser]) {
+        guard !users.isEmpty else { return }
+        let hasMappableUser = users.contains { $0.hasMappableCoordinate }
+        if !hasMappableUser {
+            let message = L10n.tr("map.users.missingCoordinates")
+            usersLoadErrorMessage = message
+            errorMessage = message
         }
     }
 
@@ -558,13 +601,6 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         }
         return nil
-    }
-
-    private var queryRadiusM: Int {
-        min(
-            max(radiusConstraints.defaultRadiusM, radiusConstraints.minRadiusM),
-            radiusConstraints.maxRadiusM
-        )
     }
 
     private func requestLocationPermissionIfNeeded() async -> Bool {

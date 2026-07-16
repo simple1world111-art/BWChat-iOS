@@ -1,5 +1,5 @@
 // BWChat/Views/ChatBackgroundSettingsView.swift
-// Shared chat background picker for global, DM, group, and bot conversations.
+// Shared chat background picker for global, DM, and group conversations.
 
 import SwiftUI
 import PhotosUI
@@ -13,11 +13,7 @@ struct ChatBackgroundSettingsView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var isUploading = false
     @State private var errorMessage: String?
-    @State private var resolvedBotID: String?
-
-    private var currentTargetID: String {
-        resolvedBotID ?? targetID
-    }
+    private var currentTargetID: String { targetID }
 
     private var exactBackground: ChatBackground? {
         appearanceStore.exactBackground(targetType: targetType, targetID: currentTargetID)
@@ -48,7 +44,6 @@ struct ChatBackgroundSettingsView: View {
         .withUIKitBackButton()
         .task {
             await appearanceStore.loadIfNeeded()
-            await resolveBotIDIfNeeded()
         }
         .onChange(of: selectedPhoto) { item in
             guard let item else { return }
@@ -177,10 +172,9 @@ struct ChatBackgroundSettingsView: View {
             guard let data = try await item.loadTransferable(type: Data.self) else {
                 throw APIError.invalidResponse
             }
-            let uploadTargetID = try await resolvedTargetID()
             try await appearanceStore.uploadBackground(
                 targetType: targetType,
-                targetID: uploadTargetID,
+                targetID: targetID,
                 imageData: data
             )
         } catch let error as APIError {
@@ -192,8 +186,7 @@ struct ChatBackgroundSettingsView: View {
 
     private func restoreDefault() async {
         do {
-            let deleteTargetID = try await resolvedTargetID()
-            try await appearanceStore.deleteBackground(targetType: targetType, targetID: deleteTargetID)
+            try await appearanceStore.deleteBackground(targetType: targetType, targetID: targetID)
         } catch let error as APIError {
             errorMessage = error.errorDescription
         } catch {
@@ -201,18 +194,4 @@ struct ChatBackgroundSettingsView: View {
         }
     }
 
-    private func resolveBotIDIfNeeded() async {
-        guard targetType == .bot else { return }
-        resolvedBotID = await BotStore.shared.resolveServerBotID(for: targetID)
-    }
-
-    private func resolvedTargetID() async throws -> String {
-        guard targetType == .bot else { return targetID }
-        if let resolvedBotID {
-            return resolvedBotID
-        }
-        let id = try await BotStore.shared.ensureServerBotID(for: targetID)
-        resolvedBotID = id
-        return id
-    }
 }

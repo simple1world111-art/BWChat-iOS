@@ -17,14 +17,32 @@ class FriendsViewModel: ObservableObject {
 
     private var searchTask: Task<Void, Never>?
 
-    private static let friendsKey = "friends"
-    private static let requestsKey = "friend_requests"
-
     init() {
         // Seed from local cache so the contacts tab renders instantly on
         // launch / tab switch. Network refresh will overwrite if different.
-        friends = LocalCache.load([FriendInfo].self, key: Self.friendsKey) ?? []
-        friendRequests = LocalCache.load([FriendRequest].self, key: Self.requestsKey) ?? []
+        let userID = AuthManager.shared.currentUser?.userID
+        let legacyFriends = LocalCache.load([FriendInfo].self, key: FriendCacheKeys.friends(for: userID)) ?? []
+        let legacyRequests = LocalCache.load([FriendRequest].self, key: FriendCacheKeys.requests(for: userID)) ?? []
+        if let key = Self.friendsCacheKey(),
+           let cached: CachedSnapshot<[FriendInfo]> = AppCacheRepository.shared.cachedValue(for: key) {
+            friends = cached.value
+        } else {
+            friends = legacyFriends
+            if let key = Self.friendsCacheKey(), !legacyFriends.isEmpty {
+                AppCacheRepository.shared.save(legacyFriends, for: key, policy: .list)
+                LocalCache.clear(key: FriendCacheKeys.friends(for: userID))
+            }
+        }
+        if let key = Self.requestsCacheKey(),
+           let cached: CachedSnapshot<[FriendRequest]> = AppCacheRepository.shared.cachedValue(for: key) {
+            friendRequests = cached.value
+        } else {
+            friendRequests = legacyRequests
+            if let key = Self.requestsCacheKey(), !legacyRequests.isEmpty {
+                AppCacheRepository.shared.save(legacyRequests, for: key, policy: .list)
+                LocalCache.clear(key: FriendCacheKeys.requests(for: userID))
+            }
+        }
     }
 
     func searchUsers() async {
@@ -51,35 +69,55 @@ class FriendsViewModel: ObservableObject {
         }
     }
 
-    func loadFriendRequests() async {
+    func loadFriendRequests(forceRefresh: Bool = false) async {
+        guard let key = Self.requestsCacheKey() else { return }
         do {
-            let fetched = try await APIService.shared.getFriendRequests()
+            let fetched: [FriendRequest] = try await AppCacheRepository.shared.loadValue(
+                key: key,
+                policy: .list,
+                forceRefresh: forceRefresh
+            ) {
+                try await APIService.shared.getFriendRequests()
+            }
             if friendRequests != fetched {
                 friendRequests = fetched
             }
-            LocalCache.save(fetched, key: Self.requestsKey)
         } catch {
             // silently fail — cached list keeps rendering
         }
     }
 
-    func loadFriends() async {
+    func loadFriends(forceRefresh: Bool = false) async {
         // Only show the blocking loader on the very first load — subsequent
         // re-runs (e.g. tab re-appears after NavigationStack pop) shouldn't
         // flash a spinner over an already-populated list.
         let showLoader = friends.isEmpty
         if showLoader { isLoading = true }
         defer { isLoading = false }
+        guard let key = Self.friendsCacheKey() else { return }
         do {
-            let fetched = try await APIService.shared.getFriendList()
+            let fetched: [FriendInfo] = try await AppCacheRepository.shared.loadValue(
+                key: key,
+                policy: .list,
+                forceRefresh: forceRefresh
+            ) {
+                try await APIService.shared.getFriendList()
+            }
             if friends != fetched {
                 friends = fetched
                 UserCacheManager.shared.cacheFriends(fetched)
             }
-            LocalCache.save(fetched, key: Self.friendsKey)
         } catch {
             if friends.isEmpty { errorMessage = L10n.tr("friends.loadFailed") }
         }
+    }
+
+    private static func friendsCacheKey() -> CacheKey? {
+        CacheKey.current(namespace: "friends", key: "list")
+    }
+
+    private static func requestsCacheKey() -> CacheKey? {
+        CacheKey.current(namespace: "friends", key: "requests")
     }
 
     func sendFriendRequest(to userID: String) async {

@@ -164,10 +164,28 @@ struct MapUser: Decodable, Identifiable, Equatable {
 
     var id: String { userID }
 
+    var hasMappableCoordinate: Bool {
+        guard let displayLat, let displayLng,
+              displayLat.isFinite, displayLng.isFinite else {
+            return false
+        }
+        return (-90...90).contains(displayLat) && (-180...180).contains(displayLng)
+    }
+
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
+        case id
+        case uid
+        case userIDCamel = "userId"
+        case accountID = "account_id"
         case nickname
+        case username
+        case name
+        case displayName = "display_name"
         case avatarURL = "avatar_url"
+        case avatar
+        case avatarUrlCamel = "avatarUrl"
+        case profileImageURL = "profile_image_url"
         case bio
         case gender
         case age
@@ -175,15 +193,45 @@ struct MapUser: Decodable, Identifiable, Equatable {
         case relation
         case visibilityScope = "visibility_scope"
         case onlineStatus = "online_status"
+        case onlineStatusCamel = "onlineStatus"
+        case status
+        case isOnline = "is_online"
         case statusText = "status_text"
         case distanceM = "distance_m"
         case distanceText = "distance_text"
         case displayLat = "display_lat"
         case displayLng = "display_lng"
+        case displayLatitude = "display_latitude"
+        case displayLongitude = "display_longitude"
+        case displayLon = "display_lon"
+        case mapLat = "map_lat"
+        case mapLng = "map_lng"
+        case mapLatitude = "map_latitude"
+        case mapLongitude = "map_longitude"
+        case obfuscatedLat = "obfuscated_lat"
+        case obfuscatedLng = "obfuscated_lng"
+        case obfuscatedLatitude = "obfuscated_latitude"
+        case obfuscatedLongitude = "obfuscated_longitude"
         case latitude
         case longitude
         case lat
         case lng
+        case lon
+        case long
+        case location
+        case coordinate
+        case coordinates
+        case position
+        case displayLocation = "display_location"
+        case displayCoordinate = "display_coordinate"
+        case mapLocation = "map_location"
+        case mapCoordinate = "map_coordinate"
+        case mapPresence = "map_presence"
+        case presence
+        case lastLocation = "last_location"
+        case geo
+        case geometry
+        case point
         case lastActiveAt = "last_active_at"
     }
 
@@ -225,26 +273,110 @@ struct MapUser: Decodable, Identifiable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.userID = container.flexString(for: .userID) ?? ""
-        self.nickname = container.flexString(for: .nickname) ?? L10n.tr("profile.defaultUser")
-        self.avatarURL = container.flexString(for: .avatarURL) ?? ""
+        let nestedCoordinate = Self.decodeCoordinate(from: container)
+        let decodedStatus = container.flexString(for: .onlineStatus)
+            ?? container.flexString(for: .onlineStatusCamel)
+            ?? container.flexString(for: .status)
+        let normalizedStatus = Self.normalizedOnlineStatus(
+            rawValue: decodedStatus,
+            isOnline: container.flexBool(for: .isOnline)
+        )
+
+        guard let userID = container.flexString(for: .userID)
+            ?? container.flexString(for: .id)
+            ?? container.flexString(for: .uid)
+            ?? container.flexString(for: .userIDCamel)
+            ?? container.flexString(for: .accountID),
+              !userID.isBlank else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.userID,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Map user is missing a non-empty user identifier"
+                )
+            )
+        }
+        self.userID = userID
+        self.nickname = container.flexString(for: .nickname)
+            ?? container.flexString(for: .displayName)
+            ?? container.flexString(for: .name)
+            ?? container.flexString(for: .username)
+            ?? L10n.tr("profile.defaultUser")
+        self.avatarURL = container.flexString(for: .avatarURL)
+            ?? container.flexString(for: .avatarUrlCamel)
+            ?? container.flexString(for: .avatar)
+            ?? container.flexString(for: .profileImageURL)
+            ?? ""
         self.bio = container.flexString(for: .bio)
         self.gender = container.flexString(for: .gender)
         self.age = container.flexInt(for: .age)
         self.profileLocation = container.flexString(for: .profileLocation)
         self.relation = container.flexString(for: .relation)
         self.visibilityScope = try? container.decodeIfPresent(MapVisibilityScope.self, forKey: .visibilityScope)
-        self.onlineStatus = container.flexString(for: .onlineStatus) ?? MapOnlineStatus.online.rawValue
+        self.onlineStatus = normalizedStatus
         self.statusText = container.flexString(for: .statusText)
         self.distanceM = container.flexDouble(for: .distanceM)
         self.distanceText = container.flexString(for: .distanceText)
-        self.displayLat = container.flexDouble(for: .displayLat)
-            ?? container.flexDouble(for: .latitude)
-            ?? container.flexDouble(for: .lat)
-        self.displayLng = container.flexDouble(for: .displayLng)
-            ?? container.flexDouble(for: .longitude)
-            ?? container.flexDouble(for: .lng)
+        self.displayLat = Self.firstDouble(
+            in: container,
+            keys: [.displayLat, .displayLatitude, .mapLat, .mapLatitude, .obfuscatedLat, .obfuscatedLatitude, .latitude, .lat]
+        )
+            ?? nestedCoordinate?.latitude
+        self.displayLng = Self.firstDouble(
+            in: container,
+            keys: [.displayLng, .displayLongitude, .displayLon, .mapLng, .mapLongitude, .obfuscatedLng, .obfuscatedLongitude, .longitude, .lng, .lon, .long]
+        )
+            ?? nestedCoordinate?.longitude
         self.lastActiveAt = container.flexString(for: .lastActiveAt)
+    }
+
+    private static func decodeCoordinate(from container: KeyedDecodingContainer<CodingKeys>) -> MapUserCoordinate? {
+        for key in nestedCoordinateKeys {
+            if let coordinate = try? container.decodeIfPresent(MapUserCoordinate.self, forKey: key) {
+                return coordinate
+            }
+        }
+        return nil
+    }
+
+    private static func firstDouble(in container: KeyedDecodingContainer<CodingKeys>, keys: [CodingKeys]) -> Double? {
+        for key in keys {
+            if let value = container.flexDouble(for: key) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static let nestedCoordinateKeys: [CodingKeys] = [
+        .location,
+        .coordinate,
+        .coordinates,
+        .position,
+        .displayLocation,
+        .displayCoordinate,
+        .mapLocation,
+        .mapCoordinate,
+        .mapPresence,
+        .presence,
+        .lastLocation,
+        .geo,
+        .geometry,
+        .point
+    ]
+
+    private static func normalizedOnlineStatus(rawValue: String?, isOnline: Bool?) -> String {
+        if let isOnline {
+            return isOnline ? MapOnlineStatus.online.rawValue : MapOnlineStatus.invisible.rawValue
+        }
+        switch rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "online", "active", "visible", "available", "true", "1", "在线", "上線":
+            return MapOnlineStatus.online.rawValue
+        case "invisible", "offline", "hidden", "false", "0", "隐身", "隱身", "离线", "離線":
+            return MapOnlineStatus.invisible.rawValue
+        default:
+            return MapOnlineStatus.online.rawValue
+        }
     }
 
     func replacingRelation(_ relation: String?) -> MapUser {
@@ -266,6 +398,120 @@ struct MapUser: Decodable, Identifiable, Equatable {
             displayLng: displayLng,
             lastActiveAt: lastActiveAt
         )
+    }
+}
+
+private struct MapUserCoordinate: Decodable {
+    let latitude: Double?
+    let longitude: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case latitude
+        case longitude
+        case lat
+        case lng
+        case lon
+        case long
+        case displayLat = "display_lat"
+        case displayLng = "display_lng"
+        case displayLatitude = "display_latitude"
+        case displayLongitude = "display_longitude"
+        case displayLon = "display_lon"
+        case mapLat = "map_lat"
+        case mapLng = "map_lng"
+        case mapLatitude = "map_latitude"
+        case mapLongitude = "map_longitude"
+        case obfuscatedLat = "obfuscated_lat"
+        case obfuscatedLng = "obfuscated_lng"
+        case obfuscatedLatitude = "obfuscated_latitude"
+        case obfuscatedLongitude = "obfuscated_longitude"
+        case coordinate
+        case coordinates
+        case position
+        case displayLocation = "display_location"
+        case displayCoordinate = "display_coordinate"
+        case mapLocation = "map_location"
+        case mapCoordinate = "map_coordinate"
+        case mapPresence = "map_presence"
+        case presence
+        case lastLocation = "last_location"
+        case geo
+        case geometry
+        case point
+    }
+
+    init(from decoder: Decoder) throws {
+        if let coordinate = Self.decodeCoordinateArray(from: decoder) {
+            self.latitude = coordinate.latitude
+            self.longitude = coordinate.longitude
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let nestedCoordinate = Self.decodeNestedCoordinate(from: container)
+        self.latitude = Self.firstDouble(
+            in: container,
+            keys: [.displayLat, .displayLatitude, .mapLat, .mapLatitude, .obfuscatedLat, .obfuscatedLatitude, .latitude, .lat]
+        )
+            ?? nestedCoordinate?.latitude
+        self.longitude = Self.firstDouble(
+            in: container,
+            keys: [.displayLng, .displayLongitude, .displayLon, .mapLng, .mapLongitude, .obfuscatedLng, .obfuscatedLongitude, .longitude, .lng, .lon, .long]
+        )
+            ?? nestedCoordinate?.longitude
+    }
+
+    private static func firstDouble(in container: KeyedDecodingContainer<CodingKeys>, keys: [CodingKeys]) -> Double? {
+        for key in keys {
+            if let value = container.flexDouble(for: key) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func decodeNestedCoordinate(from container: KeyedDecodingContainer<CodingKeys>) -> MapUserCoordinate? {
+        for key in nestedCoordinateKeys {
+            if let coordinate = try? container.decodeIfPresent(MapUserCoordinate.self, forKey: key) {
+                return coordinate
+            }
+        }
+        return nil
+    }
+
+    private static let nestedCoordinateKeys: [CodingKeys] = [
+        .coordinate,
+        .coordinates,
+        .position,
+        .displayLocation,
+        .displayCoordinate,
+        .mapLocation,
+        .mapCoordinate,
+        .mapPresence,
+        .presence,
+        .lastLocation,
+        .geo,
+        .geometry,
+        .point
+    ]
+
+    private static func decodeCoordinateArray(from decoder: Decoder) -> (latitude: Double?, longitude: Double?)? {
+        let values: [Double]
+        if let doubles = try? [Double](from: decoder) {
+            values = doubles
+        } else if let strings = try? [String](from: decoder) {
+            values = strings.compactMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        } else {
+            return nil
+        }
+        guard values.count >= 2 else { return nil }
+        let first = values[0]
+        let second = values[1]
+
+        if abs(first) <= 90, abs(second) > 90 {
+            return (latitude: first, longitude: second)
+        }
+        return (latitude: second, longitude: first)
     }
 }
 
@@ -345,10 +591,16 @@ struct MapUsersResponseData: Decodable {
 
     enum CodingKeys: String, CodingKey {
         case users
+        case nearbyUsers = "nearby_users"
+        case friends
+        case profiles
         case items
         case results
         case data
+        case list
+        case records
         case effectiveRadiusM = "effective_radius_m"
+        case radiusM = "radius_m"
         case constraints
     }
 
@@ -370,16 +622,30 @@ struct MapUsersResponseData: Decodable {
             return
         }
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let nested = try? container.decodeIfPresent(MapUsersResponseData.self, forKey: .data) {
-            self = nested
-            return
+        if container.contains(.data), try !container.decodeNil(forKey: .data) {
+            if let nested = try? container.decode(MapUsersResponseData.self, forKey: .data) {
+                self = nested
+                return
+            }
         }
-        self.users = (try? container.decodeIfPresent([MapUser].self, forKey: .users))
-            ?? (try? container.decodeIfPresent([MapUser].self, forKey: .items))
-            ?? (try? container.decodeIfPresent([MapUser].self, forKey: .results))
-            ?? (try? container.decodeIfPresent([MapUser].self, forKey: .data))
-            ?? []
+
+        let listKeys: [CodingKeys] = [
+            .users, .nearbyUsers, .friends, .profiles, .items, .results, .data, .list, .records
+        ]
+        guard let listKey = listKeys.first(where: { container.contains($0) }) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.users,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Map users response is missing a supported users list"
+                )
+            )
+        }
+        // An explicit empty array is valid. A missing or null list is a broken
+        // response contract and must not be rendered as "no nearby users".
+        self.users = try container.decode([MapUser].self, forKey: listKey)
         self.effectiveRadiusM = container.flexInt(for: .effectiveRadiusM)
+            ?? container.flexInt(for: .radiusM)
         self.constraints = try? container.decodeIfPresent(MapRadiusConstraints.self, forKey: .constraints)
     }
 }

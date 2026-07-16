@@ -18,15 +18,25 @@ struct ChatGroup: Codable, Identifiable, Equatable, Hashable {
     var id: Int { groupID }
 
     enum CodingKeys: String, CodingKey {
+        case id
         case groupID = "group_id"
+        case groupIDCamel = "groupID"
         case name
         case avatarURL = "avatar_url"
+        case avatarURLCamel = "avatarURL"
         case creatorID = "creator_id"
+        case creatorIDCamel = "creatorID"
         case memberCount = "member_count"
+        case memberCountCamel = "memberCount"
         case lastMessage = "last_message"
+        case lastMessageCamel = "lastMessage"
         case lastMessageTime = "last_message_time"
+        case lastMessageTimeCamel = "lastMessageTime"
         case lastMessageSender = "last_message_sender"
+        case lastMessageSenderCamel = "lastMessageSender"
         case unreadCount = "unread_count"
+        case unread
+        case unreadCountCamel = "unreadCount"
         case isPublic = "is_public"
     }
 
@@ -62,18 +72,47 @@ struct ChatGroup: Codable, Identifiable, Equatable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let alternateContainer = try decoder.container(keyedBy: AlternateCodingKeys.self)
 
-        self.groupID = try container.decode(Int.self, forKey: .groupID)
-        self.name = try container.decode(String.self, forKey: .name)
-        self.avatarURL = try container.decode(String.self, forKey: .avatarURL)
-        self.creatorID = try container.decode(String.self, forKey: .creatorID)
-        self.memberCount = try container.decode(Int.self, forKey: .memberCount)
-        self.lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
-        self.lastMessageTime = try container.decodeIfPresent(String.self, forKey: .lastMessageTime)
-        self.lastMessageSender = try container.decodeIfPresent(String.self, forKey: .lastMessageSender)
-        self.unreadCount = try container.decode(Int.self, forKey: .unreadCount)
+        self.groupID = container.flexInt(for: .groupID)
+            ?? container.flexInt(for: .groupIDCamel)
+            ?? container.flexInt(for: .id)
+            ?? 0
+        self.name = container.flexString(for: .name) ?? ""
+        self.avatarURL = container.flexString(for: .avatarURL)
+            ?? container.flexString(for: .avatarURLCamel)
+            ?? ""
+        self.creatorID = container.flexString(for: .creatorID)
+            ?? container.flexString(for: .creatorIDCamel)
+            ?? ""
+        self.memberCount = container.flexInt(for: .memberCount)
+            ?? container.flexInt(for: .memberCountCamel)
+            ?? 0
+        self.lastMessage = container.flexContent(for: .lastMessage)
+            ?? container.flexContent(for: .lastMessageCamel)
+        self.lastMessageTime = container.flexString(for: .lastMessageTime)
+            ?? container.flexString(for: .lastMessageTimeCamel)
+        self.lastMessageSender = container.flexString(for: .lastMessageSender)
+            ?? container.flexString(for: .lastMessageSenderCamel)
+        self.unreadCount = container.flexInt(for: .unreadCount)
+            ?? container.flexInt(for: .unread)
+            ?? container.flexInt(for: .unreadCountCamel)
+            ?? 0
         self.isPublic = container.flexBool(for: .isPublic)
             ?? alternateContainer.flexBool(for: .isPublic)
             ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(groupID, forKey: .groupID)
+        try container.encode(name, forKey: .name)
+        try container.encode(avatarURL, forKey: .avatarURL)
+        try container.encode(creatorID, forKey: .creatorID)
+        try container.encode(memberCount, forKey: .memberCount)
+        try container.encodeIfPresent(lastMessage, forKey: .lastMessage)
+        try container.encodeIfPresent(lastMessageTime, forKey: .lastMessageTime)
+        try container.encodeIfPresent(lastMessageSender, forKey: .lastMessageSender)
+        try container.encode(unreadCount, forKey: .unreadCount)
+        try container.encode(isPublic, forKey: .isPublic)
     }
 
     var formattedTime: String {
@@ -163,6 +202,20 @@ struct GroupReplyPreview: Codable, Equatable {
     }
 }
 
+struct GroupMessageScriptContext: Codable, Equatable {
+    let roomID: String
+    let roleID: String
+    let actorType: ScriptActorType
+    let turnID: String
+
+    enum CodingKeys: String, CodingKey {
+        case roomID = "room_id"
+        case roleID = "role_id"
+        case actorType = "actor_type"
+        case turnID = "turn_id"
+    }
+}
+
 struct GroupMessage: Codable, Identifiable, Equatable {
     let id: Int
     let groupID: Int
@@ -176,6 +229,7 @@ struct GroupMessage: Codable, Identifiable, Equatable {
     let replyTo: GroupReplyPreview?
     let mentions: [String]?
     let clientMessageID: String?
+    let scriptContext: GroupMessageScriptContext?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -216,6 +270,8 @@ struct GroupMessage: Codable, Identifiable, Equatable {
         case clientMessageId = "clientMessageId"
         case clientID = "client_id"
         case clientId = "clientId"
+        case scriptContext = "script_context"
+        case scriptContextCamel = "scriptContext"
     }
 
     init(
@@ -230,7 +286,8 @@ struct GroupMessage: Codable, Identifiable, Equatable {
         replyToID: Int?,
         replyTo: GroupReplyPreview?,
         mentions: [String]?,
-        clientMessageID: String? = nil
+        clientMessageID: String? = nil,
+        scriptContext: GroupMessageScriptContext? = nil
     ) {
         self.id = id
         self.groupID = groupID
@@ -244,6 +301,7 @@ struct GroupMessage: Codable, Identifiable, Equatable {
         self.replyTo = replyTo
         self.mentions = mentions
         self.clientMessageID = clientMessageID
+        self.scriptContext = scriptContext
     }
 
     init(from decoder: Decoder) throws {
@@ -298,6 +356,8 @@ struct GroupMessage: Codable, Identifiable, Equatable {
             ?? container.flexString(for: .clientMessageId)
             ?? container.flexString(for: .clientID)
             ?? container.flexString(for: .clientId)
+        self.scriptContext = (try? container.decodeIfPresent(GroupMessageScriptContext.self, forKey: .scriptContext))
+            ?? (try? container.decodeIfPresent(GroupMessageScriptContext.self, forKey: .scriptContextCamel))
     }
 
     func encode(to encoder: Encoder) throws {
@@ -314,6 +374,7 @@ struct GroupMessage: Codable, Identifiable, Equatable {
         try container.encodeIfPresent(replyTo, forKey: .replyTo)
         try container.encodeIfPresent(mentions, forKey: .mentions)
         try container.encodeIfPresent(clientMessageID, forKey: .clientMessageID)
+        try container.encodeIfPresent(scriptContext, forKey: .scriptContext)
     }
 
     var isImage: Bool { msgType == "image" }

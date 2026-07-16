@@ -69,13 +69,34 @@ struct MomentsView: View {
                 LazyVStack(spacing: 0) {
                     momentsHeader
 
-                    if momentsNotif.unreadCount > 0 && filterUserID == nil && viewModel.selectedTab == .friends {
+                    if momentsNotif.unreadCount > 0 && filterUserID == nil {
                         notificationBanner
                             .padding(.horizontal, 12)
                             .padding(.bottom, 8)
                     }
 
-                    if viewModel.moments.isEmpty && !viewModel.isLoading {
+                    if viewModel.moments.isEmpty,
+                       !viewModel.isLoading,
+                       let errorMessage = viewModel.errorMessage {
+                        VStack(spacing: 14) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 34))
+                                .foregroundColor(AppColors.warningColor)
+                            Text(errorMessage)
+                                .font(.system(size: 15))
+                                .foregroundColor(AppColors.secondaryText)
+                                .multilineTextAlignment(.center)
+                            Button(L10n.tr("common.retry")) {
+                                Task { await viewModel.loadFeed(refresh: true) }
+                            }
+                            .font(.system(size: 14, weight: .semibold))
+                            .buttonStyle(.borderedProminent)
+                            .tint(AppColors.accent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 60)
+                    } else if viewModel.moments.isEmpty && !viewModel.isLoading {
                         VStack(spacing: 14) {
                             Image(systemName: "photo.on.rectangle.angled")
                                 .font(.system(size: 36))
@@ -89,21 +110,46 @@ struct MomentsView: View {
                     }
 
                     ForEach(viewModel.moments) { moment in
-                        MomentRow(
-                            moment: moment,
-                            onLike: { Task { await viewModel.toggleLike(momentID: moment.id) } },
-                            onComment: { replyUserID, replyName, replyContent in
-                                commentTarget = (moment.id, replyUserID, replyName, replyContent)
-                                commentTriggerID = UUID()
-                            },
-                            onDelete: { Task { await viewModel.deleteMoment(momentID: moment.id) } },
-                            onMediaTap: { media, frame in
-                                handleMediaTap(media, in: moment, frame: frame)
-                            },
-                            onUnlock: {
-                                unlockConfirmation = MomentUnlockConfirmation(moment: moment)
+                        VStack(spacing: 0) {
+                            MomentRow(
+                                moment: moment,
+                                onLike: { Task { await viewModel.toggleLike(momentID: moment.id) } },
+                                onComment: { replyUserID, replyName, replyContent in
+                                    commentTarget = (moment.id, replyUserID, replyName, replyContent)
+                                    commentTriggerID = UUID()
+                                },
+                                onDelete: { Task { await viewModel.deleteMoment(momentID: moment.id) } },
+                                onMediaTap: { media, frame in
+                                    handleMediaTap(media, in: moment, frame: frame)
+                                },
+                                onUnlock: {
+                                    unlockConfirmation = MomentUnlockConfirmation(moment: moment)
+                                }
+                            )
+
+                            if viewModel.uploadingMomentIDs.contains(moment.id) {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text(L10n.tr("common.uploading"))
+                                }
+                                .font(.system(size: 12))
+                                .foregroundColor(AppColors.secondaryText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 68)
+                                .padding(.bottom, 10)
+                            } else if viewModel.failedMomentIDs.contains(moment.id) {
+                                Button {
+                                    viewModel.retryMomentUpload(momentID: moment.id)
+                                } label: {
+                                    Label(L10n.tr("common.retry"), systemImage: "exclamationmark.circle.fill")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(.red)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 68)
+                                .padding(.bottom, 10)
                             }
-                        )
+                        }
                         .onAppear {
                             viewModel.loadMoreIfNeeded(currentMomentID: moment.id)
                         }
@@ -154,6 +200,7 @@ struct MomentsView: View {
                             .font(.system(size: 16))
                             .foregroundColor(useCoverChrome ? .white : AppColors.primaryText)
                     }
+                    .accessibilityLabel(L10n.tr("moment.create.title"))
                 }
             }
             .sheet(isPresented: $showCreateMoment) {
@@ -199,7 +246,7 @@ struct MomentsView: View {
             }
             .refreshable {
                 await viewModel.loadFeed(refresh: true)
-                if filterUserID == nil && viewModel.selectedTab == .friends {
+                if filterUserID == nil && viewModel.selectedTab == .following {
                     await momentsNotif.fetchFromServer()
                 }
             }
@@ -240,12 +287,13 @@ struct MomentsView: View {
     }
 
     private func feedSegmentedControl(useCoverChrome: Bool) -> some View {
-        Picker("", selection: $viewModel.selectedTab) {
-            ForEach(MomentFeedTab.allCases) { tab in
-                Text(L10n.tr(tab.titleKey)).tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
+        SystemSegmentedTabs(
+            items: MomentFeedTab.allCases,
+            selection: $viewModel.selectedTab,
+            title: { L10n.tr($0.titleKey) },
+            accessibilityIdentifier: "moments.top.tabs",
+            fontWeight: .bold
+        )
         .frame(width: 196)
         .background(
             Capsule()
@@ -628,22 +676,30 @@ struct MomentRow: View {
     /// the hero grow-from-thumbnail animation).
     var onMediaTap: (MomentMedia, CGRect) -> Void
     var onUnlock: () -> Void
+    @EnvironmentObject private var navigator: UIKitNavigator
     @State private var showActions = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            MomentAvatarView(url: moment.author.avatarURL, size: 44, cornerRadius: 11)
+            Button {
+                openProfile(userID: moment.author.userID)
+            } label: {
+                MomentAvatarView(url: moment.author.avatarURL, size: 44, cornerRadius: 11)
+            }
+            .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(moment.author.nickname)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(Color(hex: "576B95"))
-                    .lineLimit(1)
+                Button {
+                    openProfile(userID: moment.author.userID)
+                } label: {
+                    Text(moment.author.nickname)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(Color(hex: "576B95"))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
 
-                if let botSharePayload = BotSharePayload.decode(from: moment.content) {
-                    BotShareCard(payload: botSharePayload)
-                        .padding(.vertical, 2)
-                } else if !moment.content.isEmpty {
+                if !moment.content.isEmpty {
                     Text(moment.content)
                         .font(.system(size: 15))
                         .foregroundColor(AppColors.primaryText)
@@ -843,6 +899,20 @@ struct MomentRow: View {
             .onTapGesture {
                 onComment(comment.userID, comment.nickname, comment.content)
             }
+            .contextMenu {
+                Button {
+                    openProfile(userID: comment.userID)
+                } label: {
+                    Label(L10n.tr("profile.public.title"), systemImage: "person.crop.circle")
+                }
+                if let replyTo = comment.replyTo {
+                    Button {
+                        openProfile(userID: replyTo.userID)
+                    } label: {
+                        Label(replyTo.nickname, systemImage: "arrowshape.turn.up.left")
+                    }
+                }
+            }
 
             if let imageURL = comment.imageURL, !imageURL.isEmpty {
                 HStack(spacing: 0) {
@@ -865,6 +935,11 @@ struct MomentRow: View {
                     .foregroundColor(AppColors.tertiaryText)
             }
         }
+    }
+
+    private func openProfile(userID: String) {
+        guard !userID.isBlank else { return }
+        navigator.push(UserProfileView(userID: userID))
     }
 
     @ViewBuilder
@@ -1539,8 +1614,23 @@ struct MomentsNotificationListView: View {
             }
         }
         .task {
+            if let key = CacheKey.current(namespace: "moments", key: "notifications"),
+               let cached: CachedSnapshot<[MomentsNotification]> = AppCacheRepository.shared.cachedValue(for: key) {
+                notifications = cached.value
+                isLoading = false
+            }
             do {
-                notifications = try await APIService.shared.getMomentsNotifications()
+                if let key = CacheKey.current(namespace: "moments", key: "notifications") {
+                    notifications = Array(try await AppCacheRepository.shared.loadValue(
+                        key: key,
+                        policy: .shortLived,
+                        forceRefresh: false
+                    ) {
+                        try await APIService.shared.getMomentsNotifications()
+                    }.prefix(500))
+                } else {
+                    notifications = try await APIService.shared.getMomentsNotifications()
+                }
             } catch { }
             isLoading = false
         }
@@ -1690,8 +1780,24 @@ struct MomentDetailView: View {
     }
 
     private func loadMoment() async {
+        let key = CacheKey.current(namespace: "moment-detail", key: "\(momentID)")
+        if let key,
+           let cached: CachedSnapshot<Moment> = AppCacheRepository.shared.cachedValue(for: key) {
+            moment = cached.value
+            isLoading = false
+        }
         do {
-            moment = try await APIService.shared.getMomentDetail(momentID: momentID)
+            if let key {
+                moment = try await AppCacheRepository.shared.loadValue(
+                    key: key,
+                    policy: .shortLived,
+                    forceRefresh: false
+                ) {
+                    try await APIService.shared.getMomentDetail(momentID: momentID)
+                }
+            } else {
+                moment = try await APIService.shared.getMomentDetail(momentID: momentID)
+            }
         } catch { }
         isLoading = false
     }

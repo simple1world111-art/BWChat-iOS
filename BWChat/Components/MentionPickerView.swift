@@ -46,7 +46,22 @@ struct MentionPickerView: View {
         }
         .task {
             do {
-                let detail = try await APIService.shared.getGroupDetail(groupID: groupID)
+                let detail: GroupDetail
+                if let key = CacheKey.current(namespace: "group-detail", key: "\(groupID)") {
+                    if let cached: CachedSnapshot<GroupDetail> = AppCacheRepository.shared.cachedValue(for: key) {
+                        let myID = AuthManager.shared.currentUser?.userID
+                        members = cached.value.members.filter { $0.userID != myID }
+                    }
+                    detail = try await AppCacheRepository.shared.loadValue(
+                        key: key,
+                        policy: .profile,
+                        forceRefresh: false
+                    ) {
+                        try await APIService.shared.getGroupDetail(groupID: groupID)
+                    }
+                } else {
+                    detail = try await APIService.shared.getGroupDetail(groupID: groupID)
+                }
                 let myID = AuthManager.shared.currentUser?.userID
                 members = detail.members.filter { $0.userID != myID }
             } catch {}

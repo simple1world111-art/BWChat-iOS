@@ -18,20 +18,25 @@ struct ShortDramaVideoPage: View {
     let onOpenComments: () -> Void
     let onOpenCreator: () -> Void
 
+    @State private var hasRenderedFirstFrame = false
+
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 Color.black
                     .ignoresSafeArea()
 
-                ShortDramaCoverBackdrop(url: video.coverURL)
-                    .opacity(player == nil ? 1 : 0)
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-
-                ShortDramaPlayerSurface(player: player)
+                ShortDramaPlayerSurface(player: player) {
+                    hasRenderedFirstFrame = true
+                }
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
                     .ignoresSafeArea()
+
+                ShortDramaCoverBackdrop(url: video.coverURL)
+                    .opacity(shouldShowCover ? 1 : 0)
+                    .animation(.easeOut(duration: 0.18), value: shouldShowCover)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
 
                 LinearGradient(
                     colors: [.clear, .black.opacity(0.66)],
@@ -43,6 +48,22 @@ struct ShortDramaVideoPage: View {
                 videoTapTarget
 
                 playbackButton
+
+                if video.requiresUnlock {
+                    VStack(spacing: 9) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 24, weight: .bold))
+                        Text(L10n.tr("shortDrama.unlock.confirmMessage", video.unlockPriceCatFood ?? 0))
+                            .font(.subheadline.weight(.bold))
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                    .background(Color.black.opacity(0.58))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.horizontal, 36)
+                }
 
                 HStack(alignment: .bottom, spacing: 14) {
                     bottomMetadata
@@ -60,7 +81,7 @@ struct ShortDramaVideoPage: View {
                 .padding(.bottom, 28)
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
 
-                if player == nil {
+                if shouldShowLoadingIndicator {
                     ProgressView()
                         .tint(.white)
                         .scaleEffect(1.1)
@@ -70,14 +91,22 @@ struct ShortDramaVideoPage: View {
         }
         .background(Color.black)
         .ignoresSafeArea()
-        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
-            guard isPlaybackTarget,
-                  !isPlaybackPaused,
-                  let item = notification.object as? AVPlayerItem,
-                  item === player?.currentItem else { return }
-            player?.seek(to: .zero)
-            player?.playImmediately(atRate: 1)
+        .onChange(of: video.id) { _ in
+            hasRenderedFirstFrame = false
         }
+        .onChange(of: player == nil) { isNil in
+            if isNil {
+                hasRenderedFirstFrame = false
+            }
+        }
+    }
+
+    private var shouldShowCover: Bool {
+        player == nil || !hasRenderedFirstFrame
+    }
+
+    private var shouldShowLoadingIndicator: Bool {
+        !video.requiresUnlock && (player == nil || (isPlaybackTarget && !hasRenderedFirstFrame))
     }
 
     private var videoTapTarget: some View {
@@ -85,7 +114,7 @@ struct ShortDramaVideoPage: View {
             .contentShape(Rectangle())
             .ignoresSafeArea()
             .onTapGesture {
-                guard isPlaybackTarget else { return }
+                guard isPlaybackTarget, !video.requiresUnlock else { return }
                 onTogglePlayback()
             }
     }
@@ -152,25 +181,72 @@ struct ShortDramaVideoPage: View {
 
 private struct ShortDramaPlayerSurface: UIViewRepresentable {
     let player: AVPlayer?
+    let onReadyForDisplay: () -> Void
 
     func makeUIView(context: Context) -> PlayerSurfaceView {
         let view = PlayerSurfaceView()
         view.playerLayer.videoGravity = .resizeAspectFill
-        view.playerLayer.player = player
+        view.onReadyForDisplay = onReadyForDisplay
+        view.setPlayer(player)
         return view
     }
 
     func updateUIView(_ uiView: PlayerSurfaceView, context: Context) {
-        uiView.playerLayer.player = player
+        uiView.onReadyForDisplay = onReadyForDisplay
+        uiView.setPlayer(player)
     }
 
     final class PlayerSurfaceView: UIView {
+        var onReadyForDisplay: (() -> Void)?
+        private var readyForDisplayObservation: NSKeyValueObservation?
+        private var hasNotifiedReadyForDisplay = false
+
         override static var layerClass: AnyClass {
             AVPlayerLayer.self
         }
 
         var playerLayer: AVPlayerLayer {
             layer as! AVPlayerLayer
+        }
+
+        func setPlayer(_ player: AVPlayer?) {
+            if playerLayer.player === player {
+                notifyIfReady()
+                return
+            }
+
+            readyForDisplayObservation?.invalidate()
+            readyForDisplayObservation = nil
+            hasNotifiedReadyForDisplay = false
+            playerLayer.player = player
+            observeReadyForDisplay()
+        }
+
+        private func observeReadyForDisplay() {
+            guard playerLayer.player != nil else { return }
+            readyForDisplayObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
+                guard layer.isReadyForDisplay else { return }
+                DispatchQueue.main.async {
+                    self?.notifyIfReady()
+                }
+            }
+        }
+
+        private func notifyIfReady() {
+            guard playerLayer.player != nil,
+                  playerLayer.isReadyForDisplay,
+                  !hasNotifiedReadyForDisplay else { return }
+            hasNotifiedReadyForDisplay = true
+            let callback = onReadyForDisplay
+            readyForDisplayObservation?.invalidate()
+            readyForDisplayObservation = nil
+            DispatchQueue.main.async {
+                callback?()
+            }
+        }
+
+        deinit {
+            readyForDisplayObservation?.invalidate()
         }
     }
 }

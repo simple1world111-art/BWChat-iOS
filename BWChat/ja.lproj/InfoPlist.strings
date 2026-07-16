@@ -1,5 +1,5 @@
 "NSPhotoLibraryAddUsageDescription" = "BBchatは写真や動画をライブラリに保存するために許可が必要です。";
-"NSPhotoLibraryUsageDescription" = "BBchatは画像を送信するために写真ライブラリへのアクセスが必要です。";
+"NSPhotoLibraryUsageDescription" = "BBchatは写真や動画のアップロードと送信に写真ライブラリを使用します。";
 "NSCameraUsageDescription" = "BBchatはビデオ通話のためにカメラを使用します。";
 "NSMicrophoneUsageDescription" = "BBchatは音声通話とビデオ通話のためにマイクを使用します。";
 "NSLocationWhenInUseUsageDescription" = "BBchatは近くのユーザーを見つけるために位置情報を使用し、Nearbyを有効にした場合のみおおよその位置を共有します。";

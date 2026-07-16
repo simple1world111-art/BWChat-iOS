@@ -36,8 +36,26 @@ final class GiftPanelViewModel: ObservableObject {
 
     private func loadGifts() async {
         do {
-            let fetched = try await APIService.shared.getGiftCatalog()
-            gifts = fetched.isEmpty ? GiftCatalogItem.fixedCatalog : fetched
+            let fetched: [GiftCatalogItem]
+            if let key = CacheKey.current(namespace: "gift", key: "catalog") {
+                fetched = try await AppCacheRepository.shared.loadValue(
+                    key: key,
+                    policy: .catalog,
+                    forceRefresh: false
+                ) {
+                    try await APIService.shared.getGiftCatalog()
+                }
+            } else {
+                fetched = try await APIService.shared.getGiftCatalog()
+            }
+            let remoteGifts = fetched
+                .filter(\.isActive)
+                .sorted {
+                    let lhs = $0.sortOrder ?? Int.max
+                    let rhs = $1.sortOrder ?? Int.max
+                    return lhs == rhs ? $0.giftID < $1.giftID : lhs < rhs
+                }
+            gifts = remoteGifts.isEmpty ? GiftCatalogItem.fixedCatalog : remoteGifts
             if !gifts.contains(selectedGift) {
                 selectedGift = gifts.first ?? GiftCatalogItem.fixedCatalog[0]
             }
@@ -61,7 +79,18 @@ final class GiftPanelViewModel: ObservableObject {
             }
 
             do {
-                let detail = try await APIService.shared.getGroupDetail(groupID: groupID)
+                let detail: GroupDetail
+                if let key = CacheKey.current(namespace: "group-detail", key: "\(groupID)") {
+                    detail = try await AppCacheRepository.shared.loadValue(
+                        key: key,
+                        policy: .profile,
+                        forceRefresh: false
+                    ) {
+                        try await APIService.shared.getGroupDetail(groupID: groupID)
+                    }
+                } else {
+                    detail = try await APIService.shared.getGroupDetail(groupID: groupID)
+                }
                 LocalCache.save(detail, key: "group_detail_\(groupID)")
                 setGroupRecipients(detail.members, myID: myID)
             } catch {
@@ -303,7 +332,7 @@ struct GiftPickerSheet: View {
             viewModel.selectedGift = gift
         } label: {
             VStack(spacing: 8) {
-                GiftAssetIcon(assetKey: gift.assetKey, size: 52)
+                GiftAssetIcon(assetKey: gift.displayAssetKey, size: 52)
                     .opacity(affordable ? 1 : 0.46)
 
                 Text(gift.localizedName)
@@ -480,6 +509,8 @@ struct GiftAssetIcon: View {
     let assetKey: String
     var size: CGFloat = 48
 
+    @ObservedObject private var assetManager = RemoteAssetManager.shared
+
     var body: some View {
         ZStack {
             Circle()
@@ -540,7 +571,14 @@ struct GiftAssetIcon: View {
 
     @ViewBuilder
     private var artwork: some View {
-        if let imageAssetName {
+        if assetManager.trustedRemoteURL(for: assetKey) != nil {
+            RemoteAssetImage(
+                assetKey: assetKey,
+                fallbackAssetName: imageAssetName,
+                fallbackSystemImage: "gift.fill"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else if let imageAssetName {
             Image(imageAssetName)
                 .resizable()
                 .interpolation(.high)
@@ -585,68 +623,85 @@ struct GiftMessageBubble: View {
     let isFromMe: Bool
     var senderName: String?
     var recipientFallback: String?
+    var recipientIDFallback: String?
+    var recipientAvatarFallback: String?
 
     private var recipientName: String {
         if let name = payload.recipientName, !name.isBlank { return name }
         return recipientFallback ?? L10n.tr("gift.recipientFallback")
     }
 
+    private var recipientAvatarURL: String {
+        if let recipientID = payload.recipientID, !recipientID.isBlank {
+            let cachedURL = UserCacheManager.shared.avatarURL(for: recipientID)
+            if !cachedURL.isBlank { return cachedURL }
+        }
+        return recipientAvatarFallback ?? ""
+    }
+
+    private var recipientUserID: String {
+        if let recipientID = payload.recipientID, !recipientID.isBlank { return recipientID }
+        return recipientIDFallback ?? ""
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let senderName, !senderName.isEmpty {
-                Text(senderName)
-                    .font(.system(size: 12, weight: .medium))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 4) {
+                VStack(spacing: 5) {
+                    GiftAssetIcon(assetKey: payload.assetKey, size: 68)
+
+                    Text(payload.localizedGiftName)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+                .frame(width: 80)
+
+                VStack(spacing: 7) {
+                    Image("gift_whimsical_arrow")
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: 44, height: 30)
+                        .accessibilityHidden(true)
+
+                    Text(L10n.tr("gift.to"))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(1)
+                }
+                .padding(.top, 20)
+
+                VStack(spacing: 6) {
+                    recipientAvatar
+
+                    Text(recipientName)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+                .frame(width: 74)
+                .padding(.top, 11)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 4) {
+                receiverValue
+                    .frame(width: 80, alignment: .center)
+
+                Spacer(minLength: 6)
+
+                Text(timeText)
+                    .font(.system(size: 12))
                     .foregroundColor(AppColors.secondaryText)
                     .lineLimit(1)
             }
-
-            HStack(spacing: 10) {
-                GiftAssetIcon(assetKey: payload.assetKey, size: 46)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(payload.localizedGiftName)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(AppColors.primaryText)
-                        .lineLimit(1)
-
-                    Text(L10n.tr("gift.sentTo", recipientName))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AppColors.secondaryText)
-                        .lineLimit(1)
-
-                    HStack(spacing: 4) {
-                        if payload.receiverCurrency == .catHair {
-                            Image("wallet_cat_hair")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 14, height: 14)
-                        } else {
-                            Image(systemName: "pawprint.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(Color(hex: "F0A020"))
-                        }
-                        Text(
-                            payload.receiverCurrency == .catHair
-                                ? L10n.tr("gift.receiverValue.catHair", payload.amount)
-                                : L10n.tr("gift.receiverValue.catFood", payload.amount)
-                        )
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(Color(hex: "A76500"))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            Text(timeText)
-                .font(.system(size: 12))
-                .foregroundColor(AppColors.secondaryText)
-                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(12)
-        .frame(width: 220)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 9)
+        .frame(width: 232)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(LinearGradient(
@@ -662,6 +717,60 @@ struct GiftMessageBubble: View {
                 )
         )
         .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
+    }
+
+    @ViewBuilder
+    private var recipientAvatar: some View {
+        if recipientUserID.isBlank {
+            styledRecipientAvatar
+        } else {
+            UserAvatarButton(
+                userID: recipientUserID,
+                avatarURL: recipientAvatarURL,
+                size: 54,
+                accessibilityName: recipientName
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.95), lineWidth: 2)
+                    .allowsHitTesting(false)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+        }
+    }
+
+    private var styledRecipientAvatar: some View {
+        AvatarView(url: recipientAvatarURL, size: 54)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.95), lineWidth: 2)
+                    .allowsHitTesting(false)
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 4, x: 0, y: 2)
+    }
+
+    private var receiverValue: some View {
+        HStack(spacing: 3) {
+            if payload.receiverCurrency == .catHair {
+                Image("wallet_cat_hair")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 13, height: 13)
+            } else {
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(Color(hex: "F0A020"))
+            }
+
+            Text(
+                payload.receiverCurrency == .catHair
+                    ? L10n.tr("gift.receiverValue.catHair", payload.amount)
+                    : L10n.tr("gift.receiverValue.catFood", payload.amount)
+            )
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(Color(hex: "A76500"))
+            .lineLimit(1)
+        }
     }
 }
 
@@ -680,7 +789,7 @@ struct GiftSendAnimationOverlay: View {
                     particle(index)
                 }
 
-                GiftAssetIcon(assetKey: gift.assetKey, size: 96)
+                GiftAssetIcon(assetKey: gift.displayAssetKey, size: 96)
                     .scaleEffect(animate ? 1.05 : 0.62)
                     .rotationEffect(.degrees(animate ? finalRotation : initialRotation))
                     .offset(y: animate && gift.assetKey == "gift_tree" ? -8 : 0)

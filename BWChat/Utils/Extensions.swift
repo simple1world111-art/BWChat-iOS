@@ -9,10 +9,19 @@ import UIKit
 extension View {
     /// Hide keyboard
     func hideKeyboard() {
-        UIApplication.shared.sendAction(
-            #selector(UIResponder.resignFirstResponder),
-            to: nil, from: nil, for: nil
-        )
+        let keyWindow = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+
+        if keyWindow?.endEditing(true) != true {
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+        }
     }
 
     /// Conditional modifier
@@ -52,18 +61,212 @@ extension View {
         ))
     }
 
-    func chatComposerBarBackground() -> some View {
-        background(
-            LinearGradient(
-                colors: [
-                    Color.white.opacity(0.82),
-                    Color.white.opacity(0.96)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+    func chatComposerBarBackground(showsStickerPanel: Bool = false) -> some View {
+        background {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.82),
+                        Color.white.opacity(0.96)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(showsStickerPanel ? 0 : 1)
+
+                Color(uiColor: .secondarySystemBackground)
+                    .opacity(showsStickerPanel ? 0.98 : 0)
+            }
             .ignoresSafeArea(edges: .bottom)
+            .animation(.easeInOut(duration: 0.25), value: showsStickerPanel)
+        }
+    }
+}
+
+struct ChatComposerActionButtonStyle: ButtonStyle {
+    let isActive: Bool
+    var showsActiveBackground = true
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Circle()
+                    .fill(
+                        isActive && showsActiveBackground
+                            ? AppColors.accent.opacity(0.14)
+                            : Color.primary.opacity(configuration.isPressed ? 0.07 : 0)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+struct KeyboardDismissTapInstaller: UIViewRepresentable {
+    let isEnabled: Bool
+    let consumesOutsideTaps: Bool
+    let dismissesOnControls: Bool
+    let onBackgroundTap: () -> Void
+
+    init(
+        isEnabled: Bool,
+        consumesOutsideTaps: Bool = false,
+        dismissesOnControls: Bool = false,
+        onBackgroundTap: @escaping () -> Void = {}
+    ) {
+        self.isEnabled = isEnabled
+        self.consumesOutsideTaps = consumesOutsideTaps
+        self.dismissesOnControls = dismissesOnControls
+        self.onBackgroundTap = onBackgroundTap
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            isEnabled: isEnabled,
+            consumesOutsideTaps: consumesOutsideTaps,
+            dismissesOnControls: dismissesOnControls,
+            onBackgroundTap: onBackgroundTap
         )
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.consumesOutsideTaps = consumesOutsideTaps
+        context.coordinator.dismissesOnControls = dismissesOnControls
+        context.coordinator.onBackgroundTap = onBackgroundTap
+        DispatchQueue.main.async {
+            context.coordinator.installIfNeeded(from: uiView)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var isEnabled: Bool
+        var consumesOutsideTaps: Bool
+        var dismissesOnControls: Bool
+        var onBackgroundTap: () -> Void
+        private weak var installedWindow: UIWindow?
+        private weak var recognizer: UITapGestureRecognizer?
+        private var shouldDismissKeyboardForCurrentTap = true
+
+        init(
+            isEnabled: Bool,
+            consumesOutsideTaps: Bool,
+            dismissesOnControls: Bool,
+            onBackgroundTap: @escaping () -> Void
+        ) {
+            self.isEnabled = isEnabled
+            self.consumesOutsideTaps = consumesOutsideTaps
+            self.dismissesOnControls = dismissesOnControls
+            self.onBackgroundTap = onBackgroundTap
+        }
+
+        func installIfNeeded(from view: UIView) {
+            guard let window = view.window else { return }
+
+            if installedWindow !== window {
+                uninstall()
+
+                let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+                recognizer.cancelsTouchesInView = false
+                recognizer.delegate = self
+                window.addGestureRecognizer(recognizer)
+
+                installedWindow = window
+                self.recognizer = recognizer
+            }
+
+            recognizer?.isEnabled = isEnabled
+            if !isEnabled || !consumesOutsideTaps {
+                recognizer?.cancelsTouchesInView = false
+            }
+        }
+
+        func uninstall() {
+            if let recognizer, let installedWindow {
+                installedWindow.removeGestureRecognizer(recognizer)
+            }
+            recognizer = nil
+            installedWindow = nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard isEnabled else { return false }
+            guard !Self.isKeyboardTouch(touch.view) else {
+                gestureRecognizer.cancelsTouchesInView = false
+                return false
+            }
+            guard !Self.isTextInput(touch.view) else {
+                gestureRecognizer.cancelsTouchesInView = false
+                return false
+            }
+            if Self.isSystemControlTouch(touch.view), !dismissesOnControls {
+                gestureRecognizer.cancelsTouchesInView = false
+                return false
+            }
+            shouldDismissKeyboardForCurrentTap = true
+            gestureRecognizer.cancelsTouchesInView = consumesOutsideTaps && shouldDismissKeyboardForCurrentTap
+            return true
+        }
+
+        @objc private func handleTap() {
+            guard isEnabled else { return }
+            guard shouldDismissKeyboardForCurrentTap else { return }
+            onBackgroundTap()
+        }
+
+        private static func isTextInput(_ view: UIView?) -> Bool {
+            var current = view
+            while let candidate = current {
+                if candidate is UITextField || candidate is UITextView {
+                    return true
+                }
+                current = candidate.superview
+            }
+            return false
+        }
+
+        private static func isSystemControlTouch(_ view: UIView?) -> Bool {
+            var current = view
+            while let candidate = current {
+                if candidate is UIControl {
+                    return true
+                }
+
+                let className = NSStringFromClass(type(of: candidate))
+                if className.contains("UINavigationBar")
+                    || className.contains("UIToolbar")
+                    || className.contains("UIButton")
+                    || className.contains("BarButton")
+                    || className.contains("HostingNavigation") {
+                    return true
+                }
+
+                current = candidate.superview
+            }
+            return false
+        }
+
+        private static func isKeyboardTouch(_ view: UIView?) -> Bool {
+            var current = view
+            while let candidate = current {
+                let className = NSStringFromClass(type(of: candidate))
+                if className.contains("UIKeyboard") || className.contains("UITextEffects") {
+                    return true
+                }
+                current = candidate.superview
+            }
+            return false
+        }
     }
 }
 
@@ -176,6 +379,7 @@ struct ChatInputTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     @Binding var height: CGFloat
+    var selectedRange: Binding<NSRange>? = nil
 
     var minHeight: CGFloat = 40
     var maxHeight: CGFloat = 112
@@ -184,6 +388,7 @@ struct ChatInputTextView: UIViewRepresentable {
     var allowsNewline: Bool = false
     var textAlignment: NSTextAlignment = .natural
     var preferredPrimaryLanguage: String? = "zh-Hans"
+    var onRequestFocus: (() -> Void)? = nil
     var onSend: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
@@ -210,6 +415,14 @@ struct ChatInputTextView: UIViewRepresentable {
 
     func updateUIView(_ textView: UITextView, context: Context) {
         context.coordinator.parent = self
+        let requestedRange = selectedRange?.wrappedValue ?? textView.selectedRange
+
+        // Assigning UITextView.text resets its selection and can synchronously
+        // call the delegate. Keep those UIKit callbacks from overwriting the
+        // SwiftUI-owned cursor while applying a programmatic text insertion.
+        context.coordinator.isApplyingParentUpdate = true
+        defer { context.coordinator.isApplyingParentUpdate = false }
+
         textView.returnKeyType = returnKeyType
         textView.enablesReturnKeyAutomatically = enablesReturnKeyAutomatically
         textView.textAlignment = textAlignment
@@ -225,25 +438,45 @@ struct ChatInputTextView: UIViewRepresentable {
             textView.resignFirstResponder()
         }
 
+        if textView.markedTextRange == nil {
+            let textLength = (textView.text as NSString? ?? "").length
+            let location = min(max(requestedRange.location, 0), textLength)
+            let length = min(max(requestedRange.length, 0), textLength - location)
+            let nextRange = NSRange(location: location, length: length)
+            if textView.selectedRange != nextRange {
+                textView.selectedRange = nextRange
+            }
+        }
+
         context.coordinator.updateHeight(for: textView)
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ChatInputTextView
+        var isApplyingParentUpdate = false
 
         init(_ parent: ChatInputTextView) {
             self.parent = parent
         }
 
-        func textViewDidBeginEditing(_ textView: UITextView) {
-            parent.isFocused = true
+        func textViewShouldBeginEditing(_ textView: UITextView) -> Bool {
+            guard !parent.isFocused, let onRequestFocus = parent.onRequestFocus else {
+                return true
+            }
+            onRequestFocus()
+            return false
         }
+
+        // SwiftUI owns focus. Writing `true` here can arrive after a dismiss
+        // action and immediately make the text view first responder again.
+        func textViewDidBeginEditing(_ textView: UITextView) {}
 
         func textViewDidEndEditing(_ textView: UITextView) {
             parent.isFocused = false
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            guard !isApplyingParentUpdate else { return }
             guard textView.markedTextRange == nil else {
                 updateHeight(for: textView)
                 return
@@ -254,13 +487,21 @@ struct ChatInputTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            guard textView.markedTextRange == nil else { return }
+            guard !isApplyingParentUpdate,
+                  textView.isFirstResponder,
+                  textView.markedTextRange == nil else { return }
             commitText(from: textView)
+            if parent.selectedRange?.wrappedValue != textView.selectedRange {
+                parent.selectedRange?.wrappedValue = textView.selectedRange
+            }
         }
 
         private func commitText(from textView: UITextView) {
             if parent.text != textView.text {
                 parent.text = textView.text
+            }
+            if parent.selectedRange?.wrappedValue != textView.selectedRange {
+                parent.selectedRange?.wrappedValue = textView.selectedRange
             }
         }
 

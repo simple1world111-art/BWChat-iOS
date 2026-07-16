@@ -171,6 +171,8 @@ struct PendingMessage: Identifiable {
     let videoData: Data?
     let voiceData: Data?
     let voiceDuration: Double
+    let filename: String?
+    let replyToID: Int?
     var status: SendStatus = .sending
 
     enum SendStatus {
@@ -179,7 +181,17 @@ struct PendingMessage: Identifiable {
         case failed
     }
 
-    init(receiverID: String, msgType: String, content: String, imageData: Data? = nil, videoData: Data? = nil, voiceData: Data? = nil, voiceDuration: Double = 0) {
+    init(
+        receiverID: String,
+        msgType: String,
+        content: String,
+        imageData: Data? = nil,
+        videoData: Data? = nil,
+        voiceData: Data? = nil,
+        voiceDuration: Double = 0,
+        filename: String? = nil,
+        replyToID: Int? = nil
+    ) {
         self.receiverID = receiverID
         self.msgType = msgType
         self.content = content
@@ -187,9 +199,48 @@ struct PendingMessage: Identifiable {
         self.videoData = videoData
         self.voiceData = voiceData
         self.voiceDuration = voiceDuration
+        self.filename = filename
+        self.replyToID = replyToID
     }
 
     var formattedTime: String {
         TimestampHelper.formatTime(createdAt)
+    }
+}
+
+enum MessageDeliveryMatcher {
+    static func normalizedType(_ value: String) -> String {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "photo", "picture": return "image"
+        case "audio": return "voice"
+        case "emoji": return "text"
+        default: return normalized
+        }
+    }
+
+    /// Compares the content carried by HTTP and WebSocket confirmations for
+    /// one already source-correlated outgoing operation.
+    static func contentsMatch(
+        type rawType: String,
+        lhs: String,
+        rhs: String
+    ) -> Bool {
+        let type = normalizedType(rawType)
+        if type == "gift",
+           let leftGift = GiftMessagePayload.parse(lhs),
+           let rightGift = GiftMessagePayload.parse(rhs) {
+            return leftGift.giftID == rightGift.giftID
+                && leftGift.recipientID == rightGift.recipientID
+        }
+
+        // Upload paths commonly return absolute and relative URLs for the
+        // same stored asset. The caller must additionally require matching
+        // sender, destination, type, reply target, source and timestamp.
+        if type == "image" || type == "video" || type == "voice" {
+            return true
+        }
+
+        return lhs == rhs
     }
 }

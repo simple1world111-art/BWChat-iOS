@@ -15,14 +15,14 @@ enum AppConfig {
     // Backend entry points. Media paths intentionally remain server-relative
     // (/api/v1/images/..., /api/v1/avatars/..., etc.) for legacy compatibility.
     #if DEBUG
-    static let apiBaseURL = "http://52.198.192.138/api/v1"
-    static let wsBaseURL  = "ws://52.198.192.138/ws"
+    static let apiBaseURL = "http://52.193.78.191/api/v1"
+    static let wsBaseURL  = "ws://52.193.78.191/ws"
     #else
-    static let apiBaseURL = "http://52.198.192.138/api/v1"
-    static let wsBaseURL  = "ws://52.198.192.138/ws"
+    static let apiBaseURL = "http://52.193.78.191/api/v1"
+    static let wsBaseURL  = "ws://52.193.78.191/ws"
     #endif
+    static let livekitURL = "http://52.193.78.191/livekit"
 
-    static let livekitURL = "ws://52.198.192.138:7880"
     static let appName = "BBchat"
     static let messagePageSize = 30
     static let wsHeartbeatInterval: TimeInterval = 15
@@ -37,13 +37,54 @@ enum AppConfig {
 
 }
 
+enum MediaURLResolver {
+    static func resolve(
+        _ rawValue: String?,
+        apiBaseURL: String = AppConfig.apiBaseURL
+    ) -> URL? {
+        guard let rawValue else { return nil }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+
+        if let absoluteURL = URL(string: value),
+           let scheme = absoluteURL.scheme?.lowercased(),
+           (scheme == "https" || scheme == "http"),
+           absoluteURL.host != nil {
+            return absoluteURL
+        }
+
+        guard let apiURL = URL(string: apiBaseURL),
+              let scheme = apiURL.scheme,
+              let host = apiURL.host else { return nil }
+
+        let urlString: String
+        if value.hasPrefix("/api/") {
+            var origin = "\(scheme)://\(host)"
+            if let port = apiURL.port { origin += ":\(port)" }
+            urlString = origin + value
+        } else {
+            urlString = apiBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                + "/"
+                + value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+
+        guard let resolvedURL = URL(string: urlString),
+              let resolvedScheme = resolvedURL.scheme?.lowercased(),
+              (resolvedScheme == "https" || resolvedScheme == "http"),
+              resolvedURL.host != nil else { return nil }
+        return resolvedURL
+    }
+}
+
 enum AppSpacing {
-    static let rootTabTopInset: CGFloat = 28
+    static let rootTabTopInset: CGFloat = 0
 }
 
 enum AppListMetrics {
     static let userCardHeight: CGFloat = 72
     static let conversationSwipeActionHeight: CGFloat = 72
+    /// Scrollable tail room that lets the last root-list card clear the floating tab bar.
+    static let rootTabBottomScrollableClearance: CGFloat = 160
 }
 
 // MARK: - Premium Color Palette
@@ -86,6 +127,12 @@ enum AppColors {
     static let warningColor = Color(hex: "FF9500")
     static let unreadBadge = Color(hex: "FF3B30")
     static let unreadDot = Color(hex: "667EEA")
+
+    // Yellow / black / white identity palette
+    static let iconYellow = Color(hex: "FFD43B")
+    static let iconYellowDeep = Color(hex: "F4B400")
+    static let iconBlack = Color(hex: "171717")
+    static let iconWhite = Color.white
 
     // Groups
     static let groupAccent = Color(hex: "5856D6")

@@ -8,8 +8,10 @@ struct WalletView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject private var walletStore = WalletStore.shared
+    @ObservedObject private var appConfig = AppRemoteConfigStore.shared
+    @StateObject private var adRewardService = AdRewardService()
 
-    @State private var selectedTab = 0            // 0: 我的猫粮, 1: 我的收益
+    @State private var selectedTab = 0            // 0: 我的猫粮, 1: 收益提现
     @State private var selectedAmountIndex = 0
     @State private var agreedToTerms = false
     @State private var alertMessage: String?
@@ -23,8 +25,13 @@ struct WalletView: View {
     @State private var withdrawalAmountText = ""
     @FocusState private var focusedWithdrawalField: WithdrawalField?
 
-    private let packages = AppConfig.catFoodProducts
-    private let withdrawalNetworks = ["TRC20", "ERC20", "BEP20"]
+    private var packages: [CatFoodProductConfig] {
+        appConfig.config.wallet?.effectiveCatFoodProducts ?? AppConfig.catFoodProducts
+    }
+
+    private var withdrawalNetworks: [String] {
+        appConfig.config.wallet?.effectiveWithdrawalNetworks ?? ["TRC20", "ERC20", "BEP20"]
+    }
 
     private enum WithdrawalField: Hashable {
         case address
@@ -67,6 +74,16 @@ struct WalletView: View {
         .interactiveSpring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.08)
     }
 
+    private var isAdRewardEntryEnabled: Bool {
+        let remotelyEnabled = (appConfig.config.wallet?.adRewardEnabled ?? true)
+            && appConfig.featureFlags.isEnabled("wallet_ad_reward_entry", default: true)
+        #if DEBUG
+        return remotelyEnabled
+        #else
+        return AdMobConfiguration.productionRewardDeliveryEnabled && remotelyEnabled
+        #endif
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             WalletMainBackground()
@@ -97,14 +114,28 @@ struct WalletView: View {
         .toolbarBackground(isWithdrawalFormFocused ? Color.white.opacity(0.96) : Color.clear, for: .navigationBar)
         .toolbarBackground(isWithdrawalFormFocused ? .visible : .hidden, for: .navigationBar)
         .task {
+            await appConfig.load()
             await walletStore.refreshBalanceFromServer()
             await walletStore.loadProducts()
             await walletStore.loadTransactions()
             await walletStore.loadWithdrawals()
+            if isAdRewardEntryEnabled {
+                await adRewardService.load()
+            }
+        }
+        .onChange(of: packages.map(\.productID)) { _ in
+            selectedAmountIndex = min(selectedAmountIndex, max(packages.count - 1, 0))
+            Task { await walletStore.loadProducts(force: true) }
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
-            Task { await walletStore.refreshBalanceFromServer() }
+            adRewardService.refreshDailyCounter()
+            Task {
+                await walletStore.refreshBalanceFromServer()
+                if isAdRewardEntryEnabled && adRewardService.hasRemainingViews {
+                    await adRewardService.load()
+                }
+            }
         }
         .onDisappear {
             resetWithdrawalForm()
@@ -160,8 +191,10 @@ struct WalletView: View {
 
                 VStack(spacing: compact ? 10 : 14) {
                     Spacer(minLength: 0)
-                    adRewardBanner(compact: compact)
-                        .padding(.horizontal, 20)
+                    if isAdRewardEntryEnabled {
+                        adRewardBanner(compact: compact)
+                            .padding(.horizontal, 20)
+                    }
 
                     rechargePanel(compact: compact, panelHeight: panelHeight)
                 }
@@ -413,15 +446,41 @@ struct WalletView: View {
 
     private func adRewardBanner(compact: Bool) -> some View {
         Button {
-            alertMessage = L10n.tr("wallet.adRewardUnavailable")
+            Task { await presentRewardedAd() }
         } label: {
             rechargeJumpRow(
                 compact: compact,
-                title: L10n.tr("wallet.adReward"),
+                title: L10n.tr("wallet.adReward", adRewardService.remainingViewCount),
                 icon: .play
             )
         }
         .buttonStyle(.plain)
+        .disabled(adRewardService.state == .presenting || !adRewardService.hasRemainingViews)
+        .opacity(adRewardService.state == .presenting || !adRewardService.hasRemainingViews ? 0.62 : 1)
+    }
+
+    @MainActor
+    private func presentRewardedAd() async {
+        guard adRewardService.hasRemainingViews else {
+            alertMessage = L10n.tr("wallet.adRewardDailyLimitReached")
+            return
+        }
+
+        let earnedReward = await adRewardService.present()
+        guard earnedReward else {
+            if adRewardService.state == .failed || adRewardService.lastErrorMessage != nil {
+                alertMessage = L10n.tr("wallet.adRewardLoadFailed")
+            }
+            return
+        }
+
+        #if DEBUG
+        centerToastMessage = L10n.tr("common.done")
+        #else
+        centerToastMessage = L10n.tr("wallet.adRewardCompletedPending")
+        #endif
+        await walletStore.refreshBalanceFromServer(forceRefresh: true)
+        await walletStore.loadTransactions(forceRefresh: true)
     }
 
     private enum RechargeJumpIcon {
@@ -1387,162 +1446,6 @@ private enum WalletRecordTab: CaseIterable {
             return L10n.tr("wallet.records.income")
         case .expense:
             return L10n.tr("wallet.records.expense")
-        }
-    }
-}
-
-private struct KeyboardDismissTapInstaller: UIViewRepresentable {
-    let isEnabled: Bool
-    let consumesOutsideTaps: Bool
-    let onBackgroundTap: () -> Void
-
-    init(
-        isEnabled: Bool,
-        consumesOutsideTaps: Bool = false,
-        onBackgroundTap: @escaping () -> Void = {}
-    ) {
-        self.isEnabled = isEnabled
-        self.consumesOutsideTaps = consumesOutsideTaps
-        self.onBackgroundTap = onBackgroundTap
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            isEnabled: isEnabled,
-            consumesOutsideTaps: consumesOutsideTaps,
-            onBackgroundTap: onBackgroundTap
-        )
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-        view.isUserInteractionEnabled = false
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.isEnabled = isEnabled
-        context.coordinator.consumesOutsideTaps = consumesOutsideTaps
-        context.coordinator.onBackgroundTap = onBackgroundTap
-        DispatchQueue.main.async {
-            context.coordinator.installIfNeeded(from: uiView)
-        }
-    }
-
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        coordinator.uninstall()
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var isEnabled: Bool
-        var consumesOutsideTaps: Bool
-        var onBackgroundTap: () -> Void
-        private weak var installedWindow: UIWindow?
-        private weak var recognizer: UITapGestureRecognizer?
-        private var shouldDismissKeyboardForCurrentTap = true
-
-        init(
-            isEnabled: Bool,
-            consumesOutsideTaps: Bool,
-            onBackgroundTap: @escaping () -> Void
-        ) {
-            self.isEnabled = isEnabled
-            self.consumesOutsideTaps = consumesOutsideTaps
-            self.onBackgroundTap = onBackgroundTap
-        }
-
-        func installIfNeeded(from view: UIView) {
-            guard let window = view.window else { return }
-
-            if installedWindow !== window {
-                uninstall()
-
-                let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
-                recognizer.cancelsTouchesInView = false
-                recognizer.delegate = self
-                window.addGestureRecognizer(recognizer)
-
-                installedWindow = window
-                self.recognizer = recognizer
-            }
-
-            recognizer?.isEnabled = isEnabled
-            if !isEnabled || !consumesOutsideTaps {
-                recognizer?.cancelsTouchesInView = false
-            }
-        }
-
-        func uninstall() {
-            if let recognizer, let installedWindow {
-                installedWindow.removeGestureRecognizer(recognizer)
-            }
-            recognizer = nil
-            installedWindow = nil
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard isEnabled else { return false }
-            guard !Self.isKeyboardTouch(touch.view) else {
-                gestureRecognizer.cancelsTouchesInView = false
-                return false
-            }
-            guard !Self.isSystemControlTouch(touch.view) else {
-                gestureRecognizer.cancelsTouchesInView = false
-                return false
-            }
-            shouldDismissKeyboardForCurrentTap = !Self.isTextInput(touch.view)
-            gestureRecognizer.cancelsTouchesInView = consumesOutsideTaps && shouldDismissKeyboardForCurrentTap
-            return true
-        }
-
-        @objc private func handleTap() {
-            guard isEnabled else { return }
-            guard shouldDismissKeyboardForCurrentTap else { return }
-            onBackgroundTap()
-        }
-
-        private static func isTextInput(_ view: UIView?) -> Bool {
-            var current = view
-            while let candidate = current {
-                if candidate is UITextField || candidate is UITextView {
-                    return true
-                }
-                current = candidate.superview
-            }
-            return false
-        }
-
-        private static func isSystemControlTouch(_ view: UIView?) -> Bool {
-            var current = view
-            while let candidate = current {
-                if candidate is UIControl {
-                    return true
-                }
-
-                let className = NSStringFromClass(type(of: candidate))
-                if className.contains("UINavigationBar")
-                    || className.contains("UIToolbar")
-                    || className.contains("UIButton")
-                    || className.contains("BarButton")
-                    || className.contains("HostingNavigation") {
-                    return true
-                }
-
-                current = candidate.superview
-            }
-            return false
-        }
-
-        private static func isKeyboardTouch(_ view: UIView?) -> Bool {
-            var current = view
-            while let candidate = current {
-                let className = NSStringFromClass(type(of: candidate))
-                if className.contains("UIKeyboard") || className.contains("UITextEffects") {
-                    return true
-                }
-                current = candidate.superview
-            }
-            return false
         }
     }
 }

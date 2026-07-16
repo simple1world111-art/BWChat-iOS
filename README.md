@@ -68,14 +68,14 @@ open BWChat.xcodeproj
 ```swift
 enum AppConfig {
     #if DEBUG
-    static let apiBaseURL = "http://52.198.192.138/api/v1"
-    static let wsBaseURL  = "ws://52.198.192.138/ws"
+    static let apiBaseURL = "http://52.193.78.191/api/v1"
+    static let wsBaseURL  = "ws://52.193.78.191/ws"
     #else
-    static let apiBaseURL = "http://52.198.192.138/api/v1"
-    static let wsBaseURL  = "ws://52.198.192.138/ws"
+    static let apiBaseURL = "http://52.193.78.191/api/v1"
+    static let wsBaseURL  = "ws://52.193.78.191/ws"
     #endif
 
-    static let livekitURL = "ws://52.198.192.138:7880"
+    static let livekitURL = "http://52.193.78.191/livekit"
 }
 ```
 

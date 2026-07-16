@@ -3,7 +3,7 @@
 
 import Foundation
 
-enum WalletCurrency: String, Equatable, Hashable {
+enum WalletCurrency: String, Codable, Equatable, Hashable {
     case catFood = "cat_food"
     case catHair = "cat_hair"
     case unknown
@@ -36,11 +36,19 @@ enum WalletCurrency: String, Equatable, Hashable {
     }
 }
 
-struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
+struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
     let giftID: String
     let name: String
+    let localizedNameI18n: [String: String]?
     let price: Int
     let assetKey: String
+    let remoteAssetKey: String?
+    let imageURL: String?
+    let animationAssetKey: String?
+    let sortOrder: Int?
+    let active: Bool?
+    let badgeI18n: [String: String]?
+    let minAppVersion: String?
     let receiverCurrency: WalletCurrency
 
     var id: String { giftID }
@@ -51,11 +59,24 @@ struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
         case giftId = "giftId"
         case name
         case title
+        case localizedName = "localized_name"
+        case localizedNameCamel = "localizedName"
         case price
         case amount
         case catFood = "cat_food"
         case assetKey = "asset_key"
         case assetKeyCamel = "assetKey"
+        case remoteAssetKey = "remote_asset_key"
+        case remoteAssetKeyCamel = "remoteAssetKey"
+        case imageURL = "image_url"
+        case imageURLCamel = "imageUrl"
+        case animationAssetKey = "animation_asset_key"
+        case animationAssetKeyCamel = "animationAssetKey"
+        case sortOrder = "sort_order"
+        case sortOrderCamel = "sortOrder"
+        case active
+        case badgeI18n = "badge_i18n"
+        case minAppVersion = "min_app_version"
         case receiverCurrency = "receiver_currency"
         case receiverCurrencyCamel = "receiverCurrency"
         case currency
@@ -66,12 +87,28 @@ struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
         name: String,
         price: Int,
         assetKey: String,
+        localizedNameI18n: [String: String]? = nil,
+        remoteAssetKey: String? = nil,
+        imageURL: String? = nil,
+        animationAssetKey: String? = nil,
+        sortOrder: Int? = nil,
+        active: Bool? = true,
+        badgeI18n: [String: String]? = nil,
+        minAppVersion: String? = nil,
         receiverCurrency: WalletCurrency = .catFood
     ) {
         self.giftID = giftID
         self.name = name
+        self.localizedNameI18n = localizedNameI18n
         self.price = price
         self.assetKey = assetKey
+        self.remoteAssetKey = remoteAssetKey
+        self.imageURL = imageURL
+        self.animationAssetKey = animationAssetKey
+        self.sortOrder = sortOrder
+        self.active = active
+        self.badgeI18n = badgeI18n
+        self.minAppVersion = minAppVersion
         self.receiverCurrency = receiverCurrency
     }
 
@@ -84,6 +121,8 @@ struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
         self.name = container.flexString(for: .name)
             ?? container.flexString(for: .title)
             ?? Self.fixedName(for: giftID)
+        self.localizedNameI18n = (try? container.decodeIfPresent([String: String].self, forKey: .localizedName))
+            ?? (try? container.decodeIfPresent([String: String].self, forKey: .localizedNameCamel))
         self.price = container.flexInt(for: .price)
             ?? container.flexInt(for: .amount)
             ?? container.flexInt(for: .catFood)
@@ -91,6 +130,17 @@ struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
         self.assetKey = container.flexString(for: .assetKey)
             ?? container.flexString(for: .assetKeyCamel)
             ?? Self.fixedAssetKey(for: giftID)
+        self.remoteAssetKey = container.flexString(for: .remoteAssetKey)
+            ?? container.flexString(for: .remoteAssetKeyCamel)
+        self.imageURL = container.flexString(for: .imageURL)
+            ?? container.flexString(for: .imageURLCamel)
+        self.animationAssetKey = container.flexString(for: .animationAssetKey)
+            ?? container.flexString(for: .animationAssetKeyCamel)
+        self.sortOrder = container.flexInt(for: .sortOrder)
+            ?? container.flexInt(for: .sortOrderCamel)
+        self.active = container.flexBool(for: .active)
+        self.badgeI18n = try? container.decodeIfPresent([String: String].self, forKey: .badgeI18n)
+        self.minAppVersion = container.flexString(for: .minAppVersion)
         self.receiverCurrency = WalletCurrency(
             container.flexString(for: .receiverCurrency)
                 ?? container.flexString(for: .receiverCurrencyCamel)
@@ -125,6 +175,9 @@ struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
     }
 
     var localizedName: String {
+        if let localized = localizedNameI18n.localizedDynamicValue(for: AppLanguageStore.shared.activeLanguage) {
+            return localized
+        }
         switch giftID {
         case "fish_10": return L10n.tr("gift.item.fish")
         case "wand_20": return L10n.tr("gift.item.wand")
@@ -134,6 +187,14 @@ struct GiftCatalogItem: Decodable, Identifiable, Equatable, Hashable {
         case "bell_500": return L10n.tr("gift.item.bell")
         default: return name
         }
+    }
+
+    var isActive: Bool {
+        active ?? true
+    }
+
+    var displayAssetKey: String {
+        remoteAssetKey?.isBlank == false ? remoteAssetKey! : assetKey
     }
 }
 
@@ -356,7 +417,7 @@ extension GroupMessage {
     var giftPayload: GiftMessagePayload? { GiftMessagePayload.parse(content) }
 }
 
-struct WalletTransaction: Decodable, Identifiable, Equatable {
+struct WalletTransaction: Codable, Identifiable, Equatable {
     let id: String
     let type: String
     let currency: WalletCurrency
@@ -621,7 +682,7 @@ struct GiftCatalogResponseData: Decodable {
     }
 }
 
-struct WalletBalanceResponseData: Decodable, Equatable {
+struct WalletBalanceResponseData: Codable, Equatable {
     let balance: Int
     let totalBalance: Int
     let rechargeClaimBalance: Int
@@ -799,7 +860,7 @@ struct WalletTransactionsResponseData: Decodable {
     }
 }
 
-struct WalletWithdrawal: Decodable, Identifiable, Equatable {
+struct WalletWithdrawal: Codable, Identifiable, Equatable {
     let id: String
     let currency: WalletCurrency
     let amount: Int
@@ -1134,5 +1195,53 @@ enum FlexibleJSONValue: Decodable {
         case .array(let array): return array.map { $0.jsonObject }
         case .null: return NSNull()
         }
+    }
+}
+
+extension GiftCatalogItem {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(giftID, forKey: .giftID); try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(localizedNameI18n, forKey: .localizedName); try c.encode(price, forKey: .price)
+        try c.encode(assetKey, forKey: .assetKey); try c.encodeIfPresent(remoteAssetKey, forKey: .remoteAssetKey)
+        try c.encodeIfPresent(imageURL, forKey: .imageURL); try c.encodeIfPresent(animationAssetKey, forKey: .animationAssetKey)
+        try c.encodeIfPresent(sortOrder, forKey: .sortOrder); try c.encodeIfPresent(active, forKey: .active)
+        try c.encodeIfPresent(badgeI18n, forKey: .badgeI18n); try c.encodeIfPresent(minAppVersion, forKey: .minAppVersion)
+        try c.encode(receiverCurrency, forKey: .receiverCurrency)
+    }
+}
+
+extension WalletTransaction {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id); try c.encode(type, forKey: .type); try c.encode(currency, forKey: .currency)
+        try c.encodeIfPresent(amount, forKey: .amount); try c.encodeIfPresent(balanceAfter, forKey: .balanceAfter)
+        try c.encodeIfPresent(title, forKey: .title); try c.encodeIfPresent(note, forKey: .note)
+        try c.encodeIfPresent(giftID, forKey: .giftID); try c.encodeIfPresent(giftName, forKey: .giftName)
+        try c.encodeIfPresent(productID, forKey: .productID); try c.encodeIfPresent(createdAt, forKey: .createdAt)
+    }
+}
+
+extension WalletBalanceResponseData {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(balance, forKey: .balance); try c.encode(totalBalance, forKey: .totalBalance)
+        try c.encode(rechargeClaimBalance, forKey: .rechargeClaimBalance); try c.encode(catHairBalance, forKey: .catHairBalance)
+        try c.encode(catHairFrozenBalance, forKey: .catHairFrozenBalance)
+        if hasExplicitWithdrawableCatHairBalance { try c.encode(withdrawableCatHairBalance, forKey: .withdrawableCatHairBalance) }
+        try c.encode(lockedCatHairBalance, forKey: .lockedCatHairBalance)
+    }
+}
+
+extension WalletWithdrawal {
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id); try c.encode(currency, forKey: .currency); try c.encode(amount, forKey: .amount)
+        try c.encodeIfPresent(payoutUSD, forKey: .payoutUSD); try c.encodeIfPresent(payoutCents, forKey: .payoutCents)
+        try c.encodeIfPresent(provider, forKey: .provider); try c.encodeIfPresent(payoutMethod, forKey: .payoutMethod)
+        try c.encodeIfPresent(payoutAccount, forKey: .payoutAccount); try c.encodeIfPresent(network, forKey: .network)
+        try c.encodeIfPresent(walletAddress, forKey: .walletAddress); try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(canCancelFromServer, forKey: .canCancel); try c.encodeIfPresent(note, forKey: .note)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt); try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
 }

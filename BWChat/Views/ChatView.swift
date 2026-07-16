@@ -6,6 +6,7 @@ import PhotosUI
 import AVKit
 import AVFoundation
 import UniformTypeIdentifiers
+import UIKit
 
 private struct ChatMessageRenderItem: Identifiable {
     let message: Message
@@ -24,17 +25,41 @@ struct ChatView: View {
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var highlightedMessageID: Int?
-    @State private var showPlusMenu = false
+    @State private var activeComposerPanel: ComposerPanel?
+    @State private var pendingComposerPanel: ComposerPanel?
+    @State private var isReplacingStickerPanelWithKeyboard = false
+    @State private var isKeyboardLayoutVisible = false
     @State private var showGiftSheet = false
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
     @State private var voiceCancelZone = false
     @State private var isInputFocused = false
     @State private var inputTextHeight: CGFloat = 40
+    @State private var composerPanelHeight: CGFloat = StickerPanel.preferredHeight
+    @State private var composerSelection = NSRange(location: 0, length: 0)
     @State private var isViewVisible = false
+    @State private var hasCompletedInitialLoad = false
     @State private var toastMessage: String?
 
     private let bottomScrollAnchorID = "chat-bottom-anchor"
+    private let composerPanelAnimation = Animation.easeInOut(duration: 0.25)
+    private let composerActionButtonHeight: CGFloat = 54
+
+    private var showsComposerMicrophone: Bool {
+        !isInputFocused && selectedComposerPanel == nil && viewModel.inputText.isEmpty
+    }
+
+    private var selectedComposerPanel: ComposerPanel? {
+        pendingComposerPanel ?? activeComposerPanel
+    }
+
+    private var reservesStickerPanelSpace: Bool {
+        !isVoiceMode && (
+            activeComposerPanel == .stickers
+                || isReplacingStickerPanelWithKeyboard
+                || isKeyboardLayoutVisible
+        )
+    }
 
     private var isSelfChat: Bool {
         contact.userID == AuthManager.shared.currentUser?.userID
@@ -64,6 +89,182 @@ struct ChatView: View {
 
     private func setActiveChat(_ active: Bool) {
         WebSocketService.shared.activeChatUserID = active ? contact.userID : nil
+    }
+
+    private func markConversationRead() {
+        NotificationCenter.default.post(
+            name: .conversationDidMarkRead,
+            object: ConversationReadTarget.direct(userID: contact.userID)
+        )
+        if let onMarkRead {
+            onMarkRead()
+        } else {
+            viewModel.markConversationAsReadOnServer()
+        }
+    }
+
+    private func keyboardAnimation(from notification: Notification) -> Animation {
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        return .easeInOut(duration: max(duration, 0.18))
+    }
+
+    private func closeComposerPanelForKeyboard() {
+        // `keyboardWillShow` can arrive after the user has already tapped the
+        // sticker/plus button and requested a keyboard -> panel transition.
+        // Keep that newer request authoritative instead of closing it again.
+        guard pendingComposerPanel == nil else { return }
+        guard activeComposerPanel != nil else { return }
+
+        // SwiftUI applies the keyboard's final safe-area inset before the
+        // keyboard finishes moving onscreen. The panel must stop contributing
+        // layout height in that same update or the composer is lifted by both
+        // the keyboard inset and the still-animating panel.
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            activeComposerPanel = nil
+        }
+    }
+
+    private func focusComposerTextInput() {
+        pendingComposerPanel = nil
+        isReplacingStickerPanelWithKeyboard = activeComposerPanel == .stickers
+        if isReplacingStickerPanelWithKeyboard {
+            isKeyboardLayoutVisible = true
+        }
+        if isVoiceMode {
+            withAnimation(.easeOut(duration: 0.12)) {
+                isVoiceMode = false
+            }
+        }
+
+        // Keep the current panel in place until UIKit starts presenting the
+        // keyboard. `handleKeyboardWillShow` then removes it using the same
+        // duration as the keyboard, producing one continuous height swap.
+        isInputFocused = true
+    }
+
+    private func dismissComposerInput() {
+        pendingComposerPanel = nil
+        isReplacingStickerPanelWithKeyboard = false
+        isInputFocused = false
+        withAnimation(composerPanelAnimation) {
+            activeComposerPanel = nil
+        }
+        hideKeyboard()
+    }
+
+    private func activateVoiceComposer() {
+        pendingComposerPanel = nil
+        isReplacingStickerPanelWithKeyboard = false
+        activeComposerPanel = nil
+        isInputFocused = false
+        hideKeyboard()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.easeOut(duration: 0.14)) {
+            isVoiceMode = true
+        }
+    }
+
+    private func toggleComposerPanel(_ panel: ComposerPanel) {
+        isReplacingStickerPanelWithKeyboard = false
+        let isClosing = selectedComposerPanel == panel
+        UISelectionFeedbackGenerator().selectionChanged()
+
+        if isClosing {
+            pendingComposerPanel = nil
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = nil
+            }
+            return
+        }
+
+        isVoiceMode = false
+        if isInputFocused {
+            // Resign the UIKit text view before changing panel layout. If the
+            // panel is inserted first, SwiftUI can refresh the representable
+            // while focus is still true and immediately request the keyboard
+            // again, which clears the just-opened panel.
+            isInputFocused = false
+            hideKeyboard()
+            pendingComposerPanel = panel
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = panel
+            }
+            completeComposerPanelTransitionAfterKeyboardDismiss(panel)
+        } else {
+            pendingComposerPanel = nil
+            hideKeyboard()
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = panel
+            }
+        }
+    }
+
+    private func completeComposerPanelTransitionAfterKeyboardDismiss(_ panel: ComposerPanel) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            guard pendingComposerPanel == panel, !isInputFocused, !isVoiceMode else { return }
+            withAnimation(composerPanelAnimation) {
+                activeComposerPanel = panel
+            }
+            pendingComposerPanel = nil
+        }
+    }
+
+    private func handleKeyboardWillShow(_ notification: Notification) {
+        // Preserve the exact height currently occupied by the sticker panel
+        // during a sticker -> keyboard replacement. The first will-show frame
+        // can report a transient keyboard height; applying it here makes the
+        // reserved spacer grow before the keyboard is visible and briefly
+        // lifts the composer.
+        if !isReplacingStickerPanelWithKeyboard {
+            updateComposerPanelHeight(from: notification)
+        }
+        if isReplacingStickerPanelWithKeyboard {
+            isKeyboardLayoutVisible = true
+        } else {
+            withAnimation(keyboardAnimation(from: notification)) {
+                isKeyboardLayoutVisible = true
+            }
+        }
+        closeComposerPanelForKeyboard()
+    }
+
+    private func handleKeyboardWillHide(_ notification: Notification) {
+        withAnimation(keyboardAnimation(from: notification)) {
+            isKeyboardLayoutVisible = false
+        }
+        isInputFocused = false
+        isReplacingStickerPanelWithKeyboard = false
+        guard let panel = pendingComposerPanel, !isVoiceMode else { return }
+        withAnimation(keyboardAnimation(from: notification)) {
+            activeComposerPanel = panel
+        }
+    }
+
+    private func handleKeyboardDidShow() {
+        guard isReplacingStickerPanelWithKeyboard else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isReplacingStickerPanelWithKeyboard = false
+        }
+    }
+
+    private func updateComposerPanelHeight(from notification: Notification) {
+        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+        let bottomInset = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.bottom ?? 0
+        let availableHeight = keyboardFrame.height - bottomInset
+        // Match the custom panel to the keyboard's actual safe-area height.
+        // Capping this at the old 250pt preferred height made the composer
+        // jump upward when a taller system keyboard replaced the panel.
+        composerPanelHeight = max(StickerPanel.minimumHeight, availableHeight)
     }
 
     private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
@@ -108,27 +309,21 @@ struct ChatView: View {
                 scrollAction()
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            guard isViewVisible else { return }
-            scrollAction()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            guard isViewVisible else { return }
-            scrollAction()
-        }
     }
 
     private func previousTimestamp(for pending: PendingMessage) -> String? {
-        guard let idx = viewModel.pendingMessages.firstIndex(where: { $0.id == pending.id }) else {
+        let visiblePending = viewModel.visiblePendingMessages
+        guard let idx = visiblePending.firstIndex(where: { $0.id == pending.id }) else {
             return viewModel.messages.last?.timestamp
         }
         if idx > 0 {
-            return viewModel.pendingMessages[idx - 1].createdAt.iso8601String
+            return visiblePending[idx - 1].createdAt.iso8601String
         }
         return viewModel.messages.last?.timestamp
     }
 
     private func handleImageTap(url: String, frame: CGRect) {
+        pendingComposerPanel = nil
         isInputFocused = false
         hideKeyboard()
         let allImages = viewModel.messages.filter(\.isImage).map(\.content)
@@ -172,6 +367,7 @@ struct ChatView: View {
                 avatarURL: isFromMe ? myAvatarURL : contact.avatarURL,
                 onImageTap: handleImageTap,
                 onVideoTap: { url in
+                    pendingComposerPanel = nil
                     isInputFocused = false
                     hideKeyboard()
                     previewVideoURL = url
@@ -180,7 +376,9 @@ struct ChatView: View {
                 onQuoteTap: { targetID in
                     scrollToMessage(targetID, proxy: proxy)
                 },
-                peerName: contact.nickname
+                peerName: contact.nickname,
+                peerUserID: contact.userID,
+                recipientAvatarURL: isFromMe ? contact.avatarURL : myAvatarURL
             )
         }
         .id(messageScrollID(message.id))
@@ -209,7 +407,7 @@ struct ChatView: View {
                                 .id(bottomScrollAnchorID)
 
                             LazyVStack(spacing: 4) {
-                                ForEach(viewModel.pendingMessages.reversed()) { pending in
+                                ForEach(viewModel.visiblePendingMessages.reversed()) { pending in
                                     VStack(spacing: 4) {
                                         if TimestampHelper.shouldShowTime(
                                             current: pending.createdAt.iso8601String,
@@ -256,23 +454,23 @@ struct ChatView: View {
                     .onChange(of: viewModel.messages.last?.id) { _ in
                         scrollChatToBottom(proxy: proxy)
                     }
-                    .onChange(of: viewModel.pendingMessages.count) { _ in
+                    .onChange(of: viewModel.visiblePendingMessages.count) { count in
+                        guard count > 0 else { return }
                         scrollChatToBottom(proxy: proxy)
                     }
                     .task {
+                        guard !hasCompletedInitialLoad else { return }
                         await viewModel.loadMessages()
                         await appearanceStore.loadIfNeeded()
                         guard !Task.isCancelled, isViewVisible else { return }
-                        onMarkRead?()
+                        hasCompletedInitialLoad = true
                         scrollChatToBottom(proxy: proxy, animated: false)
                     }
                 }
                 .contentShape(Rectangle())
                 .simultaneousGesture(
                     TapGesture().onEnded {
-                        isInputFocused = false
-                        showPlusMenu = false
-                        hideKeyboard()
+                        dismissComposerInput()
                     }
                 )
             }
@@ -289,11 +487,21 @@ struct ChatView: View {
 
             inputBar
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
         .withUIKitBackButton()
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(L10n.tr("common.done")) {
+                    dismissComposerInput()
+                }
+                .font(.system(size: 15, weight: .semibold))
+            }
+        }
         .overlay { voiceRecordingOverlay }
         .sheet(isPresented: $showGiftSheet) {
             GiftPickerSheet(
@@ -316,20 +524,41 @@ struct ChatView: View {
         .onAppear {
             isViewVisible = true
             setActiveChat(true)
+            markConversationRead()
+        }
+        .onChange(of: viewModel.errorMessage) { message in
+            guard let message,
+                  !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            toastMessage = message
+            viewModel.errorMessage = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            handleKeyboardWillShow(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            handleKeyboardWillHide(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            handleKeyboardDidShow()
         }
         .onDisappear {
             isViewVisible = false
+            isKeyboardLayoutVisible = false
             setActiveChat(false)
         }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
+                pendingComposerPanel = nil
                 isInputFocused = false
+                activeComposerPanel = nil
                 hideKeyboard()
             }
         }
         .onChange(of: callManager.currentCall?.state) { newState in
             if newState == .connected || newState == .connecting {
+                pendingComposerPanel = nil
                 isInputFocused = false
+                activeComposerPanel = nil
                 hideKeyboard()
             }
         }
@@ -346,88 +575,166 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isVoiceMode.toggle()
-                        if isVoiceMode { showPlusMenu = false }
-                    }
-                } label: {
-                    Image(systemName: isVoiceMode ? "keyboard" : "mic.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(AppColors.accent)
-                        .frame(width: 32, height: inputChromeHeight)
-                }
-                .buttonStyle(.plain)
-
+            HStack(alignment: .center, spacing: 6) {
                 if isVoiceMode {
                     holdToRecordButton
+                        .overlay(alignment: .leading) {
+                            Button {
+                                focusComposerTextInput()
+                            } label: {
+                                Image(systemName: "keyboard")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundColor(recorder.isRecording ? .white : AppColors.accent)
+                                    .frame(width: 42, height: inputChromeHeight)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(recorder.isRecording)
+                        }
                 } else {
-                    ZStack(alignment: .topLeading) {
+                    ZStack(alignment: .leading) {
                         ChatInputTextView(
                             text: $viewModel.inputText,
                             isFocused: $isInputFocused,
-                            height: $inputTextHeight
-                        ) {
-                            viewModel.submitText()
-                        }
+                            height: $inputTextHeight,
+                            selectedRange: $composerSelection,
+                            onRequestFocus: focusComposerTextInput,
+                            onSend: { viewModel.submitText() }
+                        )
+                        .padding(.leading, showsComposerMicrophone ? 34 : 0)
                         .frame(height: inputTextHeight)
 
                         Text(L10n.tr("chat.input.placeholder"))
                             .font(.system(size: 16))
                             .foregroundColor(AppColors.tertiaryText)
-                            .padding(.top, 11)
-                            .padding(.leading, 2)
+                            .padding(.leading, showsComposerMicrophone ? 36 : 2)
                             .opacity(viewModel.inputText.isEmpty && !isInputFocused ? 1 : 0)
                             .allowsHitTesting(false)
+
+                        Button(action: activateVoiceComposer) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 20, weight: .medium))
+                                .foregroundColor(AppColors.accent)
+                                .frame(width: 34, height: inputTextHeight)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .opacity(showsComposerMicrophone ? 1 : 0)
+                        .scaleEffect(showsComposerMicrophone ? 1 : 0.82)
+                        .allowsHitTesting(showsComposerMicrophone)
+                        .animation(.easeOut(duration: 0.12), value: showsComposerMicrophone)
                     }
-                        .chatComposerFieldChrome(minHeight: inputChromeHeight)
-                        .contentShape(Rectangle())
-                        .onTapGesture { isInputFocused = true }
+                    .frame(maxWidth: .infinity)
+                    .chatComposerFieldChrome(minHeight: inputChromeHeight)
                 }
 
-                if viewModel.isSendEnabled && !isVoiceMode {
-                    Button {
-                        viewModel.submitText()
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(AppColors.accentGradient)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
+                if !isVoiceMode {
+                    HStack(spacing: 2) {
+                            Button {
+                                toggleComposerPanel(.stickers)
+                            } label: {
+                                Image(systemName: activeComposerPanel == .stickers ? "face.smiling.fill" : "face.smiling")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(AppColors.accent)
+                                    .frame(width: 40, height: 40)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(
+                                ChatComposerActionButtonStyle(
+                                    isActive: activeComposerPanel == .stickers,
+                                    showsActiveBackground: false
+                                )
+                            )
+                            .accessibilityLabel(L10n.tr("chat.stickers"))
+                            .frame(width: 42, height: composerActionButtonHeight, alignment: .center)
+
+                            ZStack {
+                                Button {
+                                    viewModel.submitText()
+                                } label: {
+                                    ZStack {
+                                        Circle()
+                                            .fill(AppColors.accentGradient)
+                                            .frame(width: 40, height: 40)
+                                        Image(systemName: "arrow.up")
+                                            .font(.system(size: 15, weight: .bold))
+                                            .foregroundColor(.white)
+                                    }
+                                    .contentShape(Circle())
+                                }
+                                .buttonStyle(ChatComposerActionButtonStyle(isActive: false))
+                                .opacity(viewModel.isSendEnabled ? 1 : 0)
+                                .allowsHitTesting(viewModel.isSendEnabled)
+
+                                Button {
+                                    toggleComposerPanel(.plus)
+                                } label: {
+                                    Image(systemName: activeComposerPanel == .plus ? "xmark.circle.fill" : "plus.circle.fill")
+                                        .font(.system(size: 28))
+                                        .foregroundColor(AppColors.accent)
+                                        .frame(width: 40, height: 40)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(
+                                    ChatComposerActionButtonStyle(
+                                        isActive: activeComposerPanel == .plus,
+                                        showsActiveBackground: false
+                                    )
+                                )
+                                .opacity(viewModel.isSendEnabled ? 0 : 1)
+                                .allowsHitTesting(!viewModel.isSendEnabled)
+                            }
+                            .frame(width: 42, height: composerActionButtonHeight, alignment: .center)
                         }
-                        .contentShape(Circle())
                     }
-                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
-                } else if !isVoiceMode {
-                    Button {
-                        isInputFocused = false
-                        withAnimation(.easeInOut(duration: 0.2)) { showPlusMenu.toggle() }
-                    } label: {
-                        Image(systemName: showPlusMenu ? "xmark.circle.fill" : "plus.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(AppColors.accent)
-                            .frame(width: 40, height: 40)
-                            .contentShape(Rectangle())
-                    }
-                    .frame(width: 42, height: inputChromeHeight, alignment: .center)
+                }
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, isInputFocused || selectedComposerPanel != nil ? 5 : 12)
+
+            ZStack(alignment: .top) {
+                if activeComposerPanel == .stickers && !isVoiceMode {
+                    StickerPanel(
+                        onSend: { pack, sticker in
+                            Task { await viewModel.sendSticker(pack: pack, sticker: sticker) }
+                        },
+                        onInsertEmoji: insertEmoji
+                    )
+                } else if activeComposerPanel == .plus && !isVoiceMode {
+                    chatPlusMenu
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
-
-            if showPlusMenu && !isVoiceMode {
-                chatPlusMenu
+            .frame(maxWidth: .infinity)
+            .frame(
+                height: reservesStickerPanelSpace
+                    ? composerPanelHeight
+                    : nil,
+                alignment: .top
+            )
+            .clipped()
+            .background {
+                if reservesStickerPanelSpace {
+                    Color(uiColor: .secondarySystemBackground)
+                        .opacity(0.98)
+                        .ignoresSafeArea(edges: .bottom)
+                }
             }
         }
-        .chatComposerBarBackground()
+        .chatComposerBarBackground(
+            showsStickerPanel: selectedComposerPanel == .stickers || isReplacingStickerPanelWithKeyboard
+        )
     }
 
     private var inputChromeHeight: CGFloat {
         inputTextHeight + 14
+    }
+
+    private func insertEmoji(_ value: String) {
+        ComposerTextInsertion.insert(
+            value,
+            into: &viewModel.inputText,
+            selectedRange: &composerSelection
+        )
     }
 
     private var holdToRecordButton: some View {
@@ -544,11 +851,12 @@ struct ChatView: View {
             }
             .onChange(of: selectedMediaItems) { items in
                 guard !items.isEmpty else { return }
-                showPlusMenu = false
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
                 let captured = items
                 selectedMediaItems = []
-                Task {
-                    for (index, item) in captured.enumerated() {
+                for (index, item) in captured.enumerated() {
+                    Task {
                         if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
                             if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
                                 let data = try? Data(contentsOf: movie.url)
@@ -571,13 +879,15 @@ struct ChatView: View {
 
             if !isSelfChat {
                 GiftPlusMenuTile {
-                    showPlusMenu = false
+                    pendingComposerPanel = nil
+                    activeComposerPanel = nil
                     isInputFocused = false
                     showGiftSheet = true
                 }
 
                 Button {
-                    showPlusMenu = false
+                    pendingComposerPanel = nil
+                    activeComposerPanel = nil
                     CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .voice)
                 } label: {
                     VStack(spacing: 6) {
@@ -590,7 +900,8 @@ struct ChatView: View {
                 }
 
                 Button {
-                    showPlusMenu = false
+                    pendingComposerPanel = nil
+                    activeComposerPanel = nil
                     CallManager.shared.startCall(to: contact.userID, nickname: contact.nickname, avatarURL: contact.avatarURL, type: .video)
                 } label: {
                     VStack(spacing: 6) {
@@ -617,7 +928,7 @@ struct PendingMessageBubble: View {
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 8) {
             Spacer(minLength: 40)
 
             VStack(alignment: .trailing, spacing: 2) {
@@ -673,11 +984,23 @@ struct PendingMessageBubble: View {
                         .frame(width: 100)
                         .background(AppColors.sentBubbleGradient)
                         .cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])
+                    } else if pending.msgType == "sticker",
+                              let payload = StickerMessagePayload.parse(pending.content) {
+                        StickerMessageBubble(
+                            payload: payload,
+                            timeText: pending.formattedTime,
+                            isFromMe: true
+                        )
                     }
                 }
             }
 
-            AvatarView(url: avatarURL, size: 36)
+            UserAvatarButton(
+                userID: AuthManager.shared.currentUser?.userID ?? "",
+                avatarURL: avatarURL,
+                size: 36,
+                accessibilityName: L10n.tr("common.me")
+            )
         }
         .padding(.vertical, 2)
     }
