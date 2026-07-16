@@ -30,6 +30,8 @@ struct ChatView: View {
     @State private var isReplacingStickerPanelWithKeyboard = false
     @State private var isKeyboardLayoutVisible = false
     @State private var showGiftSheet = false
+    @State private var moneyDestination: MoneyComposerDestination?
+    @StateObject private var moneyStore = ChatMoneyStore()
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
     @State private var voiceCancelZone = false
@@ -67,6 +69,10 @@ struct ChatView: View {
 
     private var myAvatarURL: String {
         AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
+    private var moneyContext: ChatMoneyConversationContext {
+        .direct(id: contact.userID, name: contact.nickname, avatarURL: contact.avatarURL)
     }
 
     private var renderedMessages: [ChatMessageRenderItem] {
@@ -378,7 +384,10 @@ struct ChatView: View {
                 },
                 peerName: contact.nickname,
                 peerUserID: contact.userID,
-                recipientAvatarURL: isFromMe ? contact.avatarURL : myAvatarURL
+                recipientAvatarURL: isFromMe ? contact.avatarURL : myAvatarURL,
+                onChatMoneyTap: { payload in
+                    moneyDestination = .detail(payload: payload)
+                }
             )
         }
         .id(messageScrollID(message.id))
@@ -521,10 +530,39 @@ struct ChatView: View {
                 }
             )
         }
+        .sheet(item: $moneyDestination) { destination in
+            switch destination {
+            case .chooseRecipient:
+                ChatMoneyRecipientPickerSheet(context: moneyContext) { recipient in
+                    moneyDestination = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        moneyDestination = .compose(kind: .transfer, recipient: recipient)
+                    }
+                }
+            case .compose(let kind, let recipient):
+                ChatMoneyComposerSheet(
+                    store: moneyStore,
+                    kind: kind,
+                    context: moneyContext,
+                    initialRecipient: recipient,
+                    onCreated: { result in
+                        viewModel.appendCreatedChatMoneyMessage(result)
+                    },
+                    onOpenWallet: {
+                        navigator.push(WalletView())
+                    }
+                )
+            case .detail(let payload):
+                ChatMoneyDetailSheet(store: moneyStore, initialPayload: payload)
+            }
+        }
         .onAppear {
             isViewVisible = true
             setActiveChat(true)
             markConversationRead()
+        }
+        .task {
+            await moneyStore.loadConfiguration()
         }
         .onChange(of: viewModel.errorMessage) { message in
             guard let message,
@@ -534,6 +572,9 @@ struct ChatView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
             handleKeyboardWillShow(notification)
+        }
+        .onReceive(WebSocketService.shared.chatMoneyUpdatePublisher) { update in
+            moneyStore.apply(update)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
             handleKeyboardWillHide(notification)
@@ -833,7 +874,10 @@ struct ChatView: View {
     }
 
     private var chatPlusMenu: some View {
-        HStack(spacing: 24) {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
+            spacing: 18
+        ) {
             PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 9, matching: .any(of: [.images, .videos])) {
                 VStack(spacing: 6) {
                     ZStack {
@@ -883,6 +927,20 @@ struct ChatView: View {
                     activeComposerPanel = nil
                     isInputFocused = false
                     showGiftSheet = true
+                }
+
+                ChatMoneyPlusMenuTile(kind: .redPacket) {
+                    pendingComposerPanel = nil
+                    activeComposerPanel = nil
+                    isInputFocused = false
+                    moneyDestination = .compose(kind: .redPacket, recipient: nil)
+                }
+
+                ChatMoneyPlusMenuTile(kind: .transfer) {
+                    pendingComposerPanel = nil
+                    activeComposerPanel = nil
+                    isInputFocused = false
+                    moneyDestination = .compose(kind: .transfer, recipient: nil)
                 }
 
                 Button {

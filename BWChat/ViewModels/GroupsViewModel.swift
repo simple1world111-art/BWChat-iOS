@@ -312,6 +312,9 @@ class GroupsViewModel: ObservableObject {
         if let stickerPreview = StickerMessagePayload.previewText(content: content, msgType: msgType) {
             return stickerPreview
         }
+        if let moneyPreview = ChatMoneyPreview.text(content: content, msgType: msgType) {
+            return moneyPreview
+        }
         if msgType == "gift" || GiftMessagePayload.parse(content) != nil {
             return GiftMessagePayload.previewText(content: content)
         }

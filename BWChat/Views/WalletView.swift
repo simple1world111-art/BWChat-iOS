@@ -1709,6 +1709,11 @@ private struct WalletTransactionRow: View {
         case "ios_iap": return "cart.fill"
         case "gift_sent": return "paperplane.fill"
         case "gift_received": return "gift.fill"
+        case "red_packet_sent": return "envelope.fill"
+        case "red_packet_received", "red_packet_refund": return "envelope.open.fill"
+        case "transfer_sent": return "arrow.up.right.circle.fill"
+        case "transfer_received": return "arrow.down.left.circle.fill"
+        case "transfer_returned": return "arrow.uturn.backward.circle.fill"
         default: return "pawprint.fill"
         }
     }

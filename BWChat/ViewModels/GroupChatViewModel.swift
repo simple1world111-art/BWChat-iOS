@@ -460,6 +460,18 @@ class GroupChatViewModel: ObservableObject {
         }
     }
 
+    func appendCreatedChatMoneyMessage(_ result: ChatMoneyCreationResult) {
+        guard case .group(let response) = result.message,
+              response.groupID == group.groupID else { return }
+        let message = response.replacingChatMoneyPayload(result.payload)
+        store.saveGroupMessage(message)
+        appendMessageIfNeeded(
+            message,
+            source: .apiResponse,
+            shouldMergeOutgoingEcho: true
+        )
+    }
+
     var isSendEnabled: Bool {
         !inputText.isBlank
     }
@@ -557,6 +569,35 @@ class GroupChatViewModel: ObservableObject {
                 guard let self = self,
                       Self.intValue(data["group_id"]) == self.group.groupID else { return }
                 Task { await self.syncLatestMessages() }
+            }
+            .store(in: &cancellables)
+
+        WebSocketService.shared.chatMoneyUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                guard let self else { return }
+                if let current = self.messages.first(where: {
+                    $0.chatMoneyPayload?.assetID == update.payload.assetID
+                })?.chatMoneyPayload,
+                   current.version >= update.payload.version {
+                    return
+                }
+                if let replacement = update.groupMessage {
+                    guard replacement.groupID == self.group.groupID else { return }
+                    self.store.saveGroupMessage(replacement)
+                    if let index = self.messages.firstIndex(where: { $0.id == replacement.id }) {
+                        self.messages[index] = replacement
+                    } else {
+                        self.appendMessageIfNeeded(replacement, source: .webSocket)
+                    }
+                    return
+                }
+                guard let index = self.messages.firstIndex(where: {
+                    $0.chatMoneyPayload?.assetID == update.payload.assetID
+                }) else { return }
+                let replacement = self.messages[index].replacingChatMoneyPayload(update.payload)
+                self.messages[index] = replacement
+                self.store.saveGroupMessage(replacement)
             }
             .store(in: &cancellables)
 

@@ -470,3 +470,215 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertEqual(store.chatUnreadCount, 3)
     }
 }
+
+extension APIResponseContractTests {
+    func testRedPacketMessageNeverSerializesAmount() throws {
+        let payload = ChatMoneyPayload(
+            assetID: "rp-1",
+            kind: .redPacket,
+            scope: .group,
+            mode: .lucky,
+            senderID: "u1",
+            amount: 9_999,
+            packetCount: 3
+        )
+
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: try JSONEncoder().encode(payload)) as? [String: Any]
+        )
+        XCTAssertNil(payload.amount)
+        XCTAssertNil(object["amount"])
+        XCTAssertEqual(object["asset_id"] as? String, "rp-1")
+    }
+
+    func testRedPacketDecoderDropsAccidentallyLeakedAmount() throws {
+        let json = #"{"asset_id":"rp-2","kind":"red_packet","scope":"dm","mode":"direct","sender_id":"u1","amount":888,"status":"pending"}"#
+        let payload = try JSONDecoder().decode(ChatMoneyPayload.self, from: Data(json.utf8))
+
+        XCTAssertNil(payload.amount)
+        XCTAssertEqual(payload.schemaVersion, 1)
+        XCTAssertEqual(payload.version, 1)
+    }
+
+    func testTransferMessageKeepsPublicAmount() throws {
+        let payload = ChatMoneyPayload(
+            assetID: "tr-1",
+            kind: .transfer,
+            scope: .direct,
+            senderID: "u1",
+            recipientID: "u2",
+            amount: 321
+        )
+        let decoded = try JSONDecoder().decode(ChatMoneyPayload.self, from: JSONEncoder().encode(payload))
+
+        XCTAssertEqual(decoded.amount, 321)
+        XCTAssertEqual(decoded.kind, .transfer)
+    }
+
+    func testAllChatMoneyModesAndStatusesDecodeFromContractValues() throws {
+        for mode in RedPacketMode.allCases {
+            let encoded = try JSONEncoder().encode(mode)
+            XCTAssertEqual(try JSONDecoder().decode(RedPacketMode.self, from: encoded), mode)
+        }
+        for raw in ["pending", "partial", "completed", "accepted", "returned", "expired_refunded"] {
+            let status = try JSONDecoder().decode(ChatMoneyStatus.self, from: Data("\"\(raw)\"".utf8))
+            XCTAssertEqual(status.rawValue, raw)
+        }
+    }
+
+    func testDeliveryMatcherCorrelatesChatMoneyByStableAssetID() {
+        let http = #"{"asset_id":"rp-stable","kind":"red_packet","scope":"dm","mode":"direct","sender_id":"u1","status":"pending","version":1}"#
+        let socket = #"{"asset_id":"rp-stable","kind":"red_packet","scope":"dm","mode":"direct","sender_id":"u1","status":"completed","version":2}"#
+
+        XCTAssertTrue(MessageDeliveryMatcher.contentsMatch(type: "red_packet", lhs: http, rhs: socket))
+    }
+
+    @MainActor
+    func testChatMoneyStoreRejectsDuplicateAndOutOfOrderEvents() {
+        let store = ChatMoneyStore(service: MockChatMoneyService())
+        let newest = ChatMoneyPayload(
+            assetID: "rp-order",
+            kind: .redPacket,
+            scope: .group,
+            mode: .lucky,
+            senderID: "u1",
+            packetCount: 2,
+            claimedCount: 2,
+            status: .completed,
+            version: 3
+        )
+        let stale = ChatMoneyPayload(
+            assetID: "rp-order",
+            kind: .redPacket,
+            scope: .group,
+            mode: .lucky,
+            senderID: "u1",
+            packetCount: 2,
+            claimedCount: 1,
+            status: .partial,
+            version: 2
+        )
+
+        store.apply(newest)
+        store.apply(stale)
+        store.apply(newest)
+
+        XCTAssertEqual(store.payloads["rp-order"]?.version, 3)
+        XCTAssertEqual(store.payloads["rp-order"]?.status, .completed)
+    }
+
+    @MainActor
+    func testChatMoneyConfigurationFailsClosedUntilBackendConfigurationLoads() async {
+        let store = ChatMoneyStore(service: MockChatMoneyService())
+
+        XCTAssertFalse(store.configuration.redPacketEnabled)
+        XCTAssertFalse(store.configuration.transferEnabled)
+
+        await store.loadConfiguration()
+
+        XCTAssertTrue(store.configuration.redPacketEnabled)
+        XCTAssertTrue(store.configuration.transferEnabled)
+        XCTAssertTrue(store.configuration.eligibility.eligible)
+    }
+
+    @MainActor
+    func testSuccessfulRedPacketClaimPersistsViewerReceiptAndBlocksDuplicateRequest() async throws {
+        let suiteName = "ChatMoneyClaimReceiptTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let service = MockChatMoneyService()
+        let store = ChatMoneyStore(service: service, defaults: defaults)
+        await store.loadConfiguration()
+
+        let assetID = "rp-claim-receipt"
+        _ = try await store.createRedPacket(CreateRedPacketRequest(
+            clientMessageID: assetID,
+            scope: .group,
+            receiverID: nil,
+            groupID: 42,
+            recipientID: nil,
+            recipientName: nil,
+            mode: .lucky,
+            totalAmount: 30,
+            amountPerPacket: nil,
+            packetCount: 3,
+            greeting: "test"
+        ))
+
+        _ = try await store.claim(assetID: assetID)
+        XCTAssertTrue(store.hasViewerClaimed(assetID: assetID))
+
+        let refreshed = try await store.loadDetail(assetID: assetID, force: true)
+        XCTAssertFalse(refreshed.canClaim)
+        XCTAssertEqual(refreshed.claims.count, 1)
+        XCTAssertEqual(refreshed.claims.first?.amount, 30)
+        XCTAssertFalse(refreshed.claims.first?.nickname.isEmpty ?? true)
+
+        do {
+            _ = try await store.claim(assetID: assetID)
+            XCTFail("A locally receipted claim must not send a second request")
+        } catch let APIError.serverError(code, _) {
+            XCTAssertEqual(code, 409)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    func testTransferAcceptPersistsTerminalStateAndBlocksConflictingReturn() async throws {
+        let suiteName = "ChatMoneyTransferReceiptTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let service = MockChatMoneyService()
+        let store = ChatMoneyStore(service: service, defaults: defaults)
+        await store.loadConfiguration()
+
+        let assetID = "tr-terminal-receipt"
+        _ = try await store.createTransfer(CreateTransferRequest(
+            clientMessageID: assetID,
+            scope: .direct,
+            receiverID: "recipient",
+            groupID: nil,
+            recipientID: "recipient",
+            recipientName: "Recipient",
+            amount: 88,
+            note: "test"
+        ))
+
+        let accepted = try await store.accept(assetID: assetID)
+        XCTAssertEqual(accepted.detail.status, .accepted)
+        XCTAssertFalse(accepted.detail.canAccept)
+        XCTAssertFalse(accepted.detail.canReturn)
+        XCTAssertTrue(store.hasFinalizedTransfer(assetID: assetID))
+
+        let refreshed = try await store.loadDetail(assetID: assetID, force: true)
+        XCTAssertEqual(refreshed.status, .accepted)
+        XCTAssertFalse(refreshed.canAccept)
+        XCTAssertFalse(refreshed.canReturn)
+
+        do {
+            _ = try await store.returnTransfer(assetID: assetID)
+            XCTFail("An accepted transfer must not be returnable")
+        } catch let APIError.serverError(code, _) {
+            XCTAssertEqual(code, 409)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testChatMoneyWalletTransactionSignsFollowLedgerDirection() throws {
+        func transaction(type: String, amount: Int) throws -> WalletTransaction {
+            let json = #"{"id":"tx","type":"\#(type)","currency":"cat_food","amount":\#(amount)}"#
+            return try JSONDecoder().decode(WalletTransaction.self, from: Data(json.utf8))
+        }
+
+        XCTAssertEqual(try transaction(type: "red_packet_sent", amount: 30).signedAmountValue, -30)
+        XCTAssertEqual(try transaction(type: "red_packet_received", amount: 12).signedAmountValue, 12)
+        XCTAssertEqual(try transaction(type: "red_packet_refund", amount: 18).signedAmountValue, 18)
+        XCTAssertEqual(try transaction(type: "transfer_sent", amount: 20).signedAmountValue, -20)
+        XCTAssertEqual(try transaction(type: "transfer_received", amount: 20).signedAmountValue, 20)
+        XCTAssertEqual(try transaction(type: "transfer_returned", amount: 20).signedAmountValue, 20)
+    }
+}
