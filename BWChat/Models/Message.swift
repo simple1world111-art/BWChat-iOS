@@ -234,6 +234,17 @@ enum MessageDeliveryMatcher {
                 && leftGift.recipientID == rightGift.recipientID
         }
 
+        if (type == ChatMoneyKind.redPacket.rawValue || type == ChatMoneyKind.transfer.rawValue),
+           let leftMoney = ChatMoneyPayload.parse(lhs),
+           let rightMoney = ChatMoneyPayload.parse(rhs) {
+            // HTTP creation and the WebSocket event may legitimately carry
+            // different status/version snapshots. The stable asset identity
+            // is what correlates the two confirmations.
+            return leftMoney.assetID == rightMoney.assetID
+                && leftMoney.kind.rawValue == type
+                && rightMoney.kind.rawValue == type
+        }
+
         // Upload paths commonly return absolute and relative URLs for the
         // same stored asset. The caller must additionally require matching
         // sender, destination, type, reply target, source and timestamp.

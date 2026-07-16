@@ -42,6 +42,8 @@ struct GroupChatView: View {
     @State private var isReplacingStickerPanelWithKeyboard = false
     @State private var isKeyboardLayoutVisible = false
     @State private var showGiftSheet = false
+    @State private var moneyDestination: MoneyComposerDestination?
+    @StateObject private var moneyStore = ChatMoneyStore()
     @State private var highlightedMessageID: Int?
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
@@ -77,6 +79,13 @@ struct GroupChatView: View {
 
     private var myAvatarURL: String {
         AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
+    private var moneyContext: ChatMoneyConversationContext {
+        let members = memberProfilesByID.values.sorted {
+            $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending
+        }
+        return .group(id: group.groupID, name: group.name, members: members)
     }
 
     private var renderedMessages: [GroupMessageRenderItem] {
@@ -473,6 +482,9 @@ struct GroupChatView: View {
                                             },
                                             onMention: { userID, nickname in
                                                 viewModel.addMention(userID: userID, nickname: nickname)
+                                            },
+                                            onChatMoneyTap: { payload in
+                                                moneyDestination = .detail(payload: payload)
                                             }
                                         )
                                     }
@@ -634,6 +646,32 @@ struct GroupChatView: View {
                 }
             )
         }
+        .sheet(item: $moneyDestination) { destination in
+            switch destination {
+            case .chooseRecipient:
+                ChatMoneyRecipientPickerSheet(context: moneyContext) { recipient in
+                    moneyDestination = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        moneyDestination = .compose(kind: .transfer, recipient: recipient)
+                    }
+                }
+            case .compose(let kind, let recipient):
+                ChatMoneyComposerSheet(
+                    store: moneyStore,
+                    kind: kind,
+                    context: moneyContext,
+                    initialRecipient: recipient,
+                    onCreated: { result in
+                        viewModel.appendCreatedChatMoneyMessage(result)
+                    },
+                    onOpenWallet: {
+                        navigator.push(WalletView())
+                    }
+                )
+            case .detail(let payload):
+                ChatMoneyDetailSheet(store: moneyStore, initialPayload: payload)
+            }
+        }
         .onChange(of: showGroupDetail) { show in
             if show {
                 showGroupDetail = false
@@ -647,6 +685,9 @@ struct GroupChatView: View {
             isViewVisible = true
             setActiveGroupChat(true)
             markConversationRead()
+        }
+        .task {
+            await moneyStore.loadConfiguration()
         }
         .onChange(of: viewModel.errorMessage) { message in
             guard let message,
@@ -688,6 +729,9 @@ struct GroupChatView: View {
             if removedID == group.groupID {
                 shouldPopToRoot = true
             }
+        }
+        .onReceive(WebSocketService.shared.chatMoneyUpdatePublisher) { update in
+            moneyStore.apply(update)
         }
         .onChange(of: shouldPopToRoot) { pop in
             if pop {
@@ -967,7 +1011,10 @@ struct GroupChatView: View {
     }
 
     private var groupPlusMenu: some View {
-        HStack(spacing: 24) {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4),
+            spacing: 18
+        ) {
             PhotosPicker(selection: $selectedMediaItems, maxSelectionCount: 9, matching: .any(of: [.images, .videos])) {
                 VStack(spacing: 6) {
                     ZStack {
@@ -1010,6 +1057,20 @@ struct GroupChatView: View {
                 activeComposerPanel = nil
                 isInputFocused = false
                 showGiftSheet = true
+            }
+
+            ChatMoneyPlusMenuTile(kind: .redPacket) {
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
+                isInputFocused = false
+                moneyDestination = .compose(kind: .redPacket, recipient: nil)
+            }
+
+            ChatMoneyPlusMenuTile(kind: .transfer) {
+                pendingComposerPanel = nil
+                activeComposerPanel = nil
+                isInputFocused = false
+                moneyDestination = .chooseRecipient(kind: .transfer)
             }
 
             Button {
@@ -1061,6 +1122,7 @@ struct GroupMessageBubble: View {
     var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
     var onMention: ((String, String) -> Void)?
+    var onChatMoneyTap: ((ChatMoneyPayload) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
     @State private var showMenu = false
@@ -1144,6 +1206,27 @@ struct GroupMessageBubble: View {
                         duration: message.voiceDuration,
                         isFromMe: isFromMe
                     )
+                } else if let moneyPayload = message.chatMoneyPayload {
+                    ChatMoneyBubble(
+                        payload: moneyPayload,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe,
+                        senderName: isFromMe ? nil : displaySenderNickname,
+                        onTap: { onChatMoneyTap?(moneyPayload) }
+                    )
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        showMenu = true
+                    }
+                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                        Button(L10n.tr("common.reply")) { onReply?(message) }
+                        if !isFromMe {
+                            Button("@\(displaySenderNickname)") {
+                                onMention?(message.senderID, displaySenderNickname)
+                            }
+                        }
+                        Button(L10n.tr("common.cancel"), role: .cancel) {}
+                    }
                 } else if let stickerPayload = message.stickerPayload {
                     StickerMessageBubble(
                         payload: stickerPayload,

@@ -10,6 +10,9 @@
 		A10001 /* BWChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* BWChatApp.swift */; };
 		A10002 /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* User.swift */; };
 		A10003 /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* Message.swift */; };
+		A11000 /* ChatMoney.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11000 /* ChatMoney.swift */; };
+		A11001 /* ChatMoneyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11001 /* ChatMoneyStore.swift */; };
+		A11002 /* ChatMoneyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11002 /* ChatMoneyViews.swift */; };
 		A10004 /* Contact.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* Contact.swift */; };
 		A10005 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* AuthViewModel.swift */; };
 		A10006 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* ChatViewModel.swift */; };
@@ -178,6 +181,9 @@
 		B10001 /* BWChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BWChatApp.swift; sourceTree = "<group>"; };
 		B10002 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
 		B10003 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		B11000 /* ChatMoney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoney.swift; sourceTree = "<group>"; };
+		B11001 /* ChatMoneyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoneyStore.swift; sourceTree = "<group>"; };
+		B11002 /* ChatMoneyViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoneyViews.swift; sourceTree = "<group>"; };
 		B10004 /* Contact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contact.swift; sourceTree = "<group>"; };
 		B10005 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
 		B10006 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
@@ -397,6 +403,7 @@
 			children = (
 				B10002 /* User.swift */,
 				B10003 /* Message.swift */,
+				B11000 /* ChatMoney.swift */,
 				B10004 /* Contact.swift */,
 				B10040 /* Group.swift */,
 				B10041 /* FriendRequest.swift */,
@@ -497,6 +504,7 @@
 			isa = PBXGroup;
 			children = (
 				B10014 /* APIService.swift */,
+				B11001 /* ChatMoneyStore.swift */,
 				B10800 /* BackgroundUploadCoordinator.swift */,
 				B10015 /* WebSocketService.swift */,
 				B10016 /* PushService.swift */,
@@ -539,6 +547,7 @@
 				B10093 /* MentionPickerView.swift */,
 				B10094 /* ReplyPreviewBar.swift */,
 				B10211 /* GiftViews.swift */,
+				B11002 /* ChatMoneyViews.swift */,
 				B10509 /* StickerViews.swift */,
 			);
 			path = Components;
@@ -730,6 +739,9 @@
 				A10001 /* BWChatApp.swift in Sources */,
 				A10002 /* User.swift in Sources */,
 				A10003 /* Message.swift in Sources */,
+				A11000 /* ChatMoney.swift in Sources */,
+				A11001 /* ChatMoneyStore.swift in Sources */,
+				A11002 /* ChatMoneyViews.swift in Sources */,
 				A10107 /* MessageStore.swift in Sources */,
 				A10004 /* Contact.swift in Sources */,
 				A10005 /* AuthViewModel.swift in Sources */,

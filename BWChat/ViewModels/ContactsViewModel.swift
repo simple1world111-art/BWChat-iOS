@@ -159,6 +159,8 @@ class ContactsViewModel: ObservableObject {
                 lastMsg = message.stickerPayload?.previewText ?? L10n.tr("message.sticker")
             } else if message.isGift {
                 lastMsg = GiftMessagePayload.previewText(content: message.content)
+            } else if let preview = ChatMoneyPreview.text(content: message.content, msgType: message.msgType) {
+                lastMsg = preview
             } else {
                 lastMsg = message.content
             }
@@ -205,6 +207,8 @@ class ContactsViewModel: ObservableObject {
         let previewMessage: String
         if let stickerPreview = StickerMessagePayload.previewText(content: lastMessage, msgType: msgType) {
             previewMessage = stickerPreview
+        } else if let moneyPreview = ChatMoneyPreview.text(content: lastMessage, msgType: msgType) {
+            previewMessage = moneyPreview
         } else if msgType == "gift" || GiftMessagePayload.parse(lastMessage) != nil {
             previewMessage = GiftMessagePayload.previewText(content: lastMessage)
         } else {

@@ -41,6 +41,7 @@ class WebSocketService: ObservableObject {
     let groupRenamedPublisher = PassthroughSubject<(Int, String), Never>()
     let cacheCleanupPublisher = PassthroughSubject<[String], Never>()
     let scriptTurnStatePublisher = PassthroughSubject<ScriptTurnState, Never>()
+    let chatMoneyUpdatePublisher = PassthroughSubject<ChatMoneyUpdateEvent, Never>()
 
     // Call signaling
     let callOfferPublisher = PassthroughSubject<[String: Any], Never>()
@@ -308,6 +309,22 @@ class WebSocketService: ObservableObject {
                let stateJSON = try? JSONSerialization.data(withJSONObject: stateData),
                let state = try? JSONDecoder().decode(ScriptTurnState.self, from: stateJSON) {
                 scriptTurnStatePublisher.send(state)
+            }
+
+        case "chat_money_updated":
+            if let updateData = json["data"],
+               let updateJSON = try? JSONSerialization.data(withJSONObject: updateData),
+               let update = try? JSONDecoder().decode(ChatMoneyUpdateEvent.self, from: updateJSON) {
+                if let message = update.directMessage {
+                    MessageStore.shared.saveMessage(message)
+                }
+                if let message = update.groupMessage {
+                    MessageStore.shared.saveGroupMessage(message)
+                }
+                if let balance = update.walletBalance {
+                    WalletStore.shared.applyServerBalance(balance)
+                }
+                chatMoneyUpdatePublisher.send(update)
             }
 
         case "call_invite":

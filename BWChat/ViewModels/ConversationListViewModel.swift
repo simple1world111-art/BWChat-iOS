@@ -898,6 +898,7 @@ class ConversationListViewModel: ObservableObject {
         if message.isVideo { return L10n.tr("message.video") }
         if message.isSticker { return message.stickerPayload?.previewText ?? L10n.tr("message.sticker") }
         if message.isGift { return GiftMessagePayload.previewText(content: message.content) }
+        if let preview = ChatMoneyPreview.text(content: message.content, msgType: message.msgType) { return preview }
         if message.isVoice {
             let duration = Int(message.voiceDuration)
             return duration > 0
@@ -912,6 +913,7 @@ class ConversationListViewModel: ObservableObject {
         if message.isVideo { return L10n.tr("message.video") }
         if message.isSticker { return message.stickerPayload?.previewText ?? L10n.tr("message.sticker") }
         if message.isGift { return GiftMessagePayload.previewText(content: message.content) }
+        if let preview = ChatMoneyPreview.text(content: message.content, msgType: message.msgType) { return preview }
         if message.isVoice {
             let duration = Int(message.voiceDuration)
             return duration > 0
@@ -960,6 +962,9 @@ class ConversationListViewModel: ObservableObject {
         guard let content else { return nil }
         if let stickerPreview = StickerMessagePayload.previewText(content: content, msgType: msgType) {
             return stickerPreview
+        }
+        if let moneyPreview = ChatMoneyPreview.text(content: content, msgType: msgType) {
+            return moneyPreview
         }
         if msgType == "gift" || GiftMessagePayload.parse(content) != nil {
             return GiftMessagePayload.previewText(content: content)

@@ -19,6 +19,7 @@ struct MessageBubble: View {
     var peerName: String?
     var peerUserID: String?
     var recipientAvatarURL: String?
+    var onChatMoneyTap: ((ChatMoneyPayload) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
 
@@ -68,6 +69,21 @@ struct MessageBubble: View {
                         duration: message.voiceDuration,
                         isFromMe: isFromMe
                     )
+                } else if let moneyPayload = message.chatMoneyPayload {
+                    ChatMoneyBubble(
+                        payload: moneyPayload,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe,
+                        onTap: { onChatMoneyTap?(moneyPayload) }
+                    )
+                    .onLongPressGesture(minimumDuration: 0.5) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        showMenu = true
+                    }
+                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
+                        Button(L10n.tr("common.reply")) { onReply?(message) }
+                        Button(L10n.tr("common.cancel"), role: .cancel) {}
+                    }
                 } else if let stickerPayload = message.stickerPayload {
                     StickerMessageBubble(
                         payload: stickerPayload,

@@ -1784,6 +1784,87 @@ class APIService {
         return try response.requiredData().transactions
     }
 
+    // MARK: Chat Money
+
+    func getChatMoneyConfiguration() async throws -> ChatMoneyConfiguration {
+        let response: APIResponseWrapper<ChatMoneyConfiguration> = try await get(
+            path: "/wallet/chat-money/config"
+        )
+        return try response.requiredData()
+    }
+
+    func createRedPacket(_ request: CreateRedPacketRequest) async throws -> ChatMoneyCreationResult {
+        var body: [String: Any] = [
+            "client_message_id": request.clientMessageID,
+            "scope": request.scope.rawValue,
+            "mode": request.mode.rawValue,
+            "total_amount": request.totalAmount,
+            "packet_count": request.packetCount,
+            "greeting": request.greeting
+        ]
+        if let receiverID = request.receiverID { body["receiver_id"] = receiverID }
+        if let groupID = request.groupID { body["group_id"] = groupID }
+        if let recipientID = request.recipientID { body["recipient_id"] = recipientID }
+        if let recipientName = request.recipientName { body["recipient_name"] = recipientName }
+        if let amountPerPacket = request.amountPerPacket { body["amount_per_packet"] = amountPerPacket }
+
+        let response: APIResponseWrapper<ChatMoneyCreationResponseData> = try await postJSON(
+            path: "/wallet/red-packets",
+            body: body
+        )
+        return try response.requiredData().result()
+    }
+
+    func createTransfer(_ request: CreateTransferRequest) async throws -> ChatMoneyCreationResult {
+        var body: [String: Any] = [
+            "client_message_id": request.clientMessageID,
+            "scope": request.scope.rawValue,
+            "recipient_id": request.recipientID,
+            "amount": request.amount,
+            "note": request.note
+        ]
+        if let receiverID = request.receiverID { body["receiver_id"] = receiverID }
+        if let groupID = request.groupID { body["group_id"] = groupID }
+        if let recipientName = request.recipientName { body["recipient_name"] = recipientName }
+
+        let response: APIResponseWrapper<ChatMoneyCreationResponseData> = try await postJSON(
+            path: "/wallet/transfers",
+            body: body
+        )
+        return try response.requiredData().result()
+    }
+
+    func getChatMoneyDetail(assetID: String) async throws -> ChatMoneyDetail {
+        let response: APIResponseWrapper<ChatMoneyDetail> = try await get(
+            path: "/wallet/chat-money/\(Self.pathComponent(assetID))"
+        )
+        return try response.requiredData()
+    }
+
+    func claimRedPacket(assetID: String) async throws -> ChatMoneyActionResult {
+        let response: APIResponseWrapper<ChatMoneyActionResponseData> = try await postJSON(
+            path: "/wallet/red-packets/\(Self.pathComponent(assetID))/claim",
+            body: [:]
+        )
+        return try response.requiredData().result
+    }
+
+    func acceptTransfer(assetID: String) async throws -> ChatMoneyActionResult {
+        let response: APIResponseWrapper<ChatMoneyActionResponseData> = try await postJSON(
+            path: "/wallet/transfers/\(Self.pathComponent(assetID))/accept",
+            body: [:]
+        )
+        return try response.requiredData().result
+    }
+
+    func returnTransfer(assetID: String) async throws -> ChatMoneyActionResult {
+        let response: APIResponseWrapper<ChatMoneyActionResponseData> = try await postJSON(
+            path: "/wallet/transfers/\(Self.pathComponent(assetID))/return",
+            body: [:]
+        )
+        return try response.requiredData().result
+    }
+
     func confirmWalletIAPPurchase(
         productID: String,
         transactionID: String,

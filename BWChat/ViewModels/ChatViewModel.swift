@@ -491,6 +491,17 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    func appendCreatedChatMoneyMessage(_ result: ChatMoneyCreationResult) {
+        guard case .direct(let response) = result.message else { return }
+        let message = response.replacingChatMoneyPayload(result.payload)
+        store.saveMessage(message)
+        appendMessageIfNeeded(
+            message,
+            source: .apiResponse,
+            shouldMergeOutgoingEcho: true
+        )
+    }
+
     var isSendEnabled: Bool {
         !inputText.isBlank
     }
@@ -558,6 +569,37 @@ class ChatViewModel: ObservableObject {
                 guard let self = self,
                       self.isRelevantContactUpdate(data) else { return }
                 Task { await self.syncLatestMessages() }
+            }
+            .store(in: &cancellables)
+
+        WebSocketService.shared.chatMoneyUpdatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] update in
+                guard let self else { return }
+                if let current = self.messages.first(where: {
+                    $0.chatMoneyPayload?.assetID == update.payload.assetID
+                })?.chatMoneyPayload,
+                   current.version >= update.payload.version {
+                    return
+                }
+                if let replacement = update.directMessage {
+                    let relevant = (replacement.senderID == self.contact.userID && replacement.receiverID == self.myID)
+                        || (replacement.senderID == self.myID && replacement.receiverID == self.contact.userID)
+                    guard relevant else { return }
+                    self.store.saveMessage(replacement)
+                    if let index = self.messages.firstIndex(where: { $0.id == replacement.id }) {
+                        self.messages[index] = replacement
+                    } else {
+                        self.appendMessageIfNeeded(replacement, source: .webSocket)
+                    }
+                    return
+                }
+                guard let index = self.messages.firstIndex(where: {
+                    $0.chatMoneyPayload?.assetID == update.payload.assetID
+                }) else { return }
+                let replacement = self.messages[index].replacingChatMoneyPayload(update.payload)
+                self.messages[index] = replacement
+                self.store.saveMessage(replacement)
             }
             .store(in: &cancellables)
 

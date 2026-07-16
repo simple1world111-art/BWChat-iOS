@@ -614,6 +614,12 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
         case "ios_iap": return L10n.tr("wallet.transaction.iap")
         case "gift_sent": return L10n.tr("wallet.transaction.giftSent")
         case "gift_received": return L10n.tr("wallet.transaction.giftReceived")
+        case "red_packet_sent": return L10n.tr("wallet.transaction.redPacketSent")
+        case "red_packet_received": return L10n.tr("wallet.transaction.redPacketReceived")
+        case "red_packet_refund": return L10n.tr("wallet.transaction.redPacketRefund")
+        case "transfer_sent": return L10n.tr("wallet.transaction.transferSent")
+        case "transfer_received": return L10n.tr("wallet.transaction.transferReceived")
+        case "transfer_returned": return L10n.tr("wallet.transaction.transferReturned")
         default:
             return currency == .catHair
                 ? L10n.tr("wallet.transaction.catHairChange")
@@ -631,6 +637,9 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
             return currency == .catHair
                 ? L10n.tr("wallet.transaction.giftReceivedCatHairSubtitle")
                 : L10n.tr("wallet.transaction.giftReceivedSubtitle")
+        case "red_packet_sent", "red_packet_received", "red_packet_refund",
+             "transfer_sent", "transfer_received", "transfer_returned":
+            return L10n.tr("wallet.transaction.chatMoneySubtitle")
         default: return type
         }
     }
@@ -643,9 +652,9 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
     var signedAmountValue: Int? {
         guard let amount, amount != 0 else { return nil }
         switch type {
-        case "gift_sent":
+        case "gift_sent", "red_packet_sent", "transfer_sent":
             return -abs(amount)
-        case "ios_iap", "gift_received":
+        case "ios_iap", "gift_received", "red_packet_received", "red_packet_refund", "transfer_received", "transfer_returned":
             return abs(amount)
         default:
             return amount
