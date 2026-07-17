@@ -42,7 +42,9 @@ struct GroupChatView: View {
     @State private var isReplacingStickerPanelWithKeyboard = false
     @State private var isKeyboardLayoutVisible = false
     @State private var showGiftSheet = false
-    @State private var moneyDestination: MoneyComposerDestination?
+    @State private var redPacketOverlayPayload: ChatMoneyPayload?
+    @State private var redPacketOverlayIsSender = false
+    @State private var groupTransferRecipient: ChatMoneyRecipient?
     @StateObject private var moneyStore = ChatMoneyStore()
     @State private var highlightedMessageID: Int?
     @State private var isVoiceMode = false
@@ -86,6 +88,86 @@ struct GroupChatView: View {
             $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending
         }
         return .group(id: group.groupID, name: group.name, members: members)
+    }
+
+    private func handleChatMoneyTap(_ payload: ChatMoneyPayload, isSender: Bool) {
+        pendingComposerPanel = nil
+        isInputFocused = false
+        hideKeyboard()
+
+        if ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+            payload: payload,
+            isSender: isSender,
+            hasLocalClaim: moneyStore.hasViewerClaimed(assetID: payload.assetID)
+        ) {
+            redPacketOverlayIsSender = isSender
+            redPacketOverlayPayload = payload
+        } else {
+            showChatMoneyDetail(payload)
+        }
+    }
+
+    private func showChatMoneyDetail(_ payload: ChatMoneyPayload) {
+        navigator.push(
+            ChatMoneyDetailView(store: moneyStore, initialPayload: payload)
+        )
+    }
+
+    private func showRedPacketDetail(_ payload: ChatMoneyPayload) {
+        withAnimation(.easeOut(duration: 0.18)) {
+            redPacketOverlayPayload = nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            showChatMoneyDetail(payload)
+        }
+    }
+
+    private func showChatMoneyComposer(
+        kind: ChatMoneyKind,
+        recipient: ChatMoneyRecipient? = nil,
+        flowDepth: Int
+    ) {
+        navigator.push(
+            ChatMoneyComposerSheet(
+                store: moneyStore,
+                kind: kind,
+                context: moneyContext,
+                initialRecipient: recipient,
+                onCreated: { result in
+                    if kind == .transfer {
+                        groupTransferRecipient = nil
+                    }
+                    viewModel.appendCreatedChatMoneyMessage(result)
+                    navigator.pop(count: flowDepth)
+                },
+                onOpenWallet: {
+                    showWallet(afterPopping: flowDepth)
+                }
+            )
+        )
+    }
+
+    private func showTransferRecipientPicker() {
+        navigator.push(
+            ChatMoneyRecipientPickerSheet(
+                context: moneyContext,
+                selectedRecipientID: groupTransferRecipient?.id
+            ) { recipient in
+                groupTransferRecipient = recipient
+                showChatMoneyComposer(
+                    kind: .transfer,
+                    recipient: recipient,
+                    flowDepth: 2
+                )
+            }
+        )
+    }
+
+    private func showWallet(afterPopping count: Int) {
+        navigator.pop(count: count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            navigator.push(WalletView())
+        }
     }
 
     private var renderedMessages: [GroupMessageRenderItem] {
@@ -483,8 +565,8 @@ struct GroupChatView: View {
                                             onMention: { userID, nickname in
                                                 viewModel.addMention(userID: userID, nickname: nickname)
                                             },
-                                            onChatMoneyTap: { payload in
-                                                moneyDestination = .detail(payload: payload)
+                                            onChatMoneyTap: { payload, isSender in
+                                                handleChatMoneyTap(payload, isSender: isSender)
                                             }
                                         )
                                     }
@@ -646,30 +728,22 @@ struct GroupChatView: View {
                 }
             )
         }
-        .sheet(item: $moneyDestination) { destination in
-            switch destination {
-            case .chooseRecipient:
-                ChatMoneyRecipientPickerSheet(context: moneyContext) { recipient in
-                    moneyDestination = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        moneyDestination = .compose(kind: .transfer, recipient: recipient)
-                    }
-                }
-            case .compose(let kind, let recipient):
-                ChatMoneyComposerSheet(
+        .overlay {
+            if let payload = redPacketOverlayPayload {
+                ChatMoneyRedPacketEntryOverlay(
                     store: moneyStore,
-                    kind: kind,
-                    context: moneyContext,
-                    initialRecipient: recipient,
-                    onCreated: { result in
-                        viewModel.appendCreatedChatMoneyMessage(result)
+                    initialPayload: payload,
+                    isSender: redPacketOverlayIsSender,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            redPacketOverlayPayload = nil
+                        }
                     },
-                    onOpenWallet: {
-                        navigator.push(WalletView())
+                    onShowDetail: {
+                        showRedPacketDetail(payload)
                     }
                 )
-            case .detail(let payload):
-                ChatMoneyDetailSheet(store: moneyStore, initialPayload: payload)
+                .zIndex(500)
             }
         }
         .onChange(of: showGroupDetail) { show in
@@ -1063,14 +1137,17 @@ struct GroupChatView: View {
                 pendingComposerPanel = nil
                 activeComposerPanel = nil
                 isInputFocused = false
-                moneyDestination = .compose(kind: .redPacket, recipient: nil)
+                showChatMoneyComposer(
+                    kind: .redPacket,
+                    flowDepth: 1
+                )
             }
 
             ChatMoneyPlusMenuTile(kind: .transfer) {
                 pendingComposerPanel = nil
                 activeComposerPanel = nil
                 isInputFocused = false
-                moneyDestination = .chooseRecipient(kind: .transfer)
+                showTransferRecipientPicker()
             }
 
             Button {
@@ -1122,7 +1199,9 @@ struct GroupMessageBubble: View {
     var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
     var onMention: ((String, String) -> Void)?
-    var onChatMoneyTap: ((ChatMoneyPayload) -> Void)?
+    /// Use the group-message direction instead of the embedded asset sender
+    /// while independently delivered snapshots are being reconciled.
+    var onChatMoneyTap: ((ChatMoneyPayload, Bool) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
     @State private var showMenu = false
@@ -1138,7 +1217,9 @@ struct GroupMessageBubble: View {
     }
 
     var body: some View {
-        if message.isSystem {
+        if let receipt = message.chatMoneyReceiptPayload {
+            ChatMoneyReceiptTip(payload: receipt)
+        } else if message.isSystem {
             HStack {
                 Spacer()
                 Text(message.content)
@@ -1212,7 +1293,7 @@ struct GroupMessageBubble: View {
                         timeText: message.formattedTime,
                         isFromMe: isFromMe,
                         senderName: isFromMe ? nil : displaySenderNickname,
-                        onTap: { onChatMoneyTap?(moneyPayload) }
+                        onTap: { onChatMoneyTap?(moneyPayload, isFromMe) }
                     )
                     .onLongPressGesture(minimumDuration: 0.5) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()

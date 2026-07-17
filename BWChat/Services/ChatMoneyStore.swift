@@ -151,7 +151,9 @@ final class ChatMoneyStore: ObservableObject {
         return ChatMoneyActionResult(
             detail: normalizedDetail,
             payload: resolved.payload,
-            walletBalance: resolved.walletBalance
+            walletBalance: resolved.walletBalance,
+            directReceiptMessage: resolved.directReceiptMessage,
+            groupReceiptMessage: resolved.groupReceiptMessage
         )
     }
 
@@ -206,7 +208,13 @@ final class ChatMoneyStore: ObservableObject {
                 canReturn: detail.canReturn && !event.payload.status.isTerminal,
                 viewerClaimAmount: detail.viewerClaimAmount,
                 claims: detail.claims,
-                version: event.payload.version
+                version: event.payload.version,
+                createdAt: detail.createdAt,
+                finalizedAt: detail.finalizedAt,
+                viewerState: detail.viewerState,
+                unavailableReason: detail.unavailableReason,
+                remainingAmount: detail.remainingAmount,
+                remainingCount: detail.remainingCount
             )
             details[event.payload.assetID] = normalizedForLocalReceipts(updatedDetail)
         }
@@ -228,6 +236,12 @@ final class ChatMoneyStore: ObservableObject {
         apply(result.payload)
         merge(result.detail)
         applyWalletBalance(result.walletBalance)
+        if let message = result.directReceiptMessage {
+            MessageStore.shared.saveMessage(message)
+        }
+        if let message = result.groupReceiptMessage {
+            MessageStore.shared.saveGroupMessage(message)
+        }
     }
 
     private func resolvedClaimResult(_ result: ChatMoneyActionResult) -> ChatMoneyActionResult {
@@ -286,13 +300,21 @@ final class ChatMoneyStore: ObservableObject {
             canReturn: currentDetail.canReturn,
             viewerClaimAmount: viewerClaimAmount,
             claims: currentDetail.claims,
-            version: max(currentDetail.version, currentPayload.version)
+            version: max(currentDetail.version, currentPayload.version),
+            createdAt: currentDetail.createdAt,
+            finalizedAt: currentDetail.finalizedAt,
+            viewerState: currentDetail.viewerState,
+            unavailableReason: currentDetail.unavailableReason,
+            remainingAmount: currentDetail.remainingAmount,
+            remainingCount: currentDetail.remainingCount
         )
 
         return ChatMoneyActionResult(
             detail: resolvedDetail,
             payload: currentPayload,
-            walletBalance: result.walletBalance
+            walletBalance: result.walletBalance,
+            directReceiptMessage: result.directReceiptMessage,
+            groupReceiptMessage: result.groupReceiptMessage
         )
     }
 
@@ -386,7 +408,13 @@ final class ChatMoneyStore: ObservableObject {
             canReturn: detail.canReturn,
             viewerClaimAmount: detail.viewerClaimAmount,
             claims: claims,
-            version: detail.version
+            version: detail.version,
+            createdAt: detail.createdAt,
+            finalizedAt: detail.finalizedAt,
+            viewerState: detail.viewerState,
+            unavailableReason: detail.unavailableReason,
+            remainingAmount: detail.remainingAmount,
+            remainingCount: detail.remainingCount
         )
     }
 
@@ -461,7 +489,9 @@ final class ChatMoneyStore: ObservableObject {
         return ChatMoneyActionResult(
             detail: normalizedDetail,
             payload: payloads[result.payload.assetID] ?? result.payload,
-            walletBalance: result.walletBalance
+            walletBalance: result.walletBalance,
+            directReceiptMessage: result.directReceiptMessage,
+            groupReceiptMessage: result.groupReceiptMessage
         )
     }
 
@@ -507,7 +537,13 @@ final class ChatMoneyStore: ObservableObject {
             canReturn: false,
             viewerClaimAmount: detail.viewerClaimAmount,
             claims: detail.claims,
-            version: detail.version
+            version: detail.version,
+            createdAt: detail.createdAt,
+            finalizedAt: detail.finalizedAt,
+            viewerState: detail.viewerState,
+            unavailableReason: detail.unavailableReason,
+            remainingAmount: detail.remainingAmount,
+            remainingCount: detail.remainingCount
         )
     }
 
@@ -538,7 +574,13 @@ final class ChatMoneyStore: ObservableObject {
             canReturn: false,
             viewerClaimAmount: detail.viewerClaimAmount,
             claims: detail.claims,
-            version: detail.version
+            version: detail.version,
+            createdAt: detail.createdAt,
+            finalizedAt: detail.finalizedAt ?? receipt.completedAt,
+            viewerState: detail.viewerState,
+            unavailableReason: detail.unavailableReason,
+            remainingAmount: detail.remainingAmount,
+            remainingCount: detail.remainingCount
         )
     }
 

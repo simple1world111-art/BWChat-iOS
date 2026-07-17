@@ -43,11 +43,23 @@ final class UIKitNavigator: ObservableObject {
     }
 
     func pop() {
+        pop(count: 1)
+    }
+
+    func pop(count: Int) {
         guard let navigationController else { return }
         performWhenReady(on: navigationController) { [weak navigationController] in
             guard let navigationController else { return }
-            if navigationController.viewControllers.count > 1 {
-                navigationController.popViewController(animated: true)
+            let viewControllers = navigationController.viewControllers
+            if viewControllers.count > 1 {
+                let targetIndex = max(
+                    viewControllers.count - 1 - max(count, 1),
+                    0
+                )
+                navigationController.popToViewController(
+                    viewControllers[targetIndex],
+                    animated: true
+                )
                 navigationController.repairNavigationSurface()
             } else {
                 navigationController.dismiss(animated: true)

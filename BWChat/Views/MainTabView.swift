@@ -540,7 +540,10 @@ struct GroupRow: View {
 
                 if let lastMsg = group.lastMessage {
                     HStack(spacing: 0) {
-                        if let sender = group.lastMessageSender {
+                        if let sender = ConversationPreviewFormatter.senderPrefix(
+                            group.lastMessageSender,
+                            content: lastMsg
+                        ) {
                             Text("\(sender): ")
                                 .font(.system(size: 14))
                                 .foregroundColor(AppColors.secondaryText)

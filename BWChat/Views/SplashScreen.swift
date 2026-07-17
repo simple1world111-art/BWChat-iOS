@@ -12,7 +12,9 @@ struct SplashScreen: View {
     var body: some View {
         Group {
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("-walletReviewScreenshot") {
+            if ProcessInfo.processInfo.arguments.contains("-chatMoneyTransferPreview") {
+                ChatMoneyTransferFeedbackPreviewView()
+            } else if ProcessInfo.processInfo.arguments.contains("-walletReviewScreenshot") {
                 NavigationStack {
                     WalletView()
                         .environmentObject(UIKitNavigator())

@@ -481,6 +481,10 @@ class ConversationListViewModel: ObservableObject {
     private func handleNewGroupMessage(_ message: GroupMessage) {
         let myID = AuthManager.shared.currentUser?.userID
         let isFromOther = message.senderID != myID
+        let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
+            content: message.content,
+            msgType: message.msgType
+        )
         let isViewingThisGroup = isFromOther && WebSocketService.shared.activeGroupID == message.groupID
         let identity = ConversationReadTarget.group(groupID: message.groupID).listIdentity
         if isViewingThisGroup {
@@ -506,7 +510,8 @@ class ConversationListViewModel: ObservableObject {
             let updated = Conversation(
                 type: "group", id: c.id, name: c.name, avatarURL: c.avatarURL,
                 lastMessage: lastMsg, lastMessageTime: message.timestamp,
-                unreadCount: unreadCount, subtitle: message.senderNickname,
+                unreadCount: unreadCount,
+                subtitle: isChatMoneyReceipt ? nil : message.senderNickname,
                 groupID: c.groupID ?? message.groupID, memberCount: c.memberCount,
                 conversationKind: c.conversationKind,
                 scriptRoomID: c.scriptRoomID,
@@ -532,6 +537,10 @@ class ConversationListViewModel: ObservableObject {
               let lastMessageTime = Self.stringValue(data["last_message_time"]) else { return }
         let lastMessageType = Self.stringValue(data["msg_type"] ?? data["last_message_type"])
         let previewMessage = Self.normalizedGiftPreview(lastMessage, msgType: lastMessageType)
+        let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
+            content: lastMessage,
+            msgType: lastMessageType
+        )
 
         let senderNickname = Self.stringValue(data["sender_nickname"])
         let senderID = Self.stringValue(data["sender_id"])
@@ -568,7 +577,8 @@ class ConversationListViewModel: ObservableObject {
             let updated = Conversation(
                 type: "group", id: c.id, name: c.name, avatarURL: c.avatarURL,
                 lastMessage: previewMessage, lastMessageTime: lastMessageTime,
-                unreadCount: unreadCount, subtitle: senderNickname ?? c.subtitle,
+                unreadCount: unreadCount,
+                subtitle: isChatMoneyReceipt ? nil : (senderNickname ?? c.subtitle),
                 groupID: c.groupID ?? groupID, memberCount: c.memberCount,
                 conversationKind: c.conversationKind,
                 scriptRoomID: c.scriptRoomID,
@@ -797,7 +807,10 @@ class ConversationListViewModel: ObservableObject {
                     message: Self.listPreview(for: message),
                     timestamp: message.timestamp,
                     unreadCount: result.unreadCount,
-                    subtitle: message.senderNickname
+                    subtitle: ChatMoneyPreview.isReceipt(
+                        content: message.content,
+                        msgType: message.msgType
+                    ) ? nil : message.senderNickname
                 )
             }
 
@@ -898,7 +911,11 @@ class ConversationListViewModel: ObservableObject {
         if message.isVideo { return L10n.tr("message.video") }
         if message.isSticker { return message.stickerPayload?.previewText ?? L10n.tr("message.sticker") }
         if message.isGift { return GiftMessagePayload.previewText(content: message.content) }
-        if let preview = ChatMoneyPreview.text(content: message.content, msgType: message.msgType) { return preview }
+        if let preview = ChatMoneyPreview.text(
+            content: message.content,
+            msgType: message.msgType,
+            viewerID: AuthManager.shared.currentUser?.userID
+        ) { return preview }
         if message.isVoice {
             let duration = Int(message.voiceDuration)
             return duration > 0
@@ -913,7 +930,11 @@ class ConversationListViewModel: ObservableObject {
         if message.isVideo { return L10n.tr("message.video") }
         if message.isSticker { return message.stickerPayload?.previewText ?? L10n.tr("message.sticker") }
         if message.isGift { return GiftMessagePayload.previewText(content: message.content) }
-        if let preview = ChatMoneyPreview.text(content: message.content, msgType: message.msgType) { return preview }
+        if let preview = ChatMoneyPreview.text(
+            content: message.content,
+            msgType: message.msgType,
+            viewerID: AuthManager.shared.currentUser?.userID
+        ) { return preview }
         if message.isVoice {
             let duration = Int(message.voiceDuration)
             return duration > 0
@@ -938,8 +959,12 @@ class ConversationListViewModel: ObservableObject {
 
     private static func normalizedGiftPreviews(_ conversations: [Conversation]) -> [Conversation] {
         conversations.map { conversation in
+            let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
+                content: conversation.lastMessage,
+                msgType: nil
+            )
             let preview = normalizedGiftPreview(conversation.lastMessage, msgType: nil)
-            guard preview != conversation.lastMessage else { return conversation }
+            guard preview != conversation.lastMessage || isChatMoneyReceipt else { return conversation }
             return Conversation(
                 type: conversation.type,
                 id: conversation.id,
@@ -948,7 +973,7 @@ class ConversationListViewModel: ObservableObject {
                 lastMessage: preview,
                 lastMessageTime: conversation.lastMessageTime,
                 unreadCount: conversation.unreadCount,
-                subtitle: conversation.subtitle,
+                subtitle: isChatMoneyReceipt ? nil : conversation.subtitle,
                 groupID: conversation.groupID,
                 memberCount: conversation.memberCount,
                 conversationKind: conversation.conversationKind,
@@ -963,7 +988,11 @@ class ConversationListViewModel: ObservableObject {
         if let stickerPreview = StickerMessagePayload.previewText(content: content, msgType: msgType) {
             return stickerPreview
         }
-        if let moneyPreview = ChatMoneyPreview.text(content: content, msgType: msgType) {
+        if let moneyPreview = ChatMoneyPreview.text(
+            content: content,
+            msgType: msgType,
+            viewerID: AuthManager.shared.currentUser?.userID
+        ) {
             return moneyPreview
         }
         if msgType == "gift" || GiftMessagePayload.parse(content) != nil {

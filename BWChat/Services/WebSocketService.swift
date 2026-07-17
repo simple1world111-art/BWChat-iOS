@@ -321,6 +321,12 @@ class WebSocketService: ObservableObject {
                 if let message = update.groupMessage {
                     MessageStore.shared.saveGroupMessage(message)
                 }
+                if let message = update.directReceiptMessage {
+                    MessageStore.shared.saveMessage(message)
+                }
+                if let message = update.groupReceiptMessage {
+                    MessageStore.shared.saveGroupMessage(message)
+                }
                 if let balance = update.walletBalance {
                     WalletStore.shared.applyServerBalance(balance)
                 }

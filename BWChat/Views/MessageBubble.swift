@@ -19,7 +19,9 @@ struct MessageBubble: View {
     var peerName: String?
     var peerUserID: String?
     var recipientAvatarURL: String?
-    var onChatMoneyTap: ((ChatMoneyPayload) -> Void)?
+    /// Pass the enclosing message direction with the payload. The row direction
+    /// remains reliable while HTTP, history and WebSocket snapshots are merging.
+    var onChatMoneyTap: ((ChatMoneyPayload, Bool) -> Void)?
 
     @State private var swipeOffset: CGFloat = 0
 
@@ -35,6 +37,22 @@ struct MessageBubble: View {
     }
 
     var body: some View {
+        if let receipt = message.chatMoneyReceiptPayload {
+            ChatMoneyReceiptTip(payload: receipt)
+        } else if message.isSystem {
+            HStack {
+                Spacer()
+                Text(message.content)
+                    .font(.system(size: 12))
+                    .foregroundColor(AppColors.secondaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(AppColors.separator.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        } else {
         HStack(alignment: .bottom, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
@@ -74,7 +92,7 @@ struct MessageBubble: View {
                         payload: moneyPayload,
                         timeText: message.formattedTime,
                         isFromMe: isFromMe,
-                        onTap: { onChatMoneyTap?(moneyPayload) }
+                        onTap: { onChatMoneyTap?(moneyPayload, isFromMe) }
                     )
                     .onLongPressGesture(minimumDuration: 0.5) {
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -142,6 +160,7 @@ struct MessageBubble: View {
                     .foregroundColor(AppColors.accent)
                     .opacity(min(abs(swipeOffset) / 50, 1))
             }
+        }
         }
     }
 

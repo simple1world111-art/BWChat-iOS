@@ -30,7 +30,8 @@ struct ChatView: View {
     @State private var isReplacingStickerPanelWithKeyboard = false
     @State private var isKeyboardLayoutVisible = false
     @State private var showGiftSheet = false
-    @State private var moneyDestination: MoneyComposerDestination?
+    @State private var redPacketOverlayPayload: ChatMoneyPayload?
+    @State private var redPacketOverlayIsSender = false
     @StateObject private var moneyStore = ChatMoneyStore()
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
@@ -73,6 +74,66 @@ struct ChatView: View {
 
     private var moneyContext: ChatMoneyConversationContext {
         .direct(id: contact.userID, name: contact.nickname, avatarURL: contact.avatarURL)
+    }
+
+    private func handleChatMoneyTap(_ payload: ChatMoneyPayload, isSender: Bool) {
+        pendingComposerPanel = nil
+        isInputFocused = false
+        hideKeyboard()
+
+        if ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+            payload: payload,
+            isSender: isSender,
+            hasLocalClaim: moneyStore.hasViewerClaimed(assetID: payload.assetID)
+        ) {
+            redPacketOverlayIsSender = isSender
+            redPacketOverlayPayload = payload
+        } else {
+            showChatMoneyDetail(payload)
+        }
+    }
+
+    private func showChatMoneyDetail(_ payload: ChatMoneyPayload) {
+        navigator.push(
+            ChatMoneyDetailView(store: moneyStore, initialPayload: payload)
+        )
+    }
+
+    private func showRedPacketDetail(_ payload: ChatMoneyPayload) {
+        withAnimation(.easeOut(duration: 0.18)) {
+            redPacketOverlayPayload = nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            showChatMoneyDetail(payload)
+        }
+    }
+
+    private func showChatMoneyComposer(
+        kind: ChatMoneyKind,
+        recipient: ChatMoneyRecipient? = nil
+    ) {
+        navigator.push(
+            ChatMoneyComposerSheet(
+                store: moneyStore,
+                kind: kind,
+                context: moneyContext,
+                initialRecipient: recipient,
+                onCreated: { result in
+                    viewModel.appendCreatedChatMoneyMessage(result)
+                    navigator.pop()
+                },
+                onOpenWallet: {
+                    showWallet(afterPopping: 1)
+                }
+            )
+        )
+    }
+
+    private func showWallet(afterPopping count: Int) {
+        navigator.pop(count: count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            navigator.push(WalletView())
+        }
     }
 
     private var renderedMessages: [ChatMessageRenderItem] {
@@ -385,8 +446,8 @@ struct ChatView: View {
                 peerName: contact.nickname,
                 peerUserID: contact.userID,
                 recipientAvatarURL: isFromMe ? contact.avatarURL : myAvatarURL,
-                onChatMoneyTap: { payload in
-                    moneyDestination = .detail(payload: payload)
+                onChatMoneyTap: { payload, isSender in
+                    handleChatMoneyTap(payload, isSender: isSender)
                 }
             )
         }
@@ -530,30 +591,22 @@ struct ChatView: View {
                 }
             )
         }
-        .sheet(item: $moneyDestination) { destination in
-            switch destination {
-            case .chooseRecipient:
-                ChatMoneyRecipientPickerSheet(context: moneyContext) { recipient in
-                    moneyDestination = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        moneyDestination = .compose(kind: .transfer, recipient: recipient)
-                    }
-                }
-            case .compose(let kind, let recipient):
-                ChatMoneyComposerSheet(
+        .overlay {
+            if let payload = redPacketOverlayPayload {
+                ChatMoneyRedPacketEntryOverlay(
                     store: moneyStore,
-                    kind: kind,
-                    context: moneyContext,
-                    initialRecipient: recipient,
-                    onCreated: { result in
-                        viewModel.appendCreatedChatMoneyMessage(result)
+                    initialPayload: payload,
+                    isSender: redPacketOverlayIsSender,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            redPacketOverlayPayload = nil
+                        }
                     },
-                    onOpenWallet: {
-                        navigator.push(WalletView())
+                    onShowDetail: {
+                        showRedPacketDetail(payload)
                     }
                 )
-            case .detail(let payload):
-                ChatMoneyDetailSheet(store: moneyStore, initialPayload: payload)
+                .zIndex(500)
             }
         }
         .onAppear {
@@ -933,14 +986,14 @@ struct ChatView: View {
                     pendingComposerPanel = nil
                     activeComposerPanel = nil
                     isInputFocused = false
-                    moneyDestination = .compose(kind: .redPacket, recipient: nil)
+                    showChatMoneyComposer(kind: .redPacket)
                 }
 
                 ChatMoneyPlusMenuTile(kind: .transfer) {
                     pendingComposerPanel = nil
                     activeComposerPanel = nil
                     isInputFocused = false
-                    moneyDestination = .compose(kind: .transfer, recipient: nil)
+                    showChatMoneyComposer(kind: .transfer)
                 }
 
                 Button {

@@ -84,6 +84,30 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertEqual(agent.capabilities?.paidVideos, false)
     }
 
+    func testAgentSummaryPageDecodesProfilePaginationContract() throws {
+        let json = #"""
+        {
+          "agents": [{
+            "agent_id": "agent-profile-1",
+            "visibility": "public",
+            "status": "published",
+            "profile": {
+              "name": "旅行助手",
+              "tagline": "一起出发"
+            }
+          }],
+          "has_more": true,
+          "next_cursor": "next-page"
+        }
+        """#.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(AgentSummaryPage.self, from: json)
+
+        XCTAssertEqual(page.agents.map(\.id), ["agent-profile-1"])
+        XCTAssertTrue(page.hasMore)
+        XCTAssertEqual(page.nextCursor, "next-page")
+    }
+
     func testAgentRuntimeConfigDecodesDocumentedNestedFeatureContract() throws {
         let json = #"""
         {
@@ -526,6 +550,179 @@ extension APIResponseContractTests {
         }
     }
 
+    func testRedPacketOpenPolicyAlwaysRejectsCompletedOrEmptySnapshots() throws {
+        let completedPayload = ChatMoneyPayload(
+            assetID: "rp-completed",
+            kind: .redPacket,
+            scope: .group,
+            mode: .lucky,
+            senderID: "u1",
+            packetCount: 2,
+            claimedCount: 2,
+            status: .completed,
+            version: 3
+        )
+        let stalePartialPayload = ChatMoneyPayload(
+            assetID: "rp-full-count",
+            kind: .redPacket,
+            scope: .group,
+            mode: .lucky,
+            senderID: "u1",
+            packetCount: 2,
+            claimedCount: 2,
+            status: .partial,
+            version: 2
+        )
+
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                payload: completedPayload,
+                isSender: false,
+                hasLocalClaim: false
+            )
+        )
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                payload: stalePartialPayload,
+                isSender: false,
+                hasLocalClaim: false
+            )
+        )
+
+        let incomingPendingPayloadWithStaleSender = ChatMoneyPayload(
+            assetID: "rp-incoming-stale-sender",
+            kind: .redPacket,
+            scope: .direct,
+            mode: .direct,
+            senderID: "u2",
+            packetCount: 1,
+            claimedCount: 0,
+            status: .pending,
+            version: 1
+        )
+        XCTAssertTrue(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                payload: incomingPendingPayloadWithStaleSender,
+                isSender: false,
+                hasLocalClaim: false
+            ),
+            "An incoming message must not be treated as outgoing only because the embedded sender snapshot is stale."
+        )
+        XCTAssertTrue(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                payload: incomingPendingPayloadWithStaleSender,
+                isSender: true,
+                hasLocalClaim: false
+            ),
+            "A still-open outgoing packet should show a non-claimable sender envelope before its details."
+        )
+
+        func detail(
+            status: String,
+            remainingCount: Int,
+            canClaim: Bool = true,
+            scope: String = "group",
+            mode: String = "lucky"
+        ) throws -> ChatMoneyDetail {
+            let object: [String: Any] = [
+                "asset_id": "rp-detail",
+                "kind": "red_packet",
+                "scope": scope,
+                "mode": mode,
+                "sender_id": "u1",
+                "packet_count": 2,
+                "claimed_count": remainingCount == 0 ? 2 : 1,
+                "status": status,
+                "can_claim": canClaim,
+                "can_accept": false,
+                "can_return": false,
+                "claims": [],
+                "version": 4,
+                "viewer_state": "claimable",
+                "remaining_count": remainingCount
+            ]
+            return try JSONDecoder().decode(
+                ChatMoneyDetail.self,
+                from: JSONSerialization.data(withJSONObject: object)
+            )
+        }
+
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                detail: try detail(status: "completed", remainingCount: 0),
+                viewerID: "u2",
+                isSender: false,
+                hasLocalClaim: false
+            )
+        )
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                detail: try detail(status: "partial", remainingCount: 0),
+                viewerID: "u2",
+                isSender: false,
+                hasLocalClaim: false
+            )
+        )
+        XCTAssertTrue(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                detail: try detail(status: "partial", remainingCount: 1),
+                viewerID: "u2",
+                isSender: false,
+                hasLocalClaim: false
+            )
+        )
+        XCTAssertTrue(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                detail: try detail(
+                    status: "partial",
+                    remainingCount: 1,
+                    canClaim: false
+                ),
+                viewerID: "u1",
+                isSender: true,
+                hasLocalClaim: false
+            ),
+            "The sender envelope must remain visible without depending on can_claim."
+        )
+        XCTAssertTrue(
+            ChatMoneyRedPacketPresentationPolicy.canShowOpenAction(
+                detail: try detail(status: "partial", remainingCount: 1),
+                isSender: true
+            ),
+            "A group lucky/equal red-packet sender remains an eligible group member."
+        )
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.canShowOpenAction(
+                detail: try detail(
+                    status: "pending",
+                    remainingCount: 1,
+                    scope: "dm",
+                    mode: "direct"
+                ),
+                isSender: true
+            )
+        )
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.canShowOpenAction(
+                detail: try detail(
+                    status: "pending",
+                    remainingCount: 1,
+                    scope: "group",
+                    mode: "exclusive"
+                ),
+                isSender: true
+            )
+        )
+        XCTAssertFalse(
+            ChatMoneyRedPacketPresentationPolicy.shouldShowEnvelope(
+                detail: try detail(status: "partial", remainingCount: 1),
+                viewerID: "u2",
+                isSender: false,
+                hasLocalClaim: true
+            )
+        )
+    }
+
     func testDeliveryMatcherCorrelatesChatMoneyByStableAssetID() {
         let http = #"{"asset_id":"rp-stable","kind":"red_packet","scope":"dm","mode":"direct","sender_id":"u1","status":"pending","version":1}"#
         let socket = #"{"asset_id":"rp-stable","kind":"red_packet","scope":"dm","mode":"direct","sender_id":"u1","status":"completed","version":2}"#
@@ -680,5 +877,239 @@ extension APIResponseContractTests {
         XCTAssertEqual(try transaction(type: "transfer_sent", amount: 20).signedAmountValue, -20)
         XCTAssertEqual(try transaction(type: "transfer_received", amount: 20).signedAmountValue, 20)
         XCTAssertEqual(try transaction(type: "transfer_returned", amount: 20).signedAmountValue, 20)
+    }
+
+    func testChatMoneyConfigurationDecodesSplitLimitsAndKeepsLegacyFallback() throws {
+        let splitJSON = #"""
+        {
+          "red_packet_enabled": true,
+          "transfer_enabled": true,
+          "limits": {
+            "minimum_amount": 1,
+            "maximum_amount": 20000,
+            "red_packet_minimum_amount": 2,
+            "red_packet_maximum_amount": 5000,
+            "transfer_minimum_amount": 10,
+            "transfer_maximum_amount": 10000,
+            "maximum_packet_count": 100,
+            "expires_after_seconds": 86400,
+            "maximum_greeting_length": 60,
+            "maximum_transfer_note_length": 20
+          },
+          "eligibility": {"eligible": true}
+        }
+        """#
+        let configuration = try JSONDecoder().decode(
+            ChatMoneyConfiguration.self,
+            from: Data(splitJSON.utf8)
+        )
+
+        XCTAssertEqual(configuration.limits.minimumAmount(for: .redPacket), 2)
+        XCTAssertEqual(configuration.limits.maximumAmount(for: .redPacket), 5_000)
+        XCTAssertEqual(configuration.limits.minimumAmount(for: .transfer), 10)
+        XCTAssertEqual(configuration.limits.maximumAmount(for: .transfer), 10_000)
+        XCTAssertEqual(configuration.limits.maximumGreetingLength, 60)
+        XCTAssertEqual(configuration.limits.maximumTransferNoteLength, 20)
+
+        XCTAssertEqual(ChatMoneyLimits.fixture.minimumAmount(for: .redPacket), 1)
+        XCTAssertEqual(ChatMoneyLimits.fixture.maximumAmount(for: .transfer), 20_000)
+    }
+
+    func testChatMoneyDetailDecodesViewerReasonAndLifecycleFields() throws {
+        let json = #"""
+        {
+          "asset_id": "rp-detail",
+          "kind": "red_packet",
+          "scope": "group",
+          "mode": "exclusive",
+          "sender_id": "sender",
+          "recipient_id": "recipient",
+          "status": "pending",
+          "can_claim": false,
+          "can_accept": false,
+          "can_return": false,
+          "claims": [],
+          "version": 4,
+          "created_at": "2026-07-17T01:00:00Z",
+          "finalized_at": null,
+          "viewer_state": "not_designated",
+          "unavailable_reason": "red_packet_recipient_only",
+          "remaining_amount": 88,
+          "remaining_count": 1
+        }
+        """#
+        let detail = try JSONDecoder().decode(ChatMoneyDetail.self, from: Data(json.utf8))
+
+        XCTAssertEqual(detail.viewerState, .notDesignated)
+        XCTAssertEqual(detail.unavailableReason, .recipientOnly)
+        XCTAssertEqual(detail.createdAt, "2026-07-17T01:00:00Z")
+        XCTAssertNil(detail.finalizedAt)
+        XCTAssertEqual(detail.remainingAmount, 88)
+        XCTAssertEqual(detail.remainingCount, 1)
+    }
+
+    func testStructuredReceiptParsesAndLocalizesForEachPrivateChatRole() throws {
+        let json = #"""
+        {
+          "event_id": "evt-1",
+          "asset_id": "rp-1",
+          "event_type": "red_packet_claimed",
+          "actor_id": "recipient",
+          "actor_name": "小猫",
+          "sender_id": "sender",
+          "sender_name": "大猫",
+          "scope": "dm",
+          "created_at": "2026-07-17T01:00:00Z"
+        }
+        """#
+        let payload = try XCTUnwrap(ChatMoneyReceiptPayload.parse(json))
+
+        XCTAssertTrue(payload.localizedText(viewerID: "recipient").contains("大猫"))
+        XCTAssertTrue(payload.localizedText(viewerID: "sender").contains("小猫"))
+        XCTAssertTrue(payload.localizedText(viewerID: "observer").contains("小猫"))
+        XCTAssertFalse(json.contains("amount"))
+    }
+
+    func testTransferReceiptPlacesNamesInsideLocalizedMessage() throws {
+        let json = #"""
+        {
+          "event_id": "evt-transfer",
+          "asset_id": "transfer-1",
+          "event_type": "transfer_returned",
+          "actor_id": "recipient",
+          "actor_name": "小猫",
+          "sender_id": "sender",
+          "sender_name": "大猫",
+          "scope": "group",
+          "created_at": "2026-07-17T01:00:00Z"
+        }
+        """#
+        let payload = try XCTUnwrap(ChatMoneyReceiptPayload.parse(json))
+
+        XCTAssertEqual(
+            payload.localizedText(viewerID: "recipient"),
+            L10n.tr("chatMoney.receipt.transferReturnedByMe", "大猫")
+        )
+        XCTAssertEqual(
+            payload.localizedText(viewerID: "sender"),
+            L10n.tr("chatMoney.receipt.transferReturnedMine", "小猫")
+        )
+        XCTAssertEqual(
+            payload.localizedText(viewerID: "observer"),
+            L10n.tr("chatMoney.receipt.transferReturnedBetween", "小猫", "大猫")
+        )
+    }
+
+    func testStructuredReceiptRendersWhenHistoryDowngradesTypeOrDoubleEncodesContent() throws {
+        let receiptJSON = #"""
+        {"event_id":"evt-legacy","asset_id":"rp-legacy","event_type":"red_packet_claimed","actor_id":"recipient","actor_name":"小猫","sender_id":"sender","sender_name":"大猫","scope":"dm","created_at":"2026-07-17T01:00:00Z"}
+        """#
+        let encodedData = try JSONEncoder().encode(receiptJSON)
+        let doubleEncoded = try XCTUnwrap(String(data: encodedData, encoding: .utf8))
+        let message = Message(
+            id: 78,
+            senderID: "sender",
+            receiverID: "recipient",
+            msgType: "text",
+            content: doubleEncoded,
+            timestamp: "2026-07-17T01:00:00Z",
+            replyToID: nil,
+            replyTo: nil
+        )
+
+        XCTAssertEqual(message.chatMoneyReceiptPayload?.eventID, "evt-legacy")
+        XCTAssertFalse(
+            ChatMoneyPreview.text(content: doubleEncoded, msgType: "text")?
+                .contains("event_id") ?? true
+        )
+    }
+
+    func testStructuredReceiptParsesNestedCamelCasePayloadForGroupHistory() throws {
+        let content = #"""
+        {
+          "payload": {
+            "eventId": "evt-group",
+            "assetId": "rp-group",
+            "eventType": "red-packet-claimed",
+            "actor": {"id": "u2", "nickname": "小猫"},
+            "sender": {"id": "u1", "name": "大猫"},
+            "scope": "group_chat",
+            "createdAt": "2026-07-17T01:00:00Z"
+          }
+        }
+        """#
+        let message = GroupMessage(
+            id: 79,
+            groupID: 8,
+            senderID: "u1",
+            msgType: "system",
+            content: content,
+            timestamp: "2026-07-17T01:00:00Z",
+            senderNickname: "大猫",
+            senderAvatar: "",
+            replyToID: nil,
+            replyTo: nil,
+            mentions: nil
+        )
+
+        let payload = try XCTUnwrap(message.chatMoneyReceiptPayload)
+        XCTAssertEqual(payload.eventID, "evt-group")
+        XCTAssertEqual(payload.scope, .group)
+        XCTAssertEqual(payload.actorName, "小猫")
+    }
+
+    func testChatMoneyUpdateDecodesReceiptWithoutRestoringLeakedRedPacketAmount() throws {
+        let receiptContent = #"""
+        {"event_id":"evt-2","asset_id":"rp-2","event_type":"red_packet_claimed","actor_id":"u2","actor_name":"小猫","sender_id":"u1","sender_name":"大猫","scope":"dm","created_at":"2026-07-17T01:00:00Z"}
+        """#
+        let object: [String: Any] = [
+            "asset": [
+                "asset_id": "rp-2",
+                "kind": "red_packet",
+                "scope": "dm",
+                "mode": "direct",
+                "sender_id": "u1",
+                "amount": 999,
+                "status": "completed",
+                "version": 2
+            ],
+            "receipt_message": [
+                "id": 77,
+                "sender_id": "u1",
+                "receiver_id": "u2",
+                "msg_type": "chat_money_receipt",
+                "content": receiptContent,
+                "timestamp": "2026-07-17T01:00:00Z"
+            ]
+        ]
+        let event = try JSONDecoder().decode(
+            ChatMoneyUpdateEvent.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+
+        XCTAssertNil(event.payload.amount)
+        XCTAssertEqual(event.payload.version, 2)
+        XCTAssertEqual(event.directReceiptMessage?.chatMoneyReceiptPayload?.eventID, "evt-2")
+    }
+
+    func testChatMoneyMachineErrorsUseStableLocalizedPresentation() {
+        XCTAssertEqual(
+            ChatMoneyErrorText.message(
+                for: APIError.serverError(
+                    code: 422,
+                    message: "chat_money_insufficient_balance"
+                )
+            ),
+            L10n.tr("gift.insufficientBalance")
+        )
+        XCTAssertEqual(
+            ChatMoneyErrorText.message(
+                for: APIError.serverError(
+                    code: 409,
+                    message: "transfer_already_finalized"
+                )
+            ),
+            L10n.tr("chatMoney.transfer.alreadyFinalized")
+        )
     }
 }

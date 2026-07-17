@@ -2107,28 +2107,27 @@ class APIService {
     }
 
     func getPublicAgents(limit: Int = 60) async throws -> [AgentSummary] {
-        struct AgentListData: Decodable {
-            let agents: [AgentSummary]
+        try await getPublicAgentsPage(limit: limit).agents
+    }
 
-            private enum CodingKeys: String, CodingKey { case agents, items }
-
-            init(from decoder: Decoder) throws {
-                if let list = try? [AgentSummary](from: decoder) {
-                    agents = list
-                    return
-                }
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                agents = try container.decodeIfPresent([AgentSummary].self, forKey: .agents)
-                    ?? container.decodeIfPresent([AgentSummary].self, forKey: .items)
-                    ?? []
-            }
+    func getPublicAgentsPage(
+        ownerUserID: String? = nil,
+        cursor: String? = nil,
+        limit: Int = 20
+    ) async throws -> AgentSummaryPage {
+        var queryItems = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let ownerUserID, !ownerUserID.isBlank {
+            queryItems.append(URLQueryItem(name: "owner_user_id", value: ownerUserID))
+        }
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
         }
 
-        let response: APIResponseWrapper<AgentListData> = try await get(
+        let response: APIResponseWrapper<AgentSummaryPage> = try await get(
             path: "/agents/public",
-            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")]
+            queryItems: queryItems
         )
-        return try response.requiredData().agents
+        return try response.requiredData()
     }
 
     func getInstalledAgents() async throws -> [AgentSummary] {

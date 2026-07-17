@@ -1330,7 +1330,7 @@ struct WalletView: View {
 
 }
 
-private struct WalletTransactionDetailView: View {
+struct WalletTransactionDetailView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject private var walletStore = WalletStore.shared
     @State private var selectedTab: WalletRecordTab = .income
