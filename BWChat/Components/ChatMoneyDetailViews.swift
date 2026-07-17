@@ -24,7 +24,13 @@ struct ChatMoneyDetailView: View {
 
             if let detail {
                 if detail.kind == .redPacket {
-                    RedPacketDetailContent(detail: detail)
+                    RedPacketDetailContent(
+                        detail: detail,
+                        onShowBalance: {
+                            navigator.push(WalletView().hidesTabBarOnPush())
+                        },
+                        onReplyToChat: closeDetail
+                    )
                 } else {
                     TransferDetailContent(
                         detail: detail,
@@ -48,40 +54,38 @@ struct ChatMoneyDetailView: View {
                     .tint(AppColors.accent)
             }
         }
-        .navigationTitle(
-            payload.kind == .redPacket
-                ? L10n.tr("chatMoney.redPacket.detailTitle")
-                : ""
-        )
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(
-            payload.kind == .redPacket
-                ? ChatMoneyTheme.envelopeRed
-                : ChatMoneyTheme.pageBackground,
-            for: .navigationBar
-        )
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarColorScheme(
-            payload.kind == .redPacket ? .dark : .light,
-            for: .navigationBar
-        )
         .hidesTabBarOnPush()
-        .withUIKitBackButton(
-            tint: payload.kind == .redPacket ? .white : AppColors.primaryText
-        )
-        .toolbar(
-            payload.kind == .transfer ? .hidden : .visible,
-            for: .navigationBar
-        )
-        .overlay(alignment: .topLeading) {
-            if payload.kind == .transfer {
-                AppBackButton {
-                    if navigator.canPopPushedController {
-                        navigator.pop()
-                    } else {
-                        dismiss()
+        .toolbar(.hidden, for: .navigationBar)
+        .overlay(alignment: .top) {
+            if payload.kind == .redPacket {
+                HStack {
+                    AppBackButton(tint: .white, action: closeDetail)
+
+                    Spacer()
+
+                    Button {
+                        navigator.push(
+                            WalletTransactionDetailView().hidesTabBarOnPush()
+                        )
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 42, height: 36)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("chatMoney.transfer.billDetails"))
                 }
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+            } else {
+                AppBackButton {
+                    closeDetail()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 8)
                 .padding(.top, 4)
             }
@@ -103,6 +107,14 @@ struct ChatMoneyDetailView: View {
             guard let updated,
                   updated.version > (detail?.version ?? -1) else { return }
             detail = updated
+        }
+    }
+
+    private func closeDetail() {
+        if navigator.canPopPushedController {
+            navigator.pop()
+        } else {
+            dismiss()
         }
     }
 
@@ -183,8 +195,7 @@ struct ChatMoneyRedPacketEntryOverlay: View {
                     onViewDetails: onShowDetail
                 )
             } else {
-                Color.black.opacity(0.56)
-                    .ignoresSafeArea()
+                RedPacketBackdrop()
 
                 if let loadError {
                     VStack(spacing: 18) {
@@ -287,120 +298,151 @@ private struct RedPacketOpenEnvelope: View {
     let onViewDetails: () -> Void
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.56).ignoresSafeArea()
+        GeometryReader { proxy in
+            let envelopeWidth = min(proxy.size.width - 42, 340)
+            let envelopeHeight = min(max(proxy.size.height * 0.66, 430), 550)
 
-            VStack(spacing: 0) {
-                ZStack(alignment: .topLeading) {
-                    ChatMoneyTheme.envelopeRed
+            ZStack {
+                RedPacketBackdrop()
 
-                    Circle()
-                        .fill(ChatMoneyTheme.envelopeDarkRed)
-                        .frame(width: 470, height: 260)
-                        .offset(x: -52, y: 230)
+                VStack(spacing: 22) {
+                    envelope
+                        .frame(width: envelopeWidth, height: envelopeHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .shadow(color: .black.opacity(0.26), radius: 24, y: 12)
 
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(.white.opacity(0.85))
-                            .frame(width: 44, height: 44)
-                    }
-                    .padding(4)
-
-                    VStack(spacing: 12) {
-                        AvatarView(url: detail.senderAvatarURL ?? "", size: 52)
-                        Text(
-                            isSender
-                                ? L10n.tr("chatMoney.redPacket.sentByMe")
-                                : L10n.tr(
-                                    "chatMoney.redPacket.from",
-                                    detail.senderName ?? L10n.tr("chatMoney.sender")
-                                )
-                        )
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(ChatMoneyTheme.gold)
-
-                        Text(detail.greeting ?? L10n.tr("chatMoney.redPacket.defaultGreeting"))
-                            .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(ChatMoneyTheme.gold)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                            .padding(.horizontal, 26)
-
-                        Spacer()
-
-                        if !canOpen {
-                            VStack(spacing: 10) {
-                                ZStack {
-                                    Circle()
-                                        .fill(ChatMoneyTheme.gold.opacity(0.92))
-                                        .frame(width: 84, height: 84)
-                                    Image(systemName: "clock")
-                                        .font(.system(size: 31, weight: .medium))
-                                        .foregroundColor(ChatMoneyTheme.envelopeDarkRed)
-                                }
-                                Text(waitingText)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(ChatMoneyTheme.gold.opacity(0.92))
-                            }
-                        } else {
-                            VStack(spacing: 10) {
-                                Button(action: onOpen) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(ChatMoneyTheme.gold)
-                                            .frame(width: 84, height: 84)
-                                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-                                        if isOpening {
-                                            ProgressView()
-                                                .tint(ChatMoneyTheme.envelopeDarkRed)
-                                        } else {
-                                            Text(L10n.tr("chatMoney.redPacket.open"))
-                                                .font(.system(size: 30, weight: .medium))
-                                                .foregroundColor(ChatMoneyTheme.envelopeDarkRed)
-                                        }
-                                    }
-                                    .rotation3DEffect(
-                                        .degrees(isOpening ? 720 : 0),
-                                        axis: (x: 0, y: 1, z: 0)
-                                    )
-                                    .animation(
-                                        .linear(duration: 0.75).repeatCount(isOpening ? 20 : 1),
-                                        value: isOpening
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(isOpening)
-                                .accessibilityIdentifier("chatMoney.claim")
-
-                                Text(L10n.tr("chatMoney.redPacket.claimPrompt"))
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(ChatMoneyTheme.gold.opacity(0.96))
-                            }
-                        }
-
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.9))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 24)
-                        }
-
-                        Button(L10n.tr("chatMoney.redPacket.viewDetails"), action: onViewDetails)
-                            .font(.system(size: 14))
+                            .font(.system(size: 19, weight: .medium))
                             .foregroundColor(ChatMoneyTheme.gold.opacity(0.92))
-                            .disabled(isOpening)
-                            .padding(.bottom, 22)
+                            .frame(width: 48, height: 48)
+                            .overlay {
+                                Circle()
+                                    .stroke(ChatMoneyTheme.gold.opacity(0.82), lineWidth: 1.5)
+                            }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 40)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.tr("common.close"))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .offset(y: -6)
             }
-            .frame(width: 318, height: 472)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: .black.opacity(0.28), radius: 24, y: 12)
         }
+    }
+
+    private var envelope: some View {
+        GeometryReader { proxy in
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(ChatMoneyTheme.envelopeRed)
+
+                VStack {
+                    Spacer()
+                    RedPacketEnvelopeFold()
+                        .fill(ChatMoneyTheme.envelopeDarkRed.opacity(0.62))
+                        .frame(height: proxy.size.height * 0.41)
+                }
+
+                VStack(spacing: 0) {
+                    Spacer()
+                        .frame(height: proxy.size.height * 0.22)
+
+                    HStack(spacing: 8) {
+                        AvatarView(url: detail.senderAvatarURL ?? "", size: 30)
+                        Text(senderHeadline)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(ChatMoneyTheme.gold)
+                            .lineLimit(1)
+                    }
+
+                    Text(detail.greeting ?? L10n.tr("chatMoney.redPacket.defaultGreeting"))
+                        .font(.system(size: 21, weight: .medium))
+                        .foregroundColor(ChatMoneyTheme.gold)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .padding(.horizontal, 26)
+                        .padding(.top, 21)
+
+                    Spacer()
+
+                    openAction
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.92))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 12)
+                    }
+
+                    Spacer()
+
+                    Button(L10n.tr("chatMoney.redPacket.viewDetails"), action: onViewDetails)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(ChatMoneyTheme.gold.opacity(0.94))
+                        .disabled(isOpening)
+                        .padding(.bottom, 22)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var openAction: some View {
+        if canOpen {
+            Button(action: onOpen) {
+                ZStack {
+                    Circle()
+                        .fill(ChatMoneyTheme.gold)
+                        .frame(width: 92, height: 92)
+                        .shadow(color: .black.opacity(0.16), radius: 4, y: 2)
+
+                    if isOpening {
+                        ProgressView()
+                            .tint(ChatMoneyTheme.envelopeDarkRed)
+                    } else {
+                        Text(L10n.tr("chatMoney.redPacket.open"))
+                            .font(.system(size: 34, weight: .medium))
+                            .foregroundColor(ChatMoneyTheme.envelopeDarkRed)
+                    }
+                }
+                .rotation3DEffect(
+                    .degrees(isOpening ? 720 : 0),
+                    axis: (x: 0, y: 1, z: 0)
+                )
+                .animation(
+                    .linear(duration: 0.75).repeatCount(isOpening ? 20 : 1),
+                    value: isOpening
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isOpening)
+            .accessibilityLabel(L10n.tr("chatMoney.redPacket.claimPrompt"))
+            .accessibilityIdentifier("chatMoney.claim")
+        } else {
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(ChatMoneyTheme.gold.opacity(0.94))
+                        .frame(width: 82, height: 82)
+                    Image(systemName: "clock")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundColor(ChatMoneyTheme.envelopeDarkRed)
+                }
+                Text(waitingText)
+                    .font(.system(size: 14))
+                    .foregroundColor(ChatMoneyTheme.gold.opacity(0.94))
+            }
+        }
+    }
+
+    private var senderHeadline: String {
+        L10n.tr(
+            "chatMoney.redPacket.sentBy",
+            detail.senderName ?? L10n.tr("chatMoney.sender")
+        )
     }
 
     private var waitingText: String {
@@ -411,94 +453,191 @@ private struct RedPacketOpenEnvelope: View {
     }
 }
 
+private struct RedPacketBackdrop: View {
+    var body: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay(Color.white.opacity(0.38))
+            .ignoresSafeArea()
+    }
+}
+
+private struct RedPacketEnvelopeFold: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY),
+            control: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.42)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 private struct RedPacketDetailContent: View {
     let detail: ChatMoneyDetail
+    let onShowBalance: () -> Void
+    let onReplyToChat: () -> Void
 
     private var senderHeading: String {
-        if detail.senderID == AuthManager.shared.currentUser?.userID {
-            return L10n.tr("chatMoney.redPacket.sentByMe")
-        }
         return L10n.tr(
-            "chatMoney.redPacket.from",
+            "chatMoney.redPacket.sentBy",
             detail.senderName ?? L10n.tr("chatMoney.sender")
         )
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    VStack(spacing: 10) {
-                        AvatarView(url: detail.senderAvatarURL ?? "", size: 54)
-                        Text(senderHeading)
-                            .font(.system(size: 15))
-                            .foregroundColor(.white.opacity(0.82))
-                        Text(detail.greeting ?? L10n.tr("chatMoney.redPacket.defaultGreeting"))
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundColor(ChatMoneyTheme.gold)
-                            .multilineTextAlignment(.center)
+        ZStack(alignment: .top) {
+            Color.white
+                .ignoresSafeArea()
 
-                        if let amount = detail.viewerClaimAmount {
-                            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                                Text("\(amount)")
-                                    .font(.system(size: 48, weight: .medium))
-                                    .monospacedDigit()
-                                Text(L10n.tr("wallet.currency.catFood"))
-                                    .font(.system(size: 14))
-                            }
-                            .foregroundColor(ChatMoneyTheme.gold)
-                            .padding(.top, 8)
-                        } else {
-                            Text(statusText)
-                                .font(.system(size: 15))
-                                .foregroundColor(.white.opacity(0.78))
-                                .padding(.top, 8)
-                        }
+            redHeader
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: 164)
+
+                    HStack(spacing: 9) {
+                        AvatarView(url: detail.senderAvatarURL ?? "", size: 30)
+                        Text(senderHeading)
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundColor(AppColors.primaryText)
+                            .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 26)
-                    .padding(.bottom, 28)
-                    .background(ChatMoneyTheme.envelopeRed)
 
-                    HStack {
-                        Text(summaryText)
-                            .font(.system(size: 13))
-                            .foregroundColor(ChatMoneyTheme.secondary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .frame(height: 44)
+                    Text(detail.greeting ?? L10n.tr("chatMoney.redPacket.defaultGreeting"))
+                        .font(.system(size: 15))
+                        .foregroundColor(Color(hex: "B2B2B2"))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 12)
 
-                    Divider()
-
-                    if detail.claims.isEmpty {
-                        Text(L10n.tr("chatMoney.redPacket.noClaims"))
-                            .font(.system(size: 14))
-                            .foregroundColor(Color(hex: "B2B2B2"))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 36)
+                    if let amount = detail.viewerClaimAmount {
+                        claimedSummary(amount: amount)
                     } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(detail.claims) { claim in
-                                ChatMoneyClaimRow(
-                                    claim: claim,
-                                    showsLuckiest: detail.status == .completed
-                                        || (detail.claimedCount != nil
-                                            && detail.claimedCount == detail.packetCount)
-                                )
-                                Divider().padding(.leading, 66)
-                            }
-                        }
-                        .background(Color.white)
+                        statusSummary
+                    }
+
+                    if detail.scope == .group {
+                        claimList
+                            .padding(.top, 42)
+                    }
+
+                    Spacer(minLength: 90)
+                }
+            }
+        }
+    }
+
+    private var redHeader: some View {
+        ZStack(alignment: .bottom) {
+            RedPacketDetailHeaderShape()
+                .fill(ChatMoneyTheme.envelopeRed)
+
+            RedPacketDetailHeaderArc()
+                .stroke(ChatMoneyTheme.gold.opacity(0.95), lineWidth: 2)
+        }
+        .frame(height: 182)
+        .ignoresSafeArea(edges: .top)
+    }
+
+    private func claimedSummary(amount: Int) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text(verbatim: "\(amount)")
+                    .font(.system(size: 58, weight: .medium))
+                    .monospacedDigit()
+                Text(L10n.tr("wallet.currency.catFood"))
+                    .font(.system(size: 17))
+            }
+            .foregroundColor(ChatMoneyTheme.gold)
+            .padding(.top, 27)
+
+            Button(action: onShowBalance) {
+                HStack(spacing: 7) {
+                    Text(L10n.tr("chatMoney.redPacket.depositedToBalance"))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .font(.system(size: 15))
+                .foregroundColor(ChatMoneyTheme.gold)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 14)
+
+            Button(action: onReplyToChat) {
+                Label(
+                    L10n.tr("chatMoney.redPacket.replyToChat"),
+                    systemImage: "face.smiling"
+                )
+                .font(.system(size: 15))
+                .foregroundColor(ChatMoneyTheme.gold)
+                .padding(.horizontal, 18)
+                .frame(height: 48)
+                .background(Color(hex: "F7F7F7"))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 34)
+        }
+    }
+
+    private var statusSummary: some View {
+        VStack(spacing: 12) {
+            Text(statusText)
+                .font(.system(size: 23, weight: .medium))
+                .foregroundColor(AppColors.primaryText)
+                .multilineTextAlignment(.center)
+
+            if detail.scope == .direct {
+                Text(summaryText)
+                    .font(.system(size: 14))
+                    .foregroundColor(ChatMoneyTheme.secondary)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 34)
+    }
+
+    private var claimList: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(summaryText)
+                    .font(.system(size: 13))
+                    .foregroundColor(ChatMoneyTheme.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 44)
+
+            Divider()
+
+            if detail.claims.isEmpty {
+                Text(L10n.tr("chatMoney.redPacket.noClaims"))
+                    .font(.system(size: 14))
+                    .foregroundColor(Color(hex: "B2B2B2"))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 36)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(detail.claims) { claim in
+                        ChatMoneyClaimRow(
+                            claim: claim,
+                            showsLuckiest: detail.status == .completed
+                                || (detail.claimedCount != nil
+                                    && detail.claimedCount == detail.packetCount)
+                        )
+                        Divider().padding(.leading, 66)
                     }
                 }
             }
-
-            ChatMoneyDetailTimeFooter(
-                detail: detail,
-                backgroundColor: ChatMoneyTheme.pageBackground
-            )
         }
+        .background(ChatMoneyTheme.pageBackground)
     }
 
     private var statusText: String {
@@ -532,6 +671,33 @@ private struct RedPacketDetailContent: View {
             return L10n.tr("chatMoney.redPacket.claims")
         }
         return L10n.tr("chatMoney.redPacket.summary", claimed, total)
+    }
+}
+
+private struct RedPacketDetailHeaderShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: rect.origin)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.height * 0.63))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.height * 0.63),
+            control: CGPoint(x: rect.midX, y: rect.maxY)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct RedPacketDetailHeaderArc: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.height * 0.63))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.height * 0.63),
+            control: CGPoint(x: rect.midX, y: rect.maxY)
+        )
+        return path
     }
 }
 
@@ -954,6 +1120,74 @@ struct ChatMoneyTransferFeedbackPreviewView: View {
             )
             .navigationTitle(L10n.tr("chatMoney.transfer.detailTitle"))
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct ChatMoneyRedPacketOpenPreviewView: View {
+    var body: some View {
+        RedPacketOpenEnvelope(
+            detail: .redPacketPreview(viewerClaimAmount: nil),
+            isSender: false,
+            canOpen: true,
+            isOpening: false,
+            errorMessage: nil,
+            onClose: {},
+            onOpen: {},
+            onViewDetails: {}
+        )
+    }
+}
+
+private struct ChatMoneyRedPacketClaimedPreviewView: View {
+    var body: some View {
+        RedPacketDetailContent(
+            detail: .redPacketPreview(viewerClaimAmount: 100),
+            onShowBalance: {},
+            onReplyToChat: {}
+        )
+    }
+}
+
+private extension ChatMoneyDetail {
+    static func redPacketPreview(viewerClaimAmount: Int?) -> ChatMoneyDetail {
+        ChatMoneyDetail(
+            assetID: "preview-red-packet",
+            kind: .redPacket,
+            scope: .direct,
+            mode: .direct,
+            senderID: "preview-sender",
+            senderName: "曹美芹",
+            senderAvatarURL: nil,
+            recipientID: "preview-recipient",
+            recipientName: "小北",
+            totalAmount: nil,
+            claimedAmount: viewerClaimAmount,
+            packetCount: 1,
+            claimedCount: viewerClaimAmount == nil ? 0 : 1,
+            greeting: "恭喜发财，大吉大利",
+            note: nil,
+            status: viewerClaimAmount == nil ? .pending : .completed,
+            expiresAt: nil,
+            canClaim: viewerClaimAmount == nil,
+            canAccept: false,
+            canReturn: false,
+            viewerClaimAmount: viewerClaimAmount,
+            claims: [],
+            version: 1,
+            viewerState: viewerClaimAmount == nil ? .claimable : .claimed
+        )
+    }
+}
+
+private struct ChatMoneyRedPacketOpenPreviewProvider: PreviewProvider {
+    static var previews: some View {
+        Group {
+            ChatMoneyRedPacketOpenPreviewView()
+                .previewDisplayName("Red packet · Open")
+
+            ChatMoneyRedPacketClaimedPreviewView()
+                .previewDisplayName("Red packet · Claimed")
         }
     }
 }

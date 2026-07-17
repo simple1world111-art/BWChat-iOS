@@ -5,8 +5,6 @@ struct ScriptRoomChatView: View {
     @StateObject private var viewModel: ScriptRoomViewModel
     @FocusState private var isInputFocused: Bool
     @State private var showEndConfirmation = false
-    @State private var keyboardLayoutHeight: CGFloat = 0
-    @State private var isKeyboardLayoutVisible = false
     @State private var scrollRequest = 0
     @State private var hasCompletedInitialLoad = false
     @State private var isViewVisible = false
@@ -62,7 +60,6 @@ struct ScriptRoomChatView: View {
                 }
             }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .onAppear {
             isViewVisible = true
             viewModel.setVisible(true)
@@ -73,15 +70,8 @@ struct ScriptRoomChatView: View {
             guard !Task.isCancelled, isViewVisible else { return }
             hasCompletedInitialLoad = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-            handleKeyboardWillShow(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
-            handleKeyboardWillHide(notification)
-        }
         .onDisappear {
             isViewVisible = false
-            isKeyboardLayoutVisible = false
             viewModel.setVisible(false)
         }
         .confirmationDialog(
@@ -289,41 +279,8 @@ struct ScriptRoomChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-
-            Color.clear
-                .frame(height: isKeyboardLayoutVisible ? keyboardLayoutHeight : 0)
         }
         .background(AppColors.cardBackground)
-    }
-
-    private func keyboardAnimation(from notification: Notification) -> Animation {
-        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-        return .easeInOut(duration: max(duration, 0.18))
-    }
-
-    private func handleKeyboardWillShow(_ notification: Notification) {
-        updateKeyboardLayoutHeight(from: notification)
-        withAnimation(keyboardAnimation(from: notification)) {
-            isKeyboardLayoutVisible = true
-        }
-    }
-
-    private func handleKeyboardWillHide(_ notification: Notification) {
-        withAnimation(keyboardAnimation(from: notification)) {
-            isKeyboardLayoutVisible = false
-        }
-    }
-
-    private func updateKeyboardLayoutHeight(from notification: Notification) {
-        guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
-            return
-        }
-        let bottomInset = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow)?
-            .safeAreaInsets.bottom ?? 0
-        keyboardLayoutHeight = max(0, keyboardFrame.height - bottomInset)
     }
 
     private func requestScrollToBottom() {

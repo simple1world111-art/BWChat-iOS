@@ -578,6 +578,7 @@ enum ChatMoneyReceiptEventType: String, Codable {
 struct ChatMoneyReceiptPayload: Codable, Equatable {
     let eventID: String
     let assetID: String
+    let kind: ChatMoneyKind?
     let eventType: ChatMoneyReceiptEventType
     let actorID: String
     let actorName: String
@@ -589,6 +590,7 @@ struct ChatMoneyReceiptPayload: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case eventID = "event_id"
         case assetID = "asset_id"
+        case kind
         case eventType = "event_type"
         case actorID = "actor_id"
         case actorName = "actor_name"
@@ -624,6 +626,17 @@ struct ChatMoneyReceiptPayload: Codable, Equatable {
         }
 
         if let decoded = try? JSONDecoder().decode(ChatMoneyReceiptPayload.self, from: data) {
+            // Some servers keep the asset kind under `asset_kind` or a nested
+            // `asset` object. Enrich a normally decoded receipt when possible.
+            if decoded.kind == nil,
+               let object = try? JSONSerialization.jsonObject(
+                   with: data,
+                   options: [.fragmentsAllowed]
+               ),
+               let enriched = parseJSONObject(object, depth: depth),
+               enriched.kind != nil {
+                return enriched
+            }
             return decoded
         }
 
@@ -686,6 +699,7 @@ struct ChatMoneyReceiptPayload: Codable, Equatable {
 
         let actor = dictionary["actor"] as? [String: Any] ?? [:]
         let sender = dictionary["sender"] as? [String: Any] ?? [:]
+        let asset = dictionary["asset"] as? [String: Any] ?? [:]
         guard let assetID = string(["asset_id", "assetId"]),
               let eventRaw = string(["event_type", "eventType", "type"]),
               let eventType = ChatMoneyReceiptEventType(
@@ -720,10 +734,14 @@ struct ChatMoneyReceiptPayload: Codable, Equatable {
         ].contains(scopeRaw ?? "") ? .group : .direct
         let eventID = string(["event_id", "eventId"])
             ?? "\(assetID):\(eventType.rawValue):\(actorID)"
+        let kindRaw = string(["kind", "asset_kind", "assetKind"])
+            ?? string(["kind", "asset_kind", "assetKind"], in: asset)
+        let kind = kindRaw.flatMap(resolveKind)
 
         return ChatMoneyReceiptPayload(
             eventID: eventID,
             assetID: assetID,
+            kind: kind,
             eventType: eventType,
             actorID: actorID,
             actorName: actorName,
@@ -782,7 +800,50 @@ struct ChatMoneyReceiptPayload: Codable, Equatable {
             }
             return L10n.tr("chatMoney.receipt.transferReturned")
         case .assetExpiredRefunded:
-            return L10n.tr("chatMoney.receipt.expiredRefunded")
+            switch resolvedKind {
+            case .redPacket:
+                return L10n.tr("chatMoney.receipt.redPacketExpiredRefunded")
+            case .transfer:
+                return L10n.tr("chatMoney.receipt.transferExpiredRefunded")
+            case nil:
+                return L10n.tr("chatMoney.receipt.expiredRefunded")
+            }
+        }
+    }
+
+    private var resolvedKind: ChatMoneyKind? {
+        if let kind {
+            return kind
+        }
+
+        let normalizedAssetID = assetID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        if normalizedAssetID.hasPrefix("red_packet")
+            || normalizedAssetID.hasPrefix("redpacket")
+            || normalizedAssetID.hasPrefix("rp_") {
+            return .redPacket
+        }
+        if normalizedAssetID.hasPrefix("transfer")
+            || normalizedAssetID.hasPrefix("tr_") {
+            return .transfer
+        }
+        return nil
+    }
+
+    private static func resolveKind(_ rawValue: String) -> ChatMoneyKind? {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        switch normalized {
+        case "red_packet", "redpacket", "packet":
+            return .redPacket
+        case "transfer":
+            return .transfer
+        default:
+            return nil
         }
     }
 
@@ -867,24 +928,49 @@ enum ChatMoneyMessagePromptResolver {
         viewerID: String?,
         isFromMe: Bool? = nil
     ) -> ChatMoneyMessagePrompt {
-        guard payload.status == .pending || payload.status == .partial else {
-            return ChatMoneyMessagePrompt(
-                text: payload.status.localizedTitle,
-                tone: .status
-            )
-        }
-
         let normalizedViewerID = viewerID?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let viewerIsSender = normalizedViewerID == payload.senderID || isFromMe == true
-        let viewerIsRecipient = normalizedViewerID.map { viewerID in
+        let explicitlyMatchesRecipient = normalizedViewerID.map { viewerID in
             payload.recipientID == viewerID
         } ?? false
+        let viewerIsRecipient = explicitlyMatchesRecipient
+            || (payload.scope == .direct && !viewerIsSender && isFromMe == false)
+
+        guard payload.status == .pending || payload.status == .partial else {
+            let text: String
+            if payload.kind == .transfer {
+                switch payload.status {
+                case .accepted:
+                    if viewerIsSender {
+                        text = L10n.tr("chatMoney.transfer.card.acceptedByRecipient")
+                    } else if viewerIsRecipient {
+                        text = L10n.tr("chatMoney.transfer.card.receivedByMe")
+                    } else {
+                        text = payload.status.localizedTitle
+                    }
+                case .returned:
+                    if viewerIsSender {
+                        text = L10n.tr("chatMoney.transfer.card.returnedToMe")
+                    } else if viewerIsRecipient {
+                        text = L10n.tr("chatMoney.transfer.card.returnedByMe")
+                    } else {
+                        text = payload.status.localizedTitle
+                    }
+                case .expiredRefunded:
+                    text = L10n.tr("chatMoney.transfer.card.expiredRefunded")
+                default:
+                    text = payload.status.localizedTitle
+                }
+            } else {
+                text = payload.status.localizedTitle
+            }
+            return ChatMoneyMessagePrompt(text: text, tone: .status)
+        }
 
         switch payload.kind {
         case .transfer:
-            if viewerIsRecipient
-                || (payload.scope == .direct && !viewerIsSender && isFromMe == false) {
+            if viewerIsRecipient {
                 return ChatMoneyMessagePrompt(
                     text: L10n.tr("chatMoney.transfer.receivePrompt"),
                     tone: .action
@@ -958,6 +1044,8 @@ enum ChatMoneyPreview {
             "chatMoney.receipt.transferReturnedByMe",
             "chatMoney.receipt.transferReturnedMine",
             "chatMoney.receipt.transferReturnedBetween",
+            "chatMoney.receipt.redPacketExpiredRefunded",
+            "chatMoney.receipt.transferExpiredRefunded",
             "chatMoney.receipt.expiredRefunded",
             "chatMoney.receipt.activity"
         ]

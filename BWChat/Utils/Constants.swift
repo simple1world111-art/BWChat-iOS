@@ -107,6 +107,7 @@ enum AppColors {
     static let secondaryText = Color(hex: "9E9EB8")
     static let tertiaryText = Color(hex: "C4C4D4")
     static let separator = Color(hex: "F0F0F5")
+    static let composerPanelIconBackground = Color(hex: "E5E5EA")
     static let accent = Color(hex: "667EEA")
     static let accentLight = Color(hex: "667EEA").opacity(0.12)
 

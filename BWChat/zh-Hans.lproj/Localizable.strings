@@ -806,7 +806,10 @@
 "chatMoney.payment.balance" = "猫粮余额";
 "chatMoney.payment.confirm" = "确认支付";
 "chatMoney.redPacket.from" = "来自 %@ 的红包";
+"chatMoney.redPacket.sentBy" = "%@发出的红包";
 "chatMoney.redPacket.sentByMe" = "你发出的红包";
+"chatMoney.redPacket.depositedToBalance" = "已存入猫粮余额";
+"chatMoney.redPacket.replyToChat" = "回复表情到聊天";
 "chatMoney.redPacket.waitingForRecipient" = "等待对方领取";
 "chatMoney.redPacket.waitingForExclusiveRecipient" = "等待指定成员领取";
 "chatMoney.redPacket.viewDetails" = "查看领取详情";
@@ -832,6 +835,11 @@
 "chatMoney.transfer.walletCenterSubtitle" = "充值、获取更多猫粮";
 "chatMoney.transfer.enterWallet" = "进入";
 "chatMoney.transfer.billDetails" = "账单详情";
+"chatMoney.transfer.card.acceptedByRecipient" = "对方已收款";
+"chatMoney.transfer.card.receivedByMe" = "已收款";
+"chatMoney.transfer.card.returnedToMe" = "已退回";
+"chatMoney.transfer.card.returnedByMe" = "已退还";
+"chatMoney.transfer.card.expiredRefunded" = "已过期退回";
 "chatMoney.receipt.claimedByMe" = "你领取了 %@ 的红包";
 "chatMoney.receipt.claimedMine" = "%@ 领取了你的红包";
 "chatMoney.receipt.claimed" = "%@ 领取了 %@ 的红包";
@@ -843,6 +851,8 @@
 "chatMoney.receipt.transferReturnedByMe" = "你已退还 %@ 的转账";
 "chatMoney.receipt.transferReturnedMine" = "%@ 已退还你的转账";
 "chatMoney.receipt.transferReturnedBetween" = "%@ 已退还 %@ 的转账";
-"chatMoney.receipt.expiredRefunded" = "猫粮已过期退回";
+"chatMoney.receipt.redPacketExpiredRefunded" = "红包过期退回";
+"chatMoney.receipt.transferExpiredRefunded" = "转账过期退回";
+"chatMoney.receipt.expiredRefunded" = "交易过期退回";
 "chatMoney.receipt.activity" = "猫粮交易动态";
 "chatMoney.redPacket.notConversationMember" = "你已不是该会话成员，无法领取";

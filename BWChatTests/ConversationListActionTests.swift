@@ -182,4 +182,58 @@ final class ConversationListActionTests: XCTestCase {
             "\(L10n.tr("chatMoney.preview.redPacket")) \(L10n.tr("chatMoney.redPacket.waitingForRecipient"))"
         )
     }
+
+    func testTerminalTransferPromptDistinguishesAcceptedAndReturnedByViewer() {
+        let accepted = ChatMoneyPayload(
+            assetID: "transfer-accepted",
+            kind: .transfer,
+            scope: .direct,
+            senderID: "sender",
+            recipientID: "recipient",
+            amount: 88,
+            status: .accepted
+        )
+        let returned = ChatMoneyPayload(
+            assetID: "transfer-returned",
+            kind: .transfer,
+            scope: .direct,
+            senderID: "sender",
+            recipientID: "recipient",
+            amount: 88,
+            status: .returned
+        )
+
+        XCTAssertEqual(
+            ChatMoneyMessagePromptResolver.prompt(
+                for: accepted,
+                viewerID: "sender",
+                isFromMe: true
+            ).text,
+            L10n.tr("chatMoney.transfer.card.acceptedByRecipient")
+        )
+        XCTAssertEqual(
+            ChatMoneyMessagePromptResolver.prompt(
+                for: accepted,
+                viewerID: "recipient",
+                isFromMe: false
+            ).text,
+            L10n.tr("chatMoney.transfer.card.receivedByMe")
+        )
+        XCTAssertEqual(
+            ChatMoneyMessagePromptResolver.prompt(
+                for: returned,
+                viewerID: "sender",
+                isFromMe: true
+            ).text,
+            L10n.tr("chatMoney.transfer.card.returnedToMe")
+        )
+        XCTAssertEqual(
+            ChatMoneyMessagePromptResolver.prompt(
+                for: returned,
+                viewerID: "recipient",
+                isFromMe: false
+            ).text,
+            L10n.tr("chatMoney.transfer.card.returnedByMe")
+        )
+    }
 }
