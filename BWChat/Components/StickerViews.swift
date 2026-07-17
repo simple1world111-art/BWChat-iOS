@@ -2,10 +2,171 @@
 // Sticker picker panel and sticker message rendering.
 
 import SwiftUI
+import UIKit
 
 enum ComposerPanel: Equatable {
     case stickers
     case plus
+}
+
+enum ComposerSurface: Equatable {
+    case keyboard
+    case stickers
+    case plus
+
+    init(panel: ComposerPanel) {
+        switch panel {
+        case .stickers:
+            self = .stickers
+        case .plus:
+            self = .plus
+        }
+    }
+
+    var panel: ComposerPanel? {
+        switch self {
+        case .keyboard:
+            return nil
+        case .stickers:
+            return .stickers
+        case .plus:
+            return .plus
+        }
+    }
+}
+
+struct ComposerSurfaceHeights: Equatable {
+    private(set) var keyboard: CGFloat
+    private(set) var stickers: CGFloat
+    private(set) var plus: CGFloat
+
+    init(stickerHeight: CGFloat, plusHeight: CGFloat) {
+        keyboard = stickerHeight
+        stickers = stickerHeight
+        plus = plusHeight
+    }
+
+    func height(for surface: ComposerSurface) -> CGFloat {
+        switch surface {
+        case .keyboard:
+            return keyboard
+        case .stickers:
+            return stickers
+        case .plus:
+            return plus
+        }
+    }
+
+    mutating func record(_ height: CGFloat, for surface: ComposerSurface) {
+        guard height.isFinite, height > 0 else { return }
+        switch surface {
+        case .keyboard:
+            keyboard = height
+        case .stickers:
+            stickers = height
+        case .plus:
+            plus = height
+        }
+    }
+}
+
+enum ComposerPlusPanelMetrics {
+    static let columns = 4
+    static let itemHeight: CGFloat = 76
+    static let rowSpacing: CGFloat = 18
+    static let verticalPadding: CGFloat = 16
+
+    static func preferredHeight(itemCount: Int) -> CGFloat {
+        let rowCount = max(1, Int(ceil(Double(itemCount) / Double(columns))))
+        return (verticalPadding * 2)
+            + (CGFloat(rowCount) * itemHeight)
+            + (CGFloat(max(0, rowCount - 1)) * rowSpacing)
+    }
+}
+
+struct ComposerSurfaceTransition: Equatable {
+    let from: ComposerSurface
+    let to: ComposerSurface
+    var reservedHeight: CGFloat
+}
+
+struct ComposerPanelRenderedHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+struct ComposerPanelToggleButton: UIViewRepresentable {
+    let inactiveSystemName: String
+    let activeSystemName: String
+    let isActive: Bool
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.tintColor = UIColor(AppColors.accent)
+        button.imageView?.contentMode = .center
+        button.accessibilityTraits = .button
+        button.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.handleTap),
+            for: .touchUpInside
+        )
+        updateButton(button)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.action = action
+        updateButton(button)
+    }
+
+    private func updateButton(_ button: UIButton) {
+        let configuration = UIImage.SymbolConfiguration(
+            pointSize: 28,
+            weight: .regular
+        )
+        let image = UIImage(
+            systemName: isActive ? activeSystemName : inactiveSystemName,
+            withConfiguration: configuration
+        )
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            button.layer.removeAllAnimations()
+            button.imageView?.layer.removeAllAnimations()
+            button.setImage(image, for: .normal)
+            button.tintColor = UIColor(AppColors.accent)
+            button.accessibilityLabel = accessibilityLabel
+            if isActive {
+                button.accessibilityTraits.insert(.selected)
+            } else {
+                button.accessibilityTraits.remove(.selected)
+            }
+            button.layoutIfNeeded()
+        }
+        CATransaction.commit()
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func handleTap() {
+            action()
+        }
+    }
 }
 
 enum StickerPickerSelection: Equatable {
@@ -119,7 +280,6 @@ struct StickerPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .secondarySystemBackground).opacity(0.98))
-        .transition(.move(edge: .bottom).combined(with: .opacity))
         .onAppear(perform: syncSelection)
         .task {
             await refreshStickersIfNeeded()

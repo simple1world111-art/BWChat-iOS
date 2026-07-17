@@ -602,7 +602,7 @@ struct GiftPlusMenuTile: View {
             VStack(spacing: 6) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(AppColors.separator)
+                        .fill(AppColors.composerPanelIconBackground)
                         .frame(width: 56, height: 56)
                     Image(systemName: "gift.fill")
                         .font(.system(size: 22))

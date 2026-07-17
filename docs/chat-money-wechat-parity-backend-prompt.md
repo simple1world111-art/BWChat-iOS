@@ -60,7 +60,7 @@ pending -> expired_refunded
 ## 新增结构化聊天回执
 
 - `msg_type = chat_money_receipt`。
-- `content` 为 JSON，至少包含 `event_id`、`asset_id`、`event_type`、`actor_id`、`actor_name`、`sender_id`、`sender_name`、`scope`、`created_at`。
+- `content` 为 JSON，至少包含 `event_id`、`asset_id`、`kind`、`event_type`、`actor_id`、`actor_name`、`sender_id`、`sender_name`、`scope`、`created_at`；其中 `kind` 必须为 `red_packet` 或 `transfer`，以便客户端为到期退回事件显示准确的资产类型。
 - `event_type` 支持 `red_packet_claimed`、`transfer_accepted`、`transfer_returned`、`asset_expired_refunded`。
 - 回执按用户可见范围写入或投递；私聊红包领取后，发送者和领取者能用同一结构分别渲染个性化文案。
 - 禁止后端直接写死中文文案。

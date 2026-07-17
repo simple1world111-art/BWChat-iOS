@@ -27,8 +27,11 @@ struct ChatView: View {
     @State private var highlightedMessageID: Int?
     @State private var activeComposerPanel: ComposerPanel?
     @State private var pendingComposerPanel: ComposerPanel?
-    @State private var isReplacingStickerPanelWithKeyboard = false
-    @State private var isKeyboardLayoutVisible = false
+    @State private var composerSurfaceHeights = ComposerSurfaceHeights(
+        stickerHeight: StickerPanel.preferredHeight,
+        plusHeight: ComposerPlusPanelMetrics.preferredHeight(itemCount: 6)
+    )
+    @State private var composerSurfaceTransition: ComposerSurfaceTransition?
     @State private var showGiftSheet = false
     @State private var redPacketOverlayPayload: ChatMoneyPayload?
     @State private var redPacketOverlayIsSender = false
@@ -38,7 +41,6 @@ struct ChatView: View {
     @State private var voiceCancelZone = false
     @State private var isInputFocused = false
     @State private var inputTextHeight: CGFloat = 40
-    @State private var composerPanelHeight: CGFloat = StickerPanel.preferredHeight
     @State private var composerSelection = NSRange(location: 0, length: 0)
     @State private var isViewVisible = false
     @State private var hasCompletedInitialLoad = false
@@ -56,12 +58,16 @@ struct ChatView: View {
         pendingComposerPanel ?? activeComposerPanel
     }
 
-    private var reservesStickerPanelSpace: Bool {
-        !isVoiceMode && (
-            activeComposerPanel == .stickers
-                || isReplacingStickerPanelWithKeyboard
-                || isKeyboardLayoutVisible
-        )
+    private var reservesComposerPanelSpace: Bool {
+        !isVoiceMode && (activeComposerPanel != nil || composerSurfaceTransition != nil)
+    }
+
+    private var composerPanelLayoutHeight: CGFloat? {
+        if let transition = composerSurfaceTransition {
+            return transition.reservedHeight
+        }
+        guard let panel = activeComposerPanel else { return nil }
+        return composerSurfaceHeights.height(for: ComposerSurface(panel: panel))
     }
 
     private var isSelfChat: Bool {
@@ -152,6 +158,16 @@ struct ChatView: View {
         self.contact = contact
         self.onMarkRead = onMarkRead
         _viewModel = StateObject(wrappedValue: ChatViewModel(contact: contact))
+        let isSelfConversation =
+            contact.userID == AuthManager.shared.currentUser?.userID
+        _composerSurfaceHeights = State(
+            initialValue: ComposerSurfaceHeights(
+                stickerHeight: StickerPanel.preferredHeight,
+                plusHeight: ComposerPlusPanelMetrics.preferredHeight(
+                    itemCount: isSelfConversation ? 1 : 6
+                )
+            )
+        )
     }
 
     private func setActiveChat(_ active: Bool) {
@@ -176,16 +192,9 @@ struct ChatView: View {
     }
 
     private func closeComposerPanelForKeyboard() {
-        // `keyboardWillShow` can arrive after the user has already tapped the
-        // sticker/plus button and requested a keyboard -> panel transition.
-        // Keep that newer request authoritative instead of closing it again.
+        guard composerSurfaceTransition?.from != .keyboard else { return }
         guard pendingComposerPanel == nil else { return }
         guard activeComposerPanel != nil else { return }
-
-        // SwiftUI applies the keyboard's final safe-area inset before the
-        // keyboard finishes moving onscreen. The panel must stop contributing
-        // layout height in that same update or the composer is lifted by both
-        // the keyboard inset and the still-animating panel.
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -195,25 +204,32 @@ struct ChatView: View {
 
     private func focusComposerTextInput() {
         pendingComposerPanel = nil
-        isReplacingStickerPanelWithKeyboard = activeComposerPanel == .stickers
-        if isReplacingStickerPanelWithKeyboard {
-            isKeyboardLayoutVisible = true
-        }
         if isVoiceMode {
             withAnimation(.easeOut(duration: 0.12)) {
                 isVoiceMode = false
             }
         }
 
-        // Keep the current panel in place until UIKit starts presenting the
-        // keyboard. `handleKeyboardWillShow` then removes it using the same
-        // duration as the keyboard, producing one continuous height swap.
+        if let panel = activeComposerPanel {
+            let surface = ComposerSurface(panel: panel)
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                composerSurfaceTransition = ComposerSurfaceTransition(
+                    from: surface,
+                    to: .keyboard,
+                    reservedHeight: composerSurfaceHeights.height(for: surface)
+                )
+            }
+        } else {
+            composerSurfaceTransition = nil
+        }
         isInputFocused = true
     }
 
     private func dismissComposerInput() {
         pendingComposerPanel = nil
-        isReplacingStickerPanelWithKeyboard = false
+        composerSurfaceTransition = nil
         isInputFocused = false
         withAnimation(composerPanelAnimation) {
             activeComposerPanel = nil
@@ -223,7 +239,7 @@ struct ChatView: View {
 
     private func activateVoiceComposer() {
         pendingComposerPanel = nil
-        isReplacingStickerPanelWithKeyboard = false
+        composerSurfaceTransition = nil
         activeComposerPanel = nil
         isInputFocused = false
         hideKeyboard()
@@ -234,12 +250,13 @@ struct ChatView: View {
     }
 
     private func toggleComposerPanel(_ panel: ComposerPanel) {
-        isReplacingStickerPanelWithKeyboard = false
+        let targetSurface = ComposerSurface(panel: panel)
         let isClosing = selectedComposerPanel == panel
         UISelectionFeedbackGenerator().selectionChanged()
 
         if isClosing {
             pendingComposerPanel = nil
+            composerSurfaceTransition = nil
             withAnimation(composerPanelAnimation) {
                 activeComposerPanel = nil
             }
@@ -248,90 +265,144 @@ struct ChatView: View {
 
         isVoiceMode = false
         if isInputFocused {
-            // Resign the UIKit text view before changing panel layout. If the
-            // panel is inserted first, SwiftUI can refresh the representable
-            // while focus is still true and immediately request the keyboard
-            // again, which clears the just-opened panel.
-            isInputFocused = false
-            hideKeyboard()
-            pendingComposerPanel = panel
-            withAnimation(composerPanelAnimation) {
+            let keyboardHeight = composerSurfaceHeights.height(for: .keyboard)
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                pendingComposerPanel = panel
+                composerSurfaceTransition = ComposerSurfaceTransition(
+                    from: .keyboard,
+                    to: targetSurface,
+                    reservedHeight: keyboardHeight
+                )
                 activeComposerPanel = panel
+                isInputFocused = false
             }
-            completeComposerPanelTransitionAfterKeyboardDismiss(panel)
+            hideKeyboard()
+            completeComposerSurfaceTransitionAfterKeyboardDismiss(to: targetSurface)
         } else {
             pendingComposerPanel = nil
             hideKeyboard()
-            withAnimation(composerPanelAnimation) {
-                activeComposerPanel = panel
+            if let currentPanel = activeComposerPanel {
+                let currentSurface = ComposerSurface(panel: currentPanel)
+                let currentHeight = composerSurfaceHeights.height(for: currentSurface)
+                let targetHeight = composerSurfaceHeights.height(for: targetSurface)
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    activeComposerPanel = panel
+                    composerSurfaceTransition = ComposerSurfaceTransition(
+                        from: currentSurface,
+                        to: targetSurface,
+                        reservedHeight: currentHeight
+                    )
+                }
+                DispatchQueue.main.async {
+                    guard composerSurfaceTransition?.from == currentSurface,
+                          composerSurfaceTransition?.to == targetSurface else { return }
+                    withAnimation(composerPanelAnimation) {
+                        composerSurfaceTransition?.reservedHeight = targetHeight
+                    }
+                }
+                completeComposerPanelTransition(
+                    from: currentSurface,
+                    to: targetSurface
+                )
+            } else {
+                composerSurfaceTransition = nil
+                withAnimation(composerPanelAnimation) {
+                    activeComposerPanel = panel
+                }
             }
         }
     }
 
-    private func completeComposerPanelTransitionAfterKeyboardDismiss(_ panel: ComposerPanel) {
+    private func completeComposerSurfaceTransitionAfterKeyboardDismiss(to surface: ComposerSurface) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            guard pendingComposerPanel == panel, !isInputFocused, !isVoiceMode else { return }
-            withAnimation(composerPanelAnimation) {
-                activeComposerPanel = panel
+            guard composerSurfaceTransition?.from == .keyboard,
+                  composerSurfaceTransition?.to == surface,
+                  activeComposerPanel == surface.panel,
+                  !isInputFocused,
+                  !isVoiceMode else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                pendingComposerPanel = nil
+                composerSurfaceTransition = nil
             }
-            pendingComposerPanel = nil
         }
     }
 
     private func handleKeyboardWillShow(_ notification: Notification) {
-        // Preserve the exact height currently occupied by the sticker panel
-        // during a sticker -> keyboard replacement. The first will-show frame
-        // can report a transient keyboard height; applying it here makes the
-        // reserved spacer grow before the keyboard is visible and briefly
-        // lifts the composer.
-        if !isReplacingStickerPanelWithKeyboard {
-            updateComposerPanelHeight(from: notification)
-        }
-        if isReplacingStickerPanelWithKeyboard {
-            isKeyboardLayoutVisible = true
-        } else {
+        let keyboardHeight = updateKeyboardHeight(from: notification)
+        if composerSurfaceTransition?.to == .keyboard {
             withAnimation(keyboardAnimation(from: notification)) {
-                isKeyboardLayoutVisible = true
+                composerSurfaceTransition?.reservedHeight = keyboardHeight
             }
         }
         closeComposerPanelForKeyboard()
     }
 
     private func handleKeyboardWillHide(_ notification: Notification) {
-        withAnimation(keyboardAnimation(from: notification)) {
-            isKeyboardLayoutVisible = false
-        }
         isInputFocused = false
-        isReplacingStickerPanelWithKeyboard = false
-        guard let panel = pendingComposerPanel, !isVoiceMode else { return }
+        guard composerSurfaceTransition?.from == .keyboard,
+              let targetSurface = composerSurfaceTransition?.to,
+              let panel = targetSurface.panel,
+              !isVoiceMode else { return }
         withAnimation(keyboardAnimation(from: notification)) {
+            composerSurfaceTransition?.reservedHeight =
+                composerSurfaceHeights.height(for: targetSurface)
             activeComposerPanel = panel
         }
     }
 
     private func handleKeyboardDidShow() {
-        guard isReplacingStickerPanelWithKeyboard else { return }
+        guard composerSurfaceTransition?.to == .keyboard else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            isReplacingStickerPanelWithKeyboard = false
+            composerSurfaceTransition = nil
         }
     }
 
-    private func updateComposerPanelHeight(from notification: Notification) {
+    private func handleKeyboardDidHide() {
+        guard composerSurfaceTransition?.from == .keyboard else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            pendingComposerPanel = nil
+            composerSurfaceTransition = nil
+        }
+    }
+
+    private func completeComposerPanelTransition(
+        from source: ComposerSurface,
+        to target: ComposerSurface
+    ) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.27) {
+            guard composerSurfaceTransition?.from == source,
+                  composerSurfaceTransition?.to == target else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                composerSurfaceTransition = nil
+            }
+        }
+    }
+
+    @discardableResult
+    private func updateKeyboardHeight(from notification: Notification) -> CGFloat {
         guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
-            return
+            return composerSurfaceHeights.height(for: .keyboard)
         }
         let bottomInset = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .first(where: \.isKeyWindow)?
             .safeAreaInsets.bottom ?? 0
-        let availableHeight = keyboardFrame.height - bottomInset
-        // Match the custom panel to the keyboard's actual safe-area height.
-        // Capping this at the old 250pt preferred height made the composer
-        // jump upward when a taller system keyboard replaced the panel.
-        composerPanelHeight = max(StickerPanel.minimumHeight, availableHeight)
+        let availableHeight = max(StickerPanel.minimumHeight, keyboardFrame.height - bottomInset)
+        composerSurfaceHeights.record(availableHeight, for: .keyboard)
+        return availableHeight
     }
 
     private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
@@ -557,7 +628,10 @@ struct ChatView: View {
 
             inputBar
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .ignoresSafeArea(
+            composerSurfaceTransition == nil ? [] : .keyboard,
+            edges: .bottom
+        )
         .background(AppColors.secondaryBackground)
         .navigationTitle(contact.nickname)
         .navigationBarTitleDisplayMode(.inline)
@@ -635,14 +709,18 @@ struct ChatView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
             handleKeyboardDidShow()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            handleKeyboardDidHide()
+        }
         .onDisappear {
             isViewVisible = false
-            isKeyboardLayoutVisible = false
+            composerSurfaceTransition = nil
             setActiveChat(false)
         }
         .onChange(of: callManager.currentCall != nil) { hasCalling in
             if hasCalling {
                 pendingComposerPanel = nil
+                composerSurfaceTransition = nil
                 isInputFocused = false
                 activeComposerPanel = nil
                 hideKeyboard()
@@ -651,6 +729,7 @@ struct ChatView: View {
         .onChange(of: callManager.currentCall?.state) { newState in
             if newState == .connected || newState == .connecting {
                 pendingComposerPanel = nil
+                composerSurfaceTransition = nil
                 isInputFocused = false
                 activeComposerPanel = nil
                 hideKeyboard()
@@ -724,22 +803,14 @@ struct ChatView: View {
 
                 if !isVoiceMode {
                     HStack(spacing: 2) {
-                            Button {
+                            ComposerPanelToggleButton(
+                                inactiveSystemName: "face.smiling",
+                                activeSystemName: "face.smiling.fill",
+                                isActive: selectedComposerPanel == .stickers,
+                                accessibilityLabel: L10n.tr("chat.stickers")
+                            ) {
                                 toggleComposerPanel(.stickers)
-                            } label: {
-                                Image(systemName: activeComposerPanel == .stickers ? "face.smiling.fill" : "face.smiling")
-                                    .font(.system(size: 28))
-                                    .foregroundColor(AppColors.accent)
-                                    .frame(width: 40, height: 40)
-                                    .contentShape(Rectangle())
                             }
-                            .buttonStyle(
-                                ChatComposerActionButtonStyle(
-                                    isActive: activeComposerPanel == .stickers,
-                                    showsActiveBackground: false
-                                )
-                            )
-                            .accessibilityLabel(L10n.tr("chat.stickers"))
                             .frame(width: 42, height: composerActionButtonHeight, alignment: .center)
 
                             ZStack {
@@ -760,21 +831,14 @@ struct ChatView: View {
                                 .opacity(viewModel.isSendEnabled ? 1 : 0)
                                 .allowsHitTesting(viewModel.isSendEnabled)
 
-                                Button {
+                                ComposerPanelToggleButton(
+                                    inactiveSystemName: "plus.circle.fill",
+                                    activeSystemName: "xmark.circle.fill",
+                                    isActive: selectedComposerPanel == .plus,
+                                    accessibilityLabel: L10n.tr("accessibility.moreActions")
+                                ) {
                                     toggleComposerPanel(.plus)
-                                } label: {
-                                    Image(systemName: activeComposerPanel == .plus ? "xmark.circle.fill" : "plus.circle.fill")
-                                        .font(.system(size: 28))
-                                        .foregroundColor(AppColors.accent)
-                                        .frame(width: 40, height: 40)
-                                        .contentShape(Rectangle())
                                 }
-                                .buttonStyle(
-                                    ChatComposerActionButtonStyle(
-                                        isActive: activeComposerPanel == .plus,
-                                        showsActiveBackground: false
-                                    )
-                                )
                                 .opacity(viewModel.isSendEnabled ? 0 : 1)
                                 .allowsHitTesting(!viewModel.isSendEnabled)
                             }
@@ -800,14 +864,21 @@ struct ChatView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(
-                height: reservesStickerPanelSpace
-                    ? composerPanelHeight
-                    : nil,
+                height: reservesComposerPanelSpace ? composerPanelLayoutHeight : nil,
                 alignment: .top
             )
+            .onPreferenceChange(ComposerPanelRenderedHeightPreferenceKey.self) { height in
+                guard height > 0 else { return }
+                composerSurfaceHeights.record(height, for: .plus)
+                guard composerSurfaceTransition?.to == .plus,
+                      composerSurfaceTransition?.from != .keyboard else { return }
+                withAnimation(composerPanelAnimation) {
+                    composerSurfaceTransition?.reservedHeight = height
+                }
+            }
             .clipped()
             .background {
-                if reservesStickerPanelSpace {
+                if reservesComposerPanelSpace {
                     Color(uiColor: .secondarySystemBackground)
                         .opacity(0.98)
                         .ignoresSafeArea(edges: .bottom)
@@ -815,7 +886,8 @@ struct ChatView: View {
             }
         }
         .chatComposerBarBackground(
-            showsStickerPanel: selectedComposerPanel == .stickers || isReplacingStickerPanelWithKeyboard
+            showsStickerPanel: selectedComposerPanel == .stickers
+                || composerSurfaceTransition?.from == .stickers
         )
     }
 
@@ -935,7 +1007,7 @@ struct ChatView: View {
                 VStack(spacing: 6) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(AppColors.separator)
+                            .fill(AppColors.composerPanelIconBackground)
                             .frame(width: 56, height: 56)
                         Image(systemName: "photo")
                             .font(.system(size: 22))
@@ -1003,7 +1075,7 @@ struct ChatView: View {
                 } label: {
                     VStack(spacing: 6) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                            RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)
                             Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                         }
                         Text(L10n.tr("call.voice")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
@@ -1017,7 +1089,7 @@ struct ChatView: View {
                 } label: {
                     VStack(spacing: 6) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 12).fill(AppColors.separator).frame(width: 56, height: 56)
+                            RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)
                             Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)
                         }
                         Text(L10n.tr("call.video")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)
@@ -1027,7 +1099,14 @@ struct ChatView: View {
         }
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: ComposerPanelRenderedHeightPreferenceKey.self,
+                    value: proxy.size.height
+                )
+            }
+        }
     }
 }
 

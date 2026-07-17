@@ -1000,6 +1000,71 @@ extension APIResponseContractTests {
         )
     }
 
+    func testExpiredRefundReceiptUsesTheMatchingAssetType() throws {
+        let redPacketJSON = #"""
+        {
+          "event_id": "evt-red-packet-expired",
+          "asset_id": "asset-1",
+          "kind": "red_packet",
+          "event_type": "asset_expired_refunded",
+          "actor_id": "sender",
+          "actor_name": "大猫",
+          "sender_id": "sender",
+          "sender_name": "大猫",
+          "scope": "dm",
+          "created_at": "2026-07-17T01:00:00Z"
+        }
+        """#
+        let transferJSON = #"""
+        {
+          "event_id": "evt-transfer-expired",
+          "asset_id": "asset-2",
+          "asset": {"kind": "transfer"},
+          "event_type": "asset_expired_refunded",
+          "actor_id": "sender",
+          "actor_name": "大猫",
+          "sender_id": "sender",
+          "sender_name": "大猫",
+          "scope": "dm",
+          "created_at": "2026-07-17T01:00:00Z"
+        }
+        """#
+
+        let redPacket = try XCTUnwrap(ChatMoneyReceiptPayload.parse(redPacketJSON))
+        let transfer = try XCTUnwrap(ChatMoneyReceiptPayload.parse(transferJSON))
+
+        XCTAssertEqual(redPacket.kind, .redPacket)
+        XCTAssertEqual(
+            redPacket.localizedText(viewerID: "sender"),
+            L10n.tr("chatMoney.receipt.redPacketExpiredRefunded")
+        )
+        XCTAssertEqual(transfer.kind, .transfer)
+        XCTAssertEqual(
+            transfer.localizedText(viewerID: "sender"),
+            L10n.tr("chatMoney.receipt.transferExpiredRefunded")
+        )
+    }
+
+    func testLegacyExpiredRefundReceiptInfersKindFromAssetID() throws {
+        let redPacketJSON = #"""
+        {"event_id":"evt-rp-legacy-expired","asset_id":"rp-legacy","event_type":"asset_expired_refunded","actor_id":"sender","actor_name":"大猫","sender_id":"sender","sender_name":"大猫","scope":"dm","created_at":"2026-07-17T01:00:00Z"}
+        """#
+        let transferJSON = #"""
+        {"event_id":"evt-transfer-legacy-expired","asset_id":"transfer-legacy","event_type":"asset_expired_refunded","actor_id":"sender","actor_name":"大猫","sender_id":"sender","sender_name":"大猫","scope":"dm","created_at":"2026-07-17T01:00:00Z"}
+        """#
+
+        XCTAssertEqual(
+            try XCTUnwrap(ChatMoneyReceiptPayload.parse(redPacketJSON))
+                .localizedText(viewerID: "sender"),
+            L10n.tr("chatMoney.receipt.redPacketExpiredRefunded")
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(ChatMoneyReceiptPayload.parse(transferJSON))
+                .localizedText(viewerID: "sender"),
+            L10n.tr("chatMoney.receipt.transferExpiredRefunded")
+        )
+    }
+
     func testStructuredReceiptRendersWhenHistoryDowngradesTypeOrDoubleEncodesContent() throws {
         let receiptJSON = #"""
         {"event_id":"evt-legacy","asset_id":"rp-legacy","event_type":"red_packet_claimed","actor_id":"recipient","actor_name":"小猫","sender_id":"sender","sender_name":"大猫","scope":"dm","created_at":"2026-07-17T01:00:00Z"}

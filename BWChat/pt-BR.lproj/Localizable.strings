@@ -806,7 +806,10 @@
 "chatMoney.payment.balance" = "Cat food balance";
 "chatMoney.payment.confirm" = "Confirm payment";
 "chatMoney.redPacket.from" = "Red packet from %@";
+"chatMoney.redPacket.sentBy" = "Envelope vermelho enviado por %@";
 "chatMoney.redPacket.sentByMe" = "Envelope vermelho enviado por você";
+"chatMoney.redPacket.depositedToBalance" = "Salvo no saldo de comida de gato";
+"chatMoney.redPacket.replyToChat" = "Responder com um emoji";
 "chatMoney.redPacket.waitingForRecipient" = "Aguardando o destinatário";
 "chatMoney.redPacket.waitingForExclusiveRecipient" = "Aguardando o membro selecionado";
 "chatMoney.redPacket.viewDetails" = "View claim details";
@@ -832,6 +835,11 @@
 "chatMoney.transfer.walletCenterSubtitle" = "Top up and get more Cat Food";
 "chatMoney.transfer.enterWallet" = "Open";
 "chatMoney.transfer.billDetails" = "Transaction details";
+"chatMoney.transfer.card.acceptedByRecipient" = "Received by recipient";
+"chatMoney.transfer.card.receivedByMe" = "Received";
+"chatMoney.transfer.card.returnedToMe" = "Returned to you";
+"chatMoney.transfer.card.returnedByMe" = "Returned";
+"chatMoney.transfer.card.expiredRefunded" = "Expired and returned";
 "chatMoney.receipt.claimedByMe" = "You claimed %@'s red packet";
 "chatMoney.receipt.claimedMine" = "%@ claimed your red packet";
 "chatMoney.receipt.claimed" = "%@ claimed %@'s red packet";
@@ -843,6 +851,8 @@
 "chatMoney.receipt.transferReturnedByMe" = "You returned %@'s transfer";
 "chatMoney.receipt.transferReturnedMine" = "%@ returned your transfer";
 "chatMoney.receipt.transferReturnedBetween" = "%@ returned %@'s transfer";
-"chatMoney.receipt.expiredRefunded" = "Cat food expired and was refunded";
+"chatMoney.receipt.redPacketExpiredRefunded" = "Red packet expired and was returned";
+"chatMoney.receipt.transferExpiredRefunded" = "Transfer expired and was returned";
+"chatMoney.receipt.expiredRefunded" = "Transaction expired and was returned";
 "chatMoney.receipt.activity" = "Cat food transaction update";
 "chatMoney.redPacket.notConversationMember" = "You are no longer a member of this conversation";
