@@ -7,7 +7,26 @@ enum ConversationPreviewFormatter {
         if let stickerPreview = StickerMessagePayload.previewText(content: content) {
             return stickerPreview
         }
+        if let moneyPreview = ChatMoneyPreview.text(
+            content: content,
+            msgType: nil,
+            viewerID: AuthManager.shared.currentUser?.userID
+        ) {
+            return moneyPreview
+        }
         return content
+    }
+
+    static func senderPrefix(_ sender: String?, content: String) -> String? {
+        guard let sender else { return nil }
+        let trimmed = sender.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let unavailableNames = ["未知", "unknown", "null", "nil"]
+        guard !unavailableNames.contains(trimmed.lowercased()) else { return nil }
+        guard !ChatMoneyPreview.isReceipt(content: content, msgType: nil) else { return nil }
+        guard !ChatMoneyPreview.isReceiptDisplayText(content) else { return nil }
+        return trimmed
     }
 }
 
@@ -955,7 +974,10 @@ struct ConversationRow: View {
 
                 if let lastMsg = conversation.lastMessage {
                     HStack(spacing: 0) {
-                        if let sender = conversation.subtitle {
+                        if let sender = ConversationPreviewFormatter.senderPrefix(
+                            conversation.subtitle,
+                            content: lastMsg
+                        ) {
                             Text("\(sender): ")
                                 .font(.system(size: 14))
                                 .foregroundColor(AppColors.secondaryText)

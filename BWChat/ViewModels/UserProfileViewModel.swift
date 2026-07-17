@@ -7,27 +7,37 @@ import Foundation
 final class UserProfileViewModel: ObservableObject {
     @Published private(set) var profile: PublicProfile?
     @Published private(set) var moments: [Moment] = []
+    @Published private(set) var agents: [AgentSummary] = []
     @Published private(set) var shortDramas: [ShortDramaSeries] = []
     @Published private(set) var suggestedUsers: [FollowUser] = []
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMoments = false
     @Published private(set) var isLoadingMoreMoments = false
+    @Published private(set) var isLoadingAgents = false
+    @Published private(set) var isLoadingMoreAgents = false
     @Published private(set) var isLoadingShortDramas = false
     @Published private(set) var isLoadingMoreShortDramas = false
     @Published private(set) var isLoadingSuggestions = false
     @Published private(set) var hasMoreMoments = true
     @Published private(set) var isUpdatingFollow = false
     @Published private(set) var updatingSuggestedUserIDs: Set<String> = []
+    @Published private(set) var openingAgentIDs: Set<String> = []
     @Published var errorMessage: String?
+    @Published var agentsErrorMessage: String?
     @Published var shortDramasErrorMessage: String?
 
     let userID: String
     private let momentsPageSize = 24
+    private let agentsPageSize = 20
     private let shortDramasPageSize = 12
     private var didLoadInitialMoments = false
+    private var didLoadInitialAgents = false
     private var didLoadInitialShortDramas = false
+    private var agentsCursor: String?
+    private var hasMoreAgents = true
     private var shortDramasCursor: String?
     private var hasMoreShortDramas = true
+    private var agentConversationKeys: [String: UUID] = [:]
 
     private struct CachedMoments: Codable {
         let items: [Moment]
@@ -103,6 +113,59 @@ final class UserProfileViewModel: ObservableObject {
         else { return }
 
         Task { await loadMoments(refresh: false, isLoadMore: true) }
+    }
+
+    func loadInitialAgents(refresh: Bool = false) async {
+        guard refresh || !didLoadInitialAgents else { return }
+        didLoadInitialAgents = true
+        await loadAgents(reset: true)
+        if Task.isCancelled { didLoadInitialAgents = false }
+    }
+
+    func loadMoreAgentsIfNeeded(currentAgentID: String) {
+        guard agents.last?.id == currentAgentID,
+              hasMoreAgents,
+              !isLoadingAgents,
+              !isLoadingMoreAgents else { return }
+        Task { await loadAgents(reset: false) }
+    }
+
+    func conversation(for agent: AgentSummary) async -> AgentConversation? {
+        guard !openingAgentIDs.contains(agent.id) else { return nil }
+        openingAgentIDs.insert(agent.id)
+        defer { openingAgentIDs.remove(agent.id) }
+
+        do {
+            let conversations = try await APIService.shared.getAgentConversations()
+            if let existing = conversations
+                .filter({ $0.agentID == agent.id && $0.status != "closed" })
+                .sorted(by: { $0.updatedAt > $1.updatedAt })
+                .first {
+                return existing
+            }
+
+            let installed = try await APIService.shared.getInstalledAgents()
+            let resolvedAgent: AgentSummary
+            if let existing = installed.first(where: { $0.id == agent.id }) {
+                resolvedAgent = existing
+            } else {
+                resolvedAgent = try await APIService.shared.installAgent(id: agent.id)
+            }
+            let key = agentConversationKeys[agent.id] ?? UUID()
+            agentConversationKeys[agent.id] = key
+            let conversation = try await APIService.shared.createAgentConversation(
+                agentID: resolvedAgent.id,
+                greetingID: resolvedAgent.greetings?.first?.id ?? agent.greetings?.first?.id ?? "default",
+                idempotencyKey: key
+            )
+            agentConversationKeys.removeValue(forKey: agent.id)
+            NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
+            return conversation
+        } catch {
+            guard !Self.isCancellation(error) else { return nil }
+            errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            return nil
+        }
     }
 
     func loadInitialShortDramas(refresh: Bool = false) async {
@@ -398,6 +461,36 @@ final class UserProfileViewModel: ObservableObject {
         } catch {
             guard !Self.isCancellation(error) else { return }
             shortDramasErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadAgents(reset: Bool) async {
+        guard !isLoadingAgents, !isLoadingMoreAgents else { return }
+        if reset {
+            isLoadingAgents = true
+            agentsCursor = nil
+            hasMoreAgents = true
+        } else {
+            isLoadingMoreAgents = true
+        }
+        agentsErrorMessage = nil
+        defer {
+            isLoadingAgents = false
+            isLoadingMoreAgents = false
+        }
+
+        do {
+            let page = try await APIService.shared.getPublicAgentsPage(
+                ownerUserID: userID,
+                cursor: reset ? nil : agentsCursor,
+                limit: agentsPageSize
+            )
+            agents = Self.merged(reset ? [] : agents, with: page.agents)
+            agentsCursor = page.nextCursor
+            hasMoreAgents = page.hasMore
+        } catch {
+            guard !Self.isCancellation(error) else { return }
+            agentsErrorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }
     }
 

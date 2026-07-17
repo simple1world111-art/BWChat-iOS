@@ -146,6 +146,36 @@ struct AgentSummary: Decodable, Identifiable, Equatable {
     var resolvedAvatarAssetID: String? { avatarAssetID ?? profile?.avatarAssetID }
 }
 
+struct AgentSummaryPage: Decodable, Equatable {
+    let agents: [AgentSummary]
+    let hasMore: Bool
+    let nextCursor: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case agents, items, bots
+        case hasMore = "has_more"
+        case nextCursor = "next_cursor"
+    }
+
+    init(from decoder: Decoder) throws {
+        if let agents = try? decoder.singleValueContainer().decode([AgentSummary].self) {
+            self.agents = agents
+            hasMore = false
+            nextCursor = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([AgentSummary].self, forKey: .agents)
+            ?? container.decodeIfPresent([AgentSummary].self, forKey: .items)
+            ?? container.decodeIfPresent([AgentSummary].self, forKey: .bots)
+            ?? []
+        let decodedCursor = container.lossyString(forKey: .nextCursor)
+        nextCursor = decodedCursor
+        hasMore = container.lossyBool(forKey: .hasMore) ?? (decodedCursor != nil)
+    }
+}
+
 struct AgentDefinition: Decodable, Equatable {
     let identity: String?
     let personality: [String]?

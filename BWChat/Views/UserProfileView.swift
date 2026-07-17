@@ -408,6 +408,8 @@ struct UserProfileView: View {
                             Text(L10n.tr(tab.titleKey))
                                 .font(.system(size: 15, weight: selectedTab == tab ? .bold : .semibold))
                                 .foregroundColor(selectedTab == tab ? AppColors.primaryText : AppColors.tertiaryText)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 43)
 
@@ -430,8 +432,52 @@ struct UserProfileView: View {
         switch selectedTab {
         case .moments:
             momentsList
+        case .agents:
+            agentsList
         case .shortDramas:
             shortDramasList
+        }
+    }
+
+    @ViewBuilder
+    private var agentsList: some View {
+        if viewModel.isLoadingAgents && viewModel.agents.isEmpty {
+            ProgressView()
+                .tint(AppColors.accent)
+                .padding(.top, 52)
+        } else if viewModel.agents.isEmpty, let message = viewModel.agentsErrorMessage {
+            contentError(message: message) {
+                Task { await viewModel.loadInitialAgents(refresh: true) }
+            }
+            .padding(.top, 42)
+        } else if viewModel.agents.isEmpty {
+            emptyContent
+                .padding(.top, 54)
+        } else {
+            LazyVStack(spacing: 12) {
+                ForEach(viewModel.agents) { agent in
+                    Button {
+                        openAgent(agent)
+                    } label: {
+                        UserProfileAgentCard(
+                            agent: agent,
+                            isOpening: viewModel.openingAgentIDs.contains(agent.id)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.openingAgentIDs.contains(agent.id))
+                    .onAppear {
+                        viewModel.loadMoreAgentsIfNeeded(currentAgentID: agent.id)
+                    }
+                }
+
+                if viewModel.isLoadingMoreAgents {
+                    ProgressView()
+                        .tint(AppColors.accent)
+                        .padding(.vertical, 16)
+                }
+            }
+            .padding(16)
         }
     }
 
@@ -555,6 +601,8 @@ struct UserProfileView: View {
         switch selectedTab {
         case .moments:
             break
+        case .agents:
+            await viewModel.loadInitialAgents()
         case .shortDramas:
             await viewModel.loadInitialShortDramas()
         }
@@ -564,8 +612,17 @@ struct UserProfileView: View {
         switch selectedTab {
         case .moments:
             await viewModel.loadInitialMoments(refresh: true)
+        case .agents:
+            await viewModel.loadInitialAgents(refresh: true)
         case .shortDramas:
             await viewModel.loadInitialShortDramas(refresh: true)
+        }
+    }
+
+    private func openAgent(_ agent: AgentSummary) {
+        Task {
+            guard let conversation = await viewModel.conversation(for: agent) else { return }
+            navigator.push(AgentChatView(conversation: conversation))
         }
     }
 
@@ -834,6 +891,7 @@ private struct SuggestedProfileCard: View {
 
 private enum ProfileContentTab: String, CaseIterable, Identifiable {
     case moments
+    case agents
     case shortDramas
 
     var id: String { rawValue }
@@ -841,6 +899,7 @@ private enum ProfileContentTab: String, CaseIterable, Identifiable {
     var titleKey: String {
         switch self {
         case .moments: return "moments.title"
+        case .agents: return "contacts.aiCompanions"
         case .shortDramas: return "shortDrama.title"
         }
     }
@@ -848,6 +907,7 @@ private enum ProfileContentTab: String, CaseIterable, Identifiable {
     var emptyTitleKey: String {
         switch self {
         case .moments: return "moments.empty"
+        case .agents: return "contacts.aiCompanions.emptyTitle"
         case .shortDramas: return "shortDrama.empty"
         }
     }
@@ -855,8 +915,64 @@ private enum ProfileContentTab: String, CaseIterable, Identifiable {
     var emptySystemImage: String {
         switch self {
         case .moments: return "photo.on.rectangle.angled"
+        case .agents: return "sparkles.rectangle.stack"
         case .shortDramas: return "play.rectangle"
         }
+    }
+}
+
+private struct UserProfileAgentCard: View {
+    let agent: AgentSummary
+    let isOpening: Bool
+
+    var body: some View {
+        HStack(spacing: 13) {
+            AgentAvatarView(assetID: agent.resolvedAvatarAssetID, size: 58)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(agent.displayName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(1)
+
+                if let subtitle = agent.profile?.tagline ?? agent.profile?.description,
+                   !subtitle.isBlank {
+                    Text(subtitle)
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(2)
+                }
+
+                if let tags = agent.profile?.tags, !tags.isEmpty {
+                    Text(tags.prefix(3).joined(separator: " · "))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(AppColors.accent)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if isOpening {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(AppColors.accent)
+            } else {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppColors.accent)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(AppColors.accentLight))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppColors.separator, lineWidth: 1)
+        )
     }
 }
 

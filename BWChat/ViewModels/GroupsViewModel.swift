@@ -195,6 +195,10 @@ class GroupsViewModel: ObservableObject {
     private func handleNewGroupMessage(_ message: GroupMessage) {
         let myID = AuthManager.shared.currentUser?.userID
         let isFromOther = message.senderID != myID
+        let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
+            content: message.content,
+            msgType: message.msgType
+        )
         let isViewing = isFromOther && WebSocketService.shared.activeGroupID == message.groupID
         let isNewIncomingEvent = !isFromOther || processedIncomingEvents.insert(
             "\(message.groupID):\(message.id):\(message.timestamp)"
@@ -221,7 +225,7 @@ class GroupsViewModel: ObservableObject {
             memberCount: group.memberCount,
             lastMessage: Self.normalizedMessagePreview(message.content, msgType: message.msgType),
             lastMessageTime: message.timestamp,
-            lastMessageSender: message.senderNickname,
+            lastMessageSender: isChatMoneyReceipt ? nil : message.senderNickname,
             unreadCount: isViewing ? 0 : group.unreadCount + unreadDelta,
             isPublic: group.isPublic
         )
@@ -235,6 +239,10 @@ class GroupsViewModel: ObservableObject {
               let lastMessageTime = Self.stringValue(data["last_message_time"]) else { return }
         let lastMessageType = Self.stringValue(data["msg_type"] ?? data["last_message_type"])
         let previewMessage = Self.normalizedMessagePreview(lastMessage, msgType: lastMessageType)
+        let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
+            content: lastMessage,
+            msgType: lastMessageType
+        )
 
         let senderNickname = Self.stringValue(data["sender_nickname"])
         let senderID = Self.stringValue(data["sender_id"])
@@ -269,7 +277,7 @@ class GroupsViewModel: ObservableObject {
                 memberCount: g.memberCount,
                 lastMessage: previewMessage,
                 lastMessageTime: lastMessageTime,
-                lastMessageSender: senderNickname ?? g.lastMessageSender,
+                lastMessageSender: isChatMoneyReceipt ? nil : (senderNickname ?? g.lastMessageSender),
                 unreadCount: unreadCount,
                 isPublic: g.isPublic
             )
@@ -290,8 +298,12 @@ class GroupsViewModel: ObservableObject {
 
     private static func normalizedMessagePreviews(_ groups: [ChatGroup]) -> [ChatGroup] {
         groups.map { group in
+            let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
+                content: group.lastMessage,
+                msgType: nil
+            )
             let preview = normalizedMessagePreview(group.lastMessage, msgType: nil)
-            guard preview != group.lastMessage else { return group }
+            guard preview != group.lastMessage || isChatMoneyReceipt else { return group }
             return ChatGroup(
                 groupID: group.groupID,
                 name: group.name,
@@ -300,7 +312,7 @@ class GroupsViewModel: ObservableObject {
                 memberCount: group.memberCount,
                 lastMessage: preview,
                 lastMessageTime: group.lastMessageTime,
-                lastMessageSender: group.lastMessageSender,
+                lastMessageSender: isChatMoneyReceipt ? nil : group.lastMessageSender,
                 unreadCount: group.unreadCount,
                 isPublic: group.isPublic
             )

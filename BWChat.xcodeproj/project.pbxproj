@@ -13,6 +13,8 @@
 		A11000 /* ChatMoney.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11000 /* ChatMoney.swift */; };
 		A11001 /* ChatMoneyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11001 /* ChatMoneyStore.swift */; };
 		A11002 /* ChatMoneyViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11002 /* ChatMoneyViews.swift */; };
+		A11003 /* ChatMoneyComposerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11003 /* ChatMoneyComposerViews.swift */; };
+		A11004 /* ChatMoneyDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11004 /* ChatMoneyDetailViews.swift */; };
 		A10004 /* Contact.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* Contact.swift */; };
 		A10005 /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10005 /* AuthViewModel.swift */; };
 		A10006 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10006 /* ChatViewModel.swift */; };
@@ -184,6 +186,8 @@
 		B11000 /* ChatMoney.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoney.swift; sourceTree = "<group>"; };
 		B11001 /* ChatMoneyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoneyStore.swift; sourceTree = "<group>"; };
 		B11002 /* ChatMoneyViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoneyViews.swift; sourceTree = "<group>"; };
+		B11003 /* ChatMoneyComposerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoneyComposerViews.swift; sourceTree = "<group>"; };
+		B11004 /* ChatMoneyDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMoneyDetailViews.swift; sourceTree = "<group>"; };
 		B10004 /* Contact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Contact.swift; sourceTree = "<group>"; };
 		B10005 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
 		B10006 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
@@ -548,6 +552,8 @@
 				B10094 /* ReplyPreviewBar.swift */,
 				B10211 /* GiftViews.swift */,
 				B11002 /* ChatMoneyViews.swift */,
+				B11003 /* ChatMoneyComposerViews.swift */,
+				B11004 /* ChatMoneyDetailViews.swift */,
 				B10509 /* StickerViews.swift */,
 			);
 			path = Components;
@@ -742,6 +748,8 @@
 				A11000 /* ChatMoney.swift in Sources */,
 				A11001 /* ChatMoneyStore.swift in Sources */,
 				A11002 /* ChatMoneyViews.swift in Sources */,
+				A11003 /* ChatMoneyComposerViews.swift in Sources */,
+				A11004 /* ChatMoneyDetailViews.swift in Sources */,
 				A10107 /* MessageStore.swift in Sources */,
 				A10004 /* Contact.swift in Sources */,
 				A10005 /* AuthViewModel.swift in Sources */,

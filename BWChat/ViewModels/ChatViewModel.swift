@@ -576,6 +576,14 @@ class ChatViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] update in
                 guard let self else { return }
+                if let receipt = update.directReceiptMessage {
+                    let relevant = (receipt.senderID == self.contact.userID && receipt.receiverID == self.myID)
+                        || (receipt.senderID == self.myID && receipt.receiverID == self.contact.userID)
+                    if relevant {
+                        self.store.saveMessage(receipt)
+                        self.appendMessageIfNeeded(receipt, source: .webSocket)
+                    }
+                }
                 if let current = self.messages.first(where: {
                     $0.chatMoneyPayload?.assetID == update.payload.assetID
                 })?.chatMoneyPayload,

@@ -88,4 +88,98 @@ final class ConversationListActionTests: XCTestCase {
         XCTAssertFalse(viewModel.isPinned(conversation))
         XCTAssertFalse(viewModel.conversations.contains { $0.listIdentity == conversation.listIdentity })
     }
+
+    func testChatMoneyReceiptPreviewNeverUsesGroupSenderPrefix() {
+        let receipt = #"""
+        {
+          "event_id": "evt-list",
+          "asset_id": "rp-list",
+          "event_type": "red_packet_claimed",
+          "actor_id": "recipient",
+          "actor_name": "小猫",
+          "sender_id": "sender",
+          "sender_name": "大猫",
+          "scope": "group",
+          "created_at": "2026-07-17T01:00:00Z"
+        }
+        """#
+
+        XCTAssertTrue(ChatMoneyPreview.isReceipt(content: receipt, msgType: "text"))
+        XCTAssertNil(
+            ConversationPreviewFormatter.senderPrefix("未知", content: receipt)
+        )
+        XCTAssertNil(
+            ConversationPreviewFormatter.senderPrefix("系统消息", content: receipt)
+        )
+        let normalizedReceipt = L10n.tr(
+            "chatMoney.receipt.transferReturnedBetween",
+            "小猫",
+            "大猫"
+        )
+        XCTAssertNil(
+            ConversationPreviewFormatter.senderPrefix("小猫", content: normalizedReceipt)
+        )
+        XCTAssertEqual(
+            ConversationPreviewFormatter.senderPrefix("小猫", content: "普通群消息"),
+            "小猫"
+        )
+    }
+
+    func testChatMoneyPreviewUsesViewerSpecificActionPrompt() throws {
+        let transfer = ChatMoneyPayload(
+            assetID: "transfer-preview",
+            kind: .transfer,
+            scope: .direct,
+            senderID: "sender",
+            recipientID: "recipient",
+            recipientName: "小猫",
+            amount: 88
+        )
+        let transferContent = try XCTUnwrap(transfer.encodedContent)
+
+        XCTAssertEqual(
+            ChatMoneyPreview.text(
+                content: transferContent,
+                msgType: "transfer",
+                viewerID: "recipient"
+            ),
+            "\(L10n.tr("chatMoney.preview.transfer")) \(L10n.tr("chatMoney.transfer.receivePrompt"))"
+        )
+        XCTAssertEqual(
+            ChatMoneyPreview.text(
+                content: transferContent,
+                msgType: "transfer",
+                viewerID: "sender"
+            ),
+            "\(L10n.tr("chatMoney.preview.transfer")) \(L10n.tr("chatMoney.transfer.waitingForRecipient"))"
+        )
+
+        let redPacket = ChatMoneyPayload(
+            assetID: "red-packet-preview",
+            kind: .redPacket,
+            scope: .direct,
+            mode: .direct,
+            senderID: "sender",
+            recipientID: "recipient",
+            greeting: "恭喜发财"
+        )
+        let redPacketContent = try XCTUnwrap(redPacket.encodedContent)
+
+        XCTAssertEqual(
+            ChatMoneyPreview.text(
+                content: redPacketContent,
+                msgType: "red_packet",
+                viewerID: "recipient"
+            ),
+            "\(L10n.tr("chatMoney.preview.redPacket")) \(L10n.tr("chatMoney.redPacket.claimPrompt"))"
+        )
+        XCTAssertEqual(
+            ChatMoneyPreview.text(
+                content: redPacketContent,
+                msgType: "red_packet",
+                viewerID: "sender"
+            ),
+            "\(L10n.tr("chatMoney.preview.redPacket")) \(L10n.tr("chatMoney.redPacket.waitingForRecipient"))"
+        )
+    }
 }

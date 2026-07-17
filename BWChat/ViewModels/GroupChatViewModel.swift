@@ -576,6 +576,11 @@ class GroupChatViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] update in
                 guard let self else { return }
+                if let receipt = update.groupReceiptMessage,
+                   receipt.groupID == self.group.groupID {
+                    self.store.saveGroupMessage(receipt)
+                    self.appendMessageIfNeeded(receipt, source: .webSocket)
+                }
                 if let current = self.messages.first(where: {
                     $0.chatMoneyPayload?.assetID == update.payload.assetID
                 })?.chatMoneyPayload,
