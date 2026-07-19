@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] No answer";
 "call.record.missed" = "[%@] Missed";
+"call.record.duration" = "Call duration %@";
+"call.record.cancelled.self" = "Cancelled";
+"call.record.cancelled.peer" = "Cancelled by the other person";
+"call.record.rejected.self" = "Declined";
+"call.record.rejected.peer" = "Declined by the other person";
+"call.record.missed.self" = "Missed";
+"call.record.unanswered.peer" = "No answer";
+"call.record.busy.self" = "Missed while busy";
+"call.record.busy.peer" = "The other person is busy";
 
 
 "wallet.purchase.verificationFailed" = "Transaction verification failed. Balance was not updated.";

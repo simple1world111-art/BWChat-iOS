@@ -145,6 +145,10 @@ struct Message: Codable, Identifiable, Equatable {
         msgType == "voice"
     }
 
+    var callRecord: CallRecordContent? {
+        CallRecordContent.parse(content)
+    }
+
     var voiceURL: String? {
         guard isVoice else { return nil }
         return content.components(separatedBy: "|").first

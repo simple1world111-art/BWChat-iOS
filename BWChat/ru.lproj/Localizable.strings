@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] Нет ответа";
 "call.record.missed" = "[%@] Пропущено";
+"call.record.duration" = "Длительность звонка %@";
+"call.record.cancelled.self" = "Отменено";
+"call.record.cancelled.peer" = "Отменено собеседником";
+"call.record.rejected.self" = "Отклонено";
+"call.record.rejected.peer" = "Отклонено собеседником";
+"call.record.missed.self" = "Пропущено";
+"call.record.unanswered.peer" = "Нет ответа";
+"call.record.busy.self" = "Пропущено: линия занята";
+"call.record.busy.peer" = "Собеседник занят";
 
 
 "wallet.purchase.verificationFailed" = "Проверка транзакции не удалась. Баланс не обновлен.";

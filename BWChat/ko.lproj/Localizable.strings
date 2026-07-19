@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] 상대가 받지 않음";
 "call.record.missed" = "[%@] 부재중";
+"call.record.duration" = "통화 시간 %@";
+"call.record.cancelled.self" = "취소함";
+"call.record.cancelled.peer" = "상대방이 취소함";
+"call.record.rejected.self" = "거절함";
+"call.record.rejected.peer" = "상대방이 거절함";
+"call.record.missed.self" = "부재중";
+"call.record.unanswered.peer" = "응답 없음";
+"call.record.busy.self" = "통화 중 부재중";
+"call.record.busy.peer" = "상대방이 통화 중입니다";
 
 
 "wallet.purchase.verificationFailed" = "거래 검증 실패. 잔액이 반영되지 않았습니다.";

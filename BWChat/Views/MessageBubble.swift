@@ -119,6 +119,12 @@ struct MessageBubble: View {
                     }
                 } else if let giftPayload = message.giftPayload {
                     giftBubble(giftPayload)
+                } else if let callRecord = message.callRecord {
+                    CallRecordBubble(
+                        record: callRecord,
+                        timeText: message.formattedTime,
+                        isFromMe: isFromMe
+                    )
                 } else {
                     textBubble
                 }
@@ -238,6 +244,58 @@ struct MessageBubble: View {
             Button(L10n.tr("common.reply")) { onReply?(message) }
             Button(L10n.tr("common.cancel"), role: .cancel) {}
         }
+    }
+}
+
+struct CallRecordBubble: View {
+    let record: CallRecordContent
+    let timeText: String
+    let isFromMe: Bool
+
+    private var foregroundColor: Color {
+        isFromMe ? .white : AppColors.primaryText
+    }
+
+    private var secondaryColor: Color {
+        isFromMe ? .white.opacity(0.72) : AppColors.secondaryText
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(record.localizedDetail(isFromMe: isFromMe))
+                    .font(.system(size: 16))
+                    .foregroundStyle(foregroundColor)
+                    .lineLimit(2)
+
+                Text(timeText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(secondaryColor)
+                    .monospacedDigit()
+            }
+
+            Image(systemName: record.systemImage)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 28, height: 28)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background {
+            if isFromMe {
+                AppColors.sentBubbleGradient
+            } else {
+                AppColors.receivedBubble
+            }
+        }
+        .cornerRadius(
+            18,
+            corners: isFromMe
+                ? [.topLeft, .topRight, .bottomLeft]
+                : [.topLeft, .topRight, .bottomRight]
+        )
+        .accessibilityElement(children: .combine)
     }
 }
 

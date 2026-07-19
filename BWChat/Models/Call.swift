@@ -3,7 +3,7 @@
 
 import Foundation
 
-enum CallType: String, Codable {
+enum CallType: String, Codable, Equatable {
     case voice
     case video
 }
@@ -15,6 +15,172 @@ enum CallState: Equatable {
     case connecting
     case connected
     case ended
+}
+
+/// A direct-call history item encoded as a backwards-compatible text message.
+/// The server remains readable by older clients (for example
+/// `[视频通话] 通话时长 00:19`), while newer clients can render the same payload as
+/// a dedicated WeChat-style call bubble.
+struct CallRecordContent: Equatable {
+    enum Status: Equatable {
+        case completed(duration: String)
+        case cancelled
+        case rejected
+        case missed
+        case busy
+    }
+
+    let callType: CallType
+    let status: Status
+
+    var systemImage: String {
+        callType == .video ? "video.fill" : "phone.fill"
+    }
+
+    func localizedDetail(isFromMe: Bool) -> String {
+        switch status {
+        case let .completed(duration):
+            return L10n.tr("call.record.duration", duration)
+        case .cancelled:
+            return L10n.tr(isFromMe ? "call.record.cancelled.self" : "call.record.cancelled.peer")
+        case .rejected:
+            return L10n.tr(isFromMe ? "call.record.rejected.peer" : "call.record.rejected.self")
+        case .missed:
+            return L10n.tr(isFromMe ? "call.record.unanswered.peer" : "call.record.missed.self")
+        case .busy:
+            return L10n.tr(isFromMe ? "call.record.busy.peer" : "call.record.busy.self")
+        }
+    }
+
+    static func parse(_ content: String) -> CallRecordContent? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("["),
+              let closeBracket = trimmed.firstIndex(of: "]") else { return nil }
+
+        let labelStart = trimmed.index(after: trimmed.startIndex)
+        let label = String(trimmed[labelStart ..< closeBracket])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let detailStart = trimmed.index(after: closeBracket)
+        let detail = String(trimmed[detailStart...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.isEmpty, let callType = callType(from: label) else { return nil }
+
+        if let duration = duration(in: detail) {
+            return CallRecordContent(callType: callType, status: .completed(duration: duration))
+        }
+
+        let normalized = detail.lowercased()
+        if containsAny(normalized, values: ["已取消", "對方已取消", "对方已取消", "cancelled", "canceled"]) {
+            return CallRecordContent(callType: callType, status: .cancelled)
+        }
+        if containsAny(normalized, values: ["已拒绝", "已拒絕", "reject", "declined"]) {
+            return CallRecordContent(callType: callType, status: .rejected)
+        }
+        if containsAny(normalized, values: ["忙线", "忙線", "busy"]) {
+            return CallRecordContent(callType: callType, status: .busy)
+        }
+        if containsAny(
+            normalized,
+            values: [
+                "未接听", "未接聽", "无应答", "無應答", "no answer", "missed", "unanswered",
+                "keine antwort", "sin respuesta", "pas de réponse", "応答", "不在着信",
+                "받지 않", "부재중", "sem resposta", "нет ответа", "пропущ"
+            ]
+        ) {
+            return CallRecordContent(callType: callType, status: .missed)
+        }
+        return nil
+    }
+
+    private static func callType(from label: String) -> CallType? {
+        let normalized = label.lowercased()
+        if containsAny(
+            normalized,
+            values: ["视频", "視訊", "影片", "video", "vídeo", "ビデオ", "영상", "видео"]
+        ) {
+            return .video
+        }
+        if containsAny(
+            normalized,
+            values: [
+                "语音", "語音", "voice", "audio", "voz", "音声", "음성",
+                "sprach", "vocal", "голос"
+            ]
+        ) {
+            return .voice
+        }
+        return nil
+    }
+
+    private static func duration(in detail: String) -> String? {
+        guard let match = detail.range(
+            of: #"(?<!\d)(?:\d{1,2}:)?\d{2}:\d{2}(?!\d)"#,
+            options: .regularExpression
+        ) else { return nil }
+        return String(detail[match])
+    }
+
+    private static func containsAny(_ value: String, values: [String]) -> Bool {
+        values.contains { value.localizedCaseInsensitiveContains($0) }
+    }
+}
+
+/// Small, privacy-preserving WebRTC summary uploaded after a video call. The
+/// server logs it by authenticated call participant so real-device quality can
+/// be diagnosed without collecting media, IP addresses, or device identifiers.
+struct CallQualityStreamReport: Equatable {
+    var width: Int?
+    var height: Int?
+    var fps: Double?
+    var bitrateBps: Int?
+    var packetsLost: Int?
+    var nackCount: Int?
+    var pliCount: Int?
+    var firCount: Int?
+    var framesDropped: Int?
+    var freezeCount: Int?
+    var rttMs: Double?
+    var fractionLost: Double?
+    var qualityLimitationReason: String?
+
+    var body: [String: Any] {
+        var result: [String: Any] = [:]
+        if let width { result["width"] = width }
+        if let height { result["height"] = height }
+        if let fps { result["fps"] = fps }
+        if let bitrateBps { result["bitrate_bps"] = bitrateBps }
+        if let packetsLost { result["packets_lost"] = packetsLost }
+        if let nackCount { result["nack"] = nackCount }
+        if let pliCount { result["pli"] = pliCount }
+        if let firCount { result["fir"] = firCount }
+        if let framesDropped { result["frames_dropped"] = framesDropped }
+        if let freezeCount { result["freeze_count"] = freezeCount }
+        if let rttMs { result["rtt_ms"] = rttMs }
+        if let fractionLost { result["fraction_lost"] = fractionLost }
+        if let qualityLimitationReason { result["quality_limitation_reason"] = qualityLimitationReason }
+        return result
+    }
+}
+
+struct CallQualityReport: Equatable {
+    let appBuild: String
+    let sampleCount: Int
+    let outbound: CallQualityStreamReport?
+    let inbound: CallQualityStreamReport?
+    let iceTransport: String?
+    let relay: Bool?
+
+    var body: [String: Any] {
+        var result: [String: Any] = [
+            "app_build": appBuild,
+            "sample_count": sampleCount
+        ]
+        if let outbound { result["outbound"] = outbound.body }
+        if let inbound { result["inbound"] = inbound.body }
+        if let iceTransport { result["ice_transport"] = iceTransport }
+        if let relay { result["relay"] = relay }
+        return result
+    }
 }
 
 /// Decides when a LiveKit room becoming empty means the current client should

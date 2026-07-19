@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] 相手が応答しませんでした";
 "call.record.missed" = "[%@] 不在着信";
+"call.record.duration" = "通話時間 %@";
+"call.record.cancelled.self" = "キャンセルしました";
+"call.record.cancelled.peer" = "相手がキャンセルしました";
+"call.record.rejected.self" = "拒否しました";
+"call.record.rejected.peer" = "相手が拒否しました";
+"call.record.missed.self" = "不在着信";
+"call.record.unanswered.peer" = "応答なし";
+"call.record.busy.self" = "通話中のため不在着信";
+"call.record.busy.peer" = "相手は通話中です";
 
 
 "wallet.purchase.verificationFailed" = "取引の検証に失敗しました。残高は更新されていません。";

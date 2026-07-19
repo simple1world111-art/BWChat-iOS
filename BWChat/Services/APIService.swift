@@ -1555,6 +1555,13 @@ class APIService {
         )
     }
 
+    func reportCallQuality(callID: String, report: CallQualityReport) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/call/\(callID)/quality-report",
+            body: report.body
+        )
+    }
+
     func startGroupCall(groupID: Int, callType: String) async throws -> CallStartResponse {
         let body: [String: Any] = ["call_type": callType]
         let response: APIResponseWrapper<CallStartResponse> = try await postJSON(path: "/call/group/\(groupID)/start", body: body)

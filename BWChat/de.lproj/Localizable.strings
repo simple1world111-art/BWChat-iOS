@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] Keine Antwort";
 "call.record.missed" = "[%@] Verpasst";
+"call.record.duration" = "Anrufdauer %@";
+"call.record.cancelled.self" = "Abgebrochen";
+"call.record.cancelled.peer" = "Von der anderen Person abgebrochen";
+"call.record.rejected.self" = "Abgelehnt";
+"call.record.rejected.peer" = "Von der anderen Person abgelehnt";
+"call.record.missed.self" = "Verpasst";
+"call.record.unanswered.peer" = "Keine Antwort";
+"call.record.busy.self" = "Während Besetzt verpasst";
+"call.record.busy.peer" = "Die andere Person ist besetzt";
 
 
 "wallet.purchase.verificationFailed" = "Transaktionsprüfung fehlgeschlagen. Guthaben wurde nicht aktualisiert.";

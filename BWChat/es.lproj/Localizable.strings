@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] Sin respuesta";
 "call.record.missed" = "[%@] Perdida";
+"call.record.duration" = "Duración de la llamada %@";
+"call.record.cancelled.self" = "Cancelada";
+"call.record.cancelled.peer" = "Cancelada por la otra persona";
+"call.record.rejected.self" = "Rechazada";
+"call.record.rejected.peer" = "Rechazada por la otra persona";
+"call.record.missed.self" = "Perdida";
+"call.record.unanswered.peer" = "Sin respuesta";
+"call.record.busy.self" = "Perdida por línea ocupada";
+"call.record.busy.peer" = "La otra persona está ocupada";
 
 
 "wallet.purchase.verificationFailed" = "Falló la verificación de la transacción. El saldo no se actualizó.";

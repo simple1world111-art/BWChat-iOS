@@ -556,6 +556,15 @@
 
 "call.record.remoteMissed" = "[%@] 對方未接聽";
 "call.record.missed" = "[%@] 未接聽";
+"call.record.duration" = "通話時長 %@";
+"call.record.cancelled.self" = "已取消";
+"call.record.cancelled.peer" = "對方已取消";
+"call.record.rejected.self" = "已拒絕";
+"call.record.rejected.peer" = "對方已拒絕";
+"call.record.missed.self" = "未接聽";
+"call.record.unanswered.peer" = "對方無應答";
+"call.record.busy.self" = "忙線未接聽";
+"call.record.busy.peer" = "對方忙線";
 
 
 "wallet.purchase.verificationFailed" = "交易校驗失敗，未完成入帳";

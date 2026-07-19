@@ -50,23 +50,19 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertTrue(websocketInvite.hasComparableKey(with: legacyInvite))
     }
 
-    func testCallMediaConfigurationUsesAdaptiveLowLatencyDefaults() {
+    func testCallMediaConfigurationUsesStableHighBitrate720pDefaults() {
         let roomOptions = CallMediaConfiguration.roomOptions
         let connectOptions = CallMediaConfiguration.connectOptions
 
         XCTAssertTrue(roomOptions.adaptiveStream)
         XCTAssertTrue(roomOptions.dynacast)
         XCTAssertFalse(roomOptions.singlePeerConnection)
-        XCTAssertTrue(roomOptions.defaultVideoPublishOptions.simulcast)
-        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxBitrate, 2_200_000)
+        XCTAssertFalse(roomOptions.defaultVideoPublishOptions.simulcast)
+        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxBitrate, 3_000_000)
         XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxFps, 30)
-        XCTAssertEqual(
-            roomOptions.defaultVideoPublishOptions.simulcastLayers.map(\.dimensions),
-            [.h180_169, .h540_169]
-        )
         XCTAssertEqual(roomOptions.defaultVideoPublishOptions.preferredCodec, .vp8)
         XCTAssertFalse(CallMediaConfiguration.compatibilityVideoPublishOptions.simulcast)
-        XCTAssertEqual(CallMediaConfiguration.compatibilityVideoPublishOptions.encoding?.maxBitrate, 1_700_000)
+        XCTAssertEqual(CallMediaConfiguration.compatibilityVideoPublishOptions.encoding?.maxBitrate, 2_200_000)
         XCTAssertEqual(CallMediaConfiguration.compatibilityVideoPublishOptions.encoding?.maxFps, 30)
         XCTAssertEqual(CallMediaConfiguration.cameraCaptureOptions(position: .front).dimensions, .h720_169)
         XCTAssertEqual(CallMediaConfiguration.cameraCaptureOptions(position: .front).fps, 30)
@@ -76,6 +72,68 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertTrue(connectOptions.isDscpEnabled)
         XCTAssertFalse(connectOptions.enableMicrophone)
         XCTAssertEqual(connectOptions.reconnectAttempts, 12)
+    }
+
+    func testDirectCallRecordParsesLegacyAndServerFormats() throws {
+        let legacy = try XCTUnwrap(CallRecordContent.parse("[视频通话] 00:19"))
+        XCTAssertEqual(legacy.callType, .video)
+        XCTAssertEqual(legacy.status, .completed(duration: "00:19"))
+
+        let completed = try XCTUnwrap(CallRecordContent.parse("[语音通话] 通话时长 01:02:03"))
+        XCTAssertEqual(completed.callType, .voice)
+        XCTAssertEqual(completed.status, .completed(duration: "01:02:03"))
+
+        XCTAssertEqual(
+            CallRecordContent.parse("[视频通话] 已拒绝")?.status,
+            .rejected
+        )
+        XCTAssertEqual(
+            CallRecordContent.parse("[视频通话] 未接听")?.status,
+            .missed
+        )
+        XCTAssertNil(CallRecordContent.parse("[普通文本] 00:19"))
+    }
+
+    func testDirectMessageRecognizesCallRecordWithoutNewMessageType() {
+        let message = Message(
+            id: 9,
+            senderID: "caller",
+            receiverID: "callee",
+            msgType: "text",
+            content: "[视频通话] 通话时长 00:19",
+            timestamp: "2026-07-19T06:00:00Z",
+            replyToID: nil,
+            replyTo: nil
+        )
+
+        XCTAssertEqual(message.callRecord?.callType, .video)
+        XCTAssertEqual(message.callRecord?.status, .completed(duration: "00:19"))
+    }
+
+    func testCallQualityReportUsesBoundedPrimitivePayload() throws {
+        var inbound = CallQualityStreamReport()
+        inbound.width = 720
+        inbound.height = 1280
+        inbound.fps = 29.8
+        inbound.bitrateBps = 2_650_000
+        inbound.packetsLost = 2
+        let report = CallQualityReport(
+            appBuild: "8",
+            sampleCount: 4,
+            outbound: nil,
+            inbound: inbound,
+            iceTransport: "turn_udp",
+            relay: true
+        )
+
+        XCTAssertEqual(report.body["app_build"] as? String, "8")
+        XCTAssertEqual(report.body["sample_count"] as? Int, 4)
+        let payload = try XCTUnwrap(report.body["inbound"] as? [String: Any])
+        XCTAssertEqual(payload["width"] as? Int, 720)
+        XCTAssertEqual(payload["bitrate_bps"] as? Int, 2_650_000)
+        XCTAssertNil(payload["quality_limitation_reason"])
+        XCTAssertEqual(report.body["ice_transport"] as? String, "turn_udp")
+        XCTAssertEqual(report.body["relay"] as? Bool, true)
     }
 
     func testGroupCallStatusPreservesCallIdentity() throws {

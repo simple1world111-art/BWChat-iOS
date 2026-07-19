@@ -22,9 +22,11 @@ private enum CallManagerError: LocalizedError {
     }
 }
 
-/// Shared LiveKit tuning for direct and group calls. Simulcast + adaptive
-/// subscriptions keep multi-person video bandwidth proportional to the grid
-/// cell size, while dynacast stops publishing layers nobody is watching.
+/// Shared LiveKit tuning for direct and group calls. Production evidence from
+/// Build 7 showed that this self-hosted LiveKit path always discarded the
+/// requested simulcast profile and eventually published its 1.7 Mbps fallback.
+/// Publish a deterministic 720p layer directly so the call starts faster and
+/// has enough bitrate for a noisy front-camera image.
 enum CallMediaConfiguration {
     static let cameraCaptureOptions = CameraCaptureOptions(
         position: .front,
@@ -34,26 +36,22 @@ enum CallMediaConfiguration {
 
     static let videoPublishOptions = VideoPublishOptions(
         encoding: VideoEncoding(
-            maxBitrate: 2_200_000,
+            maxBitrate: 3_000_000,
             maxFps: 30,
-            bitratePriority: .medium,
-            networkPriority: .medium
+            bitratePriority: .high,
+            networkPriority: .high
         ),
-        simulcast: true,
-        // Preserve an efficient low layer while giving Retina-sized group
-        // tiles a useful 540p middle layer instead of falling back to 360p.
-        simulcastLayers: [.presetH180_169, .presetH540_169],
+        simulcast: false,
         preferredCodec: .vp8,
         preferredBackupCodec: .none,
         degradationPreference: .balanced
     )
 
-    /// Single-layer retry for self-hosted deployments where the initial
-    /// simulcast publication times out. Keep 720p/30 instead of silently
-    /// degrading the other participant to the former 540p/24 profile.
+    /// A conservative retry for temporary publication negotiation failures.
+    /// It keeps the same 720p/30 source rather than reducing resolution.
     static let compatibilityVideoPublishOptions = VideoPublishOptions(
         encoding: VideoEncoding(
-            maxBitrate: 1_700_000,
+            maxBitrate: 2_200_000,
             maxFps: 30,
             bitratePriority: .medium,
             networkPriority: .medium
@@ -113,6 +111,103 @@ enum CallMediaConfiguration {
     }
 }
 
+private struct CallQualityStreamSample {
+    var bytes: UInt64?
+    var timestamp: Double?
+    var width: Int?
+    var height: Int?
+    var fps: Double?
+    var packetsLost: Int?
+    var nackCount: Int?
+    var pliCount: Int?
+    var firCount: Int?
+    var framesDropped: Int?
+    var freezeCount: Int?
+    var rttMs: Double?
+    var fractionLost: Double?
+    var qualityLimitationReason: String?
+}
+
+private struct CallQualityStreamAccumulator {
+    private var previousBytes: UInt64?
+    private var previousTimestamp: Double?
+    private(set) var report = CallQualityStreamReport()
+
+    mutating func record(_ sample: CallQualityStreamSample) {
+        report.width = sample.width ?? report.width
+        report.height = sample.height ?? report.height
+        report.fps = sample.fps ?? report.fps
+        report.packetsLost = sample.packetsLost ?? report.packetsLost
+        report.nackCount = sample.nackCount ?? report.nackCount
+        report.pliCount = sample.pliCount ?? report.pliCount
+        report.firCount = sample.firCount ?? report.firCount
+        report.framesDropped = sample.framesDropped ?? report.framesDropped
+        report.freezeCount = sample.freezeCount ?? report.freezeCount
+        report.rttMs = sample.rttMs ?? report.rttMs
+        report.fractionLost = sample.fractionLost ?? report.fractionLost
+        report.qualityLimitationReason = sample.qualityLimitationReason ?? report.qualityLimitationReason
+
+        if let bytes = sample.bytes,
+           let timestamp = sample.timestamp,
+           let previousBytes,
+           let previousTimestamp,
+           bytes >= previousBytes {
+            let elapsed = (timestamp - previousTimestamp) / 1_000_000
+            if elapsed > 0 {
+                let bps = Int((Double(bytes - previousBytes) * 8) / elapsed)
+                if bps > 0 {
+                    report.bitrateBps = bps
+                }
+            }
+        }
+        previousBytes = sample.bytes
+        previousTimestamp = sample.timestamp
+    }
+}
+
+private struct CallQualityAccumulator {
+    private(set) var sampleCount = 0
+    private var outbound = CallQualityStreamAccumulator()
+    private var inbound = CallQualityStreamAccumulator()
+    private var hasOutbound = false
+    private var hasInbound = false
+    private var iceTransport: String?
+    private var relay: Bool?
+
+    mutating func record(
+        outbound outboundSample: CallQualityStreamSample?,
+        inbound inboundSample: CallQualityStreamSample?,
+        iceTransport: String?,
+        relay: Bool?
+    ) {
+        guard outboundSample != nil || inboundSample != nil else { return }
+        sampleCount += 1
+        if let outboundSample {
+            hasOutbound = true
+            outbound.record(outboundSample)
+        }
+        if let inboundSample {
+            hasInbound = true
+            inbound.record(inboundSample)
+        }
+        self.iceTransport = iceTransport ?? self.iceTransport
+        self.relay = relay ?? self.relay
+    }
+
+    func makeReport() -> CallQualityReport? {
+        guard sampleCount > 0 else { return nil }
+        let appBuild = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "unknown"
+        return CallQualityReport(
+            appBuild: appBuild,
+            sampleCount: sampleCount,
+            outbound: hasOutbound ? outbound.report : nil,
+            inbound: hasInbound ? inbound.report : nil,
+            iceTransport: iceTransport,
+            relay: relay
+        )
+    }
+}
+
 @MainActor
 class CallManager: ObservableObject {
     static let shared = CallManager()
@@ -152,6 +247,8 @@ class CallManager: ObservableObject {
     private var hasObservedRemoteParticipant = false
     private var mediaRecoveryTask: Task<Void, Never>?
     private var needsMediaRecoveryAfterReconnect = false
+    private var qualitySamplingTask: Task<Void, Never>?
+    private var qualityAccumulator = CallQualityAccumulator()
     #if DEBUG && targetEnvironment(simulator)
     /// Opt-in synthetic 720p camera used only by automated simulator media
     /// tests. App Store/device builds cannot compile or enable this path.
@@ -513,6 +610,7 @@ class CallManager: ObservableObject {
                     isLocalVideoEnabled = false
                     errorMessage = L10n.tr("call.error.cameraUnavailable")
                 }
+                startQualitySampling()
             }
 
             // Outgoing 1v1 calls: stay "ringing" until the callee actually joins
@@ -583,6 +681,7 @@ class CallManager: ObservableObject {
             (targetRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack) else {
             throw CallManagerError.cameraTrackUnavailable
         }
+        await track.set(reportStatistics: true)
         return track
     }
 
@@ -634,6 +733,7 @@ class CallManager: ObservableObject {
             }
         }
         print("[CallManager] Synthetic 720p camera published for simulator test")
+        await track.set(reportStatistics: true)
         return track
     }
 
@@ -700,6 +800,148 @@ class CallManager: ObservableObject {
         }
     }
     #endif
+
+    // MARK: - Real-device video quality diagnostics
+
+    private func startQualitySampling() {
+        qualitySamplingTask?.cancel()
+        qualityAccumulator = CallQualityAccumulator()
+        collectQualitySample()
+
+        qualitySamplingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled, let self, self.currentCall != nil else { return }
+                self.collectQualitySample()
+            }
+        }
+    }
+
+    private func collectQualitySample() {
+        let outboundSample = outboundQualitySample()
+        let inboundSample = inboundQualitySample()
+        let transport = qualityTransport()
+        qualityAccumulator.record(
+            outbound: outboundSample,
+            inbound: inboundSample,
+            iceTransport: transport.name,
+            relay: transport.relay
+        )
+
+        guard outboundSample != nil || inboundSample != nil else { return }
+        let callID = currentCall?.serverCallID ?? "-"
+        print(
+            "[CallQuality] call_id=\(callID) " +
+                "out=\(qualityDescription(outboundSample)) " +
+                "in=\(qualityDescription(inboundSample))"
+        )
+    }
+
+    private func outboundQualitySample() -> CallQualityStreamSample? {
+        guard let statistics = localVideoTrack?.statistics else { return nil }
+        let outbound = statistics.outboundRtpStream.first {
+            $0.kind == "video" && $0.active != false
+        } ?? statistics.outboundRtpStream.first { $0.kind == "video" }
+        let source = statistics.videoSource.first
+        let receiverFeedback = statistics.remoteInboundRtpStream.first { $0.kind == "video" }
+        guard outbound != nil || source != nil else { return nil }
+
+        let width = outbound?.frameWidth.map { Int($0) } ?? source?.width.map { Int($0) }
+        let height = outbound?.frameHeight.map { Int($0) } ?? source?.height.map { Int($0) }
+        let packetsLost = receiverFeedback?.packetsLost.map { Int(clamping: $0) }
+        let nackCount = outbound?.nackCount.map { Int($0) }
+        let pliCount = outbound?.pliCount.map { Int($0) }
+        let firCount = outbound?.firCount.map { Int($0) }
+        let rttMs = receiverFeedback?.roundTripTime.map { $0 * 1_000 }
+
+        return CallQualityStreamSample(
+            bytes: outbound?.bytesSent,
+            timestamp: outbound?.timestamp,
+            width: width,
+            height: height,
+            fps: outbound?.framesPerSecond ?? source?.framesPerSecond,
+            packetsLost: packetsLost,
+            nackCount: nackCount,
+            pliCount: pliCount,
+            firCount: firCount,
+            framesDropped: nil,
+            freezeCount: nil,
+            rttMs: rttMs,
+            fractionLost: receiverFeedback?.fractionLost,
+            qualityLimitationReason: outbound?.qualityLimitationReason?.rawValue
+        )
+    }
+
+    private func inboundQualitySample() -> CallQualityStreamSample? {
+        let remoteTrack = remoteVideoTrack ?? remoteParticipants.lazy.compactMap(activeVideoTrack).first
+        guard let statistics = remoteTrack?.statistics else { return nil }
+        let inbound = statistics.inboundRtpStream.first { $0.kind == "video" }
+        let senderFeedback = statistics.remoteOutboundRtpStream.first { $0.kind == "video" }
+        guard let inbound else { return nil }
+
+        let width = inbound.frameWidth.map { Int($0) }
+        let height = inbound.frameHeight.map { Int($0) }
+        let packetsLost = inbound.packetsLost.map { Int(clamping: $0) }
+        let nackCount = inbound.nackCount.map { Int($0) }
+        let pliCount = inbound.pliCount.map { Int($0) }
+        let firCount = inbound.firCount.map { Int($0) }
+        let framesDropped = inbound.framesDropped.map { Int($0) }
+        let freezeCount = inbound.freezeCount.map { Int($0) }
+        let rttMs = senderFeedback?.roundTripTime.map { $0 * 1_000 }
+
+        return CallQualityStreamSample(
+            bytes: inbound.bytesReceived,
+            timestamp: inbound.timestamp,
+            width: width,
+            height: height,
+            fps: inbound.framesPerSecond,
+            packetsLost: packetsLost,
+            nackCount: nackCount,
+            pliCount: pliCount,
+            firCount: firCount,
+            framesDropped: framesDropped,
+            freezeCount: freezeCount,
+            rttMs: rttMs,
+            fractionLost: nil,
+            qualityLimitationReason: nil
+        )
+    }
+
+    private func qualityTransport() -> (name: String?, relay: Bool?) {
+        let statistics = localVideoTrack?.statistics ?? remoteVideoTrack?.statistics
+        guard let candidate = statistics?.localIceCandidate else { return (nil, nil) }
+        let isRelay = candidate.candidateType == .relay
+        guard isRelay else {
+            let transport = candidate.protocol?.lowercased()
+            return (["udp", "tcp"].contains(transport ?? "") ? transport : "unknown", false)
+        }
+
+        switch candidate.relayProtocol {
+        case .udp:
+            return ("turn_udp", true)
+        case .tcp:
+            return ("turn_tcp", true)
+        case .tls:
+            return ("turn_tls", true)
+        case nil:
+            let transport = candidate.protocol?.lowercased()
+            if transport == "udp" { return ("turn_udp", true) }
+            if transport == "tcp" { return ("turn_tcp", true) }
+            return ("unknown", true)
+        }
+    }
+
+    private func qualityDescription(_ sample: CallQualityStreamSample?) -> String {
+        guard let sample else { return "-" }
+        let dimensions: String
+        if let width = sample.width, let height = sample.height {
+            dimensions = "\(width)x\(height)"
+        } else {
+            dimensions = "?x?"
+        }
+        let fps = sample.fps.map { String(format: "%.1f", $0) } ?? "?"
+        return "\(dimensions)@\(fps)"
+    }
 
     // MARK: - Controls
 
@@ -1166,7 +1408,10 @@ class CallManager: ObservableObject {
         stopRingtone()
 
         let endedCall = currentCall
-        let duration = callDuration
+        if endedCall?.callType == .video {
+            collectQualitySample()
+        }
+        let qualityReport = qualityAccumulator.makeReport()
 
         durationTimer?.cancel()
         durationTimer = nil
@@ -1176,6 +1421,9 @@ class CallManager: ObservableObject {
         ringTimeoutTask = nil
         remoteDepartureGraceTask?.cancel()
         remoteDepartureGraceTask = nil
+        qualitySamplingTask?.cancel()
+        qualitySamplingTask = nil
+        qualityAccumulator = CallQualityAccumulator()
         hasObservedRemoteParticipant = false
         #if DEBUG && targetEnvironment(simulator)
         syntheticVideoTask?.cancel()
@@ -1211,11 +1459,19 @@ class CallManager: ObservableObject {
             try? await AudioManager.shared.setRecordingAlwaysPreparedMode(false)
         }
 
-        if let call = endedCall,
-           call.groupID == nil,
-           !call.remoteUserID.isEmpty,
-           !call.isOutgoing || !call.roomName.isEmpty {
-            Task { await sendCallRecord(call: call, duration: duration) }
+        if let callID = endedCall?.serverCallID,
+           !callID.isEmpty,
+           let qualityReport {
+            Task {
+                do {
+                    try await APIService.shared.reportCallQuality(
+                        callID: callID,
+                        report: qualityReport
+                    )
+                } catch {
+                    print("[CallQuality] Failed to upload call_id=\(callID): \(error)")
+                }
+            }
         }
     }
 
@@ -1484,30 +1740,6 @@ class CallManager: ObservableObject {
         ringtonePlayer = nil
     }
 
-    // MARK: - Call Record Message
-
-    private func sendCallRecord(call: CallSession, duration: TimeInterval) async {
-        let typeLabel = call.callType == .video ? L10n.tr("call.video") : L10n.tr("call.voice")
-        let content: String
-        if call.state == .connected || duration > 0 {
-            let mins = Int(duration) / 60
-            let secs = Int(duration) % 60
-            content = "[\(typeLabel)] \(String(format: "%02d:%02d", mins, secs))"
-        } else if call.isOutgoing {
-            content = L10n.tr("call.record.remoteMissed", typeLabel)
-        } else {
-            content = L10n.tr("call.record.missed", typeLabel)
-        }
-
-        do {
-            _ = try await APIService.shared.sendTextMessage(
-                receiverID: call.remoteUserID,
-                content: content
-            )
-        } catch {
-            print("[CallManager] Failed to send call record: \(error)")
-        }
-    }
 }
 
 // MARK: - LiveKit Room Delegate
