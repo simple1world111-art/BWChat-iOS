@@ -423,6 +423,8 @@
 "call.groupCall" = "群通话";
 "call.mute" = "静音";
 "call.unmute" = "取消静音";
+"call.muted" = "已静音";
+"call.video.swap" = "切换主画面";
 "call.cameraOff" = "关摄像头";
 "call.cameraOn" = "开摄像头";
 "call.flip" = "翻转";

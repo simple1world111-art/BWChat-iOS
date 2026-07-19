@@ -423,6 +423,8 @@
 "call.groupCall" = "グループ通話";
 "call.mute" = "ミュート";
 "call.unmute" = "ミュート解除";
+"call.muted" = "ミュート中";
+"call.video.swap" = "メイン映像を切り替える";
 "call.cameraOff" = "カメラオフ";
 "call.cameraOn" = "カメラオン";
 "call.flip" = "反転";

@@ -17,6 +17,21 @@ enum CallState: Equatable {
     case ended
 }
 
+/// Decides when a LiveKit room becoming empty means the current client should
+/// leave as well. A newly-created group room is allowed to wait for its first
+/// guest; after another participant has joined, returning to one local member
+/// ends the call automatically.
+enum CallParticipantDeparturePolicy {
+    static func shouldScheduleAutoExit(
+        isGroupCall: Bool,
+        hasObservedRemoteParticipant: Bool,
+        remoteParticipantCount: Int
+    ) -> Bool {
+        guard remoteParticipantCount == 0 else { return false }
+        return !isGroupCall || hasObservedRemoteParticipant
+    }
+}
+
 /// Stable server-side identity used to correlate duplicate invitations and
 /// lifecycle signals. `call_id` is preferred, with the LiveKit room name as a
 /// compatibility fallback for older server responses.

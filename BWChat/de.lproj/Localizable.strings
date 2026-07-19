@@ -423,6 +423,8 @@
 "call.groupCall" = "Gruppenanruf";
 "call.mute" = "Stumm";
 "call.unmute" = "Ton an";
+"call.muted" = "Stummgeschaltet";
+"call.video.swap" = "Hauptvideo wechseln";
 "call.cameraOff" = "Kamera aus";
 "call.cameraOn" = "Kamera an";
 "call.flip" = "Wechseln";

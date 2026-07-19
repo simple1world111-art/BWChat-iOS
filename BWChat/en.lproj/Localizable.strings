@@ -423,6 +423,8 @@
 "call.groupCall" = "Group Call";
 "call.mute" = "Mute";
 "call.unmute" = "Unmute";
+"call.muted" = "Muted";
+"call.video.swap" = "Swap main video";
 "call.cameraOff" = "Camera Off";
 "call.cameraOn" = "Camera On";
 "call.flip" = "Flip";

@@ -78,63 +78,27 @@ struct GroupCallView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)], spacing: 4) {
                 if let localParticipant = callManager.room?.localParticipant {
-                    videoCell(
+                    GroupVideoParticipantCell(
                         name: L10n.tr("common.me"),
                         videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack,
-                        isLocal: true,
-                        isSpeaking: callManager.isParticipantSpeaking(localParticipant)
+                        mirrorsVideo: callManager.isFrontCamera,
+                        isSpeaking: callManager.isParticipantSpeaking(localParticipant),
+                        isMuted: callManager.isMuted
                     )
                 }
 
-                ForEach(Array(callManager.remoteParticipants.enumerated()), id: \.element.sid) { _, participant in
-                    videoCell(
+                ForEach(callManager.remoteParticipants, id: \.sid) { participant in
+                    GroupVideoParticipantCell(
                         name: participant.name ?? participant.identity?.stringValue ?? "",
                         videoTrack: participant.videoTracks.first?.track as? VideoTrack,
-                        isLocal: false,
-                        isSpeaking: callManager.isParticipantSpeaking(participant)
+                        mirrorsVideo: false,
+                        isSpeaking: callManager.isParticipantSpeaking(participant),
+                        isMuted: callManager.isParticipantMuted(participant)
                     )
                 }
             }
             .padding(.horizontal, 4)
         }
-    }
-
-    private func videoCell(
-        name: String,
-        videoTrack: VideoTrack?,
-        isLocal: Bool = false,
-        isSpeaking: Bool
-    ) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            if let track = videoTrack {
-                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isLocal && callManager.isFrontCamera) ? .mirror : .off)
-                    .aspectRatio(3/4, contentMode: .fill)
-                    .clipped()
-                    .cornerRadius(8)
-            } else {
-                Color(hex: "2A2A3E")
-                    .aspectRatio(3/4, contentMode: .fill)
-                    .overlay(
-                        Text(String(name.prefix(1)))
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(.white.opacity(0.5))
-                    )
-                    .cornerRadius(8)
-            }
-
-            Text(name)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.white)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.black.opacity(0.5))
-                .cornerRadius(4)
-                .padding(4)
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)
-        )
     }
 
     // MARK: - Voice Grid
@@ -144,42 +108,22 @@ struct GroupCallView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 if let localParticipant = callManager.room?.localParticipant {
-                    voiceCell(
+                    GroupVoiceParticipantCell(
                         name: L10n.tr("common.me"),
-                        isSpeaking: callManager.isParticipantSpeaking(localParticipant)
+                        isSpeaking: callManager.isParticipantSpeaking(localParticipant),
+                        isMuted: callManager.isMuted
                     )
                 }
                 ForEach(callManager.remoteParticipants, id: \.sid) { participant in
-                    voiceCell(
+                    GroupVoiceParticipantCell(
                         name: participant.name ?? participant.identity?.stringValue ?? "",
-                        isSpeaking: callManager.isParticipantSpeaking(participant)
+                        isSpeaking: callManager.isParticipantSpeaking(participant),
+                        isMuted: callManager.isParticipantMuted(participant)
                     )
                 }
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
-        }
-    }
-
-    private func voiceCell(name: String, isSpeaking: Bool) -> some View {
-        VStack(spacing: 8) {
-            Circle()
-                .fill(Color(hex: "2A2A3E"))
-                .frame(width: 64, height: 64)
-                .overlay(
-                    Text(String(name.prefix(1)))
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white.opacity(0.7))
-                )
-                .overlay(
-                    Circle()
-                        .stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)
-                )
-
-            Text(name)
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.8))
-                .lineLimit(1)
         }
     }
 
@@ -246,5 +190,96 @@ struct GroupCallView: View {
     private func formatDuration(_ interval: TimeInterval) -> String {
         let s = Int(interval)
         return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+}
+
+private struct GroupVideoParticipantCell: View {
+    let name: String
+    let videoTrack: VideoTrack?
+    let mirrorsVideo: Bool
+    let isSpeaking: Bool
+    let isMuted: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let videoTrack {
+                SwiftUIVideoView(
+                    videoTrack,
+                    layoutMode: .fill,
+                    mirrorMode: mirrorsVideo ? .mirror : .off
+                )
+                .aspectRatio(3 / 4, contentMode: .fill)
+                .clipped()
+            } else {
+                Color(hex: "2A2A3E")
+                    .aspectRatio(3 / 4, contentMode: .fill)
+                    .overlay {
+                        Text(String(name.prefix(1)))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+            }
+
+            if isMuted {
+                CallMuteBadge(name: name)
+                    .padding(4)
+            } else {
+                Text(name)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.black.opacity(0.5), in: .rect(cornerRadius: 4))
+                    .padding(4)
+            }
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)
+        }
+        .compositingGroup()
+        .clipShape(.rect(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct GroupVoiceParticipantCell: View {
+    let name: String
+    let isSpeaking: Bool
+    let isMuted: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Circle()
+                .fill(Color(hex: "2A2A3E"))
+                .frame(width: 64, height: 64)
+                .overlay {
+                    Text(String(name.prefix(1)))
+                        .font(.title2.bold())
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .overlay {
+                    Circle()
+                        .stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if isMuted {
+                        Image(systemName: "mic.slash.fill")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.white)
+                            .padding(5)
+                            .background(.red, in: Circle())
+                            .accessibilityHidden(true)
+                    }
+                }
+
+            Text(name)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.8))
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isMuted ? "\(name), \(L10n.tr("call.muted"))" : name)
     }
 }

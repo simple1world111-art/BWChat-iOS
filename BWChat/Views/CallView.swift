@@ -158,24 +158,72 @@ struct CallView: View {
                 }
             }
 
+            if isPrimaryParticipantMuted {
+                CallMuteBadge(name: primaryParticipantName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 16)
+                    .padding(.bottom, 140)
+                    .allowsHitTesting(false)
+            }
+
             // Secondary (small corner) — tap to swap
             let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
             let isSecondaryLocal = callManager.isRemotePrimary
 
             if let track = secondaryTrack {
-                SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isSecondaryLocal && callManager.isFrontCamera) ? .mirror : .off)
-                    .frame(width: 110, height: 150)
-                    .cornerRadius(12)
-                    .shadow(color: .black.opacity(0.4), radius: 8)
-                    .padding(.top, 60)
-                    .padding(.trailing, 16)
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            callManager.isRemotePrimary.toggle()
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        callManager.isRemotePrimary.toggle()
+                    }
+                } label: {
+                    ZStack(alignment: .bottomLeading) {
+                        SwiftUIVideoView(
+                            track,
+                            layoutMode: .fill,
+                            mirrorMode: (isSecondaryLocal && callManager.isFrontCamera) ? .mirror : .off
+                        )
+
+                        if isSecondaryParticipantMuted {
+                            CallMuteBadge()
+                                .padding(5)
                         }
                     }
+                    .frame(width: 110, height: 150)
+                    .compositingGroup()
+                    .clipShape(.rect(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .shadow(color: .black.opacity(0.4), radius: 8)
+                .padding(.top, 60)
+                .padding(.trailing, 16)
+                .accessibilityLabel(L10n.tr("call.video.swap"))
             }
         }
+    }
+
+    private var remoteParticipant: RemoteParticipant? {
+        callManager.remoteParticipants.first
+    }
+
+    private var primaryParticipantName: String? {
+        if callManager.isRemotePrimary {
+            return callManager.currentCall?.remoteNickname
+        }
+        return L10n.tr("common.me")
+    }
+
+    private var isPrimaryParticipantMuted: Bool {
+        if callManager.isRemotePrimary {
+            return remoteParticipant.map(callManager.isParticipantMuted) ?? false
+        }
+        return callManager.isMuted
+    }
+
+    private var isSecondaryParticipantMuted: Bool {
+        if callManager.isRemotePrimary {
+            return callManager.isMuted
+        }
+        return remoteParticipant.map(callManager.isParticipantMuted) ?? false
     }
 
     @ViewBuilder
@@ -310,6 +358,35 @@ struct CallView: View {
     private func formatDuration(_ interval: TimeInterval) -> String {
         let s = Int(interval)
         return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+}
+
+struct CallMuteBadge: View {
+    let name: String?
+
+    init(name: String? = nil) {
+        self.name = name
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "mic.slash.fill")
+                .accessibilityHidden(true)
+            Text(statusText)
+                .lineLimit(1)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(.red.opacity(0.88), in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(statusText)
+    }
+
+    private var statusText: String {
+        guard let name, !name.isEmpty else { return L10n.tr("call.muted") }
+        return "\(name) · \(L10n.tr("call.muted"))"
     }
 }
 

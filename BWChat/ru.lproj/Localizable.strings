@@ -423,6 +423,8 @@
 "call.groupCall" = "Групповой вызов";
 "call.mute" = "Без звука";
 "call.unmute" = "Включить звук";
+"call.muted" = "Микрофон выключен";
+"call.video.swap" = "Сменить основное видео";
 "call.cameraOff" = "Камера выкл.";
 "call.cameraOn" = "Камера вкл.";
 "call.flip" = "Перевернуть";

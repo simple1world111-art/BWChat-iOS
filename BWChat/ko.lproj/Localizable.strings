@@ -423,6 +423,8 @@
 "call.groupCall" = "그룹 통화";
 "call.mute" = "음소거";
 "call.unmute" = "음소거 해제";
+"call.muted" = "음소거됨";
+"call.video.swap" = "기본 영상 전환";
 "call.cameraOff" = "카메라 끄기";
 "call.cameraOn" = "카메라 켜기";
 "call.flip" = "전환";

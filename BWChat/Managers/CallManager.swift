@@ -10,9 +10,15 @@ import LiveKit
 
 private enum CallManagerError: LocalizedError {
     case invalidLiveKitURL
+    case cameraTrackUnavailable
 
     var errorDescription: String? {
-        L10n.tr("call.error.invalidServer")
+        switch self {
+        case .invalidLiveKitURL:
+            L10n.tr("call.error.invalidServer")
+        case .cameraTrackUnavailable:
+            L10n.tr("call.error.cameraUnavailable")
+        }
     }
 }
 
@@ -114,8 +120,11 @@ class CallManager: ObservableObject {
     private var connectionTimeoutTask: Task<Void, Never>?
     private var ringTimeoutTask: Task<Void, Never>?
     /// A full LiveKit reconnect briefly replaces a remote participant with the
-    /// same identity. Keep the direct call alive while that replacement joins.
+    /// same identity. Keep the call alive while that replacement joins.
     private var remoteDepartureGraceTask: Task<Void, Never>?
+    /// Group rooms may start with only the caller. Auto-exit is enabled only
+    /// after at least one remote participant has actually joined this session.
+    private var hasObservedRemoteParticipant = false
     private var mediaRecoveryTask: Task<Void, Never>?
     private var needsMediaRecoveryAfterReconnect = false
     #if DEBUG && targetEnvironment(simulator)
@@ -132,7 +141,8 @@ class CallManager: ObservableObject {
 
     private let connectionTimeout: UInt64 = 20_000_000_000
     private let outgoingRingTimeout: UInt64 = 45_000_000_000
-    private let remoteDepartureGrace: UInt64 = 20_000_000_000
+    private let directRemoteDepartureGrace: UInt64 = 20_000_000_000
+    private let groupRemoteDepartureGrace: UInt64 = 3_000_000_000
 
     private init() {
         // Keep mute/unmute and reconnect paths from restarting AVAudioEngine.
@@ -461,32 +471,14 @@ class CallManager: ObservableObject {
                 errorMessage = L10n.tr("call.error.microphoneUnavailable")
             }
 
-            // Publish local video with higher quality, explicitly using front camera
+            // Publish local video with higher quality, explicitly using front camera.
+            // A single-layer VP8 retry keeps video available on older/self-hosted
+            // LiveKit deployments that reject the preferred simulcast profile.
             if isVideo {
                 isFrontCamera = true
                 do {
-                    #if DEBUG && targetEnvironment(simulator)
-                    if ProcessInfo.processInfo.arguments.contains("--call-test-synthetic-camera") {
-                        localVideoTrack = try await publishSyntheticVideo(in: newRoom)
-                    } else {
-                        let publication = try await newRoom.localParticipant.setCamera(
-                            enabled: true,
-                            captureOptions: CallMediaConfiguration.cameraCaptureOptions,
-                            publishOptions: CallMediaConfiguration.videoPublishOptions
-                        )
-                        localVideoTrack = (publication?.track as? VideoTrack) ??
-                            (newRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack)
-                    }
-                    #else
-                    let publication = try await newRoom.localParticipant.setCamera(
-                        enabled: true,
-                        captureOptions: CallMediaConfiguration.cameraCaptureOptions,
-                        publishOptions: CallMediaConfiguration.videoPublishOptions
-                    )
-                    localVideoTrack = (publication?.track as? VideoTrack) ??
-                        (newRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack)
-                    #endif
-                    isLocalVideoEnabled = localVideoTrack != nil
+                    localVideoTrack = try await publishCamera(in: newRoom, position: .front)
+                    isLocalVideoEnabled = true
                 } catch {
                     // A missing/busy camera must not tear down an otherwise
                     // healthy call. Keep the room and any available audio alive
@@ -519,6 +511,75 @@ class CallManager: ObservableObject {
             print("[CallManager] Room connect failed: \(error)")
             guard room === newRoom else { return }
             failCall(L10n.tr("call.error.connection"))
+        }
+    }
+
+    private func publishCamera(
+        in targetRoom: Room,
+        position: AVCaptureDevice.Position
+    ) async throws -> VideoTrack {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--call-test-synthetic-camera") {
+            return try await publishSyntheticVideo(in: targetRoom)
+        }
+        #endif
+
+        let preferredCaptureOptions = CameraCaptureOptions(
+            position: position,
+            dimensions: .h720_169,
+            fps: 30
+        )
+
+        do {
+            return try await publishCamera(
+                in: targetRoom,
+                captureOptions: preferredCaptureOptions,
+                publishOptions: CallMediaConfiguration.videoPublishOptions
+            )
+        } catch {
+            print("[CallManager] Preferred camera profile failed; retrying compatibility profile: \(error)")
+            await removeLocalCameraPublications(from: targetRoom)
+
+            let compatibilityCaptureOptions = CameraCaptureOptions(
+                position: position,
+                dimensions: .h540_169,
+                fps: 24
+            )
+            let compatibilityPublishOptions = VideoPublishOptions(
+                encoding: VideoEncoding(maxBitrate: 900_000, maxFps: 24),
+                simulcast: false,
+                preferredCodec: .vp8,
+                preferredBackupCodec: .none,
+                degradationPreference: .balanced
+            )
+            return try await publishCamera(
+                in: targetRoom,
+                captureOptions: compatibilityCaptureOptions,
+                publishOptions: compatibilityPublishOptions
+            )
+        }
+    }
+
+    private func publishCamera(
+        in targetRoom: Room,
+        captureOptions: CameraCaptureOptions,
+        publishOptions: VideoPublishOptions
+    ) async throws -> VideoTrack {
+        let publication = try await targetRoom.localParticipant.setCamera(
+            enabled: true,
+            captureOptions: captureOptions,
+            publishOptions: publishOptions
+        )
+        guard let track = (publication?.track as? VideoTrack) ??
+            (targetRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack) else {
+            throw CallManagerError.cameraTrackUnavailable
+        }
+        return track
+    }
+
+    private func removeLocalCameraPublications(from targetRoom: Room) async {
+        for publication in targetRoom.localParticipant.localVideoTracks {
+            try? await targetRoom.localParticipant.unpublish(publication: publication)
         }
     }
 
@@ -713,21 +774,12 @@ class CallManager: ObservableObject {
             do {
                 if targetEnabled {
                     let position: AVCaptureDevice.Position = isFrontCamera ? .front : .back
-                    let captureOptions = CameraCaptureOptions(
-                        position: position,
-                        dimensions: .h720_169,
-                        fps: 30
-                    )
-                    let publication = try await targetRoom.localParticipant.setCamera(
-                        enabled: true,
-                        captureOptions: captureOptions,
-                        publishOptions: CallMediaConfiguration.videoPublishOptions
-                    )
+                    let track = try await publishCamera(in: targetRoom, position: position)
                     guard room === targetRoom,
                           currentCall != nil,
                           videoControlGeneration == generation else { return }
-                    localVideoTrack = (publication?.track as? VideoTrack) ??
-                        (targetRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack)
+                    localVideoTrack = track
+                    errorMessage = nil
                 } else {
                     _ = try await targetRoom.localParticipant.setCamera(enabled: false)
                     guard room === targetRoom,
@@ -798,6 +850,14 @@ class CallManager: ObservableObject {
         return identity.map(activeSpeakerIDs.contains) ?? false
     }
 
+    func isParticipantMuted(_ participant: Participant) -> Bool {
+        if participant.sid == room?.localParticipant.sid {
+            return isMuted
+        }
+        let audioTracks = participant.audioTracks
+        return audioTracks.isEmpty || audioTracks.allSatisfy(\.isMuted)
+    }
+
     // MARK: - Internal: Participant Updates
 
     func updateRemoteParticipants() {
@@ -806,6 +866,9 @@ class CallManager: ObservableObject {
             let lhs = $0.identity?.stringValue ?? String(describing: $0.sid)
             let rhs = $1.identity?.stringValue ?? String(describing: $1.sid)
             return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+        if !remoteParticipants.isEmpty {
+            hasObservedRemoteParticipant = true
         }
 
         // Find the first available remote video track
@@ -930,27 +993,10 @@ class CallManager: ObservableObject {
                targetRoom.localParticipant.localVideoTracks.isEmpty {
                 do {
                     let track: VideoTrack?
-                    #if DEBUG && targetEnvironment(simulator)
-                    if ProcessInfo.processInfo.arguments.contains("--call-test-synthetic-camera") {
-                        track = try await self.publishSyntheticVideo(in: targetRoom)
-                    } else {
-                        let publication = try await targetRoom.localParticipant.setCamera(
-                            enabled: true,
-                            captureOptions: CallMediaConfiguration.cameraCaptureOptions,
-                            publishOptions: CallMediaConfiguration.videoPublishOptions
-                        )
-                        track = (publication?.track as? VideoTrack) ??
-                            (targetRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack)
-                    }
-                    #else
-                    let publication = try await targetRoom.localParticipant.setCamera(
-                        enabled: true,
-                        captureOptions: CallMediaConfiguration.cameraCaptureOptions,
-                        publishOptions: CallMediaConfiguration.videoPublishOptions
+                    track = try await self.publishCamera(
+                        in: targetRoom,
+                        position: self.isFrontCamera ? .front : .back
                     )
-                    track = (publication?.track as? VideoTrack) ??
-                        (targetRoom.localParticipant.localVideoTracks.first?.track as? VideoTrack)
-                    #endif
                     guard self.room === targetRoom,
                           self.currentCall?.serverCallID == callID,
                           self.videoControlGeneration == videoGeneration else { return }
@@ -990,6 +1036,7 @@ class CallManager: ObservableObject {
 
     func handleRemoteParticipantConnect(in connectedRoom: Room) {
         guard room === connectedRoom else { return }
+        hasObservedRemoteParticipant = true
         remoteDepartureGraceTask?.cancel()
         remoteDepartureGraceTask = nil
         mediaRecoveryTask?.cancel()
@@ -1002,22 +1049,43 @@ class CallManager: ObservableObject {
         guard room === disconnectedRoom else { return }
         updateRemoteParticipants()
         guard let call = currentCall,
-              call.groupID == nil,
-              disconnectedRoom.remoteParticipants.isEmpty else { return }
+              CallParticipantDeparturePolicy.shouldScheduleAutoExit(
+                isGroupCall: call.groupID != nil,
+                hasObservedRemoteParticipant: hasObservedRemoteParticipant,
+                remoteParticipantCount: disconnectedRoom.remoteParticipants.count
+              ) else { return }
 
         remoteDepartureGraceTask?.cancel()
-        let callID = call.serverCallID
+        let sessionID = call.id
+        let grace = call.groupID == nil
+            ? directRemoteDepartureGrace
+            : groupRemoteDepartureGrace
         remoteDepartureGraceTask = Task { [weak self, weak disconnectedRoom] in
-            try? await Task.sleep(nanoseconds: self?.remoteDepartureGrace ?? 0)
+            try? await Task.sleep(nanoseconds: grace)
             guard !Task.isCancelled,
                   let self,
                   let disconnectedRoom,
                   self.room === disconnectedRoom,
-                  self.currentCall?.serverCallID == callID,
+                  self.currentCall?.id == sessionID,
                   disconnectedRoom.remoteParticipants.isEmpty else { return }
-            print("[CallManager] Remote participant reconnect grace expired call_id=\(callID ?? "-")")
+            print("[CallManager] Last remote participant left; ending local session call_id=\(call.serverCallID ?? "-")")
             self.endCall()
         }
+    }
+
+    func handleParticipantMuteUpdate(
+        in updatedRoom: Room,
+        participant: Participant,
+        publication: TrackPublication,
+        isMuted: Bool
+    ) {
+        guard room === updatedRoom, publication.kind == .audio else { return }
+        if participant.sid == updatedRoom.localParticipant.sid {
+            self.isMuted = isMuted
+        }
+        // Reassigning the roster publishes a SwiftUI update for remote
+        // TrackPublication mute changes, whose participant object is stable.
+        updateRemoteParticipants()
     }
 
     func handleRoomDisconnect(_ disconnectedRoom: Room, error: LiveKitError?) {
@@ -1090,6 +1158,7 @@ class CallManager: ObservableObject {
         ringTimeoutTask = nil
         remoteDepartureGraceTask?.cancel()
         remoteDepartureGraceTask = nil
+        hasObservedRemoteParticipant = false
         #if DEBUG && targetEnvironment(simulator)
         syntheticVideoTask?.cancel()
         syntheticVideoTask = nil
@@ -1459,6 +1528,22 @@ final class RoomDelegateHandler: RoomDelegate, @unchecked Sendable {
     nonisolated func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
         Task { @MainActor in
             manager?.updateActiveSpeakers(in: room, participants: participants)
+        }
+    }
+
+    nonisolated func room(
+        _ room: Room,
+        participant: Participant,
+        trackPublication: TrackPublication,
+        didUpdateIsMuted isMuted: Bool
+    ) {
+        Task { @MainActor in
+            manager?.handleParticipantMuteUpdate(
+                in: room,
+                participant: participant,
+                publication: trackPublication,
+                isMuted: isMuted
+            )
         }
     }
 

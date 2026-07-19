@@ -575,6 +575,48 @@ final class APIResponseContractTests: XCTestCase {
     }
 }
 
+final class CallParticipantDeparturePolicyTests: XCTestCase {
+    func testGroupCallWaitsForFirstRemoteParticipant() {
+        XCTAssertFalse(
+            CallParticipantDeparturePolicy.shouldScheduleAutoExit(
+                isGroupCall: true,
+                hasObservedRemoteParticipant: false,
+                remoteParticipantCount: 0
+            )
+        )
+    }
+
+    func testGroupCallAutoExitsAfterLastRemoteParticipantLeaves() {
+        XCTAssertTrue(
+            CallParticipantDeparturePolicy.shouldScheduleAutoExit(
+                isGroupCall: true,
+                hasObservedRemoteParticipant: true,
+                remoteParticipantCount: 0
+            )
+        )
+    }
+
+    func testCallStaysOpenWhileAnyRemoteParticipantRemains() {
+        XCTAssertFalse(
+            CallParticipantDeparturePolicy.shouldScheduleAutoExit(
+                isGroupCall: true,
+                hasObservedRemoteParticipant: true,
+                remoteParticipantCount: 1
+            )
+        )
+    }
+
+    func testDirectCallStillAutoExitsWithoutGroupJoinHistory() {
+        XCTAssertTrue(
+            CallParticipantDeparturePolicy.shouldScheduleAutoExit(
+                isGroupCall: false,
+                hasObservedRemoteParticipant: false,
+                remoteParticipantCount: 0
+            )
+        )
+    }
+}
+
 extension APIResponseContractTests {
     func testRedPacketMessageNeverSerializesAmount() throws {
         let payload = ChatMoneyPayload(
