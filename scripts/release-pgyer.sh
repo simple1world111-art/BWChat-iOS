@@ -8,6 +8,7 @@ readonly KEYCHAIN_ACCOUNT="BWChat"
 readonly PROJECT="BWChat.xcodeproj"
 readonly SCHEME="BWChat"
 readonly EXPORT_OPTIONS="config/pgyer/ExportOptions.plist"
+readonly PGYER_API_BASE_URL="${PGYER_API_BASE_URL:-https://api.pgyer.com/apiv2}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -209,17 +210,17 @@ fi
 
 echo "Requesting secure Pgyer upload slot..."
 token_args=(
-    --data-urlencode "_api_key=$api_key"
-    --data "buildType=ios"
-    --data "buildInstallType=$install_type"
-    --data-urlencode "buildUpdateDescription=$notes"
+    --form-string "_api_key=$api_key"
+    --form-string "buildType=ipa"
+    --form-string "buildInstallType=$install_type"
+    --form-string "buildUpdateDescription=$notes"
 )
 if [ "$install_type" = "2" ]; then
-    token_args+=(--data-urlencode "buildPassword=$install_password")
+    token_args+=(--form-string "buildPassword=$install_password")
 fi
 
 token_response="$(curl --fail-with-body -sS -X POST \
-    "https://www.pgyer.com/apiv2/app/getCOSToken" \
+    "$PGYER_API_BASE_URL/app/getCOSToken" \
     "${token_args[@]}")"
 token_code="$(jq -r '.code // -1' <<< "$token_response")"
 if [ "$token_code" != "0" ]; then
@@ -244,24 +245,32 @@ if [ -z "$build_key" ] || [ -z "$upload_key" ] || [ -z "$signature" ] || [ -z "$
 fi
 
 echo "Uploading IPA..."
-upload_status="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$endpoint" \
-    -F "key=$upload_key" \
-    -F "signature=$signature" \
-    -F "x-cos-security-token=$security_token" \
-    -F "x-cos-meta-file-name=$(basename "$ipa_path")" \
+upload_result="$(curl -sS -w $'\n%{http_code}' -X POST "$endpoint" \
+    --form-string "key=$upload_key" \
+    --form-string "signature=$signature" \
+    --form-string "x-cos-security-token=$security_token" \
+    --form-string "x-cos-meta-file-name=$(basename "$ipa_path")" \
     -F "file=@$ipa_path")"
+upload_status="${upload_result##*$'\n'}"
 if [ "$upload_status" != "204" ]; then
-    echo "Pgyer file upload failed with HTTP $upload_status." >&2
+    upload_body="${upload_result%$'\n'*}"
+    cos_code="$(sed -n 's:.*<Code>\([^<]*\)</Code>.*:\1:p' <<< "$upload_body" | head -n 1)"
+    cos_message="$(sed -n 's:.*<Message>\([^<]*\)</Message>.*:\1:p' <<< "$upload_body" | head -n 1)"
+    if [ -n "$cos_code" ] || [ -n "$cos_message" ]; then
+        echo "Pgyer file upload failed with HTTP $upload_status (${cos_code:-unknown}: ${cos_message:-no message})." >&2
+    else
+        echo "Pgyer file upload failed with HTTP $upload_status." >&2
+    fi
     exit 1
 fi
 
-unset token_response signature security_token endpoint
+unset token_response signature security_token endpoint upload_result upload_body
 
 echo "Waiting for Pgyer to publish the build..."
 deadline=$((SECONDS + 300))
 while [ "$SECONDS" -lt "$deadline" ]; do
     info_response="$(curl --fail-with-body -sS -G \
-        "https://www.pgyer.com/apiv2/app/buildInfo" \
+        "$PGYER_API_BASE_URL/app/buildInfo" \
         --data-urlencode "_api_key=$api_key" \
         --data-urlencode "buildKey=$build_key")"
     info_code="$(jq -r '.code // -1' <<< "$info_response")"
