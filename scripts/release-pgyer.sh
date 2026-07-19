@@ -14,6 +14,7 @@ cd "$repo_root"
 
 install_mode=""
 notes=""
+prebuilt_ipa=""
 bump_build=1
 allow_dirty=0
 assume_yes=0
@@ -27,6 +28,7 @@ Options:
   --private          Password-protected install. Prompts without echo.
   --public           Public install. Must be selected explicitly.
   --notes TEXT       Release notes. Defaults to the latest Git subject.
+  --ipa PATH         Upload an existing signed IPA and skip archive/export.
   --no-bump          Keep the current Xcode build number.
   --allow-dirty      Allow tracked uncommitted changes in the package.
   --yes              Skip the final interactive upload confirmation.
@@ -51,6 +53,11 @@ while [ "$#" -gt 0 ]; do
             shift
             [ "$#" -gt 0 ] || { echo "Missing value for --notes" >&2; exit 2; }
             notes="$1"
+            ;;
+        --ipa)
+            shift
+            [ "$#" -gt 0 ] || { echo "Missing value for --ipa" >&2; exit 2; }
+            prebuilt_ipa="$1"
             ;;
         --no-bump)
             bump_build=0
@@ -87,6 +94,15 @@ for command_name in asc curl jq plutil security; do
 done
 
 plutil -lint "$EXPORT_OPTIONS" >/dev/null
+
+if [ -n "$prebuilt_ipa" ]; then
+    [ -f "$prebuilt_ipa" ] || { echo "IPA not found: $prebuilt_ipa" >&2; exit 1; }
+    case "$prebuilt_ipa" in
+        *.ipa) ;;
+        *) echo "Prebuilt artifact must be an .ipa file." >&2; exit 1 ;;
+    esac
+    bump_build=0
+fi
 
 if [ "$allow_dirty" -ne 1 ]; then
     if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -152,30 +168,35 @@ build_number="$(jq -r '.buildNumber' <<< "$version_json")"
 
 artifact_dir=".asc/artifacts"
 archive_path="$artifact_dir/BWChat-${version}-${build_number}.xcarchive"
-ipa_path="$artifact_dir/BWChat-${version}-${build_number}.ipa"
-mkdir -p "$artifact_dir"
+if [ -n "$prebuilt_ipa" ]; then
+    ipa_path="$prebuilt_ipa"
+    echo "Reusing signed IPA: $ipa_path"
+else
+    ipa_path="$artifact_dir/BWChat-${version}-${build_number}.ipa"
+    mkdir -p "$artifact_dir"
 
-echo "Archiving BWChat ${version} (${build_number})..."
-asc xcode archive \
-    --project "$PROJECT" \
-    --scheme "$SCHEME" \
-    --configuration Release \
-    --clean \
-    --archive-path "$archive_path" \
-    --overwrite \
-    --xcodebuild-flag=-destination \
-    --xcodebuild-flag=generic/platform=iOS \
-    --xcodebuild-flag=-allowProvisioningUpdates \
-    --output json >/dev/null
+    echo "Archiving BWChat ${version} (${build_number})..."
+    asc xcode archive \
+        --project "$PROJECT" \
+        --scheme "$SCHEME" \
+        --configuration Release \
+        --clean \
+        --archive-path "$archive_path" \
+        --overwrite \
+        --xcodebuild-flag=-destination \
+        --xcodebuild-flag=generic/platform=iOS \
+        --xcodebuild-flag=-allowProvisioningUpdates \
+        --output json >/dev/null
 
-echo "Exporting signed IPA..."
-asc xcode export \
-    --archive-path "$archive_path" \
-    --export-options "$EXPORT_OPTIONS" \
-    --ipa-path "$ipa_path" \
-    --overwrite \
-    --xcodebuild-flag=-allowProvisioningUpdates \
-    --output json >/dev/null
+    echo "Exporting signed IPA..."
+    asc xcode export \
+        --archive-path "$archive_path" \
+        --export-options "$EXPORT_OPTIONS" \
+        --ipa-path "$ipa_path" \
+        --overwrite \
+        --xcodebuild-flag=-allowProvisioningUpdates \
+        --output json >/dev/null
+fi
 
 if [ "$assume_yes" -ne 1 ]; then
     printf "Upload BWChat %s (%s) to Pgyer now? [y/N] " "$version" "$build_number"
@@ -208,7 +229,8 @@ if [ "$token_code" != "0" ]; then
 fi
 
 endpoint="$(jq -r '.data.endpoint // empty' <<< "$token_response")"
-upload_key="$(jq -r '.data.key // empty' <<< "$token_response")"
+build_key="$(jq -r '.data.key // empty' <<< "$token_response")"
+upload_key="$(jq -r '.data.params.key // empty' <<< "$token_response")"
 signature="$(jq -r '.data.params.signature // empty' <<< "$token_response")"
 security_token="$(jq -r '.data.params["x-cos-security-token"] // empty' <<< "$token_response")"
 
@@ -216,7 +238,7 @@ case "$endpoint" in
     https://*) ;;
     *) echo "Pgyer returned an invalid upload endpoint." >&2; exit 1 ;;
 esac
-if [ -z "$upload_key" ] || [ -z "$signature" ] || [ -z "$security_token" ]; then
+if [ -z "$build_key" ] || [ -z "$upload_key" ] || [ -z "$signature" ] || [ -z "$security_token" ]; then
     echo "Pgyer upload credentials are incomplete." >&2
     exit 1
 fi
@@ -241,7 +263,7 @@ while [ "$SECONDS" -lt "$deadline" ]; do
     info_response="$(curl --fail-with-body -sS -G \
         "https://www.pgyer.com/apiv2/app/buildInfo" \
         --data-urlencode "_api_key=$api_key" \
-        --data-urlencode "buildKey=$upload_key")"
+        --data-urlencode "buildKey=$build_key")"
     info_code="$(jq -r '.code // -1' <<< "$info_response")"
 
     if [ "$info_code" = "0" ]; then
