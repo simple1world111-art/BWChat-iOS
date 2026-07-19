@@ -234,6 +234,8 @@
 "call.participants.count" = "%d人が通話中";
 "call.calling" = "発信中...";
 "call.connecting" = "接続中...";
+"call.reconnecting" = "再接続中...";
+"call.networkPoor" = "ネットワークが不安定です";
 "call.waitingVideo" = "ビデオ接続を待機中...";
 "call.decline" = "拒否";
 "call.answer" = "応答";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "通話サーバーのアドレスが無効です。管理者にお問い合わせください。";
 "call.error.permission.microphone" = "通話する前に、設定で BBchat のマイク使用を許可してください。";
 "call.error.permission.camera" = "ビデオ通話する前に、設定で BBchat のカメラ使用を許可してください。";
+"call.error.cameraUnavailable" = "カメラを使用できません。音声通話として続行します。";
+"call.error.microphoneUnavailable" = "マイクを使用できません。通話を聞きながらミュート解除を再試行できます。";
 "call.error.connection" = "通話サーバーに接続できません。しばらくしてからもう一度お試しください。";
 "call.error.start" = "通話を開始できませんでした：%@";
 "call.error.join" = "通話に応答できませんでした：%@";

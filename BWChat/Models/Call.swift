@@ -17,6 +17,44 @@ enum CallState: Equatable {
     case ended
 }
 
+/// Stable server-side identity used to correlate duplicate invitations and
+/// lifecycle signals. `call_id` is preferred, with the LiveKit room name as a
+/// compatibility fallback for older server responses.
+struct CallSignalIdentity: Equatable {
+    let callID: String?
+    let roomName: String?
+
+    init(callID: String?, roomName: String?) {
+        self.callID = Self.normalized(callID)
+        self.roomName = Self.normalized(roomName)
+    }
+
+    var isEmpty: Bool {
+        callID == nil && roomName == nil
+    }
+
+    func hasComparableKey(with other: CallSignalIdentity) -> Bool {
+        (callID != nil && other.callID != nil) ||
+        (roomName != nil && other.roomName != nil)
+    }
+
+    func matches(_ other: CallSignalIdentity) -> Bool {
+        if let callID, let otherCallID = other.callID {
+            return callID == otherCallID
+        }
+        if let roomName, let otherRoomName = other.roomName {
+            return roomName == otherRoomName
+        }
+        return false
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct CallSession: Identifiable {
     let id = UUID()
     let remoteUserID: String
@@ -28,6 +66,7 @@ struct CallSession: Identifiable {
     let startedAt: Date
 
     // LiveKit room info
+    var serverCallID: String? = nil
     var roomName: String = ""
     var livekitToken: String = ""
     var livekitURL: String = ""
@@ -35,6 +74,10 @@ struct CallSession: Identifiable {
     // Group call: nil for 1v1
     var groupID: Int?
     var groupName: String?
+
+    var signalIdentity: CallSignalIdentity {
+        CallSignalIdentity(callID: serverCallID, roomName: roomName)
+    }
 
     var durationText: String {
         let elapsed = Int(Date().timeIntervalSince(startedAt))
@@ -45,6 +88,7 @@ struct CallSession: Identifiable {
 }
 
 struct CallStartResponse: Decodable {
+    let callID: String?
     let roomName: String
     let token: String
     let livekitUrl: String
@@ -52,6 +96,7 @@ struct CallStartResponse: Decodable {
     let participantCount: Int?
 
     enum CodingKeys: String, CodingKey {
+        case callID = "call_id"
         case roomName = "room_name"
         case token
         case livekitUrl = "livekit_url"
@@ -62,6 +107,7 @@ struct CallStartResponse: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        callID = try container.decodeIfPresent(String.self, forKey: .callID)
         roomName = try container.decode(String.self, forKey: .roomName)
         token = try container.decode(String.self, forKey: .token)
         if let value = try container.decodeIfPresent(String.self, forKey: .livekitUrl),
@@ -79,11 +125,13 @@ struct CallStartResponse: Decodable {
 }
 
 struct CallJoinResponse: Decodable {
+    let callID: String?
     let roomName: String
     let token: String
     let livekitUrl: String
 
     enum CodingKeys: String, CodingKey {
+        case callID = "call_id"
         case roomName = "room_name"
         case token
         case livekitUrl = "livekit_url"
@@ -92,6 +140,7 @@ struct CallJoinResponse: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        callID = try container.decodeIfPresent(String.self, forKey: .callID)
         roomName = try container.decode(String.self, forKey: .roomName)
         token = try container.decode(String.self, forKey: .token)
         if let value = try container.decodeIfPresent(String.self, forKey: .livekitUrl),
@@ -108,12 +157,14 @@ struct CallJoinResponse: Decodable {
 
 struct GroupCallStatusResponse: Decodable {
     let active: Bool
+    let callID: String?
     let roomName: String?
     let callType: String?
     let participantCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case active
+        case callID = "call_id"
         case roomName = "room_name"
         case callType = "call_type"
         case participantCount = "participant_count"

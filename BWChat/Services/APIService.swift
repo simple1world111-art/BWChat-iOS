@@ -1531,6 +1531,30 @@ class APIService {
         return data
     }
 
+    /// Idempotent authenticated fallback for lifecycle events that are also
+    /// sent over WebSocket. This keeps hang-up/reject/busy reliable while the
+    /// signaling socket is reconnecting or refreshing its access token.
+    func endCall(callID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/call/\(callID)/end",
+            body: [:]
+        )
+    }
+
+    func rejectCall(callID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/call/\(callID)/reject",
+            body: [:]
+        )
+    }
+
+    func markCallBusy(callID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/call/\(callID)/busy",
+            body: [:]
+        )
+    }
+
     func startGroupCall(groupID: Int, callType: String) async throws -> CallStartResponse {
         let body: [String: Any] = ["call_type": callType]
         let response: APIResponseWrapper<CallStartResponse> = try await postJSON(path: "/call/group/\(groupID)/start", body: body)
@@ -1540,8 +1564,11 @@ class APIService {
         return data
     }
 
-    func leaveGroupCall(groupID: Int) async throws {
-        let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/call/group/\(groupID)/leave", body: [:])
+    func leaveGroupCall(groupID: Int, callID: String? = nil, roomName: String? = nil) async throws {
+        var body: [String: Any] = [:]
+        if let callID, !callID.isEmpty { body["call_id"] = callID }
+        if let roomName, !roomName.isEmpty { body["room_name"] = roomName }
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(path: "/call/group/\(groupID)/leave", body: body)
     }
 
     func getGroupCallStatus(groupID: Int) async throws -> GroupCallStatusResponse {

@@ -234,6 +234,8 @@
 "call.participants.count" = "%d 人通话中";
 "call.calling" = "正在呼叫...";
 "call.connecting" = "连接中...";
+"call.reconnecting" = "正在重新连接...";
+"call.networkPoor" = "网络质量较差";
 "call.waitingVideo" = "等待视频连接...";
 "call.decline" = "拒绝";
 "call.answer" = "接听";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "通话服务器地址无效，请联系管理员";
 "call.error.permission.microphone" = "请在系统设置中允许 BBchat 使用麦克风后再发起通话";
 "call.error.permission.camera" = "请在系统设置中允许 BBchat 使用摄像头后再发起视频通话";
+"call.error.cameraUnavailable" = "摄像头不可用，通话将继续使用语音";
+"call.error.microphoneUnavailable" = "麦克风不可用，你仍可听到通话并重试取消静音";
 "call.error.connection" = "无法连接通话服务器，请稍后重试";
 "call.error.start" = "无法发起通话：%@";
 "call.error.join" = "无法接听通话：%@";

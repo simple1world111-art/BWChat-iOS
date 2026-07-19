@@ -312,6 +312,8 @@ struct ContactListView: View {
                         openID: $openSwipeActionID,
                         isPinned: viewModel.isPinned(conv),
                         pinTitle: viewModel.isPinned(conv) ? L10n.tr("messages.unpin") : L10n.tr("messages.pin"),
+                        accessibilityLabel: conv.name,
+                        accessibilityIdentifier: "conversation.\(conv.listIdentity)",
                         onRequestClose: closeOpenSwipeAction,
                         onTap: {
                             guard !consumeSearchDismissTapIfNeeded() else { return }
@@ -579,6 +581,8 @@ private extension View {
         openID: Binding<ConversationSwipeActionID?>,
         isPinned: Bool,
         pinTitle: String,
+        accessibilityLabel: String,
+        accessibilityIdentifier: String,
         onRequestClose: @escaping () -> Void,
         onTap: @escaping () -> Void,
         onPin: @escaping () -> Void,
@@ -589,6 +593,8 @@ private extension View {
             openID: openID,
             isPinned: isPinned,
             pinTitle: pinTitle,
+            accessibilityLabel: accessibilityLabel,
+            accessibilityIdentifier: accessibilityIdentifier,
             onRequestClose: onRequestClose,
             onTap: onTap,
             onPin: onPin,
@@ -604,6 +610,8 @@ private struct SwipeableConversationCell<Content: View>: View {
     @Binding var openID: ConversationSwipeActionID?
     let isPinned: Bool
     let pinTitle: String
+    let accessibilityLabel: String
+    let accessibilityIdentifier: String
     let onRequestClose: () -> Void
     let onTap: () -> Void
     let onPin: () -> Void
@@ -624,6 +632,8 @@ private struct SwipeableConversationCell<Content: View>: View {
         openID: Binding<ConversationSwipeActionID?>,
         isPinned: Bool,
         pinTitle: String,
+        accessibilityLabel: String,
+        accessibilityIdentifier: String,
         onRequestClose: @escaping () -> Void,
         onTap: @escaping () -> Void,
         onPin: @escaping () -> Void,
@@ -634,6 +644,8 @@ private struct SwipeableConversationCell<Content: View>: View {
         self._openID = openID
         self.isPinned = isPinned
         self.pinTitle = pinTitle
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityIdentifier = accessibilityIdentifier
         self.onRequestClose = onRequestClose
         self.onTap = onTap
         self.onPin = onPin
@@ -648,6 +660,8 @@ private struct SwipeableConversationCell<Content: View>: View {
                 .contentShape(Rectangle())
                 .overlay {
                     HorizontalSwipeGestureSurface(
+                        accessibilityLabel: accessibilityLabel,
+                        accessibilityIdentifier: accessibilityIdentifier,
                         onTap: handleContentTap,
                         onChanged: handleHorizontalPanChanged,
                         onEnded: handleHorizontalPanEnded,
@@ -814,6 +828,8 @@ private struct SwipeableConversationCell<Content: View>: View {
 /// vertical motion before recognition, so the ancestor ScrollView receives the
 /// same traditional bidirectional scroll behavior as a standard chat list.
 private struct HorizontalSwipeGestureSurface: UIViewRepresentable {
+    let accessibilityLabel: String
+    let accessibilityIdentifier: String
     let onTap: () -> Void
     let onChanged: (CGFloat) -> Void
     let onEnded: (_ translation: CGFloat, _ velocity: CGFloat) -> Void
@@ -830,6 +846,10 @@ private struct HorizontalSwipeGestureSurface: UIViewRepresentable {
     }
 
     private func update(_ view: GestureView) {
+        view.isAccessibilityElement = true
+        view.accessibilityTraits = .button
+        view.accessibilityLabel = accessibilityLabel
+        view.accessibilityIdentifier = accessibilityIdentifier
         view.onTap = onTap
         view.onChanged = onChanged
         view.onEnded = onEnded
@@ -860,7 +880,6 @@ private struct HorizontalSwipeGestureSurface: UIViewRepresentable {
         override init(frame: CGRect) {
             super.init(frame: frame)
             backgroundColor = .clear
-            isAccessibilityElement = false
             addGestureRecognizer(panRecognizer)
             tapRecognizer.require(toFail: panRecognizer)
             addGestureRecognizer(tapRecognizer)

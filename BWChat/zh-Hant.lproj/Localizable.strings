@@ -234,6 +234,8 @@
 "call.participants.count" = "%d 人通話中";
 "call.calling" = "正在呼叫...";
 "call.connecting" = "連線中...";
+"call.reconnecting" = "正在重新連線...";
+"call.networkPoor" = "網路品質較差";
 "call.waitingVideo" = "等待視訊連線...";
 "call.decline" = "拒絕";
 "call.answer" = "接聽";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "通話伺服器位址無效，請聯絡管理員";
 "call.error.permission.microphone" = "請在系統設定中允許 BBchat 使用麥克風後再撥打通話";
 "call.error.permission.camera" = "請在系統設定中允許 BBchat 使用相機後再撥打視訊通話";
+"call.error.cameraUnavailable" = "相機無法使用，通話將繼續使用語音";
+"call.error.microphoneUnavailable" = "麥克風無法使用，你仍可聽到通話並重試取消靜音";
 "call.error.connection" = "無法連線至通話伺服器，請稍後再試";
 "call.error.start" = "無法撥打通話：%@";
 "call.error.join" = "無法接聽通話：%@";

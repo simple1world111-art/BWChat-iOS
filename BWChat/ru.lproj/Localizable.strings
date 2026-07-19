@@ -234,6 +234,8 @@
 "call.participants.count" = "%d человек в звонке";
 "call.calling" = "Вызов...";
 "call.connecting" = "Подключение...";
+"call.reconnecting" = "Переподключение...";
+"call.networkPoor" = "Нестабильная сеть";
 "call.waitingVideo" = "Ожидание видео...";
 "call.decline" = "Отклонить";
 "call.answer" = "Ответить";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "Адрес сервера звонков недействителен. Обратитесь в поддержку.";
 "call.error.permission.microphone" = "Разрешите BBchat доступ к микрофону в Настройках перед звонком.";
 "call.error.permission.camera" = "Разрешите BBchat доступ к камере в Настройках перед видеозвонком.";
+"call.error.cameraUnavailable" = "Камера недоступна. Звонок продолжится только со звуком.";
+"call.error.microphoneUnavailable" = "Микрофон недоступен. Вы по-прежнему можете слышать звонок и повторить включение микрофона.";
 "call.error.connection" = "Не удалось подключиться к серверу звонков. Повторите попытку позже.";
 "call.error.start" = "Не удалось начать звонок: %@";
 "call.error.join" = "Не удалось ответить на звонок: %@";

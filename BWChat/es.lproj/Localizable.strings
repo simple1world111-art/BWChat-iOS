@@ -234,6 +234,8 @@
 "call.participants.count" = "%d personas en llamada";
 "call.calling" = "Llamando...";
 "call.connecting" = "Conectando...";
+"call.reconnecting" = "Reconectando...";
+"call.networkPoor" = "Red inestable";
 "call.waitingVideo" = "Esperando video...";
 "call.decline" = "Rechazar";
 "call.answer" = "Responder";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "La dirección del servidor de llamadas no es válida. Contacta con soporte.";
 "call.error.permission.microphone" = "Permite que BBchat use el micrófono en Ajustes antes de llamar.";
 "call.error.permission.camera" = "Permite que BBchat use la cámara en Ajustes antes de hacer una videollamada.";
+"call.error.cameraUnavailable" = "La cámara no está disponible. La llamada continuará con audio.";
+"call.error.microphoneUnavailable" = "El micrófono no está disponible. Aún puedes oír la llamada y volver a intentar activar el micrófono.";
 "call.error.connection" = "No se pudo conectar al servidor de llamadas. Inténtalo de nuevo más tarde.";
 "call.error.start" = "No se pudo iniciar la llamada: %@";
 "call.error.join" = "No se pudo responder la llamada: %@";

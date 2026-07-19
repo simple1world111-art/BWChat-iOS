@@ -268,6 +268,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                     callerID: callerID,
                     callerName: callerName,
                     callerAvatar: callerAvatar,
+                    serverCallID: Self.firstString(payload, keys: ["call_id"]),
                     roomName: roomName,
                     callType: callType
                 )
@@ -286,6 +287,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
                     callerID: callerID,
                     groupID: groupID,
                     groupName: groupName,
+                    serverCallID: Self.firstString(payload, keys: ["call_id"]),
                     roomName: roomName,
                     callType: callType
                 )

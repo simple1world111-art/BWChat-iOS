@@ -234,6 +234,8 @@
 "call.participants.count" = "%d명 통화 중";
 "call.calling" = "전화 거는 중...";
 "call.connecting" = "연결 중...";
+"call.reconnecting" = "다시 연결 중...";
+"call.networkPoor" = "네트워크 상태가 좋지 않음";
 "call.waitingVideo" = "영상 연결 대기 중...";
 "call.decline" = "거절";
 "call.answer" = "받기";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "통화 서버 주소가 올바르지 않습니다. 관리자에게 문의해 주세요.";
 "call.error.permission.microphone" = "통화하기 전에 설정에서 BBchat의 마이크 사용을 허용해 주세요.";
 "call.error.permission.camera" = "영상 통화하기 전에 설정에서 BBchat의 카메라 사용을 허용해 주세요.";
+"call.error.cameraUnavailable" = "카메라를 사용할 수 없습니다. 음성으로 통화를 계속합니다.";
+"call.error.microphoneUnavailable" = "마이크를 사용할 수 없습니다. 통화를 들으면서 음소거 해제를 다시 시도할 수 있습니다.";
 "call.error.connection" = "통화 서버에 연결할 수 없습니다. 나중에 다시 시도해 주세요.";
 "call.error.start" = "통화를 시작할 수 없습니다: %@";
 "call.error.join" = "통화에 응답할 수 없습니다: %@";

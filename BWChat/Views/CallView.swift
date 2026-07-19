@@ -36,6 +36,7 @@ struct CallView: View {
                             .background(.white.opacity(0.15))
                             .clipShape(Circle())
                     }
+                    .accessibilityIdentifier("call.minimize")
                     Spacer()
                 }
                 .padding(.horizontal, 16)
@@ -112,9 +113,24 @@ struct CallView: View {
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.7))
         case .connected:
-            Text(formatDuration(callManager.callDuration))
-                .font(.system(size: 18, weight: .medium, design: .monospaced))
-                .foregroundColor(.green)
+            VStack(spacing: 5) {
+                if callManager.mediaConnectionState == .reconnecting {
+                    Text(L10n.tr("call.reconnecting"))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.orange)
+                } else {
+                    Text(formatDuration(callManager.callDuration))
+                        .font(.system(size: 18, weight: .medium, design: .monospaced))
+                        .foregroundColor(.green)
+                }
+
+                if callManager.localConnectionQuality == .poor ||
+                    callManager.localConnectionQuality == .lost {
+                    Label(L10n.tr("call.networkPoor"), systemImage: "wifi.exclamationmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.orange)
+                }
+            }
         default:
             EmptyView()
         }
@@ -191,6 +207,7 @@ struct CallView: View {
                         .background(Color.red)
                         .clipShape(Circle())
                 }
+                .accessibilityIdentifier("call.reject")
                 Text(L10n.tr("call.decline"))
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.7))
@@ -205,6 +222,7 @@ struct CallView: View {
                         .background(Color.green)
                         .clipShape(Circle())
                 }
+                .accessibilityIdentifier("call.accept")
                 Text(L10n.tr("call.answer"))
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.7))
@@ -219,27 +237,31 @@ struct CallView: View {
             controlButton(
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
                 label: callManager.isMuted ? L10n.tr("call.unmute") : L10n.tr("call.mute"),
-                isActive: callManager.isMuted
+                isActive: callManager.isMuted,
+                identifier: "call.mute"
             ) { callManager.toggleMute() }
 
             if call.callType == .video {
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
                     label: callManager.isLocalVideoEnabled ? L10n.tr("call.cameraOff") : L10n.tr("call.cameraOn"),
-                    isActive: !callManager.isLocalVideoEnabled
+                    isActive: !callManager.isLocalVideoEnabled,
+                    identifier: "call.camera"
                 ) { callManager.toggleLocalVideo() }
 
                 controlButton(
                     icon: "camera.rotate.fill",
                     label: L10n.tr("call.flip"),
-                    isActive: false
+                    isActive: false,
+                    identifier: "call.flip"
                 ) { callManager.flipCamera() }
             }
 
             controlButton(
                 icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
                 label: callManager.isSpeakerOn ? L10n.tr("call.speaker") : L10n.tr("call.earpiece"),
-                isActive: callManager.isSpeakerOn
+                isActive: callManager.isSpeakerOn,
+                identifier: "call.speaker"
             ) { callManager.toggleSpeaker() }
 
             VStack(spacing: 6) {
@@ -251,6 +273,7 @@ struct CallView: View {
                         .background(Color.red)
                         .clipShape(Circle())
                 }
+                .accessibilityIdentifier("call.end")
                 Text(L10n.tr("call.hangUp"))
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.7))
@@ -259,7 +282,13 @@ struct CallView: View {
         .padding(.horizontal, 12)
     }
 
-    private func controlButton(icon: String, label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func controlButton(
+        icon: String,
+        label: String,
+        isActive: Bool,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
         VStack(spacing: 6) {
             Button(action: action) {
                 Image(systemName: icon)
@@ -269,6 +298,7 @@ struct CallView: View {
                     .background(isActive ? Color.white : Color.white.opacity(0.2))
                     .clipShape(Circle())
             }
+            .accessibilityIdentifier(identifier)
             Text(label)
                 .font(.system(size: 11))
                 .foregroundColor(.white.opacity(0.7))
@@ -312,24 +342,14 @@ struct CallPipBubble: View {
                     if isVoiceCall {
                         voiceBubble(screenW: screenW)
                             .position(position)
-                            .onTapGesture {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    callManager.restoreCall()
-                                }
-                            }
-                            .gesture(dragGesture(screenW: screenW, screenH: screenH))
+                            .simultaneousGesture(dragGesture(screenW: screenW, screenH: screenH))
                             .onAppear {
                                 position = CGPoint(x: screenW - voicePipSize / 2 - edgeMargin, y: 160)
                             }
                     } else {
                         videoBubble(screenW: screenW)
                             .position(position)
-                            .onTapGesture {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    callManager.restoreCall()
-                                }
-                            }
-                            .gesture(dragGesture(screenW: screenW, screenH: screenH))
+                            .simultaneousGesture(dragGesture(screenW: screenW, screenH: screenH))
                             .onAppear {
                                 position = CGPoint(x: screenW - videoPipWidth / 2 - edgeMargin, y: 160)
                             }
@@ -344,29 +364,37 @@ struct CallPipBubble: View {
 
     private func voiceBubble(screenW: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "34C759"), Color(hex: "30B350")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    callManager.restoreCall()
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "34C759"), Color(hex: "30B350")],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
 
-                VStack(spacing: 2) {
-                    Image(systemName: "phone.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
+                    VStack(spacing: 2) {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
 
-                    if callManager.currentCall?.state == .connected {
-                        Text(pipDuration)
-                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.9))
+                        if callManager.currentCall?.state == .connected {
+                            Text(pipDuration)
+                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.9))
+                        }
                     }
                 }
+                .frame(width: voicePipSize, height: voicePipSize)
             }
-            .frame(width: voicePipSize, height: voicePipSize)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("call.restore")
 
             // Hide button
             Button {
@@ -383,6 +411,7 @@ struct CallPipBubble: View {
                     .clipShape(Circle())
             }
             .offset(x: 4, y: -4)
+            .accessibilityIdentifier("call.pip.hide")
         }
         .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
     }
@@ -391,40 +420,48 @@ struct CallPipBubble: View {
 
     private func videoBubble(screenW: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
-            ZStack {
-                let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
-                let isPipLocal = callManager.isRemotePrimary
-
-                if let track = secondaryTrack {
-                    SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isPipLocal && callManager.isFrontCamera) ? .mirror : .off)
-                } else {
-                    LinearGradient(
-                        colors: [Color(hex: "5856D6"), Color(hex: "764BA2")],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            Button {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    callManager.restoreCall()
                 }
+            } label: {
+                ZStack {
+                    let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
+                    let isPipLocal = callManager.isRemotePrimary
 
-                VStack(spacing: 2) {
-                    if callManager.localVideoTrack == nil && callManager.remoteVideoTrack == nil {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.white)
+                    if let track = secondaryTrack {
+                        SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isPipLocal && callManager.isFrontCamera) ? .mirror : .off)
+                    } else {
+                        LinearGradient(
+                            colors: [Color(hex: "5856D6"), Color(hex: "764BA2")],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     }
 
-                    if callManager.currentCall?.state == .connected {
-                        Text(pipDuration)
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.black.opacity(0.5))
-                            .cornerRadius(6)
+                    VStack(spacing: 2) {
+                        if callManager.localVideoTrack == nil && callManager.remoteVideoTrack == nil {
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundColor(.white)
+                        }
+
+                        if callManager.currentCall?.state == .connected {
+                            Text(pipDuration)
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.5))
+                                .cornerRadius(6)
+                        }
                     }
                 }
+                .frame(width: videoPipWidth, height: videoPipHeight)
+                .cornerRadius(14)
             }
-            .frame(width: videoPipWidth, height: videoPipHeight)
-            .cornerRadius(14)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("call.restore")
 
             // Hide button
             Button {
@@ -441,6 +478,7 @@ struct CallPipBubble: View {
                     .clipShape(Circle())
             }
             .offset(x: -4, y: 4)
+            .accessibilityIdentifier("call.pip.hide")
         }
         .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
     }
@@ -452,25 +490,28 @@ struct CallPipBubble: View {
         let clampedY = min(max(position.y, 78), screenH - 58)
         let x: CGFloat = lastEdgeOnLeft ? 11 : screenW - 11
 
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    isVoiceCall
-                        ? LinearGradient(colors: [Color(hex: "34C759"), Color(hex: "30B350")], startPoint: .top, endPoint: .bottom)
-                        : LinearGradient(colors: [Color(hex: "5856D6"), Color(hex: "764BA2")], startPoint: .top, endPoint: .bottom)
-                )
-            Image(systemName: lastEdgeOnLeft ? "chevron.right" : "chevron.left")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.white)
-        }
-        .frame(width: 22, height: 56)
-        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
-        .position(x: x, y: clampedY)
-        .onTapGesture {
+        Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
                 isHidden = false
             }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        isVoiceCall
+                            ? LinearGradient(colors: [Color(hex: "34C759"), Color(hex: "30B350")], startPoint: .top, endPoint: .bottom)
+                            : LinearGradient(colors: [Color(hex: "5856D6"), Color(hex: "764BA2")], startPoint: .top, endPoint: .bottom)
+                    )
+                Image(systemName: lastEdgeOnLeft ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+            }
         }
+        .buttonStyle(.plain)
+        .frame(width: 22, height: 56)
+        .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+        .position(x: x, y: clampedY)
+        .accessibilityIdentifier("call.pip.show")
     }
 
     // MARK: - Gesture & Helpers

@@ -47,13 +47,13 @@ class WebSocketService: ObservableObject {
     let callOfferPublisher = PassthroughSubject<[String: Any], Never>()
     let callAnswerPublisher = PassthroughSubject<[String: Any], Never>()
     let iceCandidatePublisher = PassthroughSubject<[String: Any], Never>()
-    let callEndPublisher = PassthroughSubject<String, Never>()
+    let callEndPublisher = PassthroughSubject<[String: Any], Never>()
     let callRejectPublisher = PassthroughSubject<[String: Any], Never>()
-    let callBusyPublisher = PassthroughSubject<String, Never>()
+    let callBusyPublisher = PassthroughSubject<[String: Any], Never>()
 
     // Group call signaling
     let groupCallInvitePublisher = PassthroughSubject<[String: Any], Never>()
-    let groupCallEndedPublisher = PassthroughSubject<Int, Never>()
+    let groupCallEndedPublisher = PassthroughSubject<[String: Any], Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
@@ -355,8 +355,7 @@ class WebSocketService: ObservableObject {
 
         case "call_end":
             if let d = Self.dictionaryValue(json["data"]) {
-                let fromUser = Self.firstString(d, keys: ["from_user_id", "caller_id", "user_id"]) ?? ""
-                callEndPublisher.send(fromUser)
+                callEndPublisher.send(d)
             }
 
         case "call_reject":
@@ -366,8 +365,7 @@ class WebSocketService: ObservableObject {
 
         case "call_busy":
             if let d = Self.dictionaryValue(json["data"]) {
-                let fromUser = Self.firstString(d, keys: ["from_user_id", "caller_id", "user_id"]) ?? ""
-                callBusyPublisher.send(fromUser)
+                callBusyPublisher.send(d)
             }
 
         case "group_call_invite":
@@ -376,10 +374,17 @@ class WebSocketService: ObservableObject {
             }
 
         case "group_call_ended":
-            if let d = json["data"] as? [String: Any],
-               let gid = Self.intValue(d["group_id"]) {
-                groupCallEndedPublisher.send(gid)
+            if let d = Self.dictionaryValue(json["data"]) {
+                groupCallEndedPublisher.send(d)
             }
+
+        case "group_call_participant_joined", "group_call_participant_left":
+            // LiveKit participant delegates are the authoritative media roster.
+            // The backend also broadcasts lifecycle reconciliation events so
+            // other clients can update non-call surfaces; consuming them here
+            // prevents valid high-frequency group activity from being reported
+            // as an unknown protocol message.
+            break
 
         default:
             print("[WS] Unknown message type: \(type)")
@@ -419,28 +424,46 @@ class WebSocketService: ObservableObject {
         sendJSON(msg)
     }
 
-    func sendCallEnd(targetID: String) {
+    func sendCallEnd(targetID: String, callID: String? = nil, roomName: String? = nil) {
         let msg: [String: Any] = [
             "type": "call_end",
-            "data": ["target_id": targetID]
+            "data": callSignalData(targetID: targetID, callID: callID, roomName: roomName)
         ]
         sendJSON(msg)
     }
 
-    func sendCallReject(targetID: String, reason: String = "declined") {
+    func sendCallReject(
+        targetID: String,
+        reason: String = "declined",
+        callID: String? = nil,
+        roomName: String? = nil
+    ) {
+        var data = callSignalData(targetID: targetID, callID: callID, roomName: roomName)
+        data["reason"] = reason
         let msg: [String: Any] = [
             "type": "call_reject",
-            "data": ["target_id": targetID, "reason": reason]
+            "data": data
         ]
         sendJSON(msg)
     }
 
-    func sendCallBusy(targetID: String) {
+    func sendCallBusy(targetID: String, callID: String? = nil, roomName: String? = nil) {
         let msg: [String: Any] = [
             "type": "call_busy",
-            "data": ["target_id": targetID]
+            "data": callSignalData(targetID: targetID, callID: callID, roomName: roomName)
         ]
         sendJSON(msg)
+    }
+
+    private func callSignalData(targetID: String, callID: String?, roomName: String?) -> [String: Any] {
+        var data: [String: Any] = ["target_id": targetID]
+        if let callID = callID?.trimmingCharacters(in: .whitespacesAndNewlines), !callID.isEmpty {
+            data["call_id"] = callID
+        }
+        if let roomName = roomName?.trimmingCharacters(in: .whitespacesAndNewlines), !roomName.isEmpty {
+            data["room_name"] = roomName
+        }
+        return data
     }
 
     private func sendJSON(_ dict: [String: Any]) {

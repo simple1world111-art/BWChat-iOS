@@ -21,6 +21,16 @@ struct GroupCallView: View {
                         Text("\(L10n.tr("call.participants.count", callManager.remoteParticipantCount + 1)) · \(formatDuration(callManager.callDuration))")
                             .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.6))
+                        if callManager.mediaConnectionState == .reconnecting {
+                            Label(L10n.tr("call.reconnecting"), systemImage: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.orange)
+                        } else if callManager.localConnectionQuality == .poor ||
+                                    callManager.localConnectionQuality == .lost {
+                            Label(L10n.tr("call.networkPoor"), systemImage: "wifi.exclamationmark")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.orange)
+                        }
                     }
                     Spacer()
                     Button {
@@ -35,6 +45,7 @@ struct GroupCallView: View {
                             .background(.white.opacity(0.15))
                             .clipShape(Circle())
                     }
+                    .accessibilityIdentifier("call.minimize")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
@@ -70,7 +81,8 @@ struct GroupCallView: View {
                     videoCell(
                         name: L10n.tr("common.me"),
                         videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack,
-                        isLocal: true
+                        isLocal: true,
+                        isSpeaking: callManager.isParticipantSpeaking(localParticipant)
                     )
                 }
 
@@ -78,7 +90,8 @@ struct GroupCallView: View {
                     videoCell(
                         name: participant.name ?? participant.identity?.stringValue ?? "",
                         videoTrack: participant.videoTracks.first?.track as? VideoTrack,
-                        isLocal: false
+                        isLocal: false,
+                        isSpeaking: callManager.isParticipantSpeaking(participant)
                     )
                 }
             }
@@ -86,7 +99,12 @@ struct GroupCallView: View {
         }
     }
 
-    private func videoCell(name: String, videoTrack: VideoTrack?, isLocal: Bool = false) -> some View {
+    private func videoCell(
+        name: String,
+        videoTrack: VideoTrack?,
+        isLocal: Bool = false,
+        isSpeaking: Bool
+    ) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let track = videoTrack {
                 SwiftUIVideoView(track, layoutMode: .fill, mirrorMode: (isLocal && callManager.isFrontCamera) ? .mirror : .off)
@@ -113,17 +131,29 @@ struct GroupCallView: View {
                 .cornerRadius(4)
                 .padding(4)
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)
+        )
     }
 
     // MARK: - Voice Grid
 
     @ViewBuilder
     private var voiceGrid: some View {
-        let names = [L10n.tr("common.me")] + callManager.remoteParticipantNames
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                ForEach(Array(names.enumerated()), id: \.offset) { _, name in
-                    voiceCell(name: name)
+                if let localParticipant = callManager.room?.localParticipant {
+                    voiceCell(
+                        name: L10n.tr("common.me"),
+                        isSpeaking: callManager.isParticipantSpeaking(localParticipant)
+                    )
+                }
+                ForEach(callManager.remoteParticipants, id: \.sid) { participant in
+                    voiceCell(
+                        name: participant.name ?? participant.identity?.stringValue ?? "",
+                        isSpeaking: callManager.isParticipantSpeaking(participant)
+                    )
                 }
             }
             .padding(.horizontal, 16)
@@ -131,7 +161,7 @@ struct GroupCallView: View {
         }
     }
 
-    private func voiceCell(name: String) -> some View {
+    private func voiceCell(name: String, isSpeaking: Bool) -> some View {
         VStack(spacing: 8) {
             Circle()
                 .fill(Color(hex: "2A2A3E"))
@@ -140,6 +170,10 @@ struct GroupCallView: View {
                     Text(String(name.prefix(1)))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(.white.opacity(0.7))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)
                 )
 
             Text(name)
@@ -155,24 +189,28 @@ struct GroupCallView: View {
         HStack(spacing: callManager.currentCall?.callType == .video ? 16 : 28) {
             controlButton(
                 icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
-                isActive: callManager.isMuted
+                isActive: callManager.isMuted,
+                identifier: "call.mute"
             ) { callManager.toggleMute() }
 
             if callManager.currentCall?.callType == .video {
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
-                    isActive: !callManager.isLocalVideoEnabled
+                    isActive: !callManager.isLocalVideoEnabled,
+                    identifier: "call.camera"
                 ) { callManager.toggleLocalVideo() }
 
                 controlButton(
                     icon: "camera.rotate.fill",
-                    isActive: false
+                    isActive: false,
+                    identifier: "call.flip"
                 ) { callManager.flipCamera() }
             }
 
             controlButton(
                 icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
-                isActive: callManager.isSpeakerOn
+                isActive: callManager.isSpeakerOn,
+                identifier: "call.speaker"
             ) { callManager.toggleSpeaker() }
 
             Button { callManager.endCall() } label: {
@@ -183,11 +221,17 @@ struct GroupCallView: View {
                     .background(Color.red)
                     .clipShape(Circle())
             }
+            .accessibilityIdentifier("call.end")
         }
         .padding(.horizontal, 12)
     }
 
-    private func controlButton(icon: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func controlButton(
+        icon: String,
+        isActive: Bool,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 18))
@@ -196,6 +240,7 @@ struct GroupCallView: View {
                 .background(isActive ? Color.white : Color.white.opacity(0.2))
                 .clipShape(Circle())
         }
+        .accessibilityIdentifier(identifier)
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {

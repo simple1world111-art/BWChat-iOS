@@ -234,6 +234,8 @@
 "call.participants.count" = "%d Personen im Anruf";
 "call.calling" = "Ruft an...";
 "call.connecting" = "Verbindung...";
+"call.reconnecting" = "Verbindung wird wiederhergestellt...";
+"call.networkPoor" = "Schwache Netzwerkverbindung";
 "call.waitingVideo" = "Warte auf Video...";
 "call.decline" = "Ablehnen";
 "call.answer" = "Annehmen";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "Die Adresse des Anrufservers ist ungültig. Bitte kontaktiere den Support.";
 "call.error.permission.microphone" = "Erlaube BBchat in den Einstellungen den Mikrofonzugriff, bevor du anrufst.";
 "call.error.permission.camera" = "Erlaube BBchat in den Einstellungen den Kamerazugriff, bevor du einen Videoanruf startest.";
+"call.error.cameraUnavailable" = "Die Kamera ist nicht verfügbar. Der Anruf wird mit Audio fortgesetzt.";
+"call.error.microphoneUnavailable" = "Das Mikrofon ist nicht verfügbar. Du kannst den Anruf weiter hören und die Stummschaltung erneut aufheben.";
 "call.error.connection" = "Verbindung zum Anrufserver fehlgeschlagen. Bitte versuche es später erneut.";
 "call.error.start" = "Anruf konnte nicht gestartet werden: %@";
 "call.error.join" = "Anruf konnte nicht angenommen werden: %@";

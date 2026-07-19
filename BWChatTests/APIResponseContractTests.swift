@@ -6,6 +6,86 @@ final class APIResponseContractTests: XCTestCase {
         let items: [Int]
     }
 
+    func testCallStartResponsePreservesServerCallIdentity() throws {
+        let data = #"""
+        {
+          "call_id": "call-123",
+          "room_name": "call_room_123",
+          "token": "livekit-token",
+          "livekit_url": "http://example.test/livekit",
+          "call_type": "voice"
+        }
+        """#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(CallStartResponse.self, from: data)
+
+        XCTAssertEqual(response.callID, "call-123")
+        XCTAssertEqual(response.roomName, "call_room_123")
+    }
+
+    func testCallJoinResponseKeepsBackwardCompatibilityWithoutCallID() throws {
+        let data = #"""
+        {
+          "room_name": "call_room_legacy",
+          "token": "livekit-token",
+          "server_url": "http://example.test/livekit"
+        }
+        """#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(CallJoinResponse.self, from: data)
+
+        XCTAssertNil(response.callID)
+        XCTAssertEqual(response.roomName, "call_room_legacy")
+    }
+
+    func testCallSignalIdentityDeduplicatesWebSocketAndPushInvite() {
+        let websocketInvite = CallSignalIdentity(callID: "call-123", roomName: "call_room_123")
+        let pushInvite = CallSignalIdentity(callID: " call-123 ", roomName: "call_room_123")
+        let differentCall = CallSignalIdentity(callID: "call-456", roomName: "call_room_123")
+        let legacyInvite = CallSignalIdentity(callID: nil, roomName: "call_room_123")
+
+        XCTAssertTrue(websocketInvite.matches(pushInvite))
+        XCTAssertFalse(websocketInvite.matches(differentCall))
+        XCTAssertTrue(websocketInvite.matches(legacyInvite))
+        XCTAssertTrue(websocketInvite.hasComparableKey(with: legacyInvite))
+    }
+
+    func testCallMediaConfigurationUsesAdaptiveLowLatencyDefaults() {
+        let roomOptions = CallMediaConfiguration.roomOptions
+        let connectOptions = CallMediaConfiguration.connectOptions
+
+        XCTAssertTrue(roomOptions.adaptiveStream)
+        XCTAssertTrue(roomOptions.dynacast)
+        XCTAssertFalse(roomOptions.singlePeerConnection)
+        XCTAssertTrue(roomOptions.defaultVideoPublishOptions.simulcast)
+        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxBitrate, 1_700_000)
+        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxFps, 30)
+        XCTAssertEqual(roomOptions.defaultAudioPublishOptions.encoding?.maxBitrate, 48_000)
+        XCTAssertTrue(roomOptions.defaultAudioPublishOptions.dtx)
+        XCTAssertTrue(roomOptions.defaultAudioPublishOptions.red)
+        XCTAssertTrue(connectOptions.isDscpEnabled)
+        XCTAssertFalse(connectOptions.enableMicrophone)
+        XCTAssertEqual(connectOptions.reconnectAttempts, 12)
+    }
+
+    func testGroupCallStatusPreservesCallIdentity() throws {
+        let data = #"""
+        {
+          "active": true,
+          "call_id": "group-call-123",
+          "room_name": "group_room_123",
+          "call_type": "video",
+          "participant_count": 3
+        }
+        """#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(GroupCallStatusResponse.self, from: data)
+
+        XCTAssertEqual(response.callID, "group-call-123")
+        XCTAssertEqual(response.roomName, "group_room_123")
+        XCTAssertEqual(response.participantCount, 3)
+    }
+
     func testRequiredDataPreservesLegitimateEmptyList() throws {
         let response = APIResponseWrapper(
             code: 0,

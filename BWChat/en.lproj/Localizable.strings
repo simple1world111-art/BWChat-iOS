@@ -234,6 +234,8 @@
 "call.participants.count" = "%d people in call";
 "call.calling" = "Calling...";
 "call.connecting" = "Connecting...";
+"call.reconnecting" = "Reconnecting...";
+"call.networkPoor" = "Poor network";
 "call.waitingVideo" = "Waiting for video...";
 "call.decline" = "Decline";
 "call.answer" = "Answer";
@@ -241,6 +243,8 @@
 "call.error.invalidServer" = "The call server address is invalid. Please contact support.";
 "call.error.permission.microphone" = "Allow BBchat to use the microphone in Settings before making a call.";
 "call.error.permission.camera" = "Allow BBchat to use the camera in Settings before making a video call.";
+"call.error.cameraUnavailable" = "The camera is unavailable. The call will continue with audio.";
+"call.error.microphoneUnavailable" = "The microphone is unavailable. You can still hear the call and retry unmuting.";
 "call.error.connection" = "Could not connect to the call server. Please try again later.";
 "call.error.start" = "Could not start the call: %@";
 "call.error.join" = "Could not answer the call: %@";
