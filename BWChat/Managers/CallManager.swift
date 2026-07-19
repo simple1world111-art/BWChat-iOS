@@ -512,7 +512,9 @@ class CallManager: ObservableObject {
                 startDurationTimer()
             }
             updateRemoteParticipants()
+            #if DEBUG && targetEnvironment(simulator)
             scheduleDebugReconnectIfRequested(for: newRoom)
+            #endif
         } catch {
             print("[CallManager] Room connect failed: \(error)")
             guard room === newRoom else { return }
