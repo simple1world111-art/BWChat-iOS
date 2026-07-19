@@ -147,14 +147,14 @@ struct CallView: View {
                     SwiftUIVideoView(remoteTrack, layoutMode: .fill)
                         .ignoresSafeArea()
                 } else {
-                    noVideoPlaceholder
+                    noVideoPlaceholder(name: callManager.currentCall?.remoteNickname)
                 }
             } else {
                 if let localTrack = callManager.localVideoTrack {
                     SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: callManager.isFrontCamera ? .mirror : .off)
                         .ignoresSafeArea()
                 } else {
-                    noVideoPlaceholder
+                    noVideoPlaceholder(name: L10n.tr("common.me"))
                 }
             }
 
@@ -170,34 +170,36 @@ struct CallView: View {
             let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
             let isSecondaryLocal = callManager.isRemotePrimary
 
-            if let track = secondaryTrack {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        callManager.isRemotePrimary.toggle()
-                    }
-                } label: {
-                    ZStack(alignment: .bottomLeading) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    callManager.isRemotePrimary.toggle()
+                }
+            } label: {
+                ZStack(alignment: .bottomLeading) {
+                    if let track = secondaryTrack {
                         SwiftUIVideoView(
                             track,
                             layoutMode: .fill,
                             mirrorMode: (isSecondaryLocal && callManager.isFrontCamera) ? .mirror : .off
                         )
-
-                        if isSecondaryParticipantMuted {
-                            CallMuteBadge()
-                                .padding(5)
-                        }
+                    } else {
+                        CompactCallVideoPlaceholder(name: secondaryParticipantName)
                     }
-                    .frame(width: 110, height: 150)
-                    .compositingGroup()
-                    .clipShape(.rect(cornerRadius: 12))
+
+                    if isSecondaryParticipantMuted {
+                        CallMuteBadge()
+                            .padding(5)
+                    }
                 }
-                .buttonStyle(.plain)
-                .shadow(color: .black.opacity(0.4), radius: 8)
-                .padding(.top, 60)
-                .padding(.trailing, 16)
-                .accessibilityLabel(L10n.tr("call.video.swap"))
+                .frame(width: 110, height: 150)
+                .compositingGroup()
+                .clipShape(.rect(cornerRadius: 12))
             }
+            .buttonStyle(.plain)
+            .shadow(color: .black.opacity(0.4), radius: 8)
+            .padding(.top, 60)
+            .padding(.trailing, 16)
+            .accessibilityLabel(L10n.tr("call.video.swap"))
         }
     }
 
@@ -226,15 +228,28 @@ struct CallView: View {
         return remoteParticipant.map(callManager.isParticipantMuted) ?? false
     }
 
+    private var secondaryParticipantName: String {
+        if callManager.isRemotePrimary {
+            return L10n.tr("common.me")
+        }
+        return callManager.currentCall?.remoteNickname ?? ""
+    }
+
     @ViewBuilder
-    private var noVideoPlaceholder: some View {
+    private func noVideoPlaceholder(name: String?) -> some View {
         Color.black.ignoresSafeArea()
         VStack {
             Spacer()
             Image(systemName: "video.slash.fill")
                 .font(.system(size: 60))
                 .foregroundColor(.white.opacity(0.3))
-            Text(L10n.tr("call.waitingVideo"))
+            if let name, !name.isEmpty {
+                Text(name)
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.top, 10)
+            }
+            Text(L10n.tr("call.cameraDisabled"))
                 .font(.system(size: 16))
                 .foregroundColor(.white.opacity(0.5))
                 .padding(.top, 8)
@@ -358,6 +373,29 @@ struct CallView: View {
     private func formatDuration(_ interval: TimeInterval) -> String {
         let s = Int(interval)
         return String(format: "%02d:%02d", s / 60, s % 60)
+    }
+}
+
+private struct CompactCallVideoPlaceholder: View {
+    let name: String
+
+    var body: some View {
+        Color(hex: "2A2A3E")
+            .overlay {
+                VStack(spacing: 7) {
+                    Image(systemName: "video.slash.fill")
+                        .font(.title3)
+                    Text(name)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Text(L10n.tr("call.cameraDisabled"))
+                        .font(.caption2)
+                }
+                .foregroundStyle(.white.opacity(0.68))
+                .padding(6)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(name), \(L10n.tr("call.cameraDisabled"))")
     }
 }
 

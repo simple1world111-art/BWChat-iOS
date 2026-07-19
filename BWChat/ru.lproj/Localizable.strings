@@ -427,6 +427,7 @@
 "call.video.swap" = "Сменить основное видео";
 "call.cameraOff" = "Камера выкл.";
 "call.cameraOn" = "Камера вкл.";
+"call.cameraDisabled" = "Камера выключена";
 "call.flip" = "Перевернуть";
 "call.speaker" = "Динамик";
 "call.earpiece" = "Разговорный";

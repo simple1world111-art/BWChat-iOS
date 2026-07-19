@@ -427,6 +427,7 @@
 "call.video.swap" = "Permuter la vidéo principale";
 "call.cameraOff" = "Caméra off";
 "call.cameraOn" = "Caméra on";
+"call.cameraDisabled" = "La caméra est désactivée";
 "call.flip" = "Retourner";
 "call.speaker" = "Haut-parleur";
 "call.earpiece" = "Écouteur";

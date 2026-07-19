@@ -34,14 +34,39 @@ enum CallMediaConfiguration {
 
     static let videoPublishOptions = VideoPublishOptions(
         encoding: VideoEncoding(
-            maxBitrate: 1_700_000,
+            maxBitrate: 2_200_000,
             maxFps: 30,
             bitratePriority: .medium,
             networkPriority: .medium
         ),
         simulcast: true,
+        // Preserve an efficient low layer while giving Retina-sized group
+        // tiles a useful 540p middle layer instead of falling back to 360p.
+        simulcastLayers: [.presetH180_169, .presetH540_169],
+        preferredCodec: .vp8,
+        preferredBackupCodec: .none,
         degradationPreference: .balanced
     )
+
+    /// Single-layer retry for self-hosted deployments where the initial
+    /// simulcast publication times out. Keep 720p/30 instead of silently
+    /// degrading the other participant to the former 540p/24 profile.
+    static let compatibilityVideoPublishOptions = VideoPublishOptions(
+        encoding: VideoEncoding(
+            maxBitrate: 1_700_000,
+            maxFps: 30,
+            bitratePriority: .medium,
+            networkPriority: .medium
+        ),
+        simulcast: false,
+        preferredCodec: .vp8,
+        preferredBackupCodec: .none,
+        degradationPreference: .balanced
+    )
+
+    static func cameraCaptureOptions(position: AVCaptureDevice.Position) -> CameraCaptureOptions {
+        CameraCaptureOptions(position: position, dimensions: .h720_169, fps: 30)
+    }
 
     static let audioCaptureOptions = AudioCaptureOptions(
         highpassFilter: true,
@@ -524,11 +549,7 @@ class CallManager: ObservableObject {
         }
         #endif
 
-        let preferredCaptureOptions = CameraCaptureOptions(
-            position: position,
-            dimensions: .h720_169,
-            fps: 30
-        )
+        let preferredCaptureOptions = CallMediaConfiguration.cameraCaptureOptions(position: position)
 
         do {
             return try await publishCamera(
@@ -540,22 +561,10 @@ class CallManager: ObservableObject {
             print("[CallManager] Preferred camera profile failed; retrying compatibility profile: \(error)")
             await removeLocalCameraPublications(from: targetRoom)
 
-            let compatibilityCaptureOptions = CameraCaptureOptions(
-                position: position,
-                dimensions: .h540_169,
-                fps: 24
-            )
-            let compatibilityPublishOptions = VideoPublishOptions(
-                encoding: VideoEncoding(maxBitrate: 900_000, maxFps: 24),
-                simulcast: false,
-                preferredCodec: .vp8,
-                preferredBackupCodec: .none,
-                degradationPreference: .balanced
-            )
             return try await publishCamera(
                 in: targetRoom,
-                captureOptions: compatibilityCaptureOptions,
-                publishOptions: compatibilityPublishOptions
+                captureOptions: CallMediaConfiguration.cameraCaptureOptions(position: position),
+                publishOptions: CallMediaConfiguration.compatibilityVideoPublishOptions
             )
         }
     }
@@ -858,6 +867,21 @@ class CallManager: ObservableObject {
         return audioTracks.isEmpty || audioTracks.allSatisfy(\.isMuted)
     }
 
+    func activeVideoTrack(for participant: Participant) -> VideoTrack? {
+        if participant.sid == room?.localParticipant.sid {
+            guard isLocalVideoEnabled else { return nil }
+            return localVideoTrack
+        }
+
+        return participant.videoTracks
+            .first { !$0.isMuted && $0.track is VideoTrack }?
+            .track as? VideoTrack
+    }
+
+    func isParticipantVideoEnabled(_ participant: Participant) -> Bool {
+        activeVideoTrack(for: participant) != nil
+    }
+
     // MARK: - Internal: Participant Updates
 
     func updateRemoteParticipants() {
@@ -871,17 +895,10 @@ class CallManager: ObservableObject {
             hasObservedRemoteParticipant = true
         }
 
-        // Find the first available remote video track
-        remoteVideoTrack = nil
-        for participant in remoteParticipants {
-            for pub in participant.videoTracks {
-                if let track = pub.track as? VideoTrack {
-                    remoteVideoTrack = track
-                    break
-                }
-            }
-            if remoteVideoTrack != nil { break }
-        }
+        // Muting a LiveKit camera intentionally retains its publication and
+        // last decoded frame. Never expose that muted track to SwiftUI, or the
+        // UI appears frozen instead of showing that the camera is off.
+        remoteVideoTrack = remoteParticipants.lazy.compactMap(activeVideoTrack).first
 
         // First remote joined on an outgoing call: now we're truly "connected".
         // Only transition from .outgoing (not .connecting or other states) to avoid
@@ -1079,12 +1096,13 @@ class CallManager: ObservableObject {
         publication: TrackPublication,
         isMuted: Bool
     ) {
-        guard room === updatedRoom, publication.kind == .audio else { return }
-        if participant.sid == updatedRoom.localParticipant.sid {
+        guard room === updatedRoom else { return }
+        if publication.kind == .audio,
+           participant.sid == updatedRoom.localParticipant.sid {
             self.isMuted = isMuted
         }
-        // Reassigning the roster publishes a SwiftUI update for remote
-        // TrackPublication mute changes, whose participant object is stable.
+        // Reassigning the roster publishes a SwiftUI update for audio and
+        // video publication mute changes, whose participant object is stable.
         updateRemoteParticipants()
     }
 

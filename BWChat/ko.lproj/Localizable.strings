@@ -427,6 +427,7 @@
 "call.video.swap" = "기본 영상 전환";
 "call.cameraOff" = "카메라 끄기";
 "call.cameraOn" = "카메라 켜기";
+"call.cameraDisabled" = "카메라가 꺼져 있습니다";
 "call.flip" = "전환";
 "call.speaker" = "스피커";
 "call.earpiece" = "수화기";

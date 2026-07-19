@@ -427,6 +427,7 @@
 "call.video.swap" = "メイン映像を切り替える";
 "call.cameraOff" = "カメラオフ";
 "call.cameraOn" = "カメラオン";
+"call.cameraDisabled" = "カメラはオフです";
 "call.flip" = "反転";
 "call.speaker" = "スピーカー";
 "call.earpiece" = "受話口";

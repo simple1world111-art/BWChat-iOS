@@ -58,8 +58,18 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertTrue(roomOptions.dynacast)
         XCTAssertFalse(roomOptions.singlePeerConnection)
         XCTAssertTrue(roomOptions.defaultVideoPublishOptions.simulcast)
-        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxBitrate, 1_700_000)
+        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxBitrate, 2_200_000)
         XCTAssertEqual(roomOptions.defaultVideoPublishOptions.encoding?.maxFps, 30)
+        XCTAssertEqual(
+            roomOptions.defaultVideoPublishOptions.simulcastLayers.map(\.dimensions),
+            [.h180_169, .h540_169]
+        )
+        XCTAssertEqual(roomOptions.defaultVideoPublishOptions.preferredCodec, .vp8)
+        XCTAssertFalse(CallMediaConfiguration.compatibilityVideoPublishOptions.simulcast)
+        XCTAssertEqual(CallMediaConfiguration.compatibilityVideoPublishOptions.encoding?.maxBitrate, 1_700_000)
+        XCTAssertEqual(CallMediaConfiguration.compatibilityVideoPublishOptions.encoding?.maxFps, 30)
+        XCTAssertEqual(CallMediaConfiguration.cameraCaptureOptions(position: .front).dimensions, .h720_169)
+        XCTAssertEqual(CallMediaConfiguration.cameraCaptureOptions(position: .front).fps, 30)
         XCTAssertEqual(roomOptions.defaultAudioPublishOptions.encoding?.maxBitrate, 48_000)
         XCTAssertTrue(roomOptions.defaultAudioPublishOptions.dtx)
         XCTAssertTrue(roomOptions.defaultAudioPublishOptions.red)

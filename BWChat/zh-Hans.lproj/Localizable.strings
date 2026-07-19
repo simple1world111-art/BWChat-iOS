@@ -427,6 +427,7 @@
 "call.video.swap" = "切换主画面";
 "call.cameraOff" = "关摄像头";
 "call.cameraOn" = "开摄像头";
+"call.cameraDisabled" = "摄像头已关闭";
 "call.flip" = "翻转";
 "call.speaker" = "扬声器";
 "call.earpiece" = "听筒";

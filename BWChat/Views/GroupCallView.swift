@@ -80,20 +80,22 @@ struct GroupCallView: View {
                 if let localParticipant = callManager.room?.localParticipant {
                     GroupVideoParticipantCell(
                         name: L10n.tr("common.me"),
-                        videoTrack: localParticipant.localVideoTracks.first?.track as? VideoTrack,
+                        videoTrack: callManager.activeVideoTrack(for: localParticipant),
                         mirrorsVideo: callManager.isFrontCamera,
                         isSpeaking: callManager.isParticipantSpeaking(localParticipant),
-                        isMuted: callManager.isMuted
+                        isMuted: callManager.isMuted,
+                        isCameraEnabled: callManager.isLocalVideoEnabled
                     )
                 }
 
                 ForEach(callManager.remoteParticipants, id: \.sid) { participant in
                     GroupVideoParticipantCell(
                         name: participant.name ?? participant.identity?.stringValue ?? "",
-                        videoTrack: participant.videoTracks.first?.track as? VideoTrack,
+                        videoTrack: callManager.activeVideoTrack(for: participant),
                         mirrorsVideo: false,
                         isSpeaking: callManager.isParticipantSpeaking(participant),
-                        isMuted: callManager.isParticipantMuted(participant)
+                        isMuted: callManager.isParticipantMuted(participant),
+                        isCameraEnabled: callManager.isParticipantVideoEnabled(participant)
                     )
                 }
             }
@@ -199,6 +201,7 @@ private struct GroupVideoParticipantCell: View {
     let mirrorsVideo: Bool
     let isSpeaking: Bool
     let isMuted: Bool
+    let isCameraEnabled: Bool
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -214,9 +217,14 @@ private struct GroupVideoParticipantCell: View {
                 Color(hex: "2A2A3E")
                     .aspectRatio(3 / 4, contentMode: .fill)
                     .overlay {
-                        Text(String(name.prefix(1)))
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.5))
+                        VStack(spacing: 8) {
+                            Text(String(name.prefix(1)))
+                                .font(.system(size: 32, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.5))
+                            Label(L10n.tr("call.cameraDisabled"), systemImage: "video.slash.fill")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.65))
+                        }
                     }
             }
 
@@ -240,7 +248,15 @@ private struct GroupVideoParticipantCell: View {
         }
         .compositingGroup()
         .clipShape(.rect(cornerRadius: 8))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        var parts = [name]
+        if !isCameraEnabled { parts.append(L10n.tr("call.cameraDisabled")) }
+        if isMuted { parts.append(L10n.tr("call.muted")) }
+        return parts.joined(separator: ", ")
     }
 }
 
