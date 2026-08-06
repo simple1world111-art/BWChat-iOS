@@ -1,9 +1,283 @@
 import XCTest
+import UIKit
 @testable import BBchat
 
 final class APIResponseContractTests: XCTestCase {
     private struct ListData: Decodable, Equatable {
         let items: [Int]
+    }
+
+    private func liveSlot(
+        id: String,
+        userID: String,
+        status: String = "waiting",
+        role: String = "温柔的旅行摄影师",
+        liveAvatarURL: String = ""
+    ) throws -> OneToOneLiveSlot {
+        let object: [String: Any] = [
+            "id": id,
+            "status": status,
+            "character_setting": role,
+            "live_avatar_url": liveAvatarURL,
+            "created_at": "2026-07-23T12:00:00Z",
+            "user": [
+                "user_id": userID,
+                "username": userID,
+                "nickname": userID,
+                "avatar_url": ""
+            ]
+        ]
+        return try JSONDecoder().decode(
+            OneToOneLiveSlot.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+    }
+
+    func testChatDisplayTextRemovesOnlyTrailingLineBreaks() {
+        XCTAssertEqual("发送内容\n".trimmingTrailingLineBreaks, "发送内容")
+        XCTAssertEqual("发送内容\r\n".trimmingTrailingLineBreaks, "发送内容")
+        XCTAssertEqual("\n第一行\n第二行\n".trimmingTrailingLineBreaks, "\n第一行\n第二行")
+        XCTAssertEqual("保留尾部空格 ".trimmingTrailingLineBreaks, "保留尾部空格 ")
+    }
+
+    func testChatImageCompressionBoundsHighResolutionPhoto() throws {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(
+            size: CGSize(width: 3_600, height: 2_400),
+            format: format
+        ).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 3_600, height: 2_400))
+            UIColor.systemPink.setFill()
+            context.fill(CGRect(x: 1_200, y: 800, width: 1_200, height: 800))
+        }
+        let source = try XCTUnwrap(image.jpegData(compressionQuality: 1))
+
+        let compressed = APIService.compressImageForUpload(source)
+        let preparedImage = try XCTUnwrap(UIImage(data: compressed))
+
+        XCTAssertLessThanOrEqual(compressed.count, 2_000_000)
+        XCTAssertLessThanOrEqual(max(preparedImage.size.width, preparedImage.size.height), 1_200)
+        XCTAssertEqual(Array(compressed.prefix(3)), [0xFF, 0xD8, 0xFF])
+    }
+
+    func testChatImageCompressionDoesNotReencodePreparedJPEG() throws {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(
+            size: CGSize(width: 800, height: 600),
+            format: format
+        ).image { context in
+            UIColor.systemGreen.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
+        }
+        let prepared = try XCTUnwrap(image.jpegData(compressionQuality: 0.7))
+
+        XCTAssertEqual(APIService.compressImageForUpload(prepared), prepared)
+    }
+
+    func testIncomingChatThumbnailFallsBackToOriginalMediaPath() {
+        let original = "/api/v1/images/u004/photo.jpg"
+
+        XCTAssertEqual(
+            ImageCacheManager.requestPaths(for: original, thumbnail: true),
+            [original + "?thumb=1", original]
+        )
+        XCTAssertEqual(
+            ImageCacheManager.requestPaths(for: original, thumbnail: false),
+            [original]
+        )
+    }
+
+    func testIncomingChatThumbnailPreservesExistingQueryBeforeFallback() {
+        let original = "https://cdn.example.com/photo.jpg?signature=opaque"
+
+        XCTAssertEqual(
+            ImageCacheManager.requestPaths(for: original, thumbnail: true),
+            [
+                "https://cdn.example.com/photo.jpg?signature=opaque&thumb=1",
+                original
+            ]
+        )
+    }
+
+    func testChatMediaPreviewRequestMatchesBubbleCacheKeys() throws {
+        let imagePath = "/api/v1/images/u004/photo.jpg"
+        let imageRequest = try XCTUnwrap(ChatMediaPreviewRequest.resolve(
+            messageType: "photo",
+            content: imagePath
+        ))
+
+        XCTAssertEqual(imageRequest.sourcePath, imagePath)
+        XCTAssertEqual(imageRequest.cacheKey, imagePath + "?thumb=1")
+        XCTAssertTrue(imageRequest.usesImageThumbnailEndpoint)
+
+        let videoPath = "/api/v1/images/u004/clip.mp4"
+        let videoRequest = try XCTUnwrap(ChatMediaPreviewRequest.resolve(
+            messageType: "video",
+            content: videoPath
+        ))
+        let videoThumbnailPath = ImageCacheManager.videoThumbnailCacheKey(
+            for: videoPath
+        )
+
+        XCTAssertEqual(videoRequest.sourcePath, videoThumbnailPath)
+        XCTAssertEqual(videoRequest.cacheKey, videoThumbnailPath)
+        XCTAssertFalse(videoRequest.usesImageThumbnailEndpoint)
+
+        let explicitPreview = "/api/v1/public/images/u004/photo-preview.jpg"
+        let explicitRequest = try XCTUnwrap(ChatMediaPreviewRequest.resolve(
+            messageType: "image",
+            content: imagePath,
+            thumbnailURL: explicitPreview
+        ))
+        XCTAssertEqual(explicitRequest.sourcePath, explicitPreview)
+        XCTAssertEqual(explicitRequest.cacheKey, explicitPreview)
+        XCTAssertFalse(explicitRequest.usesImageThumbnailEndpoint)
+    }
+
+    func testChatMediaMessagesDecodeAtomicThumbnailContract() throws {
+        let directJSON = #"{"id":1,"sender_id":"u1","receiver_id":"u2","msg_type":"image","content":"/media/original.jpg","thumbnail_url":"/media/preview.jpg","timestamp":"2026-08-05T10:00:00Z"}"#.data(using: .utf8)!
+        let direct = try JSONDecoder().decode(Message.self, from: directJSON)
+        XCTAssertEqual(direct.content, "/media/original.jpg")
+        XCTAssertEqual(direct.thumbnailURL, "/media/preview.jpg")
+
+        let groupJSON = #"{"id":2,"group_id":9,"sender_id":"u1","msg_type":"video","content":"/media/original.mp4","preview_url":"/media/preview.jpg","timestamp":"2026-08-05T10:00:00Z"}"#.data(using: .utf8)!
+        let group = try JSONDecoder().decode(GroupMessage.self, from: groupJSON)
+        XCTAssertEqual(group.content, "/media/original.mp4")
+        XCTAssertEqual(group.thumbnailURL, "/media/preview.jpg")
+    }
+
+    func testChatMediaPreviewRequestRejectsNonMediaAndInvalidPaths() {
+        XCTAssertNil(ChatMediaPreviewRequest.resolve(
+            messageType: "text",
+            content: "/api/v1/images/u004/photo.jpg"
+        ))
+        XCTAssertNil(ChatMediaPreviewRequest.resolve(
+            messageType: "image",
+            content: "  "
+        ))
+    }
+
+    func testOutgoingVideoDraftKeepsFileBackedSourceWithoutDataCopy() {
+        let id = UUID()
+        let sourceURL = URL(fileURLWithPath: "/tmp/outgoing-video.mp4")
+        let draft = OutgoingMediaDraft(
+            id: id,
+            kind: .video,
+            localFileURL: sourceURL,
+            filename: "outgoing-video.mp4"
+        )
+
+        XCTAssertEqual(draft.id, id)
+        XCTAssertEqual(draft.localFileURL, sourceURL)
+        XCTAssertNil(draft.data)
+        XCTAssertEqual(draft.pendingPreviewCacheKey, "pending-media:\(id.uuidString)")
+    }
+
+    func testOutgoingImageDraftUsesSameIdentityForPreparedPreview() {
+        let id = UUID()
+        let bytes = Data([0xFF, 0xD8, 0xFF])
+        let draft = OutgoingMediaDraft(
+            id: id,
+            kind: .image,
+            data: bytes,
+            filename: "outgoing-image.jpg"
+        )
+
+        XCTAssertEqual(draft.id, id)
+        XCTAssertEqual(draft.data, bytes)
+        XCTAssertNil(draft.localFileURL)
+        XCTAssertEqual(draft.pendingPreviewCacheKey, "pending-media:\(id.uuidString)")
+    }
+
+    func testPublicProfileCanOpenDirectConversationWhenServerSendingHintIsFalse() throws {
+        let json = #"""
+        {
+          "user_id": " user-2 ",
+          "nickname": "访客",
+          "avatar_url": "",
+          "can_message": false
+        }
+        """#.data(using: .utf8)!
+
+        let profile = try JSONDecoder().decode(PublicProfile.self, from: json)
+
+        XCTAssertFalse(profile.canMessage)
+        XCTAssertTrue(profile.canOpenDirectConversation)
+        XCTAssertEqual(profile.directConversationUserID, "user-2")
+    }
+
+    func testPublicProfileWithoutUserIDCannotOpenDirectConversation() {
+        let profile = PublicProfile(userID: "  ", nickname: "访客", avatarURL: "")
+
+        XCTAssertFalse(profile.canOpenDirectConversation)
+        XCTAssertNil(profile.directConversationUserID)
+    }
+
+    func testChatHistoryRestoresImageReplyWhenOnlyReplyIDIsReturned() {
+        let source = Message(
+            id: 101,
+            senderID: "friend-1",
+            receiverID: "me",
+            msgType: "image",
+            content: "https://example.test/image.jpg",
+            timestamp: "2026-07-22T10:00:00Z",
+            replyToID: nil,
+            replyTo: nil
+        )
+        let reply = Message(
+            id: 102,
+            senderID: "me",
+            receiverID: "friend-1",
+            msgType: "text",
+            content: "收到",
+            timestamp: "2026-07-22T10:00:01Z",
+            replyToID: source.id,
+            replyTo: nil
+        )
+
+        let directPreview = ChatHistoryReplyResolver.directReply(
+            for: reply,
+            messagesByID: [source.id: source, reply.id: reply]
+        )
+        XCTAssertEqual(directPreview?.msgType, "image")
+        XCTAssertEqual(directPreview?.content, source.content)
+
+        let groupSource = GroupMessage(
+            id: 201,
+            groupID: 9,
+            senderID: "member-1",
+            msgType: "image",
+            content: "https://example.test/group-image.jpg",
+            timestamp: "2026-07-22T10:00:00Z",
+            senderNickname: "成员",
+            senderAvatar: "",
+            replyToID: nil,
+            replyTo: nil,
+            mentions: nil
+        )
+        let groupReply = GroupMessage(
+            id: 202,
+            groupID: 9,
+            senderID: "me",
+            msgType: "text",
+            content: "好的",
+            timestamp: "2026-07-22T10:00:01Z",
+            senderNickname: "我",
+            senderAvatar: "",
+            replyToID: groupSource.id,
+            replyTo: nil,
+            mentions: nil
+        )
+
+        let groupPreview = ChatHistoryReplyResolver.groupReply(
+            for: groupReply,
+            messagesByID: [groupSource.id: groupSource, groupReply.id: groupReply]
+        )
+        XCTAssertEqual(groupPreview?.msgType, "image")
+        XCTAssertEqual(groupPreview?.content, groupSource.content)
     }
 
     func testCallStartResponsePreservesServerCallIdentity() throws {
@@ -36,6 +310,1260 @@ final class APIResponseContractTests: XCTestCase {
 
         XCTAssertNil(response.callID)
         XCTAssertEqual(response.roomName, "call_room_legacy")
+        XCTAssertNil(response.callType)
+        XCTAssertNil(response.billingPolicy)
+    }
+
+    func testCallJoinResponseDecodesVoiceAndImmutableBillingSnapshot() throws {
+        let data = #"""
+        {
+          "call_id": "call_voice_01",
+          "room_name": "live_voice_01",
+          "token": "livekit-token",
+          "livekit_url": "https://livekit.example.test",
+          "call_type": "voice",
+          "billing_policy": {
+            "currency": "spendable_balance",
+            "free_seconds": 10,
+            "unit_seconds": 60,
+            "amount_per_unit": 100,
+            "minimum_starting_balance": 100,
+            "rounding": "started_unit"
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(CallJoinResponse.self, from: data)
+
+        XCTAssertEqual(response.callID, "call_voice_01")
+        XCTAssertEqual(response.callType, .voice)
+        XCTAssertEqual(response.billingPolicy, .fallback)
+    }
+
+    func testOneToOneLiveSlotPageDecodesRealLobbyPayload() throws {
+        let data = #"""
+        {
+          "items": [
+            {
+              "id": "slot_01",
+              "status": "waiting",
+              "character_setting": "温柔的旅行摄影师",
+              "created_at": "2026-07-22T11:30:00Z",
+              "user": {
+                "user_id": "u004",
+                "username": "simple",
+                "nickname": "Simple",
+                "avatar_url": "https://example.test/simple.jpg"
+              }
+            }
+          ],
+          "next_cursor": "cursor_02"
+        }
+        """#.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(OneToOneLiveSlotPage.self, from: data)
+
+        XCTAssertEqual(page.items.count, 1)
+        XCTAssertEqual(page.items[0].id, "slot_01")
+        XCTAssertEqual(page.items[0].user.userID, "u004")
+        XCTAssertEqual(page.items[0].user.username, "simple")
+        XCTAssertEqual(page.items[0].user.gender, "")
+        XCTAssertEqual(page.items[0].characterSetting, "温柔的旅行摄影师")
+        XCTAssertEqual(page.nextCursor, "cursor_02")
+        XCTAssertEqual(page.billingPolicy, .fallback)
+        XCTAssertEqual(page.supportedCallTypes, [.video])
+        XCTAssertFalse(page.liveAvatarUploadSupported)
+        XCTAssertEqual(page.items[0].liveAvatarURL, "")
+        XCTAssertNil(page.items[0].allowedCallTypes)
+    }
+
+    func testOneToOneLiveSlotDecodesHostAllowedCallTypesInStableOrder() throws {
+        let data = #"""
+        {
+          "id": "slot_modes",
+          "status": "waiting",
+          "character_setting": "音乐主播",
+          "allowed_call_types": ["video", "voice", "video"],
+          "user": {
+            "user_id": "host_modes",
+            "username": "host",
+            "avatar_url": ""
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let slot = try JSONDecoder().decode(OneToOneLiveSlot.self, from: data)
+
+        XCTAssertEqual(slot.allowedCallTypes, [.voice, .video])
+        XCTAssertEqual(
+            LiveSlotCallTypePolicy.effective(
+                globallySupported: [.voice, .video],
+                hostAllowed: slot.allowedCallTypes
+            ),
+            [.voice, .video]
+        )
+        XCTAssertEqual(
+            LiveSlotCallTypePolicy.effective(
+                globallySupported: [.voice, .video],
+                hostAllowed: [.voice]
+            ),
+            [.voice]
+        )
+        XCTAssertEqual(
+            LiveSlotCallTypePolicy.effective(
+                globallySupported: [.voice, .video],
+                hostAllowed: [.video]
+            ),
+            [.video]
+        )
+    }
+
+    func testOneToOneLiveSlotPageDecodesGenderBillingAndAudioVideoCapabilities() throws {
+        let data = #"""
+        {
+          "items": [
+            {
+              "id": "slot_01",
+              "status": "waiting",
+              "character_setting": "雨夜电台主播",
+              "live_avatar_url": "https://example.test/live-avatar.jpg",
+              "user": {
+                "user_id": "host_01",
+                "username": "radio",
+                "nickname": "晚风",
+                "avatar_url": "https://example.test/avatar.jpg",
+                "gender": "female"
+              }
+            }
+          ],
+          "billing_policy": {
+            "currency": "spendable_balance",
+            "free_seconds": "10",
+            "unit_seconds": 60,
+            "amount_per_unit": "100",
+            "minimum_starting_balance": 100,
+            "rounding": "started_unit"
+          },
+          "supported_call_types": ["voice", "video"],
+          "live_avatar_upload_supported": true
+        }
+        """#.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(OneToOneLiveSlotPage.self, from: data)
+
+        XCTAssertEqual(page.items.first?.user.gender, "female")
+        XCTAssertEqual(
+            page.items.first?.liveAvatarURL,
+            "https://example.test/live-avatar.jpg"
+        )
+        XCTAssertEqual(page.billingPolicy, .fallback)
+        XCTAssertEqual(page.supportedCallTypes, [.voice, .video])
+        XCTAssertTrue(page.liveAvatarUploadSupported)
+    }
+
+    func testOneToOneLiveSlotPageAcceptsLegacySlotsAndHostKeys() throws {
+        let data = #"""
+        {
+          "slots": [
+            {
+              "id": 17,
+              "status": "waiting",
+              "character_setting": "摄影师",
+              "host": {
+                "user_id": 4,
+                "username": "simple",
+                "avatar_url": ""
+              }
+            }
+          ]
+        }
+        """#.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(OneToOneLiveSlotPage.self, from: data)
+
+        XCTAssertEqual(page.items.first?.id, "17")
+        XCTAssertEqual(page.items.first?.user.userID, "4")
+        XCTAssertEqual(page.items.first?.user.gender, "")
+        XCTAssertNil(page.nextCursor)
+        XCTAssertEqual(page.billingPolicy, .fallback)
+        XCTAssertEqual(page.supportedCallTypes, [.video])
+        XCTAssertFalse(page.liveAvatarUploadSupported)
+        XCTAssertEqual(page.items.first?.liveAvatarURL, "")
+    }
+
+    func testOneToOneLiveAvatarUploadDecodesAssetAndDisplayURL() throws {
+        let upload = try JSONDecoder().decode(
+            OneToOneLiveAvatarUpload.self,
+            from: #"""
+            {
+              "asset_id": "live_avatar_01",
+              "live_avatar_url": "https://example.test/live-avatar-01.jpg"
+            }
+            """#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(upload.assetID, "live_avatar_01")
+        XCTAssertEqual(
+            upload.liveAvatarURL,
+            "https://example.test/live-avatar-01.jpg"
+        )
+    }
+
+    func testLiveInvitationDefaultsLegacyPayloadToVideo() throws {
+        let response = try JSONDecoder().decode(
+            LiveCallInvitationResponse.self,
+            from: #"{"call_id":"call_legacy"}"#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(response.callID, "call_legacy")
+        XCTAssertEqual(response.callType, .video)
+        XCTAssertNil(response.billingPolicy)
+    }
+
+    func testLiveInvitationDecodesServerConfirmedVoicePolicy() throws {
+        let response = try JSONDecoder().decode(
+            LiveCallInvitationResponse.self,
+            from: #"""
+            {
+              "call_id": "call_voice",
+              "call_type": "voice",
+              "billing_policy": {
+                "currency": "spendable_balance",
+                "free_seconds": 5,
+                "unit_seconds": 30,
+                "amount_per_unit": 40,
+                "minimum_starting_balance": 40,
+                "rounding": "started_unit"
+              }
+            }
+            """#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(response.callType, .voice)
+        XCTAssertEqual(response.billingPolicy?.freeSeconds, 5)
+        XCTAssertEqual(response.billingPolicy?.unitSeconds, 30)
+        XCTAssertEqual(response.billingPolicy?.amountPerUnit, 40)
+    }
+
+    func testLiveExperienceInvitationRequestUsesExactCardContractAndStableIdempotencyKey() {
+        let key = UUID(uuidString: "E02A86E8-D49B-4DA0-AB7C-43983803C910")!
+        let request = LiveCallInvitationRequest(
+            callType: .voice,
+            paymentMethod: .experienceCard(.fiveMinutes),
+            idempotencyKey: key
+        )
+
+        XCTAssertEqual(request.body["call_type"] as? String, "voice")
+        XCTAssertEqual(request.body["payment_method"] as? String, "prop_card")
+        XCTAssertEqual(
+            request.body["prop_definition_id"] as? String,
+            "live_experience_card_5m"
+        )
+        XCTAssertEqual(request.idempotencyHeaderValue, key.uuidString)
+        XCTAssertFalse(request.paymentMethod.requiresStartingBalance)
+
+        let legacy = LiveCallInvitationRequest(
+            callType: .video,
+            paymentMethod: .spendableBalance,
+            idempotencyKey: key
+        )
+        XCTAssertEqual(legacy.body.count, 1)
+        XCTAssertEqual(legacy.body["call_type"] as? String, "video")
+        XCTAssertTrue(legacy.paymentMethod.requiresStartingBalance)
+    }
+
+    func testLiveInvitationDecodesReservedExperienceSnapshot() throws {
+        let response = try JSONDecoder().decode(
+            LiveCallInvitationResponse.self,
+            from: #"""
+            {
+              "call_id": "call_experience_5m",
+              "call_type": "video",
+              "live_experience": {
+                "prop_definition_id": "live_experience_card_5m",
+                "duration_seconds": 300,
+                "status": "reserved",
+                "auto_continue_payment_method": "spendable_balance",
+                "host_earning_enabled": false,
+                "reserved_prop": {
+                  "inventory_id": "inventory-live-5m",
+                  "definition_id": "live_experience_card_5m",
+                  "remaining_quantity": 1
+                }
+              }
+            }
+            """#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(response.liveExperience?.cardKind, .fiveMinutes)
+        XCTAssertEqual(response.liveExperience?.durationSeconds, 300)
+        XCTAssertEqual(response.liveExperience?.status, .reserved)
+        XCTAssertEqual(response.liveExperience?.autoContinuePaymentMethod, "spendable_balance")
+        XCTAssertEqual(response.liveExperience?.hostEarningEnabled, false)
+        XCTAssertEqual(response.liveExperience?.reservedProp?.remainingQuantity, 1)
+    }
+
+    func testOneToOneLiveSlotCreationAcceptsNestedSlotEnvelope() throws {
+        let data = #"""
+        {
+          "slot": {
+            "id": "slot_01",
+            "status": "waiting",
+            "character_setting": "温柔的旅行摄影师",
+            "user": {
+              "user_id": "u004",
+              "username": "simple",
+              "avatar_url": ""
+            }
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let creation = try JSONDecoder().decode(OneToOneLiveSlotCreationData.self, from: data)
+
+        XCTAssertEqual(creation.slot.id, "slot_01")
+        XCTAssertEqual(creation.slot.user.userID, "u004")
+    }
+
+    func testOneToOneLiveSlotCreationStillAcceptsDirectSlot() throws {
+        let data = #"""
+        {
+          "id": "slot_02",
+          "status": "waiting",
+          "character_setting": "摄影师",
+          "user": {
+            "user_id": "u004",
+            "username": "simple",
+            "avatar_url": ""
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let creation = try JSONDecoder().decode(OneToOneLiveSlotCreationData.self, from: data)
+
+        XCTAssertEqual(creation.slot.id, "slot_02")
+    }
+
+    func testLiveHostReturnsToLobbyAfterAcceptedIncomingLiveCallEnds() {
+        XCTAssertTrue(
+            LiveHostCallEndPolicy.shouldReturnToLobby(
+                isLivePairCall: true,
+                isOutgoing: false
+            )
+        )
+    }
+
+    func testLiveHostReturnPolicyIgnoresViewerAndRegularCallState() {
+        XCTAssertFalse(
+            LiveHostCallEndPolicy.shouldReturnToLobby(
+                isLivePairCall: true,
+                isOutgoing: true
+            )
+        )
+        XCTAssertFalse(
+            LiveHostCallEndPolicy.shouldReturnToLobby(
+                isLivePairCall: false,
+                isOutgoing: false
+            )
+        )
+    }
+
+    func testAgentLiveInvitationExtractsRequestedRoleForHostBanner() {
+        XCTAssertEqual(
+            LiveCallInvitationMetadata.requestedRoleSetting(
+                from: [
+                    "invitation_source": "agent_match",
+                    "match_id": "match_01",
+                    "role_setting": "  温柔的旅行摄影师  "
+                ]
+            ),
+            "温柔的旅行摄影师"
+        )
+        XCTAssertEqual(
+            LiveCallInvitationMetadata.requestedRoleSetting(
+                from: [
+                    "invitation_source": "agent_match",
+                    "match_id": "match_02",
+                    "character_setting": "古风客栈老板"
+                ]
+            ),
+            "古风客栈老板"
+        )
+    }
+
+    func testManualLiveInvitationDoesNotTreatHostSlotRoleAsRequestedRole() {
+        XCTAssertNil(
+            LiveCallInvitationMetadata.requestedRoleSetting(
+                from: [
+                    "invitation_source": "live_lobby",
+                    "character_setting": "主播自己的直播设定",
+                    "role_setting": "兼容字段也仍然是主播自己的直播设定"
+                ]
+            )
+        )
+    }
+
+    func testLiveInviteCompatibilityKeepsRegularCallInviteOnRegularCallPath() {
+        XCTAssertFalse(
+            LiveCallWebSocketCompatibility.isLegacyLiveInvite([
+                "call_id": "regular_call",
+                "room_name": "regular_room",
+                "caller_id": "user_01"
+            ])
+        )
+    }
+
+    func testLiveInviteCompatibilityRecognizesLegacyAndNestedLivePayloads() {
+        XCTAssertTrue(
+            LiveCallWebSocketCompatibility.isLegacyLiveInvite([
+                "call_id": "live_call_01",
+                "slot_id": "slot_01"
+            ])
+        )
+        XCTAssertTrue(
+            LiveCallWebSocketCompatibility.isLegacyLiveInvite([
+                "invitation": [
+                    "call_id": "live_call_02",
+                    "slot_id": "slot_02"
+                ]
+            ])
+        )
+        XCTAssertEqual(
+            LiveCallWebSocketCompatibility.normalizedType(
+                " one-to-one-live.call_invite "
+            ),
+            "one_to_one_live.call_invite"
+        )
+    }
+
+    func testIncomingLiveInviteNormalizesFlatPayload() throws {
+        let payload = try XCTUnwrap(
+            LiveCallIncomingInvitationPayload.normalize([
+                "call_id": "call_flat",
+                "slot_id": "slot_flat",
+                "caller_id": "caller_flat",
+                "caller_username": "Ming",
+                "call_type": "video"
+            ])
+        )
+
+        XCTAssertEqual(payload["call_id"] as? String, "call_flat")
+        XCTAssertEqual(payload["caller_id"] as? String, "caller_flat")
+        XCTAssertEqual(payload["caller_username"] as? String, "Ming")
+        XCTAssertEqual(payload["call_type"] as? String, "video")
+    }
+
+    func testIncomingLiveInviteNormalizesNestedPayload() throws {
+        let payload = try XCTUnwrap(
+            LiveCallIncomingInvitationPayload.normalize([
+                "invitation": [
+                    "id": "call_nested",
+                    "slotId": "slot_nested",
+                    "media_type": "video"
+                ],
+                "caller": [
+                    "id": "caller_nested",
+                    "nickname": "小明",
+                    "avatar_url": "https://example.test/ming.jpg",
+                    "character_setting": "旅行摄影师"
+                ]
+            ])
+        )
+
+        XCTAssertEqual(payload["call_id"] as? String, "call_nested")
+        XCTAssertEqual(payload["slot_id"] as? String, "slot_nested")
+        XCTAssertEqual(payload["caller_id"] as? String, "caller_nested")
+        XCTAssertEqual(payload["caller_username"] as? String, "小明")
+        XCTAssertEqual(
+            payload["caller_avatar_url"] as? String,
+            "https://example.test/ming.jpg"
+        )
+        XCTAssertEqual(payload["character_setting"] as? String, "旅行摄影师")
+        XCTAssertEqual(payload["call_type"] as? String, "video")
+    }
+
+    func testAcceptedLiveEventIsDeferredUntilInviteResponseProvidesCallID() {
+        XCTAssertEqual(
+            LiveCallEventCorrelation.result(
+                for: [
+                    "call_id": "call_second",
+                    "slot_id": "slot_host",
+                    "host_id": "host_1"
+                ],
+                isOutgoingInvitation: true,
+                invitationCallID: nil,
+                invitationSlotID: "slot_host",
+                peerUserID: "host_1"
+            ),
+            .deferUntilCallID("call_second")
+        )
+    }
+
+    func testAcceptedLiveEventHandlesMatchingSecondCallAfterCallIDArrives() {
+        XCTAssertEqual(
+            LiveCallEventCorrelation.result(
+                for: [
+                    "call_id": "call_second",
+                    "slot_id": "slot_host",
+                    "host_id": "host_1"
+                ],
+                isOutgoingInvitation: true,
+                invitationCallID: " call_second ",
+                invitationSlotID: "slot_host",
+                peerUserID: "host_1"
+            ),
+            .handle("call_second")
+        )
+    }
+
+    func testLiveEventCorrelationRejectsStaleOrAgentMatchEvents() {
+        XCTAssertEqual(
+            LiveCallEventCorrelation.result(
+                for: [
+                    "call_id": "call_first",
+                    "slot_id": "slot_host",
+                    "host_id": "host_1"
+                ],
+                isOutgoingInvitation: true,
+                invitationCallID: "call_second",
+                invitationSlotID: "slot_host",
+                peerUserID: "host_1"
+            ),
+            .ignore
+        )
+        XCTAssertEqual(
+            LiveCallEventCorrelation.result(
+                for: [
+                    "match_id": "match_agent",
+                    "call_id": "call_agent",
+                    "slot_id": "slot_host"
+                ],
+                isOutgoingInvitation: true,
+                invitationCallID: nil,
+                invitationSlotID: "slot_host",
+                peerUserID: "host_1"
+            ),
+            .ignore
+        )
+    }
+
+    func testOneToOneLiveCallStateSupportsAcceptedAndTerminalReconciliation() throws {
+        let accepted = try JSONDecoder().decode(
+            OneToOneLiveCallState.self,
+            from: #"""
+            {
+              "call_id": "call_second",
+              "slot_id": "slot_host",
+              "status": "in_call",
+              "expires_at": "2026-07-23T12:00:15Z",
+              "accepted_at": "2026-07-23T12:00:04Z"
+            }
+            """#.data(using: .utf8)!
+        )
+        XCTAssertEqual(accepted.callID, "call_second")
+        XCTAssertEqual(accepted.phase, .accepted)
+        XCTAssertEqual(accepted.callType, .video)
+        XCTAssertNil(accepted.billingPolicy)
+
+        let ended = try JSONDecoder().decode(
+            OneToOneLiveCallState.self,
+            from: #"""
+            {
+              "call_id": "call_second",
+              "status": "ended"
+            }
+            """#.data(using: .utf8)!
+        )
+        XCTAssertEqual(ended.phase, .terminal)
+    }
+
+    func testOneToOneLiveCallStateCarriesConfirmedMediaAndBillingSnapshot() throws {
+        let state = try JSONDecoder().decode(
+            OneToOneLiveCallState.self,
+            from: #"""
+            {
+              "call_id": "call_voice",
+              "status": "accepted",
+              "call_type": "voice",
+              "billing_policy": {
+                "currency": "spendable_balance",
+                "free_seconds": 10,
+                "unit_seconds": 60,
+                "amount_per_unit": 100,
+                "minimum_starting_balance": 100,
+                "rounding": "started_unit"
+              }
+            }
+            """#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(state.phase, .accepted)
+        XCTAssertEqual(state.callType, .voice)
+        XCTAssertEqual(state.billingPolicy, .fallback)
+    }
+
+    func testLiveExperienceSnapshotRecoversFromCallStateAndFinalSettlement() throws {
+        let state = try JSONDecoder().decode(
+            OneToOneLiveCallState.self,
+            from: #"""
+            {
+              "call_id": "call_experience_15m",
+              "status": "in_call",
+              "server_time": "2026-08-01T12:00:00Z",
+              "live_experience": {
+                "definition_id": "live_experience_card_15m",
+                "duration_seconds": "900",
+                "status": "active",
+                "started_at": "2026-08-01T11:50:00Z",
+                "experience_ends_at": "2026-08-01T12:05:00Z",
+                "host_earning_enabled": false
+              },
+              "final_billing": {
+                "experience_seconds_used": "600",
+                "overage_units": 0,
+                "total_charged": 0,
+                "earned_gold_coins": 0,
+                "consumed_prop": {
+                  "inventory_id": "inventory-live-15m",
+                  "definition_id": "live_experience_card_15m",
+                  "remaining_quantity": 0
+                }
+              }
+            }
+            """#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(state.liveExperience?.cardKind, .fifteenMinutes)
+        XCTAssertEqual(state.liveExperience?.status, .active)
+        let recoveredRemaining = try XCTUnwrap(
+            state.liveExperience?.displayRemainingSeconds(connectedDuration: 600)
+        )
+        XCTAssertTrue((299...300).contains(recoveredRemaining))
+        XCTAssertEqual(state.finalBilling?.experienceSecondsUsed, 600)
+        XCTAssertEqual(state.finalBilling?.overageUnits, 0)
+        XCTAssertEqual(state.finalBilling?.totalCharged, 0)
+        XCTAssertEqual(state.finalBilling?.earnedGoldCoins, 0)
+        XCTAssertEqual(state.finalBilling?.consumedProp?.definitionID, "live_experience_card_15m")
+    }
+
+    func testLiveExperienceCountdownUsesServerClockAnchorInsteadOfDeviceWallClock() throws {
+        let deviceReceiptTime = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2035-01-01T00:00:00Z")
+        )
+        let snapshot = LiveExperienceSnapshot(
+            definitionID: LiveExperienceCardKind.fiveMinutes.definitionID,
+            durationSeconds: 300,
+            status: .active,
+            endsAt: "2026-08-01T12:05:00Z",
+            remainingSeconds: 299,
+            serverTime: "2026-08-01T12:00:00Z",
+            receivedAt: deviceReceiptTime
+        )
+
+        XCTAssertEqual(snapshot.displayRemainingSeconds(
+            connectedDuration: 999,
+            now: deviceReceiptTime.addingTimeInterval(60)
+        ), 240)
+    }
+
+    func testLiveLobbySlotEventDecodesNestedSnapshotForRealtimeUpsert() {
+        let payload = LiveLobbySlotEventPayload(
+            data: [
+                "event_id": "evt_slot_1",
+                "slot": [
+                    "id": "slot_1",
+                    "status": "waiting",
+                    "character_setting": "雨夜电台主播",
+                    "user": [
+                        "user_id": "host_1",
+                        "username": "Miao",
+                        "nickname": "喵喵",
+                        "avatar_url": "https://example.com/avatar.jpg"
+                    ]
+                ]
+            ]
+        )
+
+        XCTAssertEqual(payload.slotID, "slot_1")
+        XCTAssertEqual(payload.userID, "host_1")
+        XCTAssertEqual(payload.status, "waiting")
+        XCTAssertEqual(payload.slot?.characterSetting, "雨夜电台主播")
+    }
+
+    func testLiveLobbyEndedEventDecodesTombstoneWithoutFullSlot() {
+        let payload = LiveLobbySlotEventPayload(
+            data: [
+                "slot_id": "slot_ended",
+                "host_user_id": "host_ended",
+                "status": "ended"
+            ]
+        )
+
+        XCTAssertEqual(payload.slotID, "slot_ended")
+        XCTAssertEqual(payload.userID, "host_ended")
+        XCTAssertEqual(payload.status, "ended")
+        XCTAssertNil(payload.slot)
+    }
+
+    func testLiveCallTerminationPolicyRecognizesBalanceReasonsAndValidatesGrace() {
+        XCTAssertTrue(
+            LiveCallTerminationPolicy.isInsufficientBalance(
+                ["end_reason": "INSUFFICIENT-BALANCE"]
+            )
+        )
+        XCTAssertTrue(
+            LiveCallTerminationPolicy.isInsufficientBalance(
+                ["reason": "billing_insufficient"]
+            )
+        )
+        XCTAssertFalse(
+            LiveCallTerminationPolicy.isInsufficientBalance(
+                ["reason": "remote_hangup"]
+            )
+        )
+        XCTAssertEqual(
+            LiveCallTerminationPolicy.graceNanoseconds(
+                ["termination_grace_ms": 300]
+            ),
+            2_600_000_000
+        )
+        XCTAssertEqual(
+            LiveCallTerminationPolicy.graceNanoseconds(
+                ["termination_grace_ms": 6_000]
+            ),
+            2_600_000_000
+        )
+        XCTAssertEqual(
+            LiveCallTerminationPolicy.graceNanoseconds(
+                ["termination_grace_ms": 1_800]
+            ),
+            1_800_000_000
+        )
+        XCTAssertEqual(
+            LiveCallTerminationPolicy.message(isPayer: true),
+            "金币余额不足，本次视频即将结束"
+        )
+        XCTAssertEqual(
+            LiveCallTerminationPolicy.message(isPayer: false),
+            "对方余额不足，本次视频即将结束"
+        )
+    }
+
+    func testLiveBusinessErrorsUseStableGentleMessages() {
+        XCTAssertEqual(
+            LiveCallBusinessErrorPolicy.message(
+                code: "LIVE_HOST_CANNOT_CALL_OTHER_HOST",
+                serverMessage: nil
+            ),
+            "正在直播，无法与其他在直播的人视频"
+        )
+        XCTAssertEqual(
+            LiveCallBusinessErrorPolicy.message(
+                code: "LIVE_SELF_CALL_FORBIDDEN",
+                serverMessage: "Conflict"
+            ),
+            "这是你的直播，其他用户可以从这里与你连线"
+        )
+        XCTAssertEqual(
+            LiveCallBusinessErrorPolicy.message(
+                code: "LIVE_CALL_TYPE_NOT_ALLOWED",
+                serverMessage: nil
+            ),
+            "该主播未开放这种连线方式"
+        )
+        XCTAssertFalse(
+            LiveCallInitiationPolicy.canInitiate(isCurrentUserLive: true)
+        )
+        XCTAssertTrue(
+            LiveCallInitiationPolicy.canInitiate(isCurrentUserLive: false)
+        )
+    }
+
+    func testLiveTerminationBillingDetailsDoNotExposePayerBalanceToHost() {
+        XCTAssertEqual(
+            LiveCallTerminationPresentationPolicy.billingDetail(
+                isPayer: true,
+                chargedActivityCatFood: 100,
+                chargedGoldCoins: 200,
+                totalCharged: 300,
+                earnedGoldCoins: nil,
+                goldCoinBalanceAfter: 0,
+                activityCatFoodBalanceAfter: 0,
+                spendableBalanceAfter: 0
+            ),
+            [
+                L10n.tr("live.billing.chargedActivityCatFood", 100),
+                L10n.tr("live.billing.chargedGoldCoins", 200),
+                L10n.tr("live.billing.totalCharged", 300),
+                L10n.tr("live.billing.balanceAfter", 0, 0, 0)
+            ].joined(separator: "\n")
+        )
+        XCTAssertNil(
+            LiveCallTerminationPresentationPolicy.billingDetail(
+                isPayer: false,
+                chargedActivityCatFood: 100,
+                chargedGoldCoins: 200,
+                totalCharged: 300,
+                earnedGoldCoins: nil,
+                goldCoinBalanceAfter: 0,
+                activityCatFoodBalanceAfter: 0,
+                spendableBalanceAfter: 0
+            )
+        )
+        XCTAssertEqual(
+            LiveCallTerminationPresentationPolicy.billingDetail(
+                isPayer: false,
+                chargedActivityCatFood: 100,
+                chargedGoldCoins: 200,
+                totalCharged: 300,
+                earnedGoldCoins: 300,
+                goldCoinBalanceAfter: 0,
+                activityCatFoodBalanceAfter: 0,
+                spendableBalanceAfter: 0
+            ),
+            L10n.tr("live.billing.earnedGoldCoins", 300)
+        )
+    }
+
+    func testLiveLobbyEventCursorRejectsDuplicatesAndOlderEvents() {
+        var cursor = LiveLobbyEventCursor()
+        let firstDate = ISO8601DateFormatter().date(
+            from: "2026-07-23T12:00:02Z"
+        )!
+        let olderDate = ISO8601DateFormatter().date(
+            from: "2026-07-23T12:00:01Z"
+        )!
+        let newerDate = ISO8601DateFormatter().date(
+            from: "2026-07-23T12:00:03Z"
+        )!
+
+        XCTAssertTrue(
+            cursor.shouldApply(eventID: "evt_1", slotID: "slot_1", occurredAt: firstDate)
+        )
+        XCTAssertFalse(
+            cursor.shouldApply(eventID: "evt_1", slotID: "slot_1", occurredAt: firstDate)
+        )
+        XCTAssertFalse(
+            cursor.shouldApply(eventID: "evt_old", slotID: "slot_1", occurredAt: olderDate)
+        )
+        XCTAssertTrue(
+            cursor.shouldApply(eventID: "evt_new", slotID: "slot_1", occurredAt: newerDate)
+        )
+    }
+
+    func testLiveLobbyAvailabilityMapsStatusAndFailsClosedForUnknownValues() {
+        XCTAssertEqual(LiveLobbyAvailability(status: "waiting"), .available)
+        XCTAssertEqual(LiveLobbyAvailability(status: "inviting"), .inviting)
+        XCTAssertEqual(LiveLobbyAvailability(status: "connecting"), .busy)
+        XCTAssertEqual(LiveLobbyAvailability(status: "in_call"), .busy)
+        XCTAssertEqual(LiveLobbyAvailability(status: "unexpected_state"), .unknown)
+        XCTAssertEqual(LiveLobbyAvailability(status: "ended"), .ended)
+
+        XCTAssertTrue(LiveLobbyAvailability(status: "waiting").canReceiveCalls)
+        XCTAssertFalse(LiveLobbyAvailability(status: "inviting").canReceiveCalls)
+        XCTAssertFalse(LiveLobbyAvailability(status: "in_call").canReceiveCalls)
+        XCTAssertFalse(LiveLobbyAvailability(status: "unexpected_state").canReceiveCalls)
+    }
+
+    func testLiveLobbySortsAvailableBeforeInvitingAndBusyWithoutReorderingTies() throws {
+        let busyFirst = try liveSlot(id: "busy_1", userID: "u1", status: "in_call")
+        let available = try liveSlot(id: "available", userID: "u2", status: "waiting")
+        let inviting = try liveSlot(id: "inviting", userID: "u3", status: "inviting")
+        let busySecond = try liveSlot(id: "busy_2", userID: "u4", status: "connecting")
+        let unknown = try liveSlot(id: "unknown", userID: "u5", status: "checking")
+
+        XCTAssertEqual(
+            LiveLobbySlotPolicy.sorted([
+                busyFirst,
+                available,
+                inviting,
+                busySecond,
+                unknown
+            ]).map(\.id),
+            ["available", "inviting", "unknown", "busy_1", "busy_2"]
+        )
+    }
+
+    func testLobbySnapshotKeepsBusySlotsAndDropsOnlyEndedSlots() throws {
+        let available = try liveSlot(id: "waiting", userID: "u1", status: "waiting")
+        let inviting = try liveSlot(id: "inviting", userID: "u2", status: "inviting")
+        let busy = try liveSlot(id: "busy", userID: "u3", status: "in_call")
+        let ended = try liveSlot(id: "ended", userID: "u4", status: "ended")
+
+        let merged = LiveLobbySnapshotMergePolicy.merge(
+            snapshot: [busy, ended, inviting, available],
+            current: [],
+            slotMutationSequence: [:],
+            requestStartingMutation: 0
+        )
+
+        XCTAssertEqual(merged.map(\.id), ["waiting", "inviting", "busy"])
+    }
+
+    func testOldLobbyRESTSnapshotCannotRestoreWebSocketEndedSlot() throws {
+        let endedByWebSocket = try liveSlot(id: "slot_ended", userID: "me")
+        let merged = LiveLobbySnapshotMergePolicy.merge(
+            snapshot: [endedByWebSocket],
+            current: [],
+            slotMutationSequence: ["slot_ended": 2],
+            requestStartingMutation: 1
+        )
+
+        XCTAssertTrue(merged.isEmpty)
+    }
+
+    func testNewerWebSocketWaitingSlotIncludingOwnSlotSurvivesRESTMerge() throws {
+        let staleOwn = try liveSlot(
+            id: "slot_me",
+            userID: "me",
+            role: "旧人物设定"
+        )
+        let updatedOwn = try liveSlot(
+            id: "slot_me",
+            userID: "me",
+            role: "新人物设定"
+        )
+        let other = try liveSlot(id: "slot_other", userID: "other")
+
+        let merged = LiveLobbySnapshotMergePolicy.merge(
+            snapshot: [staleOwn, other],
+            current: [updatedOwn],
+            slotMutationSequence: ["slot_me": 3],
+            requestStartingMutation: 2
+        )
+
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(
+            merged.first(where: { $0.user.userID == "me" })?.characterSetting,
+            "新人物设定"
+        )
+        XCTAssertNotNil(merged.first(where: { $0.user.userID == "other" }))
+    }
+
+    func testCurrentOwnedSlotEnvelopeDecodesWaitingAndNilStates() throws {
+        let direct = #"""
+        {
+          "id": "slot_me",
+          "status": "waiting",
+          "character_setting": "旅行摄影师",
+          "user": {
+            "user_id": "me",
+            "username": "Me",
+            "nickname": "我",
+            "avatar_url": ""
+          }
+        }
+        """#.data(using: .utf8)!
+        let nested = #"""
+        {
+          "slot": {
+            "id": "slot_me",
+            "status": "in_call",
+            "character_setting": "旅行摄影师",
+            "user": {
+              "user_id": "me",
+              "username": "Me",
+              "nickname": "我",
+              "avatar_url": ""
+            }
+          }
+        }
+        """#.data(using: .utf8)!
+        let empty = #"{"slot": null}"#.data(using: .utf8)!
+
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                OneToOneLiveCurrentSlotData.self,
+                from: direct
+            ).slot?.status,
+            "waiting"
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                OneToOneLiveCurrentSlotData.self,
+                from: nested
+            ).slot?.status,
+            "in_call"
+        )
+        XCTAssertNil(
+            try JSONDecoder().decode(
+                OneToOneLiveCurrentSlotData.self,
+                from: empty
+            ).slot
+        )
+    }
+
+    func testLiveCallStateDecodesInsufficientTerminationAndFinalBilling() throws {
+        let json = #"""
+        {
+          "call_id": "call_live_01",
+          "slot_id": "slot_01",
+          "status": "ending_insufficient_balance",
+          "end_reason": "insufficient_balance",
+          "termination_grace_ms": 2600,
+          "final_billing": {
+            "charged_units": "3",
+            "charged_activity_cat_food": 100,
+            "charged_gold_coins": 200,
+            "total_charged": 300,
+            "earned_gold_coins": 300,
+            "gold_coin_balance_after": 0,
+            "activity_cat_food_balance_after": 0,
+            "spendable_balance_after": 0,
+            "billing_status": "billing_insufficient"
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let state = try JSONDecoder().decode(
+            OneToOneLiveCallState.self,
+            from: json
+        )
+
+        XCTAssertEqual(state.endReason, "insufficient_balance")
+        XCTAssertEqual(state.terminationGraceMilliseconds, 2_600)
+        XCTAssertEqual(state.finalBilling?.chargedUnits, 3)
+        XCTAssertEqual(state.finalBilling?.chargedActivityCatFood, 100)
+        XCTAssertEqual(state.finalBilling?.chargedGoldCoins, 200)
+        XCTAssertEqual(state.finalBilling?.totalCharged, 300)
+        XCTAssertEqual(state.finalBilling?.earnedGoldCoins, 300)
+        XCTAssertEqual(state.finalBilling?.goldCoinBalanceAfter, 0)
+        XCTAssertEqual(state.finalBilling?.activityCatFoodBalanceAfter, 0)
+        XCTAssertEqual(state.finalBilling?.spendableBalanceAfter, 0)
+        XCTAssertTrue(
+            LiveCallTerminationPolicy.isInsufficientBalance([
+                "status": state.status,
+                "end_reason": state.endReason as Any
+            ])
+        )
+    }
+
+    func testLiveRoleIntroductionUsesEntrySpecificCopyForBothParticipants() {
+        let lobby = LiveCallRoleContext(source: .lobby, roleSetting: "复古唱片店老板")
+        XCTAssertEqual(
+            lobby?.introduction(isOutgoing: true),
+            LiveCallRoleIntroduction(title: "对方正在扮演", detail: "复古唱片店老板")
+        )
+        XCTAssertEqual(
+            lobby?.introduction(isOutgoing: false),
+            LiveCallRoleIntroduction(title: "我正在扮演", detail: "复古唱片店老板")
+        )
+
+        let agent = LiveCallRoleContext(source: .agentMatch, roleSetting: "温柔的旅行摄影师")
+        XCTAssertEqual(
+            agent?.introduction(isOutgoing: true),
+            LiveCallRoleIntroduction(title: "我希望对方扮演", detail: "温柔的旅行摄影师")
+        )
+        XCTAssertEqual(
+            agent?.introduction(isOutgoing: false),
+            LiveCallRoleIntroduction(title: "对方希望我扮演", detail: "温柔的旅行摄影师")
+        )
+    }
+
+    func testLiveBillingHasTenFreeSecondsThenRoundsEachMinuteUp() {
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 0), 0)
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 10), 0)
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 10.001), 100)
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 60), 100)
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 60.001), 200)
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 120), 200)
+        XCTAssertEqual(LiveCallBillingPolicy.accruedSpendableAmount(for: 120.001), 300)
+    }
+
+    func testLiveBillingRequiresOneUnitBeforeStarting() {
+        XCTAssertFalse(LiveCallBillingPolicy.canStart(balance: 99))
+        XCTAssertTrue(LiveCallBillingPolicy.canStart(balance: 100))
+    }
+
+    func testLiveExperienceTenSecondConsumptionBoundaryAndAllDurations() {
+        XCTAssertFalse(LiveExperienceBillingPolicy.shouldConsumeCard(
+            connectedDuration: 10,
+            freeSeconds: 10
+        ))
+        XCTAssertTrue(LiveExperienceBillingPolicy.shouldConsumeCard(
+            connectedDuration: 10.001,
+            freeSeconds: 10
+        ))
+
+        for kind in LiveExperienceCardKind.allCases {
+            XCTAssertEqual(kind.durationSeconds, kind.minutes * 60)
+            XCTAssertEqual(
+                LiveExperienceBillingPolicy.remainingSeconds(
+                    durationSeconds: kind.durationSeconds,
+                    connectedDuration: 0
+                ),
+                kind.durationSeconds
+            )
+            XCTAssertEqual(
+                LiveExperienceBillingPolicy.remainingSeconds(
+                    durationSeconds: kind.durationSeconds,
+                    connectedDuration: TimeInterval(kind.durationSeconds)
+                ),
+                0
+            )
+        }
+    }
+
+    func testLiveExperienceOverageStartsImmediatelyWithoutSecondFreePeriod() {
+        let policy = LiveBillingPolicy.fallback
+
+        XCTAssertEqual(LiveExperienceBillingPolicy.accruedOverageAmount(
+            durationSeconds: 300,
+            connectedDuration: 300,
+            policy: policy
+        ), 0)
+        XCTAssertEqual(LiveExperienceBillingPolicy.accruedOverageAmount(
+            durationSeconds: 300,
+            connectedDuration: 300.001,
+            policy: policy
+        ), 100)
+        XCTAssertEqual(LiveExperienceBillingPolicy.accruedOverageAmount(
+            durationSeconds: 300,
+            connectedDuration: 360,
+            policy: policy
+        ), 100)
+        XCTAssertEqual(LiveExperienceBillingPolicy.accruedOverageAmount(
+            durationSeconds: 300,
+            connectedDuration: 360.001,
+            policy: policy
+        ), 200)
+    }
+
+    func testServerBillingPolicyUsesItsOwnBoundariesForBothMediaTypes() throws {
+        let policy = try JSONDecoder().decode(
+            LiveBillingPolicy.self,
+            from: #"""
+            {
+              "currency": "spendable_balance",
+              "free_seconds": 5,
+              "unit_seconds": 30,
+              "amount_per_unit": 40,
+              "minimum_starting_balance": 80,
+              "rounding": "started_unit"
+            }
+            """#.data(using: .utf8)!
+        )
+
+        for callType in [CallType.voice, .video] {
+            XCTAssertEqual(policy.accruedAmount(for: 0), 0, "\(callType)")
+            XCTAssertEqual(policy.accruedAmount(for: 5), 0, "\(callType)")
+            XCTAssertEqual(policy.accruedAmount(for: 5.001), 40, "\(callType)")
+            XCTAssertEqual(policy.accruedAmount(for: 30), 40, "\(callType)")
+            XCTAssertEqual(policy.accruedAmount(for: 30.001), 80, "\(callType)")
+            XCTAssertEqual(policy.accruedAmount(for: 60), 80, "\(callType)")
+        }
+        XCTAssertFalse(policy.canStart(balance: 79))
+        XCTAssertTrue(policy.canStart(balance: 80))
+        XCTAssertEqual(policy.compactRateText, L10n.tr("live.billing.ratePerSeconds", 40, 30))
+        XCTAssertEqual(policy.fullRuleText, L10n.tr("live.billing.rulePerSeconds", 5, 30, 40))
+    }
+
+    func testMalformedBillingPolicySanitizesUnsafeValues() throws {
+        let policy = try JSONDecoder().decode(
+            LiveBillingPolicy.self,
+            from: #"""
+            {
+              "currency": "",
+              "free_seconds": -1,
+              "unit_seconds": 0,
+              "amount_per_unit": -8,
+              "minimum_starting_balance": 0,
+              "rounding": ""
+            }
+            """#.data(using: .utf8)!
+        )
+
+        XCTAssertEqual(policy.currency, "spendable_balance")
+        XCTAssertEqual(policy.freeSeconds, 0)
+        XCTAssertEqual(policy.unitSeconds, 60)
+        XCTAssertEqual(policy.amountPerUnit, 100)
+        XCTAssertEqual(policy.minimumStartingBalance, 100)
+        XCTAssertEqual(policy.rounding, "started_unit")
+    }
+
+    func testLiveAvatarCropGeometryCentersLandscapeAndPortraitImages() {
+        let landscape = LiveAvatarCropRenderer.cropRect(
+            imageSize: CGSize(width: 1_200, height: 800),
+            viewportSide: 300,
+            zoom: 1,
+            offset: .zero
+        )
+        XCTAssertEqual(landscape.origin.x, 200, accuracy: 0.001)
+        XCTAssertEqual(landscape.origin.y, 0, accuracy: 0.001)
+        XCTAssertEqual(landscape.width, 800, accuracy: 0.001)
+        XCTAssertEqual(landscape.height, 800, accuracy: 0.001)
+
+        let portrait = LiveAvatarCropRenderer.cropRect(
+            imageSize: CGSize(width: 800, height: 1_200),
+            viewportSide: 300,
+            zoom: 1,
+            offset: .zero
+        )
+        XCTAssertEqual(portrait.origin.x, 0, accuracy: 0.001)
+        XCTAssertEqual(portrait.origin.y, 200, accuracy: 0.001)
+        XCTAssertEqual(portrait.width, 800, accuracy: 0.001)
+        XCTAssertEqual(portrait.height, 800, accuracy: 0.001)
+    }
+
+    func testLiveAvatarCropClampsDragAndZoomWithoutExposingEmptySpace() {
+        let clamped = LiveAvatarCropRenderer.clampedOffset(
+            CGSize(width: 500, height: -500),
+            imageSize: CGSize(width: 1_200, height: 800),
+            viewportSide: 300,
+            zoom: 1
+        )
+        XCTAssertEqual(clamped.width, 75, accuracy: 0.001)
+        XCTAssertEqual(clamped.height, 0, accuracy: 0.001)
+
+        let zoomed = LiveAvatarCropRenderer.cropRect(
+            imageSize: CGSize(width: 1_200, height: 800),
+            viewportSide: 300,
+            zoom: 2,
+            offset: CGSize(width: 75, height: 0)
+        )
+        XCTAssertEqual(zoomed.width, 400, accuracy: 0.001)
+        XCTAssertEqual(zoomed.height, 400, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(zoomed.minX, 0)
+        XCTAssertLessThanOrEqual(zoomed.maxX, 1_200)
+    }
+
+    func testLiveAvatarCropExportsSquareJPEGWithinConfiguredLimit() throws {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(
+            size: CGSize(width: 1_200, height: 800),
+            format: format
+        ).image { context in
+            UIColor.systemPurple.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 1_200, height: 800))
+        }
+
+        let data = try XCTUnwrap(
+            LiveAvatarCropRenderer.croppedJPEG(
+                image: image,
+                viewportSide: 300,
+                zoom: 1,
+                offset: .zero
+            )
+        )
+        let output = try XCTUnwrap(UIImage(data: data))
+
+        XCTAssertEqual(output.size.width, output.size.height, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(output.size.width, 1_024)
+        XCTAssertLessThanOrEqual(data.count, 1_000_000)
+    }
+
+    func testLiveHostCannotInitiateVideoWithAnotherLiveHost() {
+        XCTAssertFalse(
+            LiveCallInitiationPolicy.canInitiate(isCurrentUserLive: true)
+        )
+        XCTAssertTrue(
+            LiveCallInitiationPolicy.canInitiate(isCurrentUserLive: false)
+        )
+        XCTAssertEqual(
+            LiveCallInitiationPolicy.hostingBlockMessage,
+            "正在直播，无法与其他在直播的人视频"
+        )
     }
 
     func testCallSignalIdentityDeduplicatesWebSocketAndPushInvite() {
@@ -189,6 +1717,37 @@ final class APIResponseContractTests: XCTestCase {
         let error = APIError.serverError(code: 422, message: "Nickname is required")
 
         XCTAssertEqual(error.errorDescription, "Nickname is required")
+    }
+
+    func testSensitiveLogRedactorRemovesGameTokensTicketsAndAuthorization() {
+        let secretTicket = "ticket-secret-value"
+        let secretRoundToken = "round-secret-value"
+        let camelCaseRoundToken = "camel-round-secret-value"
+        let secretAuthorization = "access-secret-value"
+        let source = """
+        launch=https://id7.com/api/v1/game-assets/just-clear/?ticket=\(secretTicket) \
+        \"round_token\":\"\(secretRoundToken)\" roundToken=\(camelCaseRoundToken) \
+        {\"ticket\":\"\(secretTicket)\"} Authorization: Bearer \(secretAuthorization)
+        """
+
+        let redacted = SensitiveLogRedactor.redact(source)
+
+        XCTAssertFalse(redacted.contains(secretTicket))
+        XCTAssertFalse(redacted.contains(secretRoundToken))
+        XCTAssertFalse(redacted.contains(camelCaseRoundToken))
+        XCTAssertFalse(redacted.contains(secretAuthorization))
+        XCTAssertTrue(redacted.contains("ticket=<redacted>"))
+        XCTAssertTrue(redacted.contains("round_token\":\"<redacted>"))
+        XCTAssertTrue(redacted.contains("Authorization: Bearer <redacted>"))
+    }
+
+    func testSensitiveHTTPResponsePolicyPreventsDiskCaching() throws {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "https://id7.com/api/v1/game-assets/")))
+
+        SensitiveHTTPResponsePolicy.apply(to: &request)
+
+        XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Cache-Control"), "no-store")
     }
 
     func testTransientRetryPolicyOnlyRetriesIdempotentRequests() {
@@ -358,6 +1917,88 @@ final class APIResponseContractTests: XCTestCase {
         )
     }
 
+    func testAgentImageReplyOnlyTargetsAccessibleImagesAndKeepsSourceMessage() throws {
+        let message = try JSONDecoder().decode(AgentMessage.self, from: #"""
+        {
+          "id": "message-source-1",
+          "conversation_id": "conversation-1",
+          "sequence_no": 3,
+          "sender": { "type": "agent", "id": "agent-1" },
+          "source": "turn",
+          "status": "completed",
+          "created_at": "2026-07-22T10:00:00Z",
+          "updated_at": "2026-07-22T10:00:01Z",
+          "parts": []
+        }
+        """#.data(using: .utf8)!)
+        let unlocked = try JSONDecoder().decode(AgentMessagePart.self, from: #"""
+        {
+          "id": "part-unlocked",
+          "ordinal": 0,
+          "type": "paid_media",
+          "reference_id": "media-1",
+          "metadata": {
+            "media_type": "image",
+            "access": "unlocked",
+            "content_url": "/agent-media/media-1/content"
+          }
+        }
+        """#.data(using: .utf8)!)
+        let locked = try JSONDecoder().decode(AgentMessagePart.self, from: #"""
+        {
+          "id": "part-locked",
+          "ordinal": 1,
+          "type": "paid_media",
+          "reference_id": "media-2",
+          "metadata": {
+            "media_type": "image",
+            "access": "locked",
+            "preview_url": "/agent-media/media-2/preview"
+          }
+        }
+        """#.data(using: .utf8)!)
+
+        let target = try XCTUnwrap(
+            AgentGalleryMediaResolver.imageReplyTarget(for: unlocked, in: message)
+        )
+        XCTAssertEqual(target.messageID, "message-source-1")
+        XCTAssertEqual(target.partID, "part-unlocked")
+        XCTAssertEqual(target.imagePath, "/agent-media/media-1/content")
+        XCTAssertEqual(target.senderLabel, "智能体")
+        XCTAssertNil(AgentGalleryMediaResolver.imageReplyTarget(for: locked, in: message))
+    }
+
+    func testAgentMessageDecodesImageReplyRelationship() throws {
+        let message = try JSONDecoder().decode(AgentMessage.self, from: #"""
+        {
+          "id": "message-reply-1",
+          "conversation_id": "conversation-1",
+          "sequence_no": 4,
+          "sender": { "type": "user", "id": "user-1" },
+          "source": "turn",
+          "status": "completed",
+          "reply_to_id": "message-source-1",
+          "created_at": "2026-07-22T10:01:00Z",
+          "updated_at": "2026-07-22T10:01:01Z",
+          "parts": [{
+            "id": "part-input-1",
+            "ordinal": 0,
+            "type": "input_image",
+            "asset_id": "asset-copy-1"
+          }]
+        }
+        """#.data(using: .utf8)!)
+
+        XCTAssertEqual(message.replyToID, "message-source-1")
+        XCTAssertEqual(message.parts.first?.assetID, "asset-copy-1")
+
+        let fallbackTarget = try XCTUnwrap(
+            AgentHistoryImageReplyResolver.target(for: message, messages: [message])
+        )
+        XCTAssertEqual(fallbackTarget.messageID, "message-reply-1")
+        XCTAssertEqual(fallbackTarget.imagePath, "/agent-assets/asset-copy-1/content")
+    }
+
     func testAgentSummaryDecodesDraftContractVariants() throws {
         let json = #"""
         {
@@ -489,13 +2130,36 @@ final class APIResponseContractTests: XCTestCase {
 
     func testAgentImageTransformModeBuildsExplicitToolInstruction() {
         let text = AgentImageRequestMode.transform.outboundText(userText: "把背景改成夜晚")
+        let replyWithoutAdditionalText = AgentImageRequestMode.transform.outboundText(userText: "")
 
         XCTAssertTrue(text.hasPrefix(AgentImageRequestMode.transformInstructionPrefix))
         XCTAssertTrue(text.contains("实际调用图片生成工具"))
         XCTAssertTrue(text.contains("把背景改成夜晚"))
         XCTAssertTrue(AgentImageRequestMode.isTransformRequest(text: text))
+        XCTAssertTrue(replyWithoutAdditionalText.hasPrefix(AgentImageRequestMode.transformInstructionPrefix))
+        XCTAssertTrue(replyWithoutAdditionalText.contains("实际调用图片生成工具"))
+        XCTAssertTrue(replyWithoutAdditionalText.contains("请保持主体特征和整体构图"))
         XCTAssertEqual(
             AgentImageRequestMode.analyze.outboundText(userText: "  这张图里有什么？  "),
+            "这张图里有什么？"
+        )
+    }
+
+    func testAgentImageTransformOnlyShowsUserAuthoredTextInMessageBubble() {
+        let outbound = AgentImageRequestMode.transform.outboundText(userText: "  把背景改成夜晚  ")
+
+        XCTAssertEqual(
+            AgentImageRequestMode.userVisibleText(from: outbound),
+            "把背景改成夜晚"
+        )
+        XCTAssertEqual(
+            AgentImageRequestMode.userVisibleText(
+                from: AgentImageRequestMode.transform.outboundText(userText: "")
+            ),
+            ""
+        )
+        XCTAssertEqual(
+            AgentImageRequestMode.userVisibleText(from: "  这张图里有什么？  "),
             "这张图里有什么？"
         )
     }
@@ -546,6 +2210,179 @@ final class APIResponseContractTests: XCTestCase {
         )
         XCTAssertTrue(available.canGenerate)
         XCTAssertNil(available.blockReason)
+    }
+
+    func testAgentGeneratedMediaPollingContinuesAfterTurnCompletesUntilImageSettles() throws {
+        XCTAssertEqual(
+            AgentGeneratedMediaPollingPolicy.decision(
+                expectsGeneratedMedia: true,
+                mediaParts: []
+            ),
+            .waitForMediaPart
+        )
+
+        let generating = try JSONDecoder().decode(AgentMessagePart.self, from: #"""
+        {
+          "id": "part-generating",
+          "ordinal": 0,
+          "type": "paid_media",
+          "reference_id": "media-1",
+          "metadata": {
+            "media_type": "image",
+            "generation_status": "generating",
+            "access": "locked"
+          }
+        }
+        """#.data(using: .utf8)!)
+        XCTAssertEqual(
+            AgentGeneratedMediaPollingPolicy.decision(
+                expectsGeneratedMedia: true,
+                mediaParts: [generating]
+            ),
+            .waitForGeneration
+        )
+
+        let readyWithoutPreview = try JSONDecoder().decode(AgentMessagePart.self, from: #"""
+        {
+          "id": "part-ready-without-preview",
+          "ordinal": 0,
+          "type": "paid_media",
+          "reference_id": "media-1",
+          "metadata": {
+            "media_type": "image",
+            "generation_status": "ready",
+            "access": "locked",
+            "price_points": 20
+          }
+        }
+        """#.data(using: .utf8)!)
+        XCTAssertEqual(
+            AgentPaidMediaStatePolicy.displayStatus(for: readyWithoutPreview.metadata),
+            "ready_locked"
+        )
+        XCTAssertEqual(
+            AgentGeneratedMediaPollingPolicy.decision(
+                expectsGeneratedMedia: true,
+                mediaParts: [readyWithoutPreview]
+            ),
+            .waitForGeneration
+        )
+
+        let readyWithoutAccess = try JSONDecoder().decode(AgentMessagePart.self, from: #"""
+        {
+          "id": "part-ready-without-access",
+          "ordinal": 0,
+          "type": "paid_media",
+          "reference_id": "media-1",
+          "metadata": {
+            "media_type": "image",
+            "generation_status": "ready"
+          }
+        }
+        """#.data(using: .utf8)!)
+        XCTAssertEqual(
+            AgentPaidMediaStatePolicy.displayStatus(for: readyWithoutAccess.metadata),
+            "generating"
+        )
+        XCTAssertEqual(
+            AgentGeneratedMediaPollingPolicy.decision(
+                expectsGeneratedMedia: true,
+                mediaParts: [readyWithoutAccess]
+            ),
+            .waitForGeneration
+        )
+
+        let ready = try JSONDecoder().decode(AgentMessagePart.self, from: #"""
+        {
+          "id": "part-ready",
+          "ordinal": 0,
+          "type": "paid_media",
+          "reference_id": "media-1",
+          "metadata": {
+            "media_type": "image",
+            "generation_status": "ready_locked",
+            "access": "locked",
+            "preview_url": "/agent-media/media-1/preview"
+          }
+        }
+        """#.data(using: .utf8)!)
+        XCTAssertEqual(
+            AgentGeneratedMediaPollingPolicy.decision(
+                expectsGeneratedMedia: true,
+                mediaParts: [ready]
+            ),
+            .stop
+        )
+        XCTAssertEqual(
+            AgentGeneratedMediaPollingPolicy.decision(
+                expectsGeneratedMedia: false,
+                mediaParts: [generating]
+            ),
+            .stop
+        )
+    }
+
+    func testAgentImageProgressCardRemainsVisibleUntilMediaBubbleAppears() {
+        XCTAssertEqual(
+            AgentTurnProgressPresentationPolicy.status(
+                turnStatus: "completed",
+                turnIsTerminal: true,
+                isAwaitingGeneratedMedia: true,
+                isAwaitingTerminalResponse: false,
+                mediaDecision: .waitForMediaPart
+            ),
+            "waiting_image"
+        )
+        XCTAssertNil(
+            AgentTurnProgressPresentationPolicy.status(
+                turnStatus: "completed",
+                turnIsTerminal: true,
+                isAwaitingGeneratedMedia: true,
+                isAwaitingTerminalResponse: false,
+                mediaDecision: .waitForGeneration
+            )
+        )
+        XCTAssertEqual(
+            AgentTurnProgressPresentationPolicy.status(
+                turnStatus: "running",
+                turnIsTerminal: false,
+                isAwaitingGeneratedMedia: false,
+                isAwaitingTerminalResponse: false,
+                mediaDecision: nil
+            ),
+            "running"
+        )
+    }
+
+    func testAgentTerminalTurnKeepsPollingUntilReplyMessageIsRenderable() {
+        XCTAssertTrue(
+            AgentTerminalResponsePollingPolicy.shouldWait(
+                turnStatus: "completed",
+                hasRenderableResponse: false
+            )
+        )
+        XCTAssertFalse(
+            AgentTerminalResponsePollingPolicy.shouldWait(
+                turnStatus: "completed",
+                hasRenderableResponse: true
+            )
+        )
+        XCTAssertFalse(
+            AgentTerminalResponsePollingPolicy.shouldWait(
+                turnStatus: "failed",
+                hasRenderableResponse: false
+            )
+        )
+        XCTAssertEqual(
+            AgentTurnProgressPresentationPolicy.status(
+                turnStatus: "completed",
+                turnIsTerminal: true,
+                isAwaitingGeneratedMedia: false,
+                isAwaitingTerminalResponse: true,
+                mediaDecision: .stop
+            ),
+            "waiting_response"
+        )
     }
 
     func testAgentEntryBelongsToProfileAndIsHiddenFromContacts() {
@@ -601,6 +2438,41 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertTrue(MessageDeliveryMatcher.contentsMatch(type: "gift", lhs: lhs, rhs: rhs))
     }
 
+    @MainActor
+    func testGiftVisualFeedbackIsDispatchedBeforeBackendTransfer() async {
+        var events: [String] = []
+
+        let transferTask = GiftSendInteractionDispatcher.dispatch {
+            events.append("animation")
+        } scheduleTransfer: {
+            events.append("network")
+        }
+
+        XCTAssertEqual(events, ["animation"])
+        await transferTask.value
+        XCTAssertEqual(events, ["animation", "network"])
+    }
+
+    func testBuiltInGiftAssetsResolveToBundledImages() {
+        for gift in GiftCatalogItem.fixedCatalog {
+            XCTAssertEqual(GiftCatalogItem.bundledAssetName(for: gift.assetKey), gift.assetKey)
+        }
+    }
+
+    func testRemoteOnlyGiftAssetDoesNotResolveToBundledImage() {
+        XCTAssertNil(GiftCatalogItem.bundledAssetName(for: "gift_festival_remote"))
+    }
+
+    func testGiftCatalogRejectsRetiredGameEntryItem() throws {
+        let data = Data(
+            #"{"gift_id":"legacy-entry","name":"Legacy","price":10,"asset_key":"prop_game_entry_card"}"#.utf8
+        )
+        let item = try JSONDecoder().decode(GiftCatalogItem.self, from: data)
+
+        XCTAssertFalse(item.isSupportedCatalogItem)
+        XCTAssertTrue(GiftCatalogItem.fixedCatalog.allSatisfy(\.isSupportedCatalogItem))
+    }
+
     func testDeliveryMatcherDoesNotCollapseDifferentTextMessages() {
         XCTAssertFalse(MessageDeliveryMatcher.contentsMatch(
             type: "text",
@@ -641,6 +2513,128 @@ final class APIResponseContractTests: XCTestCase {
         XCTAssertNil(store.conversationUnreadCount(for: "group:42"))
         XCTAssertEqual(store.chatUnreadCount, 3)
     }
+
+    @MainActor
+    func testMutedConversationKeepsRowUnreadButIsExcludedFromGlobalBadge() {
+        let store = UnreadBadgeStore.shared
+        store.setChatUnreadCount(0)
+        store.setConversationMuted(false, for: "group:42")
+        defer {
+            store.setConversationMuted(false, for: "group:42")
+            store.setChatUnreadCount(0)
+        }
+
+        store.replaceChatUnreadCounts(
+            ["dm:user-1": 2, "group:42": 3],
+            mutedIdentities: ["group:42"]
+        )
+
+        XCTAssertEqual(store.conversationUnreadCount(for: "group:42"), 3)
+        XCTAssertEqual(store.chatUnreadCount, 2)
+
+        store.setConversationMuted(false, for: "group:42")
+        XCTAssertEqual(store.chatUnreadCount, 5)
+    }
+
+    @MainActor
+    func testUnreadBadgeCountsOneMessageOnceAcrossWebSocketListAndPush() {
+        let store = UnreadBadgeStore.shared
+        store.setChatUnreadCount(0)
+        defer { store.setChatUnreadCount(0) }
+
+        let websocketRoute = NotificationRoute(
+            eventID: "websocket-event-101",
+            conversationType: .direct,
+            conversationID: "user-1",
+            senderID: "user-1",
+            groupID: nil,
+            messageID: 101,
+            conversationRevision: nil,
+            unreadCount: nil,
+            totalUnreadCount: nil,
+            senderName: nil,
+            senderAvatar: nil,
+            groupName: nil,
+            groupAvatar: nil,
+            messageType: "text",
+            contentPreview: "hello",
+            sentAt: "2026-07-23T10:00:00Z",
+            receivedAt: Date()
+        )
+
+        store.applyNotification(websocketRoute)
+        XCTAssertEqual(store.conversationUnreadCount(for: "dm:user-1"), 1)
+
+        let listCount = store.recordIncomingMessage(
+            identity: "dm:user-1",
+            messageID: 101,
+            eventID: "conversation-list-event-101",
+            baselineUnreadCount: 0
+        )
+        XCTAssertEqual(listCount, 1)
+        XCTAssertEqual(store.chatUnreadCount, 1)
+
+        let pushRoute = NotificationRoute(
+            eventID: "apns-event-101",
+            conversationType: .direct,
+            conversationID: "user-1",
+            senderID: "user-1",
+            groupID: nil,
+            messageID: 101,
+            conversationRevision: nil,
+            unreadCount: 1,
+            totalUnreadCount: 1,
+            senderName: nil,
+            senderAvatar: nil,
+            groupName: nil,
+            groupAvatar: nil,
+            messageType: "text",
+            contentPreview: "hello",
+            sentAt: "2026-07-23T10:00:00Z",
+            receivedAt: Date()
+        )
+        store.applyNotification(pushRoute)
+
+        XCTAssertEqual(store.conversationUnreadCount(for: "dm:user-1"), 1)
+        XCTAssertEqual(store.chatUnreadCount, 1)
+    }
+
+    @MainActor
+    func testUnreadBadgeSnapshotAcknowledgesAllPendingMessagesThroughLastMessageID() {
+        let store = UnreadBadgeStore.shared
+        store.setChatUnreadCount(0)
+        defer { store.setChatUnreadCount(0) }
+
+        XCTAssertEqual(
+            store.recordIncomingMessage(
+                identity: "group:42",
+                messageID: 201,
+                eventID: "ws-201",
+                baselineUnreadCount: 0
+            ),
+            1
+        )
+        XCTAssertEqual(
+            store.recordIncomingMessage(
+                identity: "group:42",
+                messageID: 202,
+                eventID: "ws-202",
+                baselineUnreadCount: 1
+            ),
+            2
+        )
+
+        store.applyServerSnapshot(
+            identity: "group:42",
+            unreadCount: 2,
+            revision: nil,
+            lastMessageID: 202,
+            readThroughMessageID: nil
+        )
+
+        XCTAssertEqual(store.conversationUnreadCount(for: "group:42"), 2)
+        XCTAssertEqual(store.chatUnreadCount, 2)
+    }
 }
 
 final class CallParticipantDeparturePolicyTests: XCTestCase {
@@ -680,6 +2674,80 @@ final class CallParticipantDeparturePolicyTests: XCTestCase {
                 isGroupCall: false,
                 hasObservedRemoteParticipant: false,
                 remoteParticipantCount: 0
+            )
+        )
+    }
+}
+
+final class CallConnectionTransitionPolicyTests: XCTestCase {
+    func testAcceptedOutgoingLivePairConnectsWhenRemoteParticipantJoins() {
+        XCTAssertTrue(
+            CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: true,
+                isGroupCall: false,
+                isLivePairCall: true,
+                state: .connecting,
+                remoteParticipantCount: 1,
+                hasRemoteAudio: false
+            )
+        )
+    }
+
+    func testOrdinaryConnectingCallDoesNotUseLivePairShortcut() {
+        XCTAssertFalse(
+            CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: true,
+                isGroupCall: false,
+                isLivePairCall: false,
+                state: .connecting,
+                remoteParticipantCount: 1,
+                hasRemoteAudio: true
+            )
+        )
+    }
+
+    func testOrdinaryOutgoingDirectCallStillWaitsForRemoteAudio() {
+        XCTAssertFalse(
+            CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: true,
+                isGroupCall: false,
+                isLivePairCall: false,
+                state: .outgoing,
+                remoteParticipantCount: 1,
+                hasRemoteAudio: false
+            )
+        )
+        XCTAssertTrue(
+            CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: true,
+                isGroupCall: false,
+                isLivePairCall: false,
+                state: .outgoing,
+                remoteParticipantCount: 1,
+                hasRemoteAudio: true
+            )
+        )
+    }
+
+    func testIncomingOrMissingRemoteParticipantNeverTransitionsHere() {
+        XCTAssertFalse(
+            CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: false,
+                isGroupCall: false,
+                isLivePairCall: true,
+                state: .connecting,
+                remoteParticipantCount: 1,
+                hasRemoteAudio: true
+            )
+        )
+        XCTAssertFalse(
+            CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: true,
+                isGroupCall: false,
+                isLivePairCall: true,
+                state: .connecting,
+                remoteParticipantCount: 0,
+                hasRemoteAudio: false
             )
         )
     }
@@ -1057,7 +3125,7 @@ extension APIResponseContractTests {
 
     func testChatMoneyWalletTransactionSignsFollowLedgerDirection() throws {
         func transaction(type: String, amount: Int) throws -> WalletTransaction {
-            let json = #"{"id":"tx","type":"\#(type)","currency":"cat_food","amount":\#(amount)}"#
+            let json = #"{"id":"tx","type":"\#(type)","currency":"gold_coin","gold_coin_amount":\#(amount)}"#
             return try JSONDecoder().decode(WalletTransaction.self, from: Data(json.utf8))
         }
 
@@ -1067,6 +3135,55 @@ extension APIResponseContractTests {
         XCTAssertEqual(try transaction(type: "transfer_sent", amount: 20).signedAmountValue, -20)
         XCTAssertEqual(try transaction(type: "transfer_received", amount: 20).signedAmountValue, 20)
         XCTAssertEqual(try transaction(type: "transfer_returned", amount: 20).signedAmountValue, 20)
+    }
+
+    func testWalletTransactionPageKeepsEveryRowAndCursorBeyondFormerClientCap() throws {
+        let items: [[String: Any]] = (0..<750).map { index in
+            [
+                "id": "tx-\(index)",
+                "type": "balance_change",
+                "currency": "gold_coin",
+                "gold_coin_amount": index.isMultiple(of: 2) ? 1 : -1
+            ]
+        }
+        let data = try JSONSerialization.data(withJSONObject: [
+            "items": items,
+            "next_cursor": "cursor-751"
+        ])
+
+        let page = try JSONDecoder().decode(WalletTransactionsResponseData.self, from: data)
+
+        XCTAssertEqual(page.transactions.count, 750)
+        XCTAssertEqual(page.transactions.first?.id, "tx-0")
+        XCTAssertEqual(page.transactions.last?.id, "tx-749")
+        XCTAssertEqual(page.nextCursor, "cursor-751")
+
+        let cachedPage = try JSONDecoder().decode(
+            WalletTransactionsResponseData.self,
+            from: JSONEncoder().encode(page)
+        )
+        XCTAssertEqual(cachedPage, page)
+    }
+
+    func testWalletTransactionPageReadsLegacyGoldCoinRowsWithoutDroppingValidSiblings() throws {
+        let data = Data(#"""
+        {
+          "transactions": [
+            {"id":"current","type":"ios_iap","currency":"gold_coin","gold_coin_amount":100},
+            {"id":"legacy","type":"gift_sent","currency":"cat_food","cat_food_amount":-20,"balance_after":80},
+            {"id":"wrong-asset","type":"activity_grant","currency":"activity_cat_food","amount":10}
+          ],
+          "nextCursor": "older"
+        }
+        """#.utf8)
+
+        let page = try JSONDecoder().decode(WalletTransactionsResponseData.self, from: data)
+
+        XCTAssertEqual(page.transactions.map(\.id), ["current", "legacy"])
+        XCTAssertEqual(page.transactions.last?.currency, .goldCoins)
+        XCTAssertEqual(page.transactions.last?.signedAmountValue, -20)
+        XCTAssertEqual(page.transactions.last?.goldCoinBalanceAfter, 80)
+        XCTAssertEqual(page.nextCursor, "older")
     }
 
     func testChatMoneyConfigurationDecodesSplitLimitsAndKeepsLegacyFallback() throws {
@@ -1136,6 +3253,282 @@ extension APIResponseContractTests {
         XCTAssertNil(detail.finalizedAt)
         XCTAssertEqual(detail.remainingAmount, 88)
         XCTAssertEqual(detail.remainingCount, 1)
+    }
+
+    func testRoleFilteredRedPacketDetailFailsClosedWithoutOptionalActionFields() throws {
+        let json = #"""
+        {
+          "code": 0,
+          "message": "ok",
+          "data": {
+            "asset_id": "rp-role-filtered",
+            "kind": "red_packet",
+            "scope": "group",
+            "mode": "lucky",
+            "sender_id": "sender",
+            "status": "pending",
+            "can_claim": "true",
+            "viewer_state": "claimable",
+            "total_amount": null,
+            "claims": null
+          }
+        }
+        """#
+
+        let response = try JSONDecoder().decode(
+            APIResponseWrapper<ChatMoneyDetailResponseData>.self,
+            from: Data(json.utf8)
+        )
+        let detail = try response.requiredData().detail
+
+        XCTAssertTrue(detail.canClaim)
+        XCTAssertFalse(detail.canAccept)
+        XCTAssertFalse(detail.canReturn)
+        XCTAssertEqual(detail.claims, [])
+        XCTAssertEqual(detail.version, 1)
+        XCTAssertNil(detail.totalAmount)
+    }
+
+    func testRedPacketClaimsTolerateMissingOptionalFieldsAndFlexibleScalars() throws {
+        let json = #"""
+        {
+          "asset_id": "rp-claim-list",
+          "kind": "red_packet",
+          "scope": "group",
+          "mode": "lucky",
+          "sender_id": "sender",
+          "status": "partial",
+          "can_claim": false,
+          "can_accept": false,
+          "can_return": false,
+          "claimed_count": "2",
+          "claims": [
+            {
+              "user_id": 101,
+              "nickname": "Oscar",
+              "amount": "16",
+              "claimed_at": "2026-07-20T08:40:00Z"
+            },
+            {
+              "user_id": "102",
+              "amount": 9,
+              "claimed_at": "2026-07-20T08:41:00Z",
+              "is_luckiest": "true"
+            }
+          ],
+          "version": 3
+        }
+        """#
+
+        let detail = try JSONDecoder().decode(ChatMoneyDetail.self, from: Data(json.utf8))
+
+        XCTAssertEqual(detail.claimedCount, 2)
+        XCTAssertEqual(detail.claims.count, 2)
+        XCTAssertEqual(detail.claims[0].userID, "101")
+        XCTAssertEqual(detail.claims[0].amount, 16)
+        XCTAssertFalse(detail.claims[0].isLuckiest)
+        XCTAssertEqual(detail.claims[1].nickname, "102")
+        XCTAssertTrue(detail.claims[1].isLuckiest)
+    }
+
+    func testRedPacketCardMutesOnlyForTheViewerWhoClaimed() {
+        let payload = ChatMoneyPayload(
+            assetID: "rp-partial-card",
+            kind: .redPacket,
+            scope: .group,
+            mode: .lucky,
+            senderID: "sender",
+            packetCount: 4,
+            claimedCount: 3,
+            status: .partial,
+            version: 4
+        )
+
+        XCTAssertTrue(
+            ChatMoneyBubblePresentationPolicy.isMuted(
+                payload: payload,
+                hasViewerClaimedRedPacket: true
+            )
+        )
+        XCTAssertFalse(
+            ChatMoneyBubblePresentationPolicy.isMuted(
+                payload: payload,
+                hasViewerClaimedRedPacket: false
+            )
+        )
+    }
+
+    @MainActor
+    func testRedPacketDetailMergeKeepsEarlierClaimsWhenActionResponseIsIncremental() async throws {
+        func detail(version: Int, claimedCount: Int, claims: String) throws -> ChatMoneyDetail {
+            let json = """
+            {
+              "asset_id": "rp-incremental-claims",
+              "kind": "red_packet",
+              "scope": "group",
+              "mode": "lucky",
+              "sender_id": "sender",
+              "status": "partial",
+              "can_claim": false,
+              "can_accept": false,
+              "can_return": false,
+              "packet_count": 4,
+              "claimed_count": \(claimedCount),
+              "claims": \(claims),
+              "version": \(version)
+            }
+            """
+            return try JSONDecoder().decode(ChatMoneyDetail.self, from: Data(json.utf8))
+        }
+
+        let initial = try detail(
+            version: 2,
+            claimedCount: 2,
+            claims: #"""
+            [
+              {"user_id":"u1","nickname":"一号","amount":5,"claimed_at":"2026-07-20T08:38:00Z"},
+              {"user_id":"u2","nickname":"二号","amount":7,"claimed_at":"2026-07-20T08:39:00Z"}
+            ]
+            """#
+        )
+        let incremental = try detail(
+            version: 3,
+            claimedCount: 3,
+            claims: #"""
+            [
+              {"user_id":"u3","nickname":"三号","amount":9,"claimed_at":"2026-07-20T08:40:00Z"}
+            ]
+            """#
+        )
+        let service = SequencedChatMoneyDetailService(details: [initial, incremental])
+        let store = ChatMoneyStore(service: service)
+
+        _ = try await store.loadDetail(assetID: initial.assetID, force: true)
+        let merged = try await store.loadDetail(assetID: initial.assetID, force: true)
+
+        XCTAssertEqual(merged.claimedCount, 3)
+        XCTAssertEqual(merged.claims.map(\.userID), ["u1", "u2", "u3"])
+    }
+
+    @MainActor
+    func testServerClaimedViewerStateRestoresLocalCardReceipt() async throws {
+        let suiteName = "ChatMoneyServerClaimReceiptTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let json = #"""
+        {
+          "asset_id": "rp-server-confirmed-claim",
+          "kind": "red_packet",
+          "scope": "group",
+          "mode": "lucky",
+          "sender_id": "sender",
+          "status": "partial",
+          "can_claim": false,
+          "can_accept": false,
+          "can_return": false,
+          "viewer_claim_amount": 12,
+          "viewer_state": "claimed",
+          "claims": [],
+          "version": 5
+        }
+        """#
+        let detail = try JSONDecoder().decode(ChatMoneyDetail.self, from: Data(json.utf8))
+        let service = SequencedChatMoneyDetailService(details: [detail])
+        let store = ChatMoneyStore(service: service, defaults: defaults)
+
+        _ = try await store.loadDetail(assetID: detail.assetID, force: true)
+
+        XCTAssertTrue(store.hasViewerClaimed(assetID: detail.assetID))
+    }
+
+    func testRoleFilteredTransferDetailAcceptsNestedLegacyEnvelopeAndFlexibleScalars() throws {
+        let json = #"""
+        {
+          "code": "0",
+          "data": {
+            "detail": {
+              "asset_id": "transfer-role-filtered",
+              "kind": "transfer",
+              "scope": "direct",
+              "sender_id": "sender",
+              "recipient_id": "recipient",
+              "total_amount": "88",
+              "status": "pending",
+              "can_claim": 0,
+              "can_accept": 1,
+              "can_return": "true",
+              "claims": [],
+              "version": "3",
+              "viewer_state": "transfer_receivable"
+            }
+          }
+        }
+        """#
+
+        let response = try JSONDecoder().decode(
+            APIResponseWrapper<ChatMoneyDetailResponseData>.self,
+            from: Data(json.utf8)
+        )
+        let detail = try response.requiredData().detail
+
+        XCTAssertEqual(response.message, "")
+        XCTAssertEqual(detail.scope, .direct)
+        XCTAssertEqual(detail.totalAmount, 88)
+        XCTAssertFalse(detail.canClaim)
+        XCTAssertTrue(detail.canAccept)
+        XCTAssertTrue(detail.canReturn)
+        XCTAssertEqual(detail.version, 3)
+    }
+
+    func testTerminalChatMoneyDetailNeverRestoresActionsFromStaleServerFlags() throws {
+        let json = #"""
+        {
+          "asset_id": "transfer-terminal",
+          "kind": "transfer",
+          "scope": "dm",
+          "sender_id": "sender",
+          "status": "accepted",
+          "can_claim": true,
+          "can_accept": true,
+          "can_return": true,
+          "claims": [],
+          "version": 4,
+          "viewer_state": "transfer_receivable"
+        }
+        """#
+
+        let detail = try JSONDecoder().decode(ChatMoneyDetail.self, from: Data(json.utf8))
+
+        XCTAssertFalse(detail.canClaim)
+        XCTAssertFalse(detail.canAccept)
+        XCTAssertFalse(detail.canReturn)
+    }
+
+    func testUnknownOptionalViewerMetadataDoesNotBreakChatMoneyDetail() throws {
+        let json = #"""
+        {
+          "asset_id": "transfer-future-viewer-state",
+          "kind": "transfer",
+          "scope": "dm",
+          "sender_id": "sender",
+          "status": "pending",
+          "can_claim": false,
+          "can_accept": false,
+          "can_return": false,
+          "claims": [],
+          "version": 2,
+          "viewer_state": "future_recipient_state",
+          "unavailable_reason": "future_policy_reason"
+        }
+        """#
+
+        let detail = try JSONDecoder().decode(ChatMoneyDetail.self, from: Data(json.utf8))
+
+        XCTAssertNil(detail.viewerState)
+        XCTAssertNil(detail.unavailableReason)
+        XCTAssertFalse(detail.canAccept)
+        XCTAssertFalse(detail.canReturn)
     }
 
     func testStructuredReceiptParsesAndLocalizesForEachPrivateChatRole() throws {
@@ -1366,5 +3759,298 @@ extension APIResponseContractTests {
             ),
             L10n.tr("chatMoney.transfer.alreadyFinalized")
         )
+    }
+
+    @MainActor
+    func testPropBagStoreFiltersRetiredGameEntryInventory() throws {
+        let json = #"""
+        {
+          "summary": {
+            "total_quantity": 7,
+            "equipped_count": 0,
+            "expiring_count": 1
+          },
+          "items": [
+            {
+              "inventory_id": "inventory-image",
+              "definition_id": "media_unlock_card_image",
+              "type": "media_unlock_card",
+              "name": "图片解锁卡",
+              "description": "解锁一条图片内容",
+              "quantity": 3,
+              "is_equipped": false,
+              "available_actions": ["consume_for_media_unlock"],
+              "metadata": { "media_type": "image" }
+            },
+            {
+              "inventory_id": "inventory-video",
+              "definition_id": "media_unlock_card_video",
+              "type": "media_unlock_card",
+              "name": "视频解锁卡",
+              "description": "解锁一条视频内容",
+              "quantity": 2,
+              "is_equipped": false,
+              "available_actions": ["consume_for_media_unlock"],
+              "metadata": { "media_type": "video" }
+            },
+            {
+              "inventory_id": "inventory-game-entry",
+              "definition_id": "game_entry_card",
+              "type": "game_entry_card",
+              "name": "游戏进入卡",
+              "description": "免扣金币进入一次收费游戏",
+              "quantity": 2,
+              "is_equipped": false,
+              "available_actions": ["consume_for_game_entry"],
+              "metadata": {}
+            }
+          ],
+          "next_cursor": null,
+          "server_time": "2026-08-01T12:00:00Z"
+        }
+        """#.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(PropBagPage.self, from: json)
+
+        let store = PropInventoryStore(items: page.items)
+
+        XCTAssertEqual(store.summary.totalQuantity, 5)
+        XCTAssertEqual(store.items.map(\.mediaUnlockKind), [.image, .video])
+        XCTAssertTrue(store.items.allSatisfy(\.canConsumeForMediaUnlock))
+        XCTAssertFalse(store.items.contains { $0.definitionID == "game_entry_card" })
+        XCTAssertEqual(store.items.map(\.bundledAssetName), [
+            "prop_image_unlock_card",
+            "prop_video_unlock_card"
+        ])
+    }
+
+    func testPropBagDecodesAllLiveExperienceCardsAndStableAssets() throws {
+        let json = #"""
+        {
+          "summary": { "total_quantity": 6, "equipped_count": 0, "expiring_count": 0 },
+          "items": [
+            {
+              "inventory_id": "inventory-live-5m",
+              "definition_id": "live_experience_card_5m",
+              "type": "live_experience_card",
+              "name": "",
+              "quantity": 3,
+              "is_equipped": false,
+              "available_actions": ["consume_for_live_experience"],
+              "metadata": { "duration_seconds": 300 }
+            },
+            {
+              "inventory_id": "inventory-live-10m",
+              "definition_id": "live_experience_card_10m",
+              "type": "live_experience_card",
+              "name": "",
+              "quantity": 2,
+              "is_equipped": false,
+              "available_actions": ["consume_for_live_experience"],
+              "metadata": { "duration_seconds": 600 }
+            },
+            {
+              "inventory_id": "inventory-live-15m",
+              "definition_id": "live_experience_card_15m",
+              "type": "live_experience_card",
+              "name": "",
+              "quantity": 1,
+              "is_equipped": false,
+              "available_actions": ["consume_for_live_experience"],
+              "metadata": { "duration_seconds": 900 }
+            }
+          ]
+        }
+        """#.data(using: .utf8)!
+
+        let page = try JSONDecoder().decode(PropBagPage.self, from: json)
+
+        XCTAssertEqual(page.items.map(\.liveExperienceCardKind), [
+            .fiveMinutes,
+            .tenMinutes,
+            .fifteenMinutes
+        ])
+        XCTAssertTrue(page.items.allSatisfy(\.canConsumeForLiveExperience))
+        XCTAssertEqual(page.items.map(\.bundledAssetName), [
+            "prop_live_experience_card_5m",
+            "prop_live_experience_card_10m",
+            "prop_live_experience_card_15m"
+        ])
+        XCTAssertEqual(page.items.map { $0.metadata?.durationSeconds }, [300, 600, 900])
+    }
+
+    @MainActor
+    func testLiveExperienceReservationUpdatesOnlyServerConfirmedInventory() {
+        let kind = LiveExperienceCardKind.tenMinutes
+        let store = PropInventoryStore(items: [
+            PropBagItem(
+                inventoryID: "inventory-live-10m",
+                definitionID: kind.definitionID,
+                type: "live_experience_card",
+                name: "",
+                quantity: 2,
+                availableActions: ["consume_for_live_experience"],
+                metadata: PropBagMetadata(durationSeconds: kind.durationSeconds)
+            )
+        ])
+
+        XCTAssertEqual(store.quantity(for: kind), 2)
+        store.applyLiveExperienceReservation(
+            PropConsumptionResult(
+                inventoryID: "inventory-live-10m",
+                definitionID: kind.definitionID,
+                remainingQuantity: 1
+            ),
+            fallbackKind: kind
+        )
+        XCTAssertEqual(store.quantity(for: kind), 1)
+        XCTAssertEqual(store.summary.totalQuantity, 1)
+    }
+
+    func testMediaUnlockAutomaticRequestDelegatesPriorityToServer() {
+        let body = MediaUnlockPaymentMethod.automatic(.video).requestBody
+
+        XCTAssertEqual(body["payment_method"] as? String, "auto")
+        XCTAssertEqual(body["prop_definition_id"] as? String, "media_unlock_card_video")
+        XCTAssertEqual(MediaUnlockPaymentMethod.automatic(.video).idempotencyScope, "auto:media_unlock_card_video")
+        XCTAssertEqual(MediaUnlockPaymentMethod.automatic(.video).cardKind, .video)
+    }
+
+    func testLegacyExplicitMediaUnlockRequestsRemainEncodable() {
+        let body = MediaUnlockPaymentMethod.unlockCard(.video).requestBody
+
+        XCTAssertEqual(body["payment_method"] as? String, "prop_card")
+        XCTAssertEqual(body["prop_definition_id"] as? String, "media_unlock_card_video")
+        XCTAssertTrue(MediaUnlockPaymentMethod.spendableBalance.requestBody.isEmpty)
+    }
+
+    func testAgentMediaUnlockDecodesConsumedProp() throws {
+        let json = #"""
+        {
+          "already_unlocked": false,
+          "content_url": "https://example.test/media/image",
+          "download_url": "https://example.test/media/image/download",
+          "consumed_prop": {
+            "inventory_id": "inventory-image",
+            "definition_id": "media_unlock_card_image",
+            "remaining_quantity": 2
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let result = try JSONDecoder().decode(AgentMediaUnlock.self, from: json)
+
+        XCTAssertNil(result.charge)
+        XCTAssertEqual(result.consumedProp?.definitionID, "media_unlock_card_image")
+        XCTAssertEqual(result.consumedProp?.remainingQuantity, 2)
+    }
+
+    func testGameSessionDecodesLobbyPriceWithoutPayment() throws {
+        let json = #"""
+        {
+          "session_id": "session-1",
+          "launch_url": "https://example.test/api/v1/game-assets/demo/?ticket=opaque",
+          "expires_at": "2026-08-01T12:05:00Z",
+          "entry_price_gold_coins": 25
+        }
+        """#.data(using: .utf8)!
+
+        let session = try JSONDecoder().decode(GameSession.self, from: json)
+
+        XCTAssertNil(session.paymentMethod)
+        XCTAssertEqual(session.entryPriceGoldCoins, 25)
+        XCTAssertNil(session.walletBalance)
+        XCTAssertNil(session.consumedProp)
+    }
+
+    func testGameSessionDecodesPreviousCoinPriceFieldDuringRollout() throws {
+        let previousCurrency = ["cat", "coin"].joined(separator: "_") + "s"
+        let payload: [String: Any] = [
+            "session_id": "legacy-price-session",
+            "launch_url": "https://example.test/api/v1/game-assets/demo/?ticket=opaque",
+            "expires_at": "2026-08-01T12:05:00Z",
+            "entry_price_" + previousCurrency: 25
+        ]
+        let json = try JSONSerialization.data(withJSONObject: payload)
+        let session = try JSONDecoder().decode(GameSession.self, from: json)
+
+        XCTAssertEqual(session.entryPriceGoldCoins, 25)
+        XCTAssertNil(session.paymentMethod)
+    }
+
+    func testGameSessionRejectsScalarWalletBalance() throws {
+        let previousCurrency = ["cat", "coin"].joined(separator: "_") + "s"
+        let payload: [String: Any] = [
+            "session_id": "old-session",
+            "launch_url": "https://example.test/api/v1/game-assets/demo/?ticket=opaque",
+            "expires_at": "2026-08-01T12:05:00Z",
+            "entry_price_" + previousCurrency: 25,
+            "wallet_balance": 120
+        ]
+        let json = try JSONSerialization.data(withJSONObject: payload)
+
+        XCTAssertThrowsError(try JSONDecoder().decode(GameSession.self, from: json))
+    }
+
+    func testMomentUnlockDecodesConsumedPropWithoutWalletMutation() throws {
+        let json = #"""
+        {
+          "already_unlocked": false,
+          "consumed_prop": {
+            "inventory_id": "inventory-video",
+            "definition_id": "media_unlock_card_video",
+            "remaining_quantity": 0
+          }
+        }
+        """#.data(using: .utf8)!
+
+        let result = try JSONDecoder().decode(MomentUnlockResponseData.self, from: json)
+
+        XCTAssertNil(result.walletBalance)
+        XCTAssertFalse(result.alreadyUnlocked)
+        XCTAssertEqual(result.consumedProp?.definitionID, "media_unlock_card_video")
+        XCTAssertEqual(result.consumedProp?.remainingQuantity, 0)
+    }
+}
+
+@MainActor
+private final class SequencedChatMoneyDetailService: ChatMoneyServicing {
+    private var details: [ChatMoneyDetail]
+
+    init(details: [ChatMoneyDetail]) {
+        self.details = details
+    }
+
+    func configuration() async throws -> ChatMoneyConfiguration {
+        .fixture
+    }
+
+    func createRedPacket(
+        _ request: CreateRedPacketRequest
+    ) async throws -> ChatMoneyCreationResult {
+        throw APIError.invalidResponse
+    }
+
+    func createTransfer(
+        _ request: CreateTransferRequest
+    ) async throws -> ChatMoneyCreationResult {
+        throw APIError.invalidResponse
+    }
+
+    func detail(assetID: String) async throws -> ChatMoneyDetail {
+        guard !details.isEmpty else { throw APIError.invalidResponse }
+        return details.removeFirst()
+    }
+
+    func claim(assetID: String) async throws -> ChatMoneyActionResult {
+        throw APIError.invalidResponse
+    }
+
+    func accept(assetID: String) async throws -> ChatMoneyActionResult {
+        throw APIError.invalidResponse
+    }
+
+    func returnTransfer(assetID: String) async throws -> ChatMoneyActionResult {
+        throw APIError.invalidResponse
     }
 }

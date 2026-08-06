@@ -4,8 +4,8 @@
 import Foundation
 
 enum WalletCurrency: String, Codable, Equatable, Hashable {
-    case catFood = "cat_food"
-    case catHair = "cat_hair"
+    case goldCoins = "gold_coin"
+    case activityCatFood = "activity_cat_food"
     case unknown
 
     init(_ rawValue: String?) {
@@ -15,10 +15,10 @@ enum WalletCurrency: String, Codable, Equatable, Hashable {
             .replacingOccurrences(of: "-", with: "_")
 
         switch normalized {
-        case "cat_food", "catfood", "coins", "coin":
-            self = .catFood
-        case "cat_hair", "cathair", "hair":
-            self = .catHair
+        case "gold_coin":
+            self = .goldCoins
+        case "activity_cat_food":
+            self = .activityCatFood
         case "":
             self = .unknown
         default:
@@ -28,10 +28,10 @@ enum WalletCurrency: String, Codable, Equatable, Hashable {
 
     var localizedUnit: String {
         switch self {
-        case .catHair:
-            return L10n.tr("wallet.currency.catHair")
-        case .catFood, .unknown:
-            return L10n.tr("wallet.currency.catFood")
+        case .activityCatFood:
+            return L10n.tr("wallet.currency.activityCatFood")
+        case .goldCoins, .unknown:
+            return L10n.tr("wallet.currency.goldCoins")
         }
     }
 }
@@ -63,7 +63,7 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
         case localizedNameCamel = "localizedName"
         case price
         case amount
-        case catFood = "cat_food"
+        case goldCoinAmount = "gold_coin_amount"
         case assetKey = "asset_key"
         case assetKeyCamel = "assetKey"
         case remoteAssetKey = "remote_asset_key"
@@ -94,8 +94,7 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
         sortOrder: Int? = nil,
         active: Bool? = true,
         badgeI18n: [String: String]? = nil,
-        minAppVersion: String? = nil,
-        receiverCurrency: WalletCurrency = .catFood
+        minAppVersion: String? = nil
     ) {
         self.giftID = giftID
         self.name = name
@@ -109,7 +108,7 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
         self.active = active
         self.badgeI18n = badgeI18n
         self.minAppVersion = minAppVersion
-        self.receiverCurrency = receiverCurrency
+        self.receiverCurrency = .goldCoins
     }
 
     init(from decoder: Decoder) throws {
@@ -125,7 +124,7 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
             ?? (try? container.decodeIfPresent([String: String].self, forKey: .localizedNameCamel))
         self.price = container.flexInt(for: .price)
             ?? container.flexInt(for: .amount)
-            ?? container.flexInt(for: .catFood)
+            ?? container.flexInt(for: .goldCoinAmount)
             ?? Self.fixedPrice(for: giftID)
         self.assetKey = container.flexString(for: .assetKey)
             ?? container.flexString(for: .assetKeyCamel)
@@ -141,12 +140,18 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
         self.active = container.flexBool(for: .active)
         self.badgeI18n = try? container.decodeIfPresent([String: String].self, forKey: .badgeI18n)
         self.minAppVersion = container.flexString(for: .minAppVersion)
-        self.receiverCurrency = WalletCurrency(
-            container.flexString(for: .receiverCurrency)
-                ?? container.flexString(for: .receiverCurrencyCamel)
-                ?? container.flexString(for: .currency)
-                ?? Self.fixed(for: giftID)?.receiverCurrency.rawValue
-        )
+        let rawReceiverCurrency = container.flexString(for: .receiverCurrency)
+            ?? container.flexString(for: .receiverCurrencyCamel)
+            ?? container.flexString(for: .currency)
+        if let rawReceiverCurrency,
+           WalletCurrency(rawReceiverCurrency) != .goldCoins {
+            throw DecodingError.dataCorruptedError(
+                forKey: .receiverCurrency,
+                in: container,
+                debugDescription: "Gift receivers can only receive gold_coin."
+            )
+        }
+        self.receiverCurrency = .goldCoins
     }
 
     static let fixedCatalog: [GiftCatalogItem] = [
@@ -174,6 +179,10 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
         fixed(for: giftID)?.assetKey ?? "gift_fish"
     }
 
+    static func bundledAssetName(for assetKey: String) -> String? {
+        fixedCatalog.contains { $0.assetKey == assetKey } ? assetKey : nil
+    }
+
     var localizedName: String {
         if let localized = localizedNameI18n.localizedDynamicValue(for: AppLanguageStore.shared.activeLanguage) {
             return localized
@@ -193,6 +202,20 @@ struct GiftCatalogItem: Codable, Identifiable, Equatable, Hashable {
         active ?? true
     }
 
+    /// Keeps legacy server/cache records for the retired game-entry prop out of
+    /// the generic gift catalog during rollout.
+    var isSupportedCatalogItem: Bool {
+        let retiredIdentifiers = Set(["game_entry_card", "prop_game_entry_card"])
+        let identifiers = [giftID, assetKey, remoteAssetKey, animationAssetKey]
+            .compactMap { $0 }
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .replacingOccurrences(of: "-", with: "_")
+            }
+        return identifiers.allSatisfy { !retiredIdentifiers.contains($0) }
+    }
+
     var displayAssetKey: String {
         remoteAssetKey?.isBlank == false ? remoteAssetKey! : assetKey
     }
@@ -202,7 +225,7 @@ struct GiftMessagePayload: Decodable, Equatable {
     let giftID: String
     let giftName: String
     let assetKey: String
-    let amount: Int
+    let goldCoinAmount: Int
     let receiverCurrency: WalletCurrency
     let recipientID: String?
     let recipientName: String?
@@ -219,9 +242,8 @@ struct GiftMessagePayload: Decodable, Equatable {
         case title
         case assetKey = "asset_key"
         case assetKeyCamel = "assetKey"
-        case amount
         case price
-        case catFood = "cat_food"
+        case goldCoinAmount = "gold_coin_amount"
         case receiverCurrency = "receiver_currency"
         case receiverCurrencyCamel = "receiverCurrency"
         case currency
@@ -245,8 +267,7 @@ struct GiftMessagePayload: Decodable, Equatable {
         giftID: String,
         giftName: String,
         assetKey: String,
-        amount: Int,
-        receiverCurrency: WalletCurrency = .catFood,
+        goldCoinAmount: Int,
         recipientID: String? = nil,
         recipientName: String? = nil,
         senderID: String? = nil,
@@ -255,8 +276,8 @@ struct GiftMessagePayload: Decodable, Equatable {
         self.giftID = giftID
         self.giftName = giftName
         self.assetKey = assetKey
-        self.amount = amount
-        self.receiverCurrency = receiverCurrency
+        self.goldCoinAmount = goldCoinAmount
+        self.receiverCurrency = .goldCoins
         self.recipientID = recipientID
         self.recipientName = recipientName
         self.senderID = senderID
@@ -282,18 +303,22 @@ struct GiftMessagePayload: Decodable, Equatable {
             ?? container.flexString(for: .assetKeyCamel)
             ?? fixed?.assetKey
             ?? "gift_fish"
-        self.amount = container.flexInt(for: .amount)
+        self.goldCoinAmount = container.flexInt(for: .goldCoinAmount)
             ?? container.flexInt(for: .price)
-            ?? container.flexInt(for: .catFood)
             ?? fixed?.price
             ?? 0
-        self.receiverCurrency = WalletCurrency(
-            container.flexString(for: .receiverCurrency)
-                ?? container.flexString(for: .receiverCurrencyCamel)
-                ?? container.flexString(for: .currency)
-                ?? fixed?.receiverCurrency.rawValue
-                ?? WalletCurrency.catFood.rawValue
-        )
+        let rawReceiverCurrency = container.flexString(for: .receiverCurrency)
+            ?? container.flexString(for: .receiverCurrencyCamel)
+            ?? container.flexString(for: .currency)
+        if let rawReceiverCurrency,
+           WalletCurrency(rawReceiverCurrency) != .goldCoins {
+            throw DecodingError.dataCorruptedError(
+                forKey: .receiverCurrency,
+                in: container,
+                debugDescription: "Gift message receiver_currency must be gold_coin."
+            )
+        }
+        self.receiverCurrency = .goldCoins
         self.recipientID = container.flexString(for: .recipientID)
             ?? container.flexString(for: .recipientId)
             ?? container.flexString(for: .receiverID)
@@ -317,8 +342,7 @@ struct GiftMessagePayload: Decodable, Equatable {
                 giftID: gift.giftID,
                 giftName: gift.localizedName,
                 assetKey: gift.assetKey,
-                amount: gift.price,
-                receiverCurrency: gift.receiverCurrency
+                goldCoinAmount: gift.price
             )
         }
 
@@ -343,7 +367,7 @@ struct GiftMessagePayload: Decodable, Equatable {
     fileprivate var isRenderable: Bool {
         !giftID.isBlank
             || !giftName.isBlank && giftName != L10n.tr("gift.title")
-            || amount > 0
+            || goldCoinAmount > 0
             || !assetKey.isBlank && assetKey != "gift_fish"
     }
 }
@@ -374,8 +398,7 @@ private struct GiftMessagePayloadEnvelope: Decodable {
                     giftID: gift.giftID,
                     giftName: gift.localizedName,
                     assetKey: gift.assetKey,
-                    amount: gift.price,
-                    receiverCurrency: gift.receiverCurrency
+                    goldCoinAmount: gift.price
                 )
                 return
             }
@@ -421,8 +444,8 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
     let id: String
     let type: String
     let currency: WalletCurrency
-    let amount: Int?
-    let balanceAfter: Int?
+    let goldCoinAmount: Int?
+    let goldCoinBalanceAfter: Int?
     let title: String?
     let note: String?
     let giftID: String?
@@ -436,27 +459,21 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
         case type
         case currency
         case receiverCurrency = "receiver_currency"
-        case receiverCurrencyCamel = "receiverCurrency"
         case amount
-        case catFood = "cat_food"
-        case catFoodAmount = "cat_food_amount"
-        case catFoodDelta = "cat_food_delta"
-        case catHair = "cat_hair"
-        case catHairAmount = "cat_hair_amount"
-        case catHairDelta = "cat_hair_delta"
-        case catHairBalanceDelta = "cat_hair_balance_delta"
-        case coins
-        case coinAmount = "coin_amount"
+        case goldCoinAmount = "gold_coin_amount"
+        case goldCoinDelta = "gold_coin_delta"
         case delta
-        case change
-        case value
-        case balanceDelta = "balance_delta"
-        case balanceChange = "balance_change"
-        case quantity
-        case price
-        case total
         case totalAmount = "total_amount"
-        case balanceAfter = "balance_after"
+        case goldCoinBalanceAfter = "gold_coin_balance_after"
+        // Read-only compatibility for wallet rows written before the Gold Coin rename.
+        case legacyCatCoin = "cat_coin"
+        case legacyCatCoins = "cat_coins"
+        case legacyCatCoinAmount = "cat_coin_amount"
+        case legacyCatFood = "cat_food"
+        case legacyCatFoodAmount = "cat_food_amount"
+        case legacyCoins = "coins"
+        case legacyCoinAmount = "coin_amount"
+        case legacyBalanceAfter = "balance_after"
         case title
         case note
         case description
@@ -474,6 +491,15 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawCurrency = container.flexString(for: .currency)
+            ?? container.flexString(for: .receiverCurrency)
+        guard Self.isCompatibleGoldCoinCurrency(rawCurrency) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .currency,
+                in: container,
+                debugDescription: "Wallet transaction currency must be gold_coin."
+            )
+        }
         self.id = container.flexString(for: .id)
             ?? container.flexString(for: .transactionID)
             ?? UUID().uuidString
@@ -486,8 +512,19 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
             ?? container.flexString(for: .productId)
             ?? container.flexString(for: .iapProductID)
             ?? container.flexString(for: .sku)
-        let decodedCurrency = Self.decodeCurrency(from: container, type: decodedType)
-        let decodedAmount = Self.decodeAmount(from: container, currency: decodedCurrency)
+        let canonicalAmount = container.flexInt(for: .goldCoinAmount)
+            ?? container.flexInt(for: .goldCoinDelta)
+            ?? container.flexInt(for: .amount)
+            ?? container.flexInt(for: .delta)
+            ?? container.flexInt(for: .totalAmount)
+        let legacyAmount = container.flexInt(for: .legacyCatCoinAmount)
+            ?? container.flexInt(for: .legacyCatCoin)
+            ?? container.flexInt(for: .legacyCatCoins)
+            ?? container.flexInt(for: .legacyCatFoodAmount)
+            ?? container.flexInt(for: .legacyCatFood)
+            ?? container.flexInt(for: .legacyCoinAmount)
+            ?? container.flexInt(for: .legacyCoins)
+        let decodedAmount = canonicalAmount ?? legacyAmount
         let inferredAmount = Self.inferredAmount(
             type: decodedType,
             giftID: decodedGiftID,
@@ -496,13 +533,14 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
         )
 
         self.type = decodedType
-        self.currency = decodedCurrency == .unknown ? .catFood : decodedCurrency
+        self.currency = .goldCoins
         if let decodedAmount, decodedAmount != 0 {
-            self.amount = decodedAmount
+            self.goldCoinAmount = decodedAmount
         } else {
-            self.amount = inferredAmount
+            self.goldCoinAmount = inferredAmount
         }
-        self.balanceAfter = container.flexInt(for: .balanceAfter)
+        self.goldCoinBalanceAfter = container.flexInt(for: .goldCoinBalanceAfter)
+            ?? container.flexInt(for: .legacyBalanceAfter)
         self.title = container.flexString(for: .title)
         self.note = container.flexString(for: .note)
             ?? container.flexString(for: .description)
@@ -513,73 +551,16 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
             ?? container.flexString(for: .timestamp)
     }
 
-    private static func decodeCurrency(
-        from container: KeyedDecodingContainer<CodingKeys>,
-        type: String
-    ) -> WalletCurrency {
-        let normalizedType = type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalizedType == "gift_received" {
-            return .catFood
-        }
-
-        let explicit = WalletCurrency(
-            container.flexString(for: .currency)
-                ?? container.flexString(for: .receiverCurrency)
-                ?? container.flexString(for: .receiverCurrencyCamel)
-        )
-        if explicit != .unknown { return explicit }
-
-        return .catFood
-    }
-
-    private static func decodeAmount(
-        from container: KeyedDecodingContainer<CodingKeys>,
-        currency: WalletCurrency
-    ) -> Int? {
-        if currency == .catHair {
-            for key in [
-                CodingKeys.catHairDelta,
-                .catHairAmount,
-                .catHair,
-                .amount,
-                .delta,
-                .change,
-                .value,
-                .balanceDelta,
-                .balanceChange,
-                .quantity,
-                .total,
-                .totalAmount
-            ] {
-                if let value = container.flexInt(for: key) {
-                    return value
-                }
-            }
-            return nil
-        }
-
-        for key in [
-            CodingKeys.amount,
-            .catFood,
-            .catFoodAmount,
-            .catFoodDelta,
-            .coins,
-            .coinAmount,
-            .delta,
-            .change,
-            .value,
-            .balanceDelta,
-            .balanceChange,
-            .quantity,
-            .price,
-            .total,
-            .totalAmount
-        ] {
-            if let value = container.flexInt(for: key) {
-                return value
-            }
-        }
-        return nil
+    /// Older wallet rows used `cat_coin`, `cat_coins`, or bare `cat_food` for
+    /// the same asset. Missing currency was also valid in the legacy endpoint.
+    /// New API responses must still emit only `gold_coin`.
+    private static func isCompatibleGoldCoinCurrency(_ rawValue: String?) -> Bool {
+        guard let rawValue else { return true }
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        return ["gold_coin", "cat_coin", "cat_coins", "cat_food"].contains(normalized)
     }
 
     private static func inferredAmount(
@@ -592,7 +573,7 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
 
         if normalizedType == "ios_iap",
            let productID,
-           let product = AppConfig.catFoodProducts.first(where: { $0.productID == productID }) {
+           let product = AppConfig.goldCoinProducts.first(where: { $0.productID == productID }) {
             return product.coins
         }
 
@@ -608,7 +589,89 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
         return fixedGift.price
     }
 
+    private enum LocalizedRecordKind {
+        case activityWheelPrize
+        case activityWheelCost
+        case gameRoundStart
+        case gameRankingReward
+
+        var titleKey: String {
+            switch self {
+            case .activityWheelPrize: return "wallet.transaction.activityWheelPrize"
+            case .activityWheelCost: return "wallet.transaction.activityWheelCost"
+            case .gameRoundStart: return "wallet.transaction.gameRoundStart"
+            case .gameRankingReward: return "wallet.transaction.gameRankingReward"
+            }
+        }
+
+        var subtitleKey: String {
+            switch self {
+            case .activityWheelPrize, .activityWheelCost: return "activityCenter.tab.wheel"
+            case .gameRoundStart, .gameRankingReward: return "gameCenter.title"
+            }
+        }
+    }
+
+    private var localizedRecordKind: LocalizedRecordKind? {
+        let values = [type, title, note]
+            .compactMap { $0 }
+            .map(Self.normalizedRecordText)
+            .filter { !$0.isEmpty }
+
+        if values.contains(where: {
+            $0 == "activity wheel prize"
+                || $0 == "activity center wheel prize"
+                || ($0.contains("wheel")
+                    && ($0.contains("prize") || $0.contains("payout"))
+                    && $0.contains("activity"))
+        }) {
+            return .activityWheelPrize
+        }
+        if values.contains(where: {
+            $0 == "activity wheel cost"
+                || $0 == "activity center wheel cost"
+                || ($0.contains("wheel")
+                    && ($0.contains("cost") || $0.contains("debit"))
+                    && $0.contains("activity"))
+        }) {
+            return .activityWheelCost
+        }
+        if values.contains(where: {
+            $0 == "game round start"
+                || $0 == "paid game start"
+                || $0.contains("收费游戏开局")
+                || $0.contains("收费游戏入场")
+                || $0.contains("遊戲入場")
+                || $0.contains("游戏入场")
+        }) {
+            return .gameRoundStart
+        }
+        if values.contains(where: {
+            $0 == "ranking reward"
+                || $0 == "game ranking reward"
+                || $0 == "leaderboard reward"
+                || $0.contains("排行榜奖励")
+                || $0.contains("排行榜獎勵")
+        }) {
+            return .gameRankingReward
+        }
+        return nil
+    }
+
+    private static func normalizedRecordText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
     var displayTitle: String {
+        if let localizedRecordKind {
+            return L10n.tr(localizedRecordKind.titleKey)
+        }
         if let title, !title.isBlank { return title }
         switch type {
         case "ios_iap": return L10n.tr("wallet.transaction.iap")
@@ -620,23 +683,20 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
         case "transfer_sent": return L10n.tr("wallet.transaction.transferSent")
         case "transfer_received": return L10n.tr("wallet.transaction.transferReceived")
         case "transfer_returned": return L10n.tr("wallet.transaction.transferReturned")
-        default:
-            return currency == .catHair
-                ? L10n.tr("wallet.transaction.catHairChange")
-                : L10n.tr("wallet.transaction.balanceChange")
+        default: return L10n.tr("wallet.transaction.balanceChange")
         }
     }
 
     var displaySubtitle: String {
+        if let localizedRecordKind {
+            return L10n.tr(localizedRecordKind.subtitleKey)
+        }
         if let giftName, !giftName.isBlank { return giftName }
         if let note, !note.isBlank { return note }
         switch type {
         case "ios_iap": return L10n.tr("wallet.transaction.iapSubtitle")
         case "gift_sent": return L10n.tr("wallet.transaction.giftSentSubtitle")
-        case "gift_received":
-            return currency == .catHair
-                ? L10n.tr("wallet.transaction.giftReceivedCatHairSubtitle")
-                : L10n.tr("wallet.transaction.giftReceivedSubtitle")
+        case "gift_received": return L10n.tr("wallet.transaction.giftReceivedSubtitle")
         case "red_packet_sent", "red_packet_received", "red_packet_refund",
              "transfer_sent", "transfer_received", "transfer_returned":
             return L10n.tr("wallet.transaction.chatMoneySubtitle")
@@ -645,19 +705,19 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
     }
 
     var hasDisplayableAmount: Bool {
-        guard let amount else { return false }
-        return amount != 0
+        guard let goldCoinAmount else { return false }
+        return goldCoinAmount != 0
     }
 
     var signedAmountValue: Int? {
-        guard let amount, amount != 0 else { return nil }
+        guard let goldCoinAmount, goldCoinAmount != 0 else { return nil }
         switch type {
         case "gift_sent", "red_packet_sent", "transfer_sent":
-            return -abs(amount)
+            return -abs(goldCoinAmount)
         case "ios_iap", "gift_received", "red_packet_received", "red_packet_refund", "transfer_received", "transfer_returned":
-            return abs(amount)
+            return abs(goldCoinAmount)
         default:
-            return amount
+            return goldCoinAmount
         }
     }
 
@@ -665,6 +725,22 @@ struct WalletTransaction: Codable, Identifiable, Equatable {
         guard let signedAmountValue else { return "--" }
         let sign = signedAmountValue >= 0 ? "+" : "-"
         return "\(sign)\(abs(signedAmountValue)) \(currency.localizedUnit)"
+    }
+}
+
+struct GoldCoinAmount: Equatable, Codable, Hashable, Sendable {
+    let value: Int
+
+    init(_ value: Int) {
+        self.value = value
+    }
+}
+
+struct ActivityCatFoodAmount: Equatable, Codable, Hashable, Sendable {
+    let value: Int
+
+    init(_ value: Int) {
+        self.value = value
     }
 }
 
@@ -692,120 +768,291 @@ struct GiftCatalogResponseData: Decodable {
 }
 
 struct WalletBalanceResponseData: Codable, Equatable {
-    let balance: Int
-    let totalBalance: Int
-    let rechargeClaimBalance: Int
-    let catHairBalance: Int
-    let catHairFrozenBalance: Int
-    let withdrawableCatHairBalance: Int
-    let lockedCatHairBalance: Int
-    let hasExplicitWithdrawableCatHairBalance: Bool
+    let currency: WalletCurrency
+    let goldCoinBalance: GoldCoinAmount
+    let activityCatFoodBalance: ActivityCatFoodAmount
+    let spendableBalance: Int
+    let rechargeGoldCoinBalance: GoldCoinAmount
+    let giftIncomeGoldCoinBalance: GoldCoinAmount
+    let withdrawFrozenGoldCoinBalance: GoldCoinAmount
+    let withdrawableGoldCoinBalance: GoldCoinAmount
+    let chatMoneyFrozenGoldCoinBalance: GoldCoinAmount
+    let hasServerActivityCatFoodBalance: Bool
 
-    enum CodingKeys: String, CodingKey {
-        case balance
-        case totalBalance = "total_balance"
-        case totalBalanceCamel = "totalBalance"
-        case rechargeClaimBalance = "recharge_claim_balance"
-        case rechargeClaimBalanceCamel = "rechargeClaimBalance"
-        case catHairBalance = "cat_hair_balance"
-        case catHairBalanceCamel = "catHairBalance"
-        case catHairFrozenBalance = "cat_hair_frozen_balance"
-        case catHairFrozenBalanceCamel = "catHairFrozenBalance"
-        case withdrawableCatHairBalance = "withdrawable_cat_hair_balance"
-        case withdrawableCatHairBalanceCamel = "withdrawableCatHairBalance"
-        case lockedCatHairBalance = "locked_cat_hair_balance"
-        case lockedCatHairBalanceCamel = "lockedCatHairBalance"
-        case catFood = "cat_food"
-        case catFoodBalance = "cat_food_balance"
-        case coins
-        case wallet
+    var isSpendableBalanceConsistent: Bool {
+        spendableBalance == goldCoinBalance.value + activityCatFoodBalance.value
     }
 
-    init(balance: Int) {
-        self.balance = balance
-        self.totalBalance = balance
-        self.rechargeClaimBalance = balance
-        self.catHairBalance = 0
-        self.catHairFrozenBalance = 0
-        self.withdrawableCatHairBalance = 0
-        self.lockedCatHairBalance = 0
-        self.hasExplicitWithdrawableCatHairBalance = false
+    enum CodingKeys: String, CodingKey {
+        case currency
+        case goldCoinBalance = "gold_coin_balance"
+        case activityCatFoodBalance = "activity_cat_food_balance"
+        case spendableBalance = "spendable_balance"
+        case rechargeGoldCoinBalance = "recharge_gold_coin_balance"
+        case giftIncomeGoldCoinBalance = "gift_income_gold_coin_balance"
+        case withdrawFrozenGoldCoinBalance = "withdraw_frozen_gold_coin_balance"
+        case withdrawableGoldCoinBalance = "withdrawable_gold_coin_balance"
+        case chatMoneyFrozenGoldCoinBalance = "chat_money_frozen_gold_coin_balance"
+    }
+
+    init(
+        goldCoinBalance: Int,
+        activityCatFoodBalance: Int = 0,
+        spendableBalance: Int,
+        rechargeGoldCoinBalance: Int? = nil,
+        giftIncomeGoldCoinBalance: Int = 0,
+        withdrawFrozenGoldCoinBalance: Int = 0,
+        withdrawableGoldCoinBalance: Int = 0,
+        chatMoneyFrozenGoldCoinBalance: Int = 0,
+        hasServerActivityCatFoodBalance: Bool = true
+    ) {
+        self.currency = .goldCoins
+        self.goldCoinBalance = GoldCoinAmount(goldCoinBalance)
+        self.activityCatFoodBalance = ActivityCatFoodAmount(activityCatFoodBalance)
+        self.spendableBalance = spendableBalance
+        self.rechargeGoldCoinBalance = GoldCoinAmount(rechargeGoldCoinBalance ?? goldCoinBalance)
+        self.giftIncomeGoldCoinBalance = GoldCoinAmount(giftIncomeGoldCoinBalance)
+        self.withdrawFrozenGoldCoinBalance = GoldCoinAmount(withdrawFrozenGoldCoinBalance)
+        self.withdrawableGoldCoinBalance = GoldCoinAmount(withdrawableGoldCoinBalance)
+        self.chatMoneyFrozenGoldCoinBalance = GoldCoinAmount(chatMoneyFrozenGoldCoinBalance)
+        self.hasServerActivityCatFoodBalance = hasServerActivityCatFoodBalance
     }
 
     init(from decoder: Decoder) throws {
-        if let single = try? decoder.singleValueContainer(),
-           let balance = try? single.decode(Int.self) {
-            self.init(balance: balance)
-            return
-        }
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let wallet = try? container.nestedContainer(keyedBy: CodingKeys.self, forKey: .wallet) {
-            self = Self.decode(from: wallet)
-            return
+        let rawCurrency = container.flexString(for: .currency)
+        guard WalletCurrency(rawCurrency) == .goldCoins else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .currency,
+                in: container,
+                debugDescription: "Wallet currency must be gold_coin."
+            )
         }
-        self = Self.decode(from: container)
+
+        let goldCoins = try container.requiredFlexInt(for: .goldCoinBalance)
+        let activityCatFood = try container.requiredFlexInt(for: .activityCatFoodBalance)
+        let spendable = try container.requiredFlexInt(for: .spendableBalance)
+        let rechargeGoldCoins = try container.requiredFlexInt(for: .rechargeGoldCoinBalance)
+        let giftIncomeGoldCoins = try container.requiredFlexInt(for: .giftIncomeGoldCoinBalance)
+        let withdrawFrozenGoldCoins = try container.requiredFlexInt(for: .withdrawFrozenGoldCoinBalance)
+        let withdrawableGoldCoins = try container.requiredFlexInt(for: .withdrawableGoldCoinBalance)
+        let chatMoneyFrozenGoldCoins = try container.requiredFlexInt(for: .chatMoneyFrozenGoldCoinBalance)
+        let balances = [
+            goldCoins,
+            activityCatFood,
+            spendable,
+            rechargeGoldCoins,
+            giftIncomeGoldCoins,
+            withdrawFrozenGoldCoins,
+            withdrawableGoldCoins,
+            chatMoneyFrozenGoldCoins
+        ]
+        guard balances.allSatisfy({ $0 >= 0 }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .goldCoinBalance,
+                in: container,
+                debugDescription: "Wallet balances must be non-negative."
+            )
+        }
+
+        self.currency = .goldCoins
+        self.goldCoinBalance = GoldCoinAmount(goldCoins)
+        self.activityCatFoodBalance = ActivityCatFoodAmount(activityCatFood)
+        self.spendableBalance = spendable
+        self.rechargeGoldCoinBalance = GoldCoinAmount(rechargeGoldCoins)
+        self.giftIncomeGoldCoinBalance = GoldCoinAmount(giftIncomeGoldCoins)
+        self.withdrawFrozenGoldCoinBalance = GoldCoinAmount(withdrawFrozenGoldCoins)
+        self.withdrawableGoldCoinBalance = GoldCoinAmount(withdrawableGoldCoins)
+        self.chatMoneyFrozenGoldCoinBalance = GoldCoinAmount(chatMoneyFrozenGoldCoins)
+        self.hasServerActivityCatFoodBalance = true
     }
 
-    private static func decode(from container: KeyedDecodingContainer<CodingKeys>) -> WalletBalanceResponseData {
-        let balance = container.flexInt(for: .balance)
-            ?? container.flexInt(for: .catFood)
-            ?? container.flexInt(for: .catFoodBalance)
-            ?? container.flexInt(for: .coins)
-            ?? 0
-        let totalBalance = container.flexInt(for: .totalBalance)
-            ?? container.flexInt(for: .totalBalanceCamel)
-            ?? balance
-        let rechargeClaimBalance = container.flexInt(for: .rechargeClaimBalance)
-            ?? container.flexInt(for: .rechargeClaimBalanceCamel)
-            ?? balance
-        let catHairBalance = container.flexInt(for: .catHairBalance)
-            ?? container.flexInt(for: .catHairBalanceCamel)
-            ?? 0
-        let catHairFrozenBalance = container.flexInt(for: .catHairFrozenBalance)
-            ?? container.flexInt(for: .catHairFrozenBalanceCamel)
-            ?? 0
-        let explicitWithdrawable = container.flexInt(for: .withdrawableCatHairBalance)
-            ?? container.flexInt(for: .withdrawableCatHairBalanceCamel)
-        let lockedCatHairBalance = container.flexInt(for: .lockedCatHairBalance)
-            ?? container.flexInt(for: .lockedCatHairBalanceCamel)
-            ?? 0
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(WalletCurrency.goldCoins.rawValue, forKey: .currency)
+        try container.encode(goldCoinBalance.value, forKey: .goldCoinBalance)
+        try container.encode(activityCatFoodBalance.value, forKey: .activityCatFoodBalance)
+        try container.encode(spendableBalance, forKey: .spendableBalance)
+        try container.encode(rechargeGoldCoinBalance.value, forKey: .rechargeGoldCoinBalance)
+        try container.encode(giftIncomeGoldCoinBalance.value, forKey: .giftIncomeGoldCoinBalance)
+        try container.encode(withdrawFrozenGoldCoinBalance.value, forKey: .withdrawFrozenGoldCoinBalance)
+        try container.encode(withdrawableGoldCoinBalance.value, forKey: .withdrawableGoldCoinBalance)
+        try container.encode(chatMoneyFrozenGoldCoinBalance.value, forKey: .chatMoneyFrozenGoldCoinBalance)
+    }
+}
 
-        return WalletBalanceResponseData(
-            balance: balance,
-            totalBalance: totalBalance,
-            rechargeClaimBalance: rechargeClaimBalance,
-            catHairBalance: catHairBalance,
-            catHairFrozenBalance: catHairFrozenBalance,
-            withdrawableCatHairBalance: explicitWithdrawable ?? 0,
-            lockedCatHairBalance: lockedCatHairBalance,
-            hasExplicitWithdrawableCatHairBalance: explicitWithdrawable != nil
-        )
+struct MixedAssetCharge: Decodable, Equatable {
+    let chargedActivityCatFood: ActivityCatFoodAmount
+    let chargedGoldCoins: GoldCoinAmount
+    let totalCharged: Int
+    let walletBalance: WalletBalanceResponseData
+
+    enum CodingKeys: String, CodingKey {
+        case chargedActivityCatFood = "charged_activity_cat_food"
+        case chargedGoldCoins = "charged_gold_coins"
+        case totalCharged = "total_charged"
+        case walletBalance = "wallet_balance"
     }
 
-    private init(
-        balance: Int,
-        totalBalance: Int,
-        rechargeClaimBalance: Int,
-        catHairBalance: Int,
-        catHairFrozenBalance: Int,
-        withdrawableCatHairBalance: Int,
-        lockedCatHairBalance: Int,
-        hasExplicitWithdrawableCatHairBalance: Bool
+    init(
+        chargedActivityCatFood: Int,
+        chargedGoldCoins: Int,
+        totalCharged: Int,
+        walletBalance: WalletBalanceResponseData
     ) {
-        self.balance = balance
-        self.totalBalance = totalBalance
-        self.rechargeClaimBalance = rechargeClaimBalance
-        self.catHairBalance = catHairBalance
-        self.catHairFrozenBalance = catHairFrozenBalance
-        self.withdrawableCatHairBalance = withdrawableCatHairBalance
-        self.lockedCatHairBalance = lockedCatHairBalance
-        self.hasExplicitWithdrawableCatHairBalance = hasExplicitWithdrawableCatHairBalance
+        self.chargedActivityCatFood = ActivityCatFoodAmount(chargedActivityCatFood)
+        self.chargedGoldCoins = GoldCoinAmount(chargedGoldCoins)
+        self.totalCharged = totalCharged
+        self.walletBalance = walletBalance
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let activityCatFood = try container.requiredFlexInt(for: .chargedActivityCatFood)
+        let goldCoins = try container.requiredFlexInt(for: .chargedGoldCoins)
+        let total = try container.requiredFlexInt(for: .totalCharged)
+        guard activityCatFood >= 0, goldCoins >= 0, total >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .totalCharged,
+                in: container,
+                debugDescription: "Mixed-charge amounts must be non-negative."
+            )
+        }
+        guard total == activityCatFood + goldCoins else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .totalCharged,
+                in: container,
+                debugDescription: "total_charged must equal the two charged asset amounts."
+            )
+        }
+
+        chargedActivityCatFood = ActivityCatFoodAmount(activityCatFood)
+        chargedGoldCoins = GoldCoinAmount(goldCoins)
+        totalCharged = total
+        walletBalance = try container.decode(WalletBalanceResponseData.self, forKey: .walletBalance)
+    }
+
+    var isTotalConsistent: Bool {
+        totalCharged == chargedActivityCatFood.value + chargedGoldCoins.value
+    }
+
+    static func decodeIfPresent(from decoder: Decoder) throws -> MixedAssetCharge? {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let hasCharge = container.contains(.chargedActivityCatFood)
+            || container.contains(.chargedGoldCoins)
+            || container.contains(.totalCharged)
+            || container.contains(.walletBalance)
+        guard hasCharge else { return nil }
+        return try MixedAssetCharge(from: decoder)
+    }
+}
+
+struct ActivityCatFoodTransaction: Decodable, Identifiable, Equatable {
+    let id: String
+    let delta: Int
+    let balanceAfter: Int
+    let source: String?
+    let title: String?
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case delta
+        case balanceAfter = "balance_after"
+        case source
+        case title
+        case createdAt = "created_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = container.flexString(for: .id) ?? UUID().uuidString
+        delta = container.flexInt(for: .delta) ?? 0
+        balanceAfter = container.flexInt(for: .balanceAfter) ?? 0
+        source = container.flexString(for: .source)
+        title = container.flexString(for: .title)
+        createdAt = container.flexString(for: .createdAt)
+    }
+
+    private var localizedActivityTitleKey: String? {
+        let value = Self.normalizedActivityText([source, title].compactMap { $0 }.joined(separator: " "))
+        guard !value.isEmpty else { return nil }
+
+        if value.contains("check in") || value.contains("checkin") || value.contains("sign in") {
+            return "activityCenter.checkIn.title"
+        }
+        if value.contains("breakfast") || value.contains("lunch") || value.contains("dinner")
+            || value.contains("meal") {
+            return "activityCenter.meals.title"
+        }
+        if value.contains("contact") {
+            return "activityCenter.contacts.title"
+        }
+        if value.contains("valid invite") || value.contains("invite reward") {
+            return "activityCenter.invite.title"
+        }
+        if value.contains("share") {
+            return "activityCenter.share.title"
+        }
+        if value.contains("invite") {
+            return "activityCenter.invite.title"
+        }
+        return nil
+    }
+
+    private static func normalizedActivityText(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+    }
+
+    var displayTitle: String {
+        if let localizedActivityTitleKey {
+            return L10n.tr(localizedActivityTitleKey)
+        }
+        if let title, !title.isBlank { return title }
+        return L10n.tr("activityCatFood.transaction.adjust")
+    }
+
+    var displaySource: String? {
+        guard localizedActivityTitleKey != nil else { return nil }
+        return L10n.tr("activityCatFood.transaction.grant")
+    }
+
+    var signedAmountText: String {
+        let sign = delta >= 0 ? "+" : "-"
+        return "\(sign)\(abs(delta))"
+    }
+}
+
+struct ActivityCatFoodTransactionPage: Decodable, Equatable {
+    let items: [ActivityCatFoodTransaction]
+    let nextCursor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case transactions
+        case nextCursor = "next_cursor"
+        case nextCursorCamel = "nextCursor"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = (try? container.decodeIfPresent([ActivityCatFoodTransaction].self, forKey: .items))
+            ?? (try? container.decodeIfPresent([ActivityCatFoodTransaction].self, forKey: .transactions))
+            ?? []
+        nextCursor = container.flexString(for: .nextCursor)
+            ?? container.flexString(for: .nextCursorCamel)
     }
 }
 
 struct WalletIAPConfirmationResponseData: Decodable {
     let balance: WalletBalanceResponseData?
-    let coins: Int?
+    let goldCoinAmount: Int?
     let transaction: WalletTransaction?
 
     enum CodingKeys: String, CodingKey {
@@ -815,9 +1062,7 @@ struct WalletIAPConfirmationResponseData: Decodable {
         case wallet
         case walletBalance = "wallet_balance"
         case walletBalanceCamel = "walletBalance"
-        case coins
-        case catFood = "cat_food"
-        case catFoodAmount = "cat_food_amount"
+        case goldCoinAmount = "gold_coin_amount"
         case amount
         case transaction
         case walletTransaction = "wallet_transaction"
@@ -832,9 +1077,7 @@ struct WalletIAPConfirmationResponseData: Decodable {
             ?? (try? container.decode(WalletBalanceResponseData.self, forKey: .wallet))
             ?? (try? container.decode(WalletBalanceResponseData.self, forKey: .walletBalance))
             ?? (try? container.decode(WalletBalanceResponseData.self, forKey: .walletBalanceCamel))
-        self.coins = container.flexInt(for: .coins)
-            ?? container.flexInt(for: .catFood)
-            ?? container.flexInt(for: .catFoodAmount)
+        self.goldCoinAmount = container.flexInt(for: .goldCoinAmount)
             ?? container.flexInt(for: .amount)
         self.transaction = (try? container.decode(WalletTransaction.self, forKey: .transaction))
             ?? (try? container.decode(WalletTransaction.self, forKey: .walletTransaction))
@@ -842,8 +1085,9 @@ struct WalletIAPConfirmationResponseData: Decodable {
     }
 }
 
-struct WalletTransactionsResponseData: Decodable {
+struct WalletTransactionsResponseData: Codable, Equatable {
     let transactions: [WalletTransaction]
+    let nextCursor: String?
 
     enum CodingKeys: String, CodingKey {
         case transactions
@@ -851,28 +1095,73 @@ struct WalletTransactionsResponseData: Decodable {
         case records
         case list
         case rows
+        case nextCursor = "next_cursor"
+        case nextCursorCamel = "nextCursor"
+    }
+
+    init(transactions: [WalletTransaction], nextCursor: String?) {
+        self.transactions = transactions
+        self.nextCursor = nextCursor?.isBlank == false ? nextCursor : nil
     }
 
     init(from decoder: Decoder) throws {
         if let single = try? decoder.singleValueContainer(),
-           let transactions = try? single.decode([WalletTransaction].self) {
+           let transactions = Self.decodeTransactions(from: single) {
             self.transactions = transactions
+            self.nextCursor = nil
             return
         }
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.transactions = (try? container.decode([WalletTransaction].self, forKey: .transactions))
-            ?? (try? container.decode([WalletTransaction].self, forKey: .items))
-            ?? (try? container.decode([WalletTransaction].self, forKey: .records))
-            ?? (try? container.decode([WalletTransaction].self, forKey: .list))
-            ?? (try? container.decode([WalletTransaction].self, forKey: .rows))
+        self.transactions = Self.decodeTransactions(from: container, forKey: .transactions)
+            ?? Self.decodeTransactions(from: container, forKey: .items)
+            ?? Self.decodeTransactions(from: container, forKey: .records)
+            ?? Self.decodeTransactions(from: container, forKey: .list)
+            ?? Self.decodeTransactions(from: container, forKey: .rows)
             ?? []
+        let decodedCursor = container.flexString(for: .nextCursor)
+            ?? container.flexString(for: .nextCursorCamel)
+        self.nextCursor = decodedCursor?.isBlank == false ? decodedCursor : nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(transactions, forKey: .items)
+        try container.encodeIfPresent(nextCursor, forKey: .nextCursor)
+    }
+
+    private static func decodeTransactions(
+        from container: SingleValueDecodingContainer
+    ) -> [WalletTransaction]? {
+        if let transactions = try? container.decode([WalletTransaction].self) {
+            return transactions
+        }
+        return try? container.decode([LossyWalletTransaction].self).compactMap(\.value)
+    }
+
+    private static func decodeTransactions(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> [WalletTransaction]? {
+        guard container.contains(key) else { return nil }
+        if let transactions = try? container.decode([WalletTransaction].self, forKey: key) {
+            return transactions
+        }
+        return try? container.decode([LossyWalletTransaction].self, forKey: key).compactMap(\.value)
+    }
+
+    private struct LossyWalletTransaction: Decodable {
+        let value: WalletTransaction?
+
+        init(from decoder: Decoder) throws {
+            value = try? WalletTransaction(from: decoder)
+        }
     }
 }
 
 struct WalletWithdrawal: Codable, Identifiable, Equatable {
     let id: String
     let currency: WalletCurrency
-    let amount: Int
+    let goldCoinAmount: GoldCoinAmount
     let payoutUSD: Double?
     let payoutCents: Int?
     let provider: String?
@@ -891,13 +1180,7 @@ struct WalletWithdrawal: Codable, Identifiable, Equatable {
         case withdrawalID = "withdrawal_id"
         case withdrawalId = "withdrawalId"
         case currency
-        case amount
-        case catFood = "cat_food"
-        case catFoodAmount = "cat_food_amount"
-        case coins
-        case catHair = "cat_hair"
-        case catHairAmount = "cat_hair_amount"
-        case withdrawAmount = "withdraw_amount"
+        case goldCoinAmount = "gold_coin_amount"
         case payoutUSD = "payout_usd"
         case payoutUSDCamel = "payoutUSD"
         case payoutCents = "payout_cents"
@@ -927,20 +1210,19 @@ struct WalletWithdrawal: Codable, Identifiable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard WalletCurrency(container.flexString(for: .currency)) == .goldCoins else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .currency,
+                in: container,
+                debugDescription: "Withdrawal currency must be gold_coin."
+            )
+        }
         self.id = container.flexString(for: .id)
             ?? container.flexString(for: .withdrawalID)
             ?? container.flexString(for: .withdrawalId)
             ?? UUID().uuidString
-        let decodedCurrency = WalletCurrency(container.flexString(for: .currency))
-        self.currency = decodedCurrency == .unknown ? .catFood : decodedCurrency
-        self.amount = container.flexInt(for: .amount)
-            ?? container.flexInt(for: .catFood)
-            ?? container.flexInt(for: .catFoodAmount)
-            ?? container.flexInt(for: .coins)
-            ?? container.flexInt(for: .catHair)
-            ?? container.flexInt(for: .catHairAmount)
-            ?? container.flexInt(for: .withdrawAmount)
-            ?? 0
+        self.currency = .goldCoins
+        self.goldCoinAmount = GoldCoinAmount(container.flexInt(for: .goldCoinAmount) ?? 0)
         self.payoutUSD = container.flexDouble(for: .payoutUSD)
             ?? container.flexDouble(for: .payoutUSDCamel)
         self.payoutCents = container.flexInt(for: .payoutCents)
@@ -980,7 +1262,7 @@ struct WalletWithdrawal: Codable, Identifiable, Equatable {
         } else if let payoutCents {
             usd = Double(payoutCents) / 100
         } else {
-            usd = Double(amount) * 0.005
+            usd = Double(goldCoinAmount.value) * 0.005
         }
         return String(format: "%.2f USDT", usd)
     }
@@ -1115,6 +1397,19 @@ extension KeyedDecodingContainer {
         return nil
     }
 
+    func requiredFlexInt(for key: Key) throws -> Int {
+        guard let value = flexInt(for: key) else {
+            throw DecodingError.keyNotFound(
+                key,
+                DecodingError.Context(
+                    codingPath: codingPath,
+                    debugDescription: "Missing required integer field \(key.stringValue)."
+                )
+            )
+        }
+        return value
+    }
+
     func flexContent(for key: Key) -> String? {
         if let string = flexString(for: key) {
             return string
@@ -1224,28 +1519,19 @@ extension WalletTransaction {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encode(type, forKey: .type); try c.encode(currency, forKey: .currency)
-        try c.encodeIfPresent(amount, forKey: .amount); try c.encodeIfPresent(balanceAfter, forKey: .balanceAfter)
+        try c.encodeIfPresent(goldCoinAmount, forKey: .goldCoinAmount)
+        try c.encodeIfPresent(goldCoinBalanceAfter, forKey: .goldCoinBalanceAfter)
         try c.encodeIfPresent(title, forKey: .title); try c.encodeIfPresent(note, forKey: .note)
         try c.encodeIfPresent(giftID, forKey: .giftID); try c.encodeIfPresent(giftName, forKey: .giftName)
         try c.encodeIfPresent(productID, forKey: .productID); try c.encodeIfPresent(createdAt, forKey: .createdAt)
     }
 }
 
-extension WalletBalanceResponseData {
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(balance, forKey: .balance); try c.encode(totalBalance, forKey: .totalBalance)
-        try c.encode(rechargeClaimBalance, forKey: .rechargeClaimBalance); try c.encode(catHairBalance, forKey: .catHairBalance)
-        try c.encode(catHairFrozenBalance, forKey: .catHairFrozenBalance)
-        if hasExplicitWithdrawableCatHairBalance { try c.encode(withdrawableCatHairBalance, forKey: .withdrawableCatHairBalance) }
-        try c.encode(lockedCatHairBalance, forKey: .lockedCatHairBalance)
-    }
-}
-
 extension WalletWithdrawal {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id); try c.encode(currency, forKey: .currency); try c.encode(amount, forKey: .amount)
+        try c.encode(id, forKey: .id); try c.encode(currency, forKey: .currency)
+        try c.encode(goldCoinAmount.value, forKey: .goldCoinAmount)
         try c.encodeIfPresent(payoutUSD, forKey: .payoutUSD); try c.encodeIfPresent(payoutCents, forKey: .payoutCents)
         try c.encodeIfPresent(provider, forKey: .provider); try c.encodeIfPresent(payoutMethod, forKey: .payoutMethod)
         try c.encodeIfPresent(payoutAccount, forKey: .payoutAccount); try c.encodeIfPresent(network, forKey: .network)

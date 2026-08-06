@@ -37,15 +37,22 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     private var lastUploadedAt: Date?
     private var uploadTimer: Timer?
     private var isUploadingLocation = false
-    private var didLoadInitial = false
+    private var locationUploadToken: UUID?
+    private var activeOwnerID: String?
+    private var didLoadInitialForOwner = false
+    private var initialLoadToken: UUID?
+    private var usersRefreshRequestedWhileRunning = false
+    private var usersRefreshToken: UUID?
+    private var mapVisitEventID = UUID().uuidString
+    private var didRecordMapVisit = false
 
     override init() {
         self.authorizationStatus = locationManager.authorizationStatus
         super.init()
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        locationManager.distanceFilter = 100
-        locationManager.pausesLocationUpdatesAutomatically = true
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.distanceFilter = 10
+        locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.allowsBackgroundLocationUpdates = false
     }
 
@@ -54,6 +61,10 @@ final class MapDatingViewModel: NSObject, ObservableObject {
         case .nearby: return nearbyUsers
         case .friends: return friendUsers
         }
+    }
+
+    var mappableDisplayedUsers: [MapUser] {
+        displayedUsers.filter(\.hasMappableCoordinate)
     }
 
     var canUpdateLocation: Bool {
@@ -98,44 +109,70 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     func loadInitial() async {
-        guard !didLoadInitial else { return }
-        didLoadInitial = true
+        let ownerID = AuthManager.shared.currentUser?.userID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if ownerID != activeOwnerID {
+            resetAccountScopedState(ownerID: ownerID)
+        }
+        guard let ownerID, !ownerID.isEmpty else { return }
+
+        if didLoadInitialForOwner {
+            mapVisitEventID = UUID().uuidString
+            didRecordMapVisit = false
+            await refreshViewerCoordinate(
+                requestDevicePermission: true,
+                timeout: 5
+            )
+            await refreshUsers()
+            return
+        }
+
+        didLoadInitialForOwner = true
+        let loadToken = UUID()
+        initialLoadToken = loadToken
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if initialLoadToken == loadToken {
+                isLoading = false
+            }
+        }
 
         do {
             let presence = try await APIService.shared.getMapPresence()
+            guard isCurrentInitialLoad(ownerID: ownerID, token: loadToken) else { return }
             applyPresence(presence)
         } catch {
+            guard isCurrentInitialLoad(ownerID: ownerID, token: loadToken) else { return }
             errorMessage = apiMessage(error)
             if let apiError = error as? APIError, case .unauthorized = apiError {
                 return
             }
         }
 
-        if isMapEnabled, selectedOnlineStatus == .online {
-            let granted = await requestLocationPermissionIfNeeded()
-            guard granted else {
-                errorMessage = L10n.tr("map.location.permissionEnableRequired")
-                return
-            }
-            resumeForegroundUpdates()
-            if let location = await requestCurrentLocation() {
-                do {
-                    try await uploadLocation(location, force: true)
-                } catch {
-                    applyLocalLocation(location)
-                    await refreshUsers()
-                    errorMessage = apiMessage(error)
-                }
-            } else {
-                await refreshUsers()
-            }
-        } else {
-            selectedVisibilityScope = .everyone
-            selectedOnlineStatus = .online
-            await refreshUsersForCurrentViewer()
+        // Browsing the public map never requires the viewer's location or
+        // presence to be enabled. Load everybody first, then independently
+        // resolve the viewer's coordinate so their own avatar can be drawn.
+        await refreshUsers()
+        guard isCurrentInitialLoad(ownerID: ownerID, token: loadToken) else { return }
+        await refreshViewerCoordinate(
+            requestDevicePermission: true,
+            timeout: 5
+        )
+    }
+
+    func refreshAfterBecomingActive() async {
+        guard didLoadInitialForOwner,
+              activeOwnerID == AuthManager.shared.currentUser?.userID
+                .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            await loadInitial()
+            return
         }
+
+        await refreshViewerCoordinate(
+            requestDevicePermission: true,
+            timeout: 5
+        )
+        await refreshUsers()
     }
 
     func enableMapDating() async {
@@ -336,42 +373,84 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     func refreshUsers() async {
-        guard !isRefreshingUsers else { return }
+        guard !isRefreshingUsers else {
+            usersRefreshRequestedWhileRunning = true
+            return
+        }
 
+        let refreshToken = UUID()
+        usersRefreshToken = refreshToken
         isRefreshingUsers = true
-        usersLoadErrorMessage = nil
-        defer { isRefreshingUsers = false }
+        defer {
+            if usersRefreshToken == refreshToken {
+                isRefreshingUsers = false
+            }
+        }
 
+        repeat {
+            usersRefreshRequestedWhileRunning = false
+            await performUsersRefresh(refreshToken: refreshToken)
+        } while usersRefreshRequestedWhileRunning && usersRefreshToken == refreshToken
+    }
+
+    private func performUsersRefresh(refreshToken: UUID) async {
+        usersLoadErrorMessage = nil
+        guard let ownerID = activeOwnerID, !ownerID.isEmpty else { return }
+
+        let requestedMode = mode
         do {
             let coordinate = requestCoordinate
-            switch mode {
+            switch requestedMode {
             case .nearby:
-                guard let coordinate else {
-                    let message = isAuthorized
-                        ? L10n.tr("map.location.required")
-                        : L10n.tr("map.location.permissionRefreshRequired")
-                    usersLoadErrorMessage = message
-                    errorMessage = message
+                let response = try await APIService.shared.getAllMapUsers(
+                    lat: coordinate?.latitude,
+                    lng: coordinate?.longitude
+                )
+                guard shouldApplyUsersResponse(
+                    ownerID: ownerID,
+                    mode: requestedMode,
+                    refreshToken: refreshToken
+                ) else {
+                    if activeOwnerID == ownerID, usersRefreshToken == refreshToken {
+                        usersRefreshRequestedWhileRunning = true
+                    }
                     return
                 }
-                let response = try await APIService.shared.getNearbyMapUsers(
-                    lat: coordinate.latitude,
-                    lng: coordinate.longitude,
-                    includeFriends: true
-                )
-                nearbyUsers = response.users
-                warnIfUsersCannotBeMapped(response.users)
+                let users = MapUserCollectionPolicy.normalized(response.users, viewerID: ownerID)
                 applyUsersMetadata(response, for: .nearby)
+                nearbyUsers = users
+                warnIfUsersCannotBeMapped(users)
             case .friends:
                 let response = try await APIService.shared.getFriendMapUsers(
                     lat: coordinate?.latitude,
                     lng: coordinate?.longitude
                 )
-                friendUsers = response.users
-                warnIfUsersCannotBeMapped(response.users)
+                guard shouldApplyUsersResponse(
+                    ownerID: ownerID,
+                    mode: requestedMode,
+                    refreshToken: refreshToken
+                ) else {
+                    if activeOwnerID == ownerID, usersRefreshToken == refreshToken {
+                        usersRefreshRequestedWhileRunning = true
+                    }
+                    return
+                }
+                let users = MapUserCollectionPolicy.normalized(response.users, viewerID: ownerID)
                 applyUsersMetadata(response, for: .friends)
+                friendUsers = users
+                warnIfUsersCannotBeMapped(users)
             }
         } catch {
+            guard shouldApplyUsersResponse(
+                ownerID: ownerID,
+                mode: requestedMode,
+                refreshToken: refreshToken
+            ) else {
+                if activeOwnerID == ownerID, usersRefreshToken == refreshToken {
+                    usersRefreshRequestedWhileRunning = true
+                }
+                return
+            }
             let message = apiMessage(error)
             usersLoadErrorMessage = message
             errorMessage = message
@@ -379,11 +458,7 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     func retryLoadingUsers() async {
-        if mode == .nearby, requestCoordinate == nil {
-            await refreshUsersForCurrentViewer()
-        } else {
-            await refreshUsers()
-        }
+        await refreshUsers()
     }
 
     func selectUser(_ user: MapUser) async {
@@ -447,9 +522,13 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     func resumeForegroundUpdates() {
-        guard canUpdateLocation, isAuthorized else { return }
+        guard isAuthorized else { return }
         locationManager.startUpdatingLocation()
-        startUploadTimer()
+        if canUploadLocation {
+            startUploadTimer()
+        } else {
+            stopUploadTimer()
+        }
     }
 
     func pauseForegroundUpdates() {
@@ -474,11 +553,58 @@ final class MapDatingViewModel: NSObject, ObservableObject {
         draftStatusText = presence.statusText ?? ""
 
         if lastKnownLocation == nil,
-           let latitude = presence.latitude,
-           let longitude = presence.longitude {
-            mapCenter = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+           let coordinate = serverFallbackCoordinate(from: presence) {
+            mapCenter = coordinate
         }
 
+    }
+
+    private func resetAccountScopedState(ownerID: String?) {
+        stopForegroundUpdates()
+        activeOwnerID = ownerID
+        didLoadInitialForOwner = false
+        initialLoadToken = nil
+        usersRefreshToken = nil
+        usersRefreshRequestedWhileRunning = false
+        mapVisitEventID = UUID().uuidString
+        didRecordMapVisit = false
+        isLoading = false
+        isRefreshingUsers = false
+        locationUploadToken = nil
+        isUploadingLocation = false
+        presence = nil
+        nearbyUsers = []
+        friendUsers = []
+        selectedUser = nil
+        selectedVisibilityScope = .everyone
+        selectedOnlineStatus = .online
+        draftStatusText = ""
+        mapCenter = nil
+        nearbyEffectiveRadiusM = nil
+        friendEffectiveRadiusM = nil
+        usersLoadErrorMessage = nil
+        errorMessage = nil
+        successMessage = nil
+        isMapEnabled = false
+        lastKnownLocation = nil
+        lastUploadedLocation = nil
+        lastUploadedAt = nil
+    }
+
+    private func isCurrentInitialLoad(ownerID: String, token: UUID) -> Bool {
+        activeOwnerID == ownerID && initialLoadToken == token
+    }
+
+    private func shouldApplyUsersResponse(
+        ownerID: String,
+        mode: MapDatingMode,
+        refreshToken: UUID
+    ) -> Bool {
+        activeOwnerID == ownerID
+            && usersRefreshToken == refreshToken
+            && AuthManager.shared.currentUser?.userID
+                .trimmingCharacters(in: .whitespacesAndNewlines) == ownerID
+            && self.mode == mode
     }
 
     private func applyClosedState() {
@@ -512,17 +638,6 @@ final class MapDatingViewModel: NSObject, ObservableObject {
         case .friends:
             friendEffectiveRadiusM = response.effectiveRadiusM
         }
-    }
-
-    private func refreshUsersForCurrentViewer() async {
-        let granted = await requestLocationPermissionIfNeeded()
-        if granted, let location = await requestCurrentLocation() {
-            applyLocalLocation(location)
-        } else if mode == .nearby {
-            errorMessage = granted ? L10n.tr("map.location.required") : L10n.tr("map.location.permissionRefreshRequired")
-        }
-
-        await refreshUsers()
     }
 
     private func warnIfUsersCannotBeMapped(_ users: [MapUser]) {
@@ -560,6 +675,8 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             status: status,
             latitude: presence?.latitude,
             longitude: presence?.longitude,
+            displayLatitude: presence?.displayLatitude,
+            displayLongitude: presence?.displayLongitude,
             accuracyM: presence?.accuracyM,
             statusText: presence?.statusText ?? draftStatusText,
             updatedAt: presence?.updatedAt,
@@ -582,6 +699,8 @@ final class MapDatingViewModel: NSObject, ObservableObject {
             status: status,
             latitude: presence.latitude ?? self.presence?.latitude,
             longitude: presence.longitude ?? self.presence?.longitude,
+            displayLatitude: presence.displayLatitude ?? self.presence?.displayLatitude,
+            displayLongitude: presence.displayLongitude ?? self.presence?.displayLongitude,
             accuracyM: presence.accuracyM ?? self.presence?.accuracyM,
             statusText: presence.statusText ?? draftStatusText,
             updatedAt: presence.updatedAt,
@@ -594,13 +713,63 @@ final class MapDatingViewModel: NSObject, ObservableObject {
     }
 
     private var requestCoordinate: CLLocationCoordinate2D? {
-        if let location = lastKnownLocation {
+        if let location = lastKnownLocation,
+           isValidMapCoordinate(location.coordinate) {
             return location.coordinate
         }
-        if let latitude = presence?.latitude, let longitude = presence?.longitude {
-            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        if let latitude = presence?.latitude,
+           let longitude = presence?.longitude {
+            let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            if isValidMapCoordinate(coordinate) {
+                return coordinate
+            }
+        }
+        if let latitude = presence?.displayLatitude,
+           let longitude = presence?.displayLongitude {
+            let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            if isValidMapCoordinate(coordinate) {
+                return coordinate
+            }
         }
         return nil
+    }
+
+    private func refreshViewerCoordinate(
+        requestDevicePermission: Bool,
+        timeout: TimeInterval
+    ) async {
+        guard let ownerID = activeOwnerID, !ownerID.isEmpty else { return }
+        authorizationStatus = locationManager.authorizationStatus
+
+        let granted: Bool
+        if isAuthorized {
+            granted = true
+        } else if requestDevicePermission {
+            granted = await requestLocationPermissionIfNeeded()
+        } else {
+            granted = false
+        }
+
+        guard granted, isActiveOwner(ownerID) else { return }
+        resumeForegroundUpdates()
+        guard let location = await requestCurrentLocation(timeout: timeout) else { return }
+        guard isActiveOwner(ownerID) else { return }
+
+        // Local rendering is unconditional. Sharing the coordinate with the
+        // backend happens once for every map-page visit.
+        applyLocalLocation(location)
+        await recordMapVisitLocation(location, ownerID: ownerID)
+    }
+
+    private func isValidMapCoordinate(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        CLLocationCoordinate2DIsValid(coordinate)
+            && (abs(coordinate.latitude) > 0.000001 || abs(coordinate.longitude) > 0.000001)
+    }
+
+    private func isActiveOwner(_ ownerID: String) -> Bool {
+        activeOwnerID == ownerID
+            && AuthManager.shared.currentUser?.userID
+                .trimmingCharacters(in: .whitespacesAndNewlines) == ownerID
     }
 
     private func requestLocationPermissionIfNeeded() async -> Bool {
@@ -623,8 +792,7 @@ final class MapDatingViewModel: NSObject, ObservableObject {
 
     private func requestCurrentLocation(timeout: TimeInterval = 12) async -> CLLocation? {
         if let lastKnownLocation,
-           abs(lastKnownLocation.timestamp.timeIntervalSinceNow) < 120,
-           lastKnownLocation.horizontalAccuracy >= 0 {
+           MapLocationQualityPolicy.isUsable(lastKnownLocation) {
             return lastKnownLocation
         }
 
@@ -674,20 +842,79 @@ final class MapDatingViewModel: NSObject, ObservableObject {
         guard canUploadLocation else { return }
         if isUploadingLocation { return }
         if !force, !shouldUpload(location) { return }
+        guard let ownerID = activeOwnerID else { return }
 
+        let uploadToken = UUID()
+        locationUploadToken = uploadToken
         isUploadingLocation = true
-        defer { isUploadingLocation = false }
+        defer {
+            if locationUploadToken == uploadToken {
+                isUploadingLocation = false
+            }
+        }
 
         let updated = try await APIService.shared.updateMapLocation(
             latitude: location.coordinate.latitude,
             longitude: location.coordinate.longitude,
-            accuracyM: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil
+            accuracyM: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+            source: .foregroundUpdate,
+            eventID: UUID().uuidString,
+            recordedAt: location.timestamp
         )
+        guard locationUploadToken == uploadToken,
+              activeOwnerID == ownerID,
+              AuthManager.shared.currentUser?.userID
+                .trimmingCharacters(in: .whitespacesAndNewlines) == ownerID else { return }
         applyLocalLocation(location)
         lastUploadedLocation = location
         lastUploadedAt = Date()
         applyPresence(updated, forceOpen: true)
         await refreshUsers()
+    }
+
+    private func recordMapVisitLocation(_ location: CLLocation, ownerID: String) async {
+        guard !didRecordMapVisit,
+              MapLocationQualityPolicy.isUsable(location),
+              isActiveOwner(ownerID) else {
+            return
+        }
+
+        let featureWasEnabled = isMapEnabled
+        let eventID = mapVisitEventID
+        do {
+            let updated = try await APIService.shared.updateMapLocation(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                accuracyM: location.horizontalAccuracy,
+                source: .mapVisit,
+                eventID: eventID,
+                recordedAt: location.timestamp
+            )
+            guard isActiveOwner(ownerID), mapVisitEventID == eventID else { return }
+            didRecordMapVisit = true
+            lastUploadedLocation = location
+            lastUploadedAt = Date()
+            applyPresence(updated, forceOpen: featureWasEnabled)
+            await refreshUsers()
+        } catch {
+            guard mapVisitEventID == eventID else { return }
+            errorMessage = apiMessage(error)
+        }
+    }
+
+    private func serverFallbackCoordinate(from presence: MapPresence) -> CLLocationCoordinate2D? {
+        let candidates = [
+            (presence.latitude, presence.longitude),
+            (presence.displayLatitude, presence.displayLongitude)
+        ]
+        for (latitude, longitude) in candidates {
+            guard let latitude, let longitude else { continue }
+            let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            if isValidMapCoordinate(coordinate) {
+                return coordinate
+            }
+        }
+        return nil
     }
 
     private func shouldUpload(_ location: CLLocation) -> Bool {
@@ -748,7 +975,11 @@ extension MapDatingViewModel: @preconcurrency CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+        guard let location = locations
+            .filter({ MapLocationQualityPolicy.isUsable($0) })
+            .min(by: { $0.horizontalAccuracy < $1.horizontalAccuracy }) else {
+            return
+        }
         applyLocalLocation(location)
 
         if finishLocationRequest(with: location) {

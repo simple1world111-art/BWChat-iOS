@@ -2,4 +2,5 @@
 "NSPhotoLibraryUsageDescription" = "BBchat utilise la photothèque pour importer et envoyer des photos et vidéos.";
 "NSCameraUsageDescription" = "BBchat a besoin de la caméra pour les appels vidéo.";
 "NSMicrophoneUsageDescription" = "BBchat a besoin du microphone pour les appels audio et vidéo.";
-"NSLocationWhenInUseUsageDescription" = "BBchat utilise votre position pour trouver des utilisateurs proches et ne partage une position approximative que lorsque Nearby est activé.";
+"NSLocationWhenInUseUsageDescription" = "BBchat utilise votre position précise après la connexion et à chaque ouverture de la carte pour actualiser votre point.";
+"NSContactsUsageDescription" = "BBchat normalise et hache localement avec un sel les numéros de vos contacts pour trouver des amis inscrits ; aucun nom ni numéro brut n’est envoyé.";

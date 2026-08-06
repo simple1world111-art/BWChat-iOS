@@ -79,11 +79,15 @@ struct AddFriendView: View {
                             ForEach(viewModel.searchResults) { user in
                                 SearchUserRow(
                                     user: user,
+                                    isUpdatingFollow: viewModel.updatingFollowUserIDs.contains(user.userID),
                                     onOpenProfile: {
                                         navigator.push(UserProfileView(userID: user.userID))
                                     },
-                                    onAdd: {
-                                        Task { await viewModel.sendFriendRequest(to: user.userID) }
+                                    onToggleFollow: {
+                                        viewModel.toggleFollow(userID: user.userID)
+                                    },
+                                    onMessage: {
+                                        openMessage(with: user)
                                     }
                                 )
                                 Divider().padding(.leading, 72)
@@ -113,14 +117,33 @@ struct AddFriendView: View {
             .toast(message: $viewModel.errorMessage)
         }
     }
+
+    private func openMessage(with user: SearchUser) {
+        let contact = Contact(
+            userID: user.userID,
+            nickname: user.nickname,
+            avatarURL: user.avatarURL,
+            lastMessage: nil,
+            lastMessageTime: nil,
+            unreadCount: 0
+        )
+
+        dismiss()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            navigator.push(ChatView(contact: contact))
+        }
+    }
 }
 
 // MARK: - Search User Row
 
 struct SearchUserRow: View {
     let user: SearchUser
+    let isUpdatingFollow: Bool
     let onOpenProfile: () -> Void
-    let onAdd: () -> Void
+    let onToggleFollow: () -> Void
+    let onMessage: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -141,52 +164,71 @@ struct SearchUserRow: View {
 
             Spacer(minLength: 4)
 
-            actionButton
+            actionButtons
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
 
-    @ViewBuilder
-    private var actionButton: some View {
-        switch user.relation {
-        case "friend":
-            Text(L10n.tr("addFriend.alreadyFriends"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppColors.secondaryText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(AppColors.separator)
-                .cornerRadius(16)
-
-        case "pending_sent":
-            Text(L10n.tr("addFriend.sent"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppColors.secondaryText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(AppColors.separator)
-                .cornerRadius(16)
-
-        case "pending_received":
-            Text(L10n.tr("addFriend.pending"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppColors.warningColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(AppColors.warningColor.opacity(0.1))
-                .cornerRadius(16)
-
-        default:
-            Button(action: onAdd) {
-                Text(L10n.tr("common.add"))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(AppColors.accentGradient)
-                    .cornerRadius(16)
+    private var actionButtons: some View {
+        HStack(spacing: 6) {
+            Button(action: onToggleFollow) {
+                Group {
+                    if isUpdatingFollow {
+                        ProgressView()
+                            .tint(followButtonForegroundColor)
+                    } else {
+                        Text(followButtonTitle)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(followButtonForegroundColor)
+                .padding(.horizontal, 10)
+                .frame(minWidth: 56, minHeight: 32)
+                .background(
+                    Capsule()
+                        .fill(followButtonBackgroundColor)
+                )
             }
+            .buttonStyle(.plain)
+            .disabled(isUpdatingFollow)
+            .accessibilityLabel(followButtonTitle)
+
+            Button(action: onMessage) {
+                Text(L10n.tr("profile.message"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.horizontal, 10)
+                    .frame(minWidth: 56, minHeight: 32)
+                    .background(
+                        Capsule()
+                            .fill(AppColors.separator)
+                    )
+            }
+            .buttonStyle(.plain)
         }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var followButtonTitle: String {
+        if user.followedByMe {
+            return L10n.tr("follow.followingButton")
+        }
+        if user.followRequested {
+            return L10n.tr("follow.requestedButton")
+        }
+        return L10n.tr("follow.followButton")
+    }
+
+    private var followButtonForegroundColor: Color {
+        user.followedByMe || user.followRequested ? AppColors.primaryText : .white
+    }
+
+    private var followButtonBackgroundColor: Color {
+        user.followedByMe || user.followRequested ? AppColors.separator : AppColors.accent
     }
 }

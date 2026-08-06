@@ -7,10 +7,12 @@ import AVKit
 import AVFoundation
 import UniformTypeIdentifiers
 import UIKit
+import Combine
 
 private struct GroupMessageRenderItem: Identifiable {
     let message: GroupMessage
-    let previousTimestamp: String?
+    let showsTimestamp: Bool
+    let resolvedReply: GroupReplyPreview?
 
     var id: Int { message.id }
 }
@@ -21,16 +23,52 @@ private struct GroupPendingRenderItem: Identifiable {
     let text: PendingGroupText?
     let sticker: PendingGroupSticker?
     let media: PendingGroupMedia?
+    var resolvedReply: GroupReplyPreview? = nil
+}
+
+private enum GroupTimelineRenderItem: Identifiable {
+    case message(GroupMessageRenderItem)
+    case pending(GroupPendingRenderItem)
+
+    var id: String {
+        switch self {
+        case .message(let row):
+            return ChatTimelineIdentity.value(
+                clientMessageID: row.message.clientMessageID,
+                serverID: row.message.id
+            )
+        case .pending(let pending):
+            return "client:\(pending.id)"
+        }
+    }
+
+    var chronologicalDate: Date? {
+        switch self {
+        case .message(let row): return TimestampHelper.parse(row.message.timestamp)
+        case .pending(let pending): return pending.createdAt
+        }
+    }
+
+    var timestamp: String {
+        switch self {
+        case .message(let row): return row.message.timestamp
+        case .pending(let pending): return pending.createdAt.iso8601String
+        }
+    }
+
 }
 
 struct GroupChatView: View {
     let group: ChatGroup
-    var onMarkRead: (() -> Void)?
+    let initialReadThroughMessageID: Int?
+    var onMarkRead: ((Int?) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel: GroupChatViewModel
     @ObservedObject private var callManager = CallManager.shared
     @ObservedObject private var appearanceStore = ChatAppearanceStore.shared
+    @ObservedObject private var draftStore = ChatDraftStore.shared
+    @ObservedObject private var groupInfoPreferencesStore = GroupInfoPreferencesStore.shared
     @State private var selectedMediaItems: [PhotosPickerItem] = []
     @State private var previewVideoURL: String?
     @State private var showAddMembers = false
@@ -50,16 +88,38 @@ struct GroupChatView: View {
     @State private var groupTransferRecipient: ChatMoneyRecipient?
     @StateObject private var moneyStore = ChatMoneyStore()
     @State private var highlightedMessageID: Int?
+    @State private var pendingLocatedMessageID: Int?
     @State private var isVoiceMode = false
     @StateObject private var recorder = AudioRecorderManager()
     @State private var voiceCancelZone = false
     @State private var isInputFocused = false
     @State private var inputTextHeight: CGFloat = 40
     @State private var composerSelection = NSRange(location: 0, length: 0)
+    @State private var composerMentions: [MentionSpan] = []
+    @State private var pendingMentionTriggerRange: NSRange?
     @State private var isViewVisible = false
     @State private var hasCompletedInitialLoad = false
     @State private var toastMessage: String?
     @State private var memberProfilesByID: [String: GroupMember]
+    @State private var memberRevision: Int64 = 0
+    @State private var messageMenuTarget: MessageMenuTarget?
+    @State private var isMessageMenuTouchSequenceActive = false
+    @State private var recalledEditableTexts: [Int: String] = [:]
+    @State private var hasRestoredDraft = false
+    @State private var isNearBottom = true
+    @State private var newMessagesBelowCount = 0
+    @State private var mentionLocatorMessageIDs: [Int] = []
+    @State private var replyLocatorMessageIDs: [Int] = []
+    @State private var interactionMode: ChatInteractionMode = .normal
+    @State private var showSelectionDeleteConfirmation = false
+    @State private var showForwardModeDialog = false
+    @State private var forwardDraft: ForwardFlowDraft?
+    @State private var timelineRows: [GroupMessageRenderItem]
+    @State private var pendingTimelineRows: [GroupPendingRenderItem]
+    @State private var timelineSnapshot: ChatTimelineSnapshot<GroupTimelineRenderItem>
+    @State private var lastVisiblePendingCount: Int
+    @State private var didSubmitInitialRead = false
+    @State private var scrollCommandTask: Task<Void, Never>?
 
     private let bottomScrollAnchorID = "group-chat-bottom-anchor"
     private let composerPanelAnimation = Animation.easeInOut(duration: 0.25)
@@ -89,6 +149,143 @@ struct GroupChatView: View {
         AuthManager.shared.currentUser?.avatarURL ?? ""
     }
 
+    private var groupDisplayName: String {
+        groupInfoPreferencesStore.displayName(for: group.groupID, fallback: group.name)
+    }
+
+    private var showsMemberNicknames: Bool {
+        groupInfoPreferencesStore.settings(for: group.groupID).showMemberNicknames
+    }
+
+    private var selectionState: MessageSelectionState? {
+        guard case .selecting(let state) = interactionMode else { return nil }
+        return state
+    }
+
+    private var isSelectingMessages: Bool { selectionState != nil }
+
+    private var localDeleteEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("chat_local_delete_v1", default: true)
+    }
+
+    private var multiselectEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("chat_multiselect_v1", default: true)
+    }
+
+    private var forwardingEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("message_forward_single_v1", default: true)
+    }
+
+    private var multiForwardingEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("message_forward_multi_v1", default: true)
+    }
+
+    private var mergedForwardingEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("message_forward_merged_create_v1", default: true)
+    }
+
+    private var recallEnabled: Bool {
+        AppRemoteConfigStore.shared.featureFlags.isEnabled("message_recall_v1", default: true)
+    }
+
+    private var allowsMentionAll: Bool {
+        guard let myID = AuthManager.shared.currentUser?.userID else { return false }
+        if group.creatorID == myID { return true }
+        let role = memberProfilesByID[myID]?.role.lowercased()
+        return role == "owner" || role == "admin"
+    }
+
+    private var mentionCandidates: [GroupMember] {
+        let myID = AuthManager.shared.currentUser?.userID
+        var candidates = memberProfilesByID
+        for message in viewModel.messages where message.senderID != myID {
+            guard candidates[message.senderID] == nil,
+                  !message.senderID.isBlank else { continue }
+            candidates[message.senderID] = GroupMember(
+                userID: message.senderID,
+                nickname: message.senderNickname.isBlank
+                    ? message.senderID
+                    : message.senderNickname,
+                avatarURL: message.senderAvatar,
+                role: "member"
+            )
+        }
+        return MentionMemberResolver.visibleMembers(
+            from: Array(candidates.values),
+            excludingUserID: myID
+        )
+    }
+
+    private var composerDocument: ComposerDocument {
+        ComposerDocument(text: viewModel.inputText, mentions: composerMentions)
+    }
+
+    private var currentDraftQuote: ChatDraftQuote? {
+        guard let message = viewModel.replyingTo else { return nil }
+        let senderName = message.senderID == AuthManager.shared.currentUser?.userID
+            ? L10n.tr("common.me")
+            : resolvedSenderNickname(for: message, isFromMe: false) ?? message.senderNickname
+        return ChatDraftQuote(
+            messageID: message.id,
+            senderID: message.senderID,
+            senderName: senderName,
+            msgType: message.msgType,
+            content: message.content,
+            timestamp: message.timestamp
+        )
+    }
+
+    private func restoreDraftIfNeeded() {
+        guard !hasRestoredDraft else { return }
+        hasRestoredDraft = true
+        guard let draft = draftStore.draft(
+            conversationType: "group",
+            conversationID: String(group.groupID)
+        ) else { return }
+        viewModel.inputText = draft.document.text
+        composerMentions = draft.document.mentions
+        composerSelection = NSRange(
+            location: (draft.document.text as NSString).length,
+            length: 0
+        )
+        if let quote = draft.quote {
+            viewModel.replyingTo = viewModel.messages.first(where: { $0.id == quote.messageID })
+                ?? GroupMessage(
+                    id: quote.messageID,
+                    groupID: group.groupID,
+                    senderID: quote.senderID,
+                    msgType: quote.msgType,
+                    content: quote.content,
+                    timestamp: quote.timestamp,
+                    senderNickname: quote.senderName,
+                    senderAvatar: "",
+                    replyToID: nil,
+                    replyTo: nil,
+                    mentions: nil
+                )
+        }
+    }
+
+    private func scheduleDraftSave() {
+        guard hasRestoredDraft else { return }
+        draftStore.scheduleSave(
+            document: composerDocument,
+            quote: currentDraftQuote,
+            conversationType: "group",
+            conversationID: String(group.groupID)
+        )
+    }
+
+    private func flushDraft() {
+        guard hasRestoredDraft else { return }
+        draftStore.flush(
+            document: composerDocument,
+            quote: currentDraftQuote,
+            conversationType: "group",
+            conversationID: String(group.groupID)
+        )
+    }
+
     private var moneyContext: ChatMoneyConversationContext {
         let members = memberProfilesByID.values.sorted {
             $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending
@@ -108,9 +305,29 @@ struct GroupChatView: View {
         ) {
             redPacketOverlayIsSender = isSender
             redPacketOverlayPayload = payload
+            presentRedPacketOverlay(payload)
         } else {
             showChatMoneyDetail(payload)
         }
+    }
+
+    private func presentRedPacketOverlay(_ payload: ChatMoneyPayload) {
+        navigator.presentAppOverlay {
+            ChatMoneyRedPacketEntryOverlay(
+                store: moneyStore,
+                initialPayload: payload,
+                isSender: redPacketOverlayIsSender,
+                onClose: closeRedPacketOverlay,
+                onShowDetail: {
+                    showRedPacketDetail(payload)
+                }
+            )
+        }
+    }
+
+    private func closeRedPacketOverlay() {
+        redPacketOverlayPayload = nil
+        navigator.dismissAppOverlay()
     }
 
     private func showChatMoneyDetail(_ payload: ChatMoneyPayload) {
@@ -120,9 +337,8 @@ struct GroupChatView: View {
     }
 
     private func showRedPacketDetail(_ payload: ChatMoneyPayload) {
-        withAnimation(.easeOut(duration: 0.18)) {
-            redPacketOverlayPayload = nil
-        }
+        redPacketOverlayPayload = nil
+        navigator.dismissAppOverlay()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             showChatMoneyDetail(payload)
         }
@@ -177,34 +393,142 @@ struct GroupChatView: View {
     }
 
     private var renderedMessages: [GroupMessageRenderItem] {
+        timelineRows
+    }
+
+    private static func makeTimelineRows(_ messages: [GroupMessage]) -> [GroupMessageRenderItem] {
         var rows: [GroupMessageRenderItem] = []
-        rows.reserveCapacity(viewModel.messages.count)
+        rows.reserveCapacity(messages.count)
+        let messagesByID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
 
         var previous: String?
-        for message in viewModel.messages {
-            rows.append(GroupMessageRenderItem(message: message, previousTimestamp: previous))
+        for message in messages {
+            rows.append(GroupMessageRenderItem(
+                message: message,
+                showsTimestamp: TimestampHelper.shouldShowTime(current: message.timestamp, previous: previous),
+                resolvedReply: ChatHistoryReplyResolver.groupReply(
+                    for: message,
+                    messagesByID: messagesByID
+                )
+            ))
             previous = message.timestamp
         }
         return rows
     }
 
     private var renderedPendingItems: [GroupPendingRenderItem] {
-        let texts = viewModel.visiblePendingTexts.map {
-            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: $0, sticker: nil, media: nil)
-        }
-        let stickers = viewModel.visiblePendingStickers.map {
-            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: nil, sticker: $0, media: nil)
-        }
-        let media = viewModel.visiblePendingMedia.map {
-            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: nil, sticker: nil, media: $0)
-        }
-        return (texts + stickers + media).sorted { $0.createdAt < $1.createdAt }
+        pendingTimelineRows
     }
 
-    init(group: ChatGroup, onMarkRead: (() -> Void)? = nil) {
+    private static func makePendingTimelineRows(
+        texts: [PendingGroupText],
+        stickers: [PendingGroupSticker],
+        media: [PendingGroupMedia]
+    ) -> [GroupPendingRenderItem] {
+        let textRows = texts.map {
+            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: $0, sticker: nil, media: nil)
+        }
+        let stickerRows = stickers.map {
+            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: nil, sticker: $0, media: nil)
+        }
+        let mediaRows = media.map {
+            GroupPendingRenderItem(id: $0.id, createdAt: $0.createdAt, text: nil, sticker: nil, media: $0)
+        }
+        return (textRows + stickerRows + mediaRows).sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private var renderedTimeline: [GroupTimelineRenderItem] {
+        timelineSnapshot.items
+    }
+
+    private static func makeTimelineSnapshot(
+        rows: [GroupMessageRenderItem],
+        pending: [GroupPendingRenderItem]
+    ) -> ChatTimelineSnapshot<GroupTimelineRenderItem> {
+        // API acknowledgement and WebSocket echo can briefly publish the same
+        // client message more than once. A LazyVStack requires every rendered
+        // identity to be unique; otherwise it can retain a stale layout slot
+        // until the whole chat view is recreated.
+        var confirmedIDs = Set<String>()
+        let uniqueRows = Array(rows.reversed().filter { row in
+            confirmedIDs.insert(GroupTimelineRenderItem.message(row).id).inserted
+        }.reversed())
+
+        let confirmedTimelineIDs = Set(
+            uniqueRows.map { GroupTimelineRenderItem.message($0).id }
+        )
+        let messagesByID = Dictionary(
+            uniqueRows.map { ($0.message.id, $0.message) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let resolvedPending = pending.map { item -> GroupPendingRenderItem in
+            var item = item
+            let replyID = item.text?.replyID ?? item.sticker?.replyID
+            item.resolvedReply = ChatHistoryReplyResolver.groupReply(
+                to: replyID,
+                messagesByID: messagesByID
+            )
+            return item
+        }
+        var pendingIDs = Set<String>()
+        let uniquePending = resolvedPending.filter { item in
+            let timelineID = GroupTimelineRenderItem.pending(item).id
+            guard !confirmedTimelineIDs.contains(timelineID) else { return false }
+            return pendingIDs.insert(timelineID).inserted
+        }
+
+        let items = ChatTimelineOrdering.merge(
+            uniqueRows.map(GroupTimelineRenderItem.message),
+            uniquePending.map(GroupTimelineRenderItem.pending)
+        ) {
+            ChatTimelineOrdering.precedes(
+                date: $0.chronologicalDate,
+                stableID: $0.id,
+                date: $1.chronologicalDate,
+                stableID: $1.id
+            )
+        }
+        return ChatTimelineSnapshot(items: items)
+    }
+
+    private func rebuildTimelineSnapshot(
+        rows: [GroupMessageRenderItem]? = nil,
+        pending: [GroupPendingRenderItem]? = nil
+    ) {
+        let nextSnapshot = Self.makeTimelineSnapshot(
+            rows: rows ?? timelineRows,
+            pending: pending ?? pendingTimelineRows
+        )
+        timelineSnapshot = nextSnapshot
+    }
+
+    init(
+        group: ChatGroup,
+        initialReadThroughMessageID: Int? = nil,
+        onMarkRead: ((Int?) -> Void)? = nil
+    ) {
         self.group = group
+        self.initialReadThroughMessageID = initialReadThroughMessageID
         self.onMarkRead = onMarkRead
-        _viewModel = StateObject(wrappedValue: GroupChatViewModel(group: group))
+        let model = GroupChatViewModel(group: group)
+        let rows = Self.makeTimelineRows(model.messages)
+        let pendingRows = Self.makePendingTimelineRows(
+            texts: model.visiblePendingTexts,
+            stickers: model.visiblePendingStickers,
+            media: model.visiblePendingMedia
+        )
+        _viewModel = StateObject(wrappedValue: model)
+        _timelineRows = State(initialValue: rows)
+        _pendingTimelineRows = State(initialValue: pendingRows)
+        _timelineSnapshot = State(initialValue: Self.makeTimelineSnapshot(
+            rows: rows,
+            pending: pendingRows
+        ))
+        _lastVisiblePendingCount = State(
+            initialValue: model.visiblePendingTexts.count
+                + model.visiblePendingStickers.count
+                + model.visiblePendingMedia.count
+        )
 
         // Seed member count from whatever we already know: the freshest value
         // is the cached GroupDetail (written by GroupDetailView), then the
@@ -246,8 +570,8 @@ struct GroupChatView: View {
 
     private func resolvedSenderNickname(for message: GroupMessage, isFromMe: Bool) -> String? {
         guard !isFromMe else { return nil }
-        if let member = memberProfilesByID[message.senderID], !member.nickname.isBlank {
-            return member.nickname
+        if let member = memberProfilesByID[message.senderID], !member.displayNickname.isBlank {
+            return member.displayNickname
         }
         if let cached = UserCacheManager.shared.getUser(message.senderID), !cached.nickname.isBlank {
             return cached.nickname
@@ -260,14 +584,20 @@ struct GroupChatView: View {
     }
 
     private func markConversationRead() {
-        NotificationCenter.default.post(
-            name: .conversationDidMarkRead,
-            object: ConversationReadTarget.group(groupID: group.groupID)
-        )
+        guard hasCompletedInitialLoad else { return }
+        let throughMessageID = initialReadThroughMessageID ?? viewModel.messages.last?.id
+        guard throughMessageID != nil else { return }
+        if let targetID = initialReadThroughMessageID {
+            guard viewModel.messages.contains(where: { $0.id == targetID }),
+                  !didSubmitInitialRead else { return }
+            didSubmitInitialRead = true
+        }
         if let onMarkRead {
-            onMarkRead()
+            onMarkRead(throughMessageID)
         } else {
-            viewModel.markConversationAsReadOnServer()
+            viewModel.markConversationAsReadOnServer(
+                throughMessageID: throughMessageID
+            )
         }
     }
 
@@ -310,6 +640,13 @@ struct GroupChatView: View {
             composerSurfaceTransition = nil
         }
         isInputFocused = true
+    }
+
+    private func restoreRecalledText(_ text: String) {
+        viewModel.inputText = text
+        composerMentions.removeAll()
+        composerSelection = NSRange(location: (text as NSString).length, length: 0)
+        focusComposerTextInput()
     }
 
     private func dismissComposerInput() {
@@ -492,6 +829,18 @@ struct GroupChatView: View {
 
     private func scrollToMessage(_ messageID: Int, proxy: ScrollViewProxy) {
         guard isViewVisible else { return }
+        if !viewModel.messages.contains(where: { $0.id == messageID }) {
+            Task {
+                guard await viewModel.loadContext(around: messageID), isViewVisible else { return }
+                await Task.yield()
+                revealMessage(messageID, proxy: proxy)
+            }
+            return
+        }
+        revealMessage(messageID, proxy: proxy)
+    }
+
+    private func revealMessage(_ messageID: Int, proxy: ScrollViewProxy) {
         withAnimation(.easeInOut(duration: 0.3)) {
             proxy.scrollTo(messageScrollID(messageID), anchor: .center)
         }
@@ -510,8 +859,313 @@ struct GroupChatView: View {
         "message-\(id)"
     }
 
-    private func pendingScrollID(_ id: String) -> String {
-        "pending-\(id)"
+    private func presentMessageMenu(for message: GroupMessage, frame: CGRect) {
+        guard !isSelectingMessages,
+              !message.isSystem,
+              !message.isRecalled,
+              message.chatMoneyReceiptPayload == nil,
+              message.callRecord == nil else { return }
+
+        var actions: [MessageMenuAction]
+        if message.msgType == "text" && message.stickerPayload == nil && message.chatMoneyPayload == nil {
+            actions = [.copy]
+            if forwardingEnabled { actions.append(.forward) }
+            actions.append(.quote)
+        } else if message.isImage || message.isVideo {
+            actions = []
+            if forwardingEnabled { actions.append(.forward) }
+            actions.append(contentsOf: [.save, .quote])
+        } else if message.msgType == "voice" {
+            actions = [.quote]
+        } else if message.stickerPayload != nil || message.msgType == "sticker" {
+            actions = []
+            if forwardingEnabled { actions.append(.forward) }
+            actions.append(.quote)
+        } else if message.msgType == "chat_history" || message.msgType == "forward_bundle" {
+            actions = []
+            if forwardingEnabled { actions.append(.forward) }
+        } else {
+            actions = [.quote]
+        }
+        if recallEnabled, canRecall(message) { actions.append(.recall) }
+        if localDeleteEnabled { actions.append(.delete) }
+        if multiselectEnabled { actions.append(.multiSelect) }
+        guard !actions.isEmpty else { return }
+        isMessageMenuTouchSequenceActive = true
+        let target = MessageMenuTarget(
+            messageID: message.id,
+            anchorFrame: frame,
+            actions: actions
+        )
+        messageMenuTarget = target
+        navigator.presentAppOverlay(animated: false) {
+            WeChatMessageActionOverlay(
+                target: target,
+                onSelect: handleMessageMenuAction,
+                onDismiss: dismissMessageMenuFromBackgroundInteraction
+            )
+        }
+    }
+
+    private func presentPendingMessageMenu(for pending: GroupPendingRenderItem, frame: CGRect) {
+        guard !isSelectingMessages else { return }
+        let isFailed = pending.text?.status == .failed
+            || pending.sticker?.status == .failed
+            || pending.media?.status == .failed
+        guard isFailed else { return }
+
+        var actions: [MessageMenuAction] = []
+        if let text = pending.text, !text.content.isBlank {
+            actions.append(.copy)
+        }
+        actions.append(contentsOf: [.retry, .delete])
+        isMessageMenuTouchSequenceActive = true
+        let target = MessageMenuTarget(
+            pendingID: pending.id,
+            anchorFrame: frame,
+            actions: actions
+        )
+        messageMenuTarget = target
+        navigator.presentAppOverlay(animated: false) {
+            WeChatMessageActionOverlay(
+                target: target,
+                onSelect: handleMessageMenuAction,
+                onDismiss: dismissMessageMenuFromBackgroundInteraction
+            )
+        }
+    }
+
+    private func finishMessageMenuTouchSequence() {
+        DispatchQueue.main.async {
+            isMessageMenuTouchSequenceActive = false
+        }
+    }
+
+    private func dismissMessageMenuFromBackgroundInteraction() {
+        guard !isMessageMenuTouchSequenceActive else { return }
+        dismissMessageMenu()
+    }
+
+    private func dismissMessageMenu() {
+        guard messageMenuTarget != nil else { return }
+        messageMenuTarget = nil
+        navigator.dismissAppOverlay(animated: false)
+    }
+
+    private func handleMessageMenuAction(_ action: MessageMenuAction) {
+        guard let target = messageMenuTarget else {
+            dismissMessageMenu()
+            return
+        }
+        if let pendingID = target.pendingID,
+           let pending = renderedPendingItems.first(where: { $0.id == pendingID }) {
+            dismissMessageMenu()
+            switch action {
+            case .copy:
+                UIPasteboard.general.string = pending.text?.content
+            case .retry:
+                if let text = pending.text {
+                    Task { await viewModel.retryPendingText(text) }
+                } else if let sticker = pending.sticker {
+                    Task { await viewModel.retryPendingSticker(sticker) }
+                } else if let media = pending.media {
+                    viewModel.retryPendingMedia(media)
+                }
+            case .delete:
+                viewModel.deletePending(id: pending.id)
+            default:
+                break
+            }
+            return
+        }
+        guard let messageID = target.messageID,
+              let message = viewModel.messages.first(where: { $0.id == messageID }) else {
+            dismissMessageMenu()
+            return
+        }
+        dismissMessageMenu()
+
+        switch action {
+        case .copy:
+            UIPasteboard.general.string = message.content
+        case .retry:
+            break
+        case .quote:
+            viewModel.setReply(to: message)
+            focusComposerTextInput()
+        case .recall:
+            let editableText = message.msgType == "text" && !message.content.isBlank
+                ? message.content
+                : nil
+            Task {
+                do {
+                    try await viewModel.recallMessage(messageID: message.id)
+                    if let editableText {
+                        recalledEditableTexts[message.id] = editableText
+                    }
+                } catch {
+                    toastMessage = (error as? LocalizedError)?.errorDescription
+                        ?? L10n.tr("chat.recall.failed")
+                }
+            }
+        case .save:
+            Task {
+                if message.isImage {
+                    await MediaLibrarySaver.saveImage(mediaPath: message.content)
+                } else if message.isVideo {
+                    await MediaLibrarySaver.saveVideo(mediaPath: message.content)
+                }
+            }
+        case .delete:
+            viewModel.deleteLocally(messageIDs: [message.id])
+        case .multiSelect:
+            enterSelection(with: message)
+        case .forward:
+            beginSingleForward(message)
+        }
+    }
+
+    private func canRecall(_ message: GroupMessage) -> Bool {
+        guard message.senderID == AuthManager.shared.currentUser?.userID else { return false }
+        let type = message.stickerPayload == nil ? message.msgType : "sticker"
+        guard ["text", "image", "video", "voice", "sticker"].contains(type),
+              let sentAt = TimestampHelper.parse(message.timestamp) else { return false }
+        let elapsed = Date().timeIntervalSince(sentAt)
+        return elapsed >= -300 && elapsed <= 120
+    }
+
+    private func messageReference(_ message: GroupMessage) -> MessageRef? {
+        guard let accountID = AuthManager.shared.currentUser?.userID, !accountID.isEmpty else { return nil }
+        return MessageRef(
+            accountID: accountID,
+            conversation: .group(groupID: group.groupID),
+            messageID: message.id
+        )
+    }
+
+    private func selectionDescriptor(for message: GroupMessage) -> MessageSelectionDescriptor {
+        let type = message.stickerPayload != nil ? "sticker" : message.msgType
+        let individual = ["text", "image", "video", "sticker", "chat_history", "forward_bundle"].contains(type)
+        let paymentLike = message.chatMoneyPayload != nil || ["gift", "red_packet", "transfer"].contains(type)
+        return MessageSelectionDescriptor(
+            timestamp: TimestampHelper.parse(message.timestamp) ?? .distantPast,
+            messageType: type,
+            canForwardIndividually: individual,
+            canMerge: !paymentLike && !message.isSystem && !["chat_history", "forward_bundle"].contains(type),
+            canDelete: true
+        )
+    }
+
+    private func isMessageSelectable(_ message: GroupMessage) -> Bool {
+        !message.isSystem
+            && !message.isRecalled
+            && message.callRecord == nil
+            && message.chatMoneyReceiptPayload == nil
+    }
+
+    private func enterSelection(with message: GroupMessage) {
+        guard let reference = messageReference(message) else { return }
+        dismissComposerInput()
+        dismissMessageMenu()
+        var state = MessageSelectionState()
+        _ = state.toggle(reference, descriptor: selectionDescriptor(for: message))
+        interactionMode = .selecting(state)
+    }
+
+    private func toggleSelection(for message: GroupMessage) {
+        guard isMessageSelectable(message),
+              case .selecting(var state) = interactionMode,
+              let reference = messageReference(message) else { return }
+        guard state.toggle(reference, descriptor: selectionDescriptor(for: message)) else {
+            toastMessage = L10n.tr("selection.maximum99")
+            return
+        }
+        interactionMode = .selecting(state)
+    }
+
+    private func exitSelection() {
+        interactionMode = .normal
+        showSelectionDeleteConfirmation = false
+    }
+
+    private func handleBack() {
+        if isSelectingMessages {
+            exitSelection()
+        } else if navigator.canPopPushedController {
+            navigator.pop()
+        } else {
+            dismiss()
+        }
+    }
+
+    private func deleteSelectedMessages() {
+        guard let state = selectionState else { return }
+        viewModel.deleteLocally(messageIDs: Set(state.selected.map(\.messageID)))
+        exitSelection()
+    }
+
+    private func reconcileSelection() {
+        guard case .selecting(var state) = interactionMode else { return }
+        let visible = Set(viewModel.messages.filter(isMessageSelectable).compactMap(messageReference))
+        let removed = state.selected.subtracting(visible)
+        guard !removed.isEmpty else { return }
+        state.selected.subtract(removed)
+        removed.forEach { state.descriptors.removeValue(forKey: $0) }
+        interactionMode = .selecting(state)
+        toastMessage = L10n.tr("selection.removedUnavailable")
+    }
+
+    private func forwardSource(for message: GroupMessage) -> ForwardMessageSource {
+        ForwardMessageSource(
+            conversationType: .group,
+            conversationID: String(group.groupID),
+            messageID: message.id,
+            expectedVersion: message.version
+        )
+    }
+
+    private func beginSingleForward(_ message: GroupMessage) {
+        forwardDraft = ForwardFlowDraft(
+            mode: .single,
+            sources: [forwardSource(for: message)],
+            preview: messagePreview(message)
+        )
+    }
+
+    private func beginSelectedForward(_ mode: ForwardMode) {
+        guard let state = selectionState else { return }
+        let descriptors = state.orderedSelection.compactMap { state.descriptors[$0] }
+        if mode == .individual, descriptors.contains(where: { !$0.canForwardIndividually }) {
+            toastMessage = L10n.tr("forward.unsupportedIndividual")
+            return
+        }
+        if mode == .merged, descriptors.contains(where: { !$0.canMerge }) {
+            toastMessage = L10n.tr("forward.unsupportedMerged")
+            return
+        }
+        let messagesByID = Dictionary(uniqueKeysWithValues: viewModel.messages.map { ($0.id, $0) })
+        let messages = state.orderedSelection.compactMap { messagesByID[$0.messageID] }
+        guard messages.count == state.selected.count else {
+            toastMessage = L10n.tr("selection.removedUnavailable")
+            return
+        }
+        forwardDraft = ForwardFlowDraft(
+            mode: mode,
+            sources: messages.map(forwardSource),
+            preview: mode == .merged
+                ? L10n.tr("forward.chatRecordCount", messages.count)
+                : L10n.tr("forward.messageCount", messages.count)
+        )
+    }
+
+    private func messagePreview(_ message: GroupMessage) -> String {
+        switch message.msgType {
+        case "image": return L10n.tr("message.image")
+        case "video": return L10n.tr("message.video")
+        case "voice": return L10n.tr("message.voice")
+        case "sticker": return L10n.tr("message.sticker")
+        default: return message.content
+        }
     }
 
     private func scrollGroupChatToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
@@ -521,7 +1175,10 @@ struct GroupChatView: View {
             proxy.scrollTo(bottomScrollAnchorID, anchor: .top)
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        scrollCommandTask?.cancel()
+        scrollCommandTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
             guard isViewVisible else { return }
             if animated {
                 withAnimation(.easeOut(duration: 0.2), scrollAction)
@@ -531,192 +1188,360 @@ struct GroupChatView: View {
         }
     }
 
+    private var timelineLocatorKind: TimelineLocatorKind? {
+        if !mentionLocatorMessageIDs.isEmpty { return .mention }
+        if !replyLocatorMessageIDs.isEmpty { return .reply }
+        if newMessagesBelowCount > 0 { return .newMessages(newMessagesBelowCount) }
+        return isNearBottom ? nil : .bottom
+    }
+
+    private func handleIncomingTimelineMessage(_ message: GroupMessage, proxy: ScrollViewProxy) {
+        guard hasCompletedInitialLoad else { return }
+        let myID = AuthManager.shared.currentUser?.userID
+        let isMine = message.senderID == myID
+        if isMine, viewModel.isLocalMediaAcknowledgement(message) {
+            return
+        }
+        if isMine || isNearBottom {
+            scrollGroupChatToBottom(proxy: proxy)
+            return
+        }
+
+        newMessagesBelowCount += 1
+        if message.mentions?.contains(myID ?? "") == true,
+           !mentionLocatorMessageIDs.contains(message.id) {
+            mentionLocatorMessageIDs.append(message.id)
+        }
+        if let replyID = message.replyToID ?? message.replyTo?.id,
+           viewModel.messages.contains(where: { $0.id == replyID && $0.senderID == myID }),
+           !replyLocatorMessageIDs.contains(message.id) {
+            replyLocatorMessageIDs.append(message.id)
+        }
+    }
+
+    private func activateTimelineLocator(_ kind: TimelineLocatorKind, proxy: ScrollViewProxy) {
+        switch kind {
+        case .mention:
+            guard let target = mentionLocatorMessageIDs.first else { return }
+            mentionLocatorMessageIDs.removeFirst()
+            scrollToMessage(target, proxy: proxy)
+        case .reply:
+            guard let target = replyLocatorMessageIDs.first else { return }
+            replyLocatorMessageIDs.removeFirst()
+            scrollToMessage(target, proxy: proxy)
+        case .newMessages, .bottom:
+            newMessagesBelowCount = 0
+            mentionLocatorMessageIDs.removeAll()
+            replyLocatorMessageIDs.removeAll()
+            scrollGroupChatToBottom(proxy: proxy)
+        }
+    }
+
+    private func openImageGallery(url: String, frame: CGRect) {
+        pendingComposerPanel = nil
+        isInputFocused = false
+        hideKeyboard()
+        let allImages = viewModel.messages.compactMap { message in
+            message.isImage ? message.content : nil
+        }
+        ImageGalleryState.shared.show(
+            urls: allImages,
+            index: allImages.firstIndex(of: url) ?? 0,
+            sourceFrame: frame,
+            sourceContentMode: .fill,
+            sourceCornerRadius: ChatMediaLayout.mediaCornerRadius,
+            loadMoreOlder: {
+                let before = viewModel.messages.reduce(into: 0) { count, message in
+                    if message.isImage { count += 1 }
+                }
+                await viewModel.loadMoreMessages()
+                let after = viewModel.messages.compactMap { message in
+                    message.isImage ? message.content : nil
+                }
+                let added = after.count - before
+                if added > 0 {
+                    return ImageGalleryState.shared.prependUnique(after.prefix(added))
+                }
+                return 0
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func groupMessageRow(_ row: GroupMessageRenderItem, proxy: ScrollViewProxy) -> some View {
+        let message = row.message
+        let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
+
+        VStack(spacing: 4) {
+            if row.showsTimestamp {
+                TimeSeparatorView(timestamp: message.timestamp)
+            }
+
+            HStack(spacing: 4) {
+                if isMessageSelectable(message),
+                   let state = selectionState,
+                   let reference = messageReference(message) {
+                    MessageSelectionIndicator(isSelected: state.selected.contains(reference))
+                }
+
+                GroupMessageBubble(
+                message: message,
+                isFromMe: isFromMe,
+                resolvedReply: row.resolvedReply,
+                myAvatarURL: myAvatarURL,
+                senderAvatarURL: resolvedSenderAvatarURL(for: message, isFromMe: isFromMe),
+                senderNickname: resolvedSenderNickname(for: message, isFromMe: isFromMe),
+                showsSenderNickname: showsMemberNicknames,
+                hasViewerClaimedRedPacket: message.chatMoneyPayload.map {
+                    moneyStore.hasViewerClaimed(assetID: $0.assetID)
+                } ?? false,
+                onImageTap: { url, frame in
+                    openImageGallery(url: url, frame: frame)
+                },
+                onVideoTap: { url in
+                    pendingComposerPanel = nil
+                    isInputFocused = false
+                    hideKeyboard()
+                    previewVideoURL = url
+                },
+                onQuoteTap: { scrollToMessage($0, proxy: proxy) },
+                onMention: { userID, nickname in
+                    insertMentions([
+                        MentionSelection(userID: userID, nickname: nickname, kind: .direct)
+                    ], replacing: nil)
+                },
+                onMenuRequested: { presentMessageMenu(for: message, frame: $0) },
+                onMenuTouchSequenceEnded: finishMessageMenuTouchSequence,
+                recalledEditableText: recalledEditableTexts[message.id],
+                onReeditRecalledText: restoreRecalledText,
+                onChatMoneyTap: { handleChatMoneyTap($0, isSender: $1) },
+                onForwardBundleTap: { bundleID in
+                    navigator.push(ForwardBundleDetailView(bundleID: bundleID).withUIKitBackButton())
+                }
+                )
+                .allowsHitTesting(!isSelectingMessages)
+            }
+            .contentShape(Rectangle())
+            .if(isSelectingMessages) { row in
+                row.onTapGesture {
+                    toggleSelection(for: message)
+                }
+            }
+        }
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
+
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .id(messageScrollID(message.id))
+            }
+        }
+        .flippedRow()
+    }
+
     private func previousTimestamp(for pending: GroupPendingRenderItem) -> String? {
-        let pendingItems = renderedPendingItems
-        guard let idx = pendingItems.firstIndex(where: { $0.id == pending.id }) else {
-            return viewModel.messages.last?.timestamp
+        let timeline = renderedTimeline
+        guard let idx = timeline.firstIndex(where: { $0.id == "client:\(pending.id)" }),
+              idx > 0 else { return nil }
+        return timeline[idx - 1].timestamp
+    }
+
+    private var groupTimeline: some View {
+        ScrollViewReader { proxy in
+            ZStack {
+                ChatBackgroundLayer(
+                    background: appearanceStore.effectiveBackground(
+                        targetType: .group,
+                        targetID: String(group.groupID)
+                    )
+                )
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomScrollAnchorID)
+                            .onAppear {
+                                isNearBottom = true
+                                newMessagesBelowCount = 0
+                                mentionLocatorMessageIDs.removeAll()
+                                replyLocatorMessageIDs.removeAll()
+                                viewModel.setReadingLatest(true)
+                                if hasCompletedInitialLoad { markConversationRead() }
+                            }
+                            .onDisappear {
+                                isNearBottom = false
+                                viewModel.setReadingLatest(false)
+                            }
+
+                        LazyVStack(spacing: 4) {
+                            ForEach(renderedTimeline.reversed()) { item in
+                                Group {
+                                    switch item {
+                                    case .pending(let pending):
+                                        pendingRow(pending)
+                                    case .message(let row):
+                                        groupMessageRow(row, proxy: proxy)
+                                    }
+                                }
+                            }
+                            if viewModel.hasMore {
+                                ProgressView()
+                                    .tint(AppColors.accent)
+                                    .padding()
+                                    .flippedRow()
+                                    .onAppear { Task { await viewModel.loadMoreMessages() } }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    }
+                }
+                .rotationEffect(.degrees(180))
+                .scaleEffect(x: -1, y: 1, anchor: .center)
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8).onChanged { _ in
+                        if messageMenuTarget != nil {
+                            dismissMessageMenuFromBackgroundInteraction()
+                        }
+                    }
+                )
+                .onChange(of: viewModel.messages.last.map {
+                    ChatTimelineIdentity.value(
+                        clientMessageID: $0.clientMessageID,
+                        serverID: $0.id
+                    )
+                }) { timelineID in
+                    guard let timelineID,
+                          let message = viewModel.messages.last,
+                          ChatTimelineIdentity.value(
+                            clientMessageID: message.clientMessageID,
+                            serverID: message.id
+                          ) == timelineID else { return }
+                    handleIncomingTimelineMessage(message, proxy: proxy)
+                }
+                .onChange(of: viewModel.visiblePendingTexts.count
+                    + viewModel.visiblePendingStickers.count
+                    + viewModel.visiblePendingMedia.count) { count in
+                    let previousCount = lastVisiblePendingCount
+                    lastVisiblePendingCount = count
+                    guard count > previousCount else { return }
+                    scrollGroupChatToBottom(proxy: proxy, animated: false)
+                }
+                .onChange(of: pendingLocatedMessageID) { messageID in
+                    guard let messageID else { return }
+                    pendingLocatedMessageID = nil
+                    scrollToMessage(messageID, proxy: proxy)
+                }
+                .task { await loadInitialTimeline(proxy: proxy) }
+
+                if let locator = timelineLocatorKind {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            ChatTimelineLocatorButton(kind: locator) {
+                                activateTimelineLocator(locator, proxy: proxy)
+                            }
+                            .padding(.trailing, 12)
+                            .padding(.bottom, 14)
+                        }
+                    }
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded {
+                dismissMessageMenuFromBackgroundInteraction()
+                dismissComposerInput()
+            })
         }
-        if idx > 0 {
-            return pendingItems[idx - 1].createdAt.iso8601String
+    }
+
+    @ViewBuilder
+    private func pendingRow(_ pending: GroupPendingRenderItem) -> some View {
+        VStack(spacing: 4) {
+            if TimestampHelper.shouldShowTime(
+                current: pending.createdAt.iso8601String,
+                previous: previousTimestamp(for: pending)
+            ) {
+                TimeSeparatorView(timestamp: pending.createdAt.iso8601String)
+            }
+            if let text = pending.text {
+                PendingGroupBubble(
+                    pending: text,
+                    resolvedReply: pending.resolvedReply,
+                    avatarURL: myAvatarURL,
+                    onRetry: { Task { await viewModel.retryPendingText(text) } }
+                )
+            } else if let sticker = pending.sticker {
+                PendingGroupStickerBubble(
+                    pending: sticker,
+                    resolvedReply: pending.resolvedReply,
+                    avatarURL: myAvatarURL,
+                    onRetry: { Task { await viewModel.retryPendingSticker(sticker) } }
+                )
+            } else if let media = pending.media {
+                PendingGroupMediaBubble(pending: media, avatarURL: myAvatarURL) {
+                    viewModel.retryPendingMedia(media)
+                }
+            }
         }
-        return viewModel.messages.last?.timestamp
+        .if(
+            pending.text?.status == .failed
+                || pending.sticker?.status == .failed
+                || pending.media?.status == .failed
+        ) { row in
+            row.messageMenuLongPress(
+                onLongPress: { frame in
+                    presentPendingMessageMenu(for: pending, frame: frame)
+                },
+                onTouchSequenceEnded: finishMessageMenuTouchSequence
+            )
+        }
+        .flippedRow()
+    }
+
+    private func loadInitialTimeline(proxy: ScrollViewProxy) async {
+        guard !hasCompletedInitialLoad else { return }
+        async let messagesTask: () = viewModel.loadMessages()
+        async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
+        await messagesTask
+        if let targetID = initialReadThroughMessageID,
+           !viewModel.messages.contains(where: { $0.id == targetID }) {
+            _ = await viewModel.loadContext(around: targetID)
+        }
+        await appearanceStore.loadIfNeeded()
+        if let detail = try? await detailTask {
+            memberCount = detail.members.count
+            memberProfilesByID = Self.memberProfilesByID(from: detail.members)
+            groupInfoPreferencesStore.apply(detail.viewerSettings)
+            cacheMembers(detail.members)
+            if let key = CacheKey.current(namespace: "group-detail", key: "\(group.groupID)") {
+                AppCacheRepository.shared.save(detail, for: key, policy: .profile)
+            }
+            LocalCache.save(detail, key: "group_detail_\(group.groupID)")
+        }
+        guard !Task.isCancelled, isViewVisible else { return }
+        hasCompletedInitialLoad = true
+        if let targetID = initialReadThroughMessageID,
+           viewModel.messages.contains(where: { $0.id == targetID }) {
+            proxy.scrollTo(messageScrollID(targetID), anchor: .center)
+        } else {
+            scrollGroupChatToBottom(proxy: proxy, animated: false)
+        }
+        markConversationRead()
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ZStack {
-                    ChatBackgroundLayer(
-                        background: appearanceStore.effectiveBackground(
-                            targetType: .group,
-                            targetID: String(group.groupID)
-                        )
-                    )
+            groupTimeline
 
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            Color.clear
-                                .frame(height: 1)
-                                .id(bottomScrollAnchorID)
-
-                            LazyVStack(spacing: 4) {
-                                ForEach(renderedPendingItems.reversed()) { pending in
-                                    VStack(spacing: 4) {
-                                        if TimestampHelper.shouldShowTime(
-                                            current: pending.createdAt.iso8601String,
-                                            previous: previousTimestamp(for: pending)
-                                        ) {
-                                            TimeSeparatorView(timestamp: pending.createdAt.iso8601String)
-                                        }
-
-                                        if let text = pending.text {
-                                            PendingGroupBubble(pending: text, avatarURL: myAvatarURL) {
-                                                Task { await viewModel.retryPendingText(text) }
-                                            }
-                                        } else if let sticker = pending.sticker {
-                                            PendingGroupStickerBubble(pending: sticker, avatarURL: myAvatarURL) {
-                                                Task { await viewModel.retryPendingSticker(sticker) }
-                                            }
-                                        } else if let media = pending.media {
-                                            PendingGroupMediaBubble(pending: media, avatarURL: myAvatarURL) {
-                                                viewModel.retryPendingMedia(media)
-                                            }
-                                        }
-                                    }
-                                    .id(pendingScrollID(pending.id))
-                                    .flippedRow()
-                                }
-
-                                ForEach(renderedMessages.reversed()) { row in
-                                    let message = row.message
-                                    let isFromMe = message.senderID == AuthManager.shared.currentUser?.userID
-
-                                    VStack(spacing: 4) {
-                                        if TimestampHelper.shouldShowTime(
-                                            current: message.timestamp,
-                                            previous: row.previousTimestamp
-                                        ) {
-                                            TimeSeparatorView(timestamp: message.timestamp)
-                                        }
-
-                                        GroupMessageBubble(
-                                            message: message,
-                                            isFromMe: isFromMe,
-                                            myAvatarURL: myAvatarURL,
-                                            senderAvatarURL: resolvedSenderAvatarURL(for: message, isFromMe: isFromMe),
-                                            senderNickname: resolvedSenderNickname(for: message, isFromMe: isFromMe),
-                                            onImageTap: { url, frame in
-                                                pendingComposerPanel = nil
-                                                isInputFocused = false
-                                                hideKeyboard()
-                                                let allImages = viewModel.messages.filter(\.isImage).map(\.content)
-                                                ImageGalleryState.shared.show(
-                                                    urls: allImages,
-                                                    index: allImages.firstIndex(of: url) ?? 0,
-                                                    sourceFrame: frame,
-                                                    loadMoreOlder: {
-                                                        // When the gallery nears its leftmost image,
-                                                        // page in more group history and tell the gallery
-                                                        // how many NEW older image URLs that added.
-                                                        let before = viewModel.messages.filter(\.isImage).map(\.content).count
-                                                        await viewModel.loadMoreMessages()
-                                                        let after = viewModel.messages.filter(\.isImage).map(\.content)
-                                                        let added = after.count - before
-                                                        if added > 0 {
-                                                            let newOlder = Array(after.prefix(added))
-                                                            ImageGalleryState.shared.imageURLs.insert(contentsOf: newOlder, at: 0)
-                                                        }
-                                                        return added
-                                                    }
-                                                )
-                                            },
-                                            onVideoTap: { url in
-                                                pendingComposerPanel = nil
-                                                isInputFocused = false
-                                                hideKeyboard()
-                                                previewVideoURL = url
-                                            },
-                                            onReply: { msg in viewModel.setReply(to: msg) },
-                                            onQuoteTap: { targetID in
-                                                scrollToMessage(targetID, proxy: proxy)
-                                            },
-                                            onMention: { userID, nickname in
-                                                viewModel.addMention(userID: userID, nickname: nickname)
-                                            },
-                                            onChatMoneyTap: { payload, isSender in
-                                                handleChatMoneyTap(payload, isSender: isSender)
-                                            }
-                                        )
-                                    }
-                                    .id(messageScrollID(message.id))
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)
-                                    )
-                                    .flippedRow()
-                                }
-
-                                if viewModel.hasMore {
-                                    ProgressView()
-                                        .tint(AppColors.accent)
-                                        .padding()
-                                        .flippedRow()
-                                        .onAppear {
-                                            Task { await viewModel.loadMoreMessages() }
-                                        }
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.top, 8)
-                            .padding(.bottom, 8)
-                        }
-                    }
-                    .rotationEffect(.degrees(180))
-                    .scaleEffect(x: -1, y: 1, anchor: .center)
-                    .scrollIndicators(.hidden)
-                    .scrollDismissesKeyboard(.interactively)
-                    // Only scroll to latest when a NEW message arrives at the
-                    // end of the list (last.id changes). Watching messages.count
-                    // also fires when loadMoreMessages prepends older history,
-                    // yanking the user back to the bottom mid-scroll.
-                    .onChange(of: viewModel.messages.last?.id) { _ in
-                        scrollGroupChatToBottom(proxy: proxy)
-                    }
-                    .onChange(of: viewModel.visiblePendingTexts.count) { count in
-                        guard count > 0 else { return }
-                        scrollGroupChatToBottom(proxy: proxy)
-                    }
-                    .onChange(of: viewModel.visiblePendingStickers.count) { count in
-                        guard count > 0 else { return }
-                        scrollGroupChatToBottom(proxy: proxy)
-                    }
-                    .task {
-                        guard !hasCompletedInitialLoad else { return }
-                        async let messagesTask: () = viewModel.loadMessages()
-                        async let detailTask = APIService.shared.getGroupDetail(groupID: group.groupID)
-                        await messagesTask
-                        await appearanceStore.loadIfNeeded()
-                        if let detail = try? await detailTask {
-                            memberCount = detail.members.count
-                            memberProfilesByID = Self.memberProfilesByID(from: detail.members)
-                            cacheMembers(detail.members)
-                            // Persist for the next open + for GroupDetailView.
-                            LocalCache.save(detail, key: "group_detail_\(group.groupID)")
-                        }
-                        guard !Task.isCancelled, isViewVisible else { return }
-                        hasCompletedInitialLoad = true
-                        scrollGroupChatToBottom(proxy: proxy, animated: false)
-                    }
-                }
-                .contentShape(Rectangle())
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        dismissComposerInput()
-                    }
-                )
-            }
-
-            if let replyMsg = viewModel.replyingTo {
+            if !isSelectingMessages, let replyMsg = viewModel.replyingTo {
                 ReplyPreviewBar(
                     senderName: replyMsg.senderNickname,
                     content: replyMsg.content,
@@ -725,15 +1550,31 @@ struct GroupChatView: View {
                 )
             }
 
-            groupInputBar
+            if let state = selectionState {
+                ChatSelectionToolbar(
+                    selectionCount: state.selected.count,
+                    showsForward: multiForwardingEnabled,
+                    onForward: { showForwardModeDialog = true },
+                    onDelete: { showSelectionDeleteConfirmation = true }
+                )
+            } else {
+                groupInputBar
+                    .simultaneousGesture(TapGesture().onEnded {
+                        dismissMessageMenuFromBackgroundInteraction()
+                    })
+            }
         }
         .ignoresSafeArea(
             composerSurfaceTransition == nil ? [] : .keyboard,
             edges: .bottom
         )
-        .sheet(isPresented: $viewModel.showMentionPicker) {
-            MentionPickerView(groupID: group.groupID) { userID, nickname in
-                viewModel.addMention(userID: userID, nickname: nickname)
+        .fullScreenCover(isPresented: $viewModel.showMentionPicker) {
+            MentionPickerView(
+                groupID: group.groupID,
+                allowsMentionAll: allowsMentionAll,
+                initialMembers: mentionCandidates
+            ) { selections in
+                insertMentions(selections, replacing: pendingMentionTriggerRange)
             }
         }
         .background(AppColors.secondaryBackground)
@@ -746,43 +1587,11 @@ struct GroupChatView: View {
                 .font(.system(size: 15, weight: .semibold))
             }
         }
-        .overlay(alignment: .top) {
-            if let alertMsg = viewModel.mentionAlertMessage {
-                HStack(spacing: 10) {
-                    Image(systemName: "at.badge.plus")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.tr("mention.alert", alertMsg.senderNickname))
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white)
-                        Text(alertMsg.content.prefix(50))
-                            .font(.system(size: 13))
-                            .foregroundColor(.white.opacity(0.9))
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.red.opacity(0.92))
-                        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                )
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.mentionAlertMessage?.id)
-                .onTapGesture {
-                    withAnimation { viewModel.mentionAlertMessage = nil }
-                }
-            }
-        }
-        .navigationTitle(memberCount > 0 ? "\(group.name) (\(memberCount))" : group.name)
+        .navigationTitle(selectionState.map { L10n.tr("selection.count", $0.selected.count) }
+            ?? (memberCount > 0 ? "\(groupDisplayName) (\(memberCount))" : groupDisplayName))
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabBarOnPush()
-        .withUIKitBackButton()
+        .withUIKitBackButton(onBack: handleBack)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { showGroupDetail = true } label: {
@@ -790,6 +1599,27 @@ struct GroupChatView: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(AppColors.accent)
                 }
+                .opacity(isSelectingMessages ? 0 : 1)
+                .disabled(isSelectingMessages)
+            }
+        }
+        .alert(L10n.tr("selection.delete.title"), isPresented: $showSelectionDeleteConfirmation) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("common.delete"), role: .destructive, action: deleteSelectedMessages)
+        } message: {
+            Text(L10n.tr("selection.delete.message", selectionState?.selected.count ?? 0))
+        }
+        .confirmationDialog(L10n.tr("forward.chooseMode"), isPresented: $showForwardModeDialog) {
+            Button(L10n.tr("forward.individual")) { beginSelectedForward(.individual) }
+            if mergedForwardingEnabled {
+                Button(L10n.tr("forward.merged")) { beginSelectedForward(.merged) }
+            }
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+        }
+        .sheet(item: $forwardDraft) { draft in
+            ForwardFlowView(mode: draft.mode, sources: draft.sources, preview: draft.preview) {
+                exitSelection()
+                toastMessage = L10n.tr("forward.sent")
             }
         }
         .sheet(isPresented: $showAddMembers) {
@@ -809,37 +1639,72 @@ struct GroupChatView: View {
                 }
             )
         }
-        .overlay {
-            if let payload = redPacketOverlayPayload {
-                ChatMoneyRedPacketEntryOverlay(
-                    store: moneyStore,
-                    initialPayload: payload,
-                    isSender: redPacketOverlayIsSender,
-                    onClose: {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            redPacketOverlayPayload = nil
-                        }
-                    },
-                    onShowDetail: {
-                        showRedPacketDetail(payload)
-                    }
-                )
-                .zIndex(500)
-            }
-        }
         .onChange(of: showGroupDetail) { show in
             if show {
                 showGroupDetail = false
-                navigator.push(GroupDetailView(groupID: group.groupID) {
-                    shouldPopToRoot = true
-                })
+                navigator.push(GroupDetailView(
+                    groupID: group.groupID,
+                    onGroupLeft: { shouldPopToRoot = true },
+                    onLocateMessage: { messageID in
+                        navigator.pop(count: 2)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            pendingLocatedMessageID = messageID
+                        }
+                    }
+                ))
             }
         }
         .overlay { groupVoiceRecordingOverlay }
         .onAppear {
             isViewVisible = true
+            restoreDraftIfNeeded()
             setActiveGroupChat(true)
-            markConversationRead()
+        }
+        .onChange(of: viewModel.inputText) { _ in
+            scheduleDraftSave()
+        }
+        .onChange(of: composerMentions) { _ in
+            scheduleDraftSave()
+        }
+        .onChange(of: viewModel.replyingTo?.id) { _ in
+            scheduleDraftSave()
+        }
+        .onReceive(viewModel.$messages) { messages in
+            let rows = Self.makeTimelineRows(messages)
+            let pendingRows = Self.makePendingTimelineRows(
+                texts: viewModel.visiblePendingTexts(
+                    from: viewModel.pendingTexts,
+                    confirmedBy: messages
+                ),
+                stickers: viewModel.visiblePendingStickers(
+                    from: viewModel.pendingStickers,
+                    confirmedBy: messages
+                ),
+                media: viewModel.visiblePendingMedia(
+                    from: viewModel.pendingMedia,
+                    confirmedBy: messages
+                )
+            )
+            timelineRows = rows
+            pendingTimelineRows = pendingRows
+            rebuildTimelineSnapshot(rows: rows, pending: pendingRows)
+            reconcileSelection()
+        }
+        .onReceive(Publishers.CombineLatest3(
+            viewModel.$pendingTexts,
+            viewModel.$pendingStickers,
+            viewModel.$pendingMedia
+        )) { pendingTexts, pendingStickers, pendingMedia in
+            let pendingRows = Self.makePendingTimelineRows(
+                texts: viewModel.visiblePendingTexts(from: pendingTexts),
+                stickers: viewModel.visiblePendingStickers(from: pendingStickers),
+                media: viewModel.visiblePendingMedia(from: pendingMedia)
+            )
+            pendingTimelineRows = pendingRows
+            rebuildTimelineSnapshot(pending: pendingRows)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+            flushDraft()
         }
         .task {
             await moneyStore.loadConfiguration()
@@ -863,6 +1728,12 @@ struct GroupChatView: View {
             handleKeyboardDidHide()
         }
         .onDisappear {
+            scrollCommandTask?.cancel()
+            flushDraft()
+            dismissMessageMenu()
+            if redPacketOverlayPayload != nil {
+                closeRedPacketOverlay()
+            }
             isViewVisible = false
             composerSurfaceTransition = nil
             setActiveGroupChat(false)
@@ -889,6 +1760,18 @@ struct GroupChatView: View {
             if removedID == group.groupID {
                 shouldPopToRoot = true
             }
+        }
+        .onReceive(WebSocketService.shared.groupMemberUpdatePublisher) { update in
+            guard update.groupID == group.groupID,
+                  update.revision >= memberRevision else { return }
+            memberRevision = update.revision
+            memberProfilesByID[update.member.userID] = update.member
+            memberCount = max(memberCount, memberProfilesByID.count)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .groupHistoryCleared)) { notification in
+            guard let receipt = notification.object as? GroupHistoryClearReceipt,
+                  receipt.groupID == group.groupID else { return }
+            viewModel.applyHistoryClear(throughSequence: receipt.clearedBeforeSequence)
         }
         .onReceive(WebSocketService.shared.chatMoneyUpdatePublisher) { update in
             moneyStore.apply(update)
@@ -940,8 +1823,15 @@ struct GroupChatView: View {
                             isFocused: $isInputFocused,
                             height: $inputTextHeight,
                             selectedRange: $composerSelection,
+                            mentionSpans: $composerMentions,
                             onRequestFocus: focusComposerTextInput,
-                            onSend: { viewModel.submitText() }
+                            onSend: { submittedText in
+                                submitGroupText(submittedText)
+                            },
+                            onStandaloneAt: { range in
+                                pendingMentionTriggerRange = range
+                                viewModel.showMentionPicker = true
+                            }
                         )
                         .padding(.leading, showsComposerMicrophone ? 34 : 0)
                         .frame(height: inputTextHeight)
@@ -984,7 +1874,7 @@ struct GroupChatView: View {
 
                             ZStack {
                                 Button {
-                                    viewModel.submitText()
+                                    submitGroupText()
                                 } label: {
                                     ZStack {
                                         Circle()
@@ -1065,11 +1955,48 @@ struct GroupChatView: View {
     }
 
     private func insertEmoji(_ value: String) {
-        ComposerTextInsertion.insert(
-            value,
-            into: &viewModel.inputText,
-            selectedRange: &composerSelection
+        let result = MentionTextEditing.applyingUserEdit(
+            range: composerSelection,
+            replacementText: value,
+            to: composerDocument
         )
+        viewModel.inputText = result.document.text
+        composerMentions = result.document.mentions
+        composerSelection = result.selectedRange
+    }
+
+    private func submitGroupText(_ submittedText: String? = nil) {
+        let document = ComposerDocument(
+            text: submittedText ?? viewModel.inputText,
+            mentions: composerMentions
+        )
+        let mentions = document.mentionedUserIDs
+        viewModel.submitText(
+            text: submittedText,
+            mentions: mentions,
+            mentionAll: document.mentionsAll
+        )
+        composerMentions = []
+        pendingMentionTriggerRange = nil
+    }
+
+    private func insertMentions(
+        _ selections: [MentionSelection],
+        replacing replacementRange: NSRange?
+    ) {
+        guard !selections.isEmpty else { return }
+        let result = MentionTextEditing.inserting(
+            selections,
+            replacing: replacementRange,
+            in: composerDocument,
+            selectedRange: composerSelection
+        )
+        viewModel.inputText = result.document.text
+        composerMentions = result.document.mentions
+        composerSelection = result.selectedRange
+        pendingMentionTriggerRange = nil
+        viewModel.showMentionPicker = false
+        focusComposerTextInput()
     }
 
     private var groupHoldToRecordButton: some View {
@@ -1183,25 +2110,13 @@ struct GroupChatView: View {
                 activeComposerPanel = nil
                 let captured = items
                 selectedMediaItems = []
-                for (index, item) in captured.enumerated() {
-                    Task {
-                        if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                            if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                                let data = try? Data(contentsOf: movie.url)
-                                let ext = movie.url.pathExtension.lowercased()
-                                try? FileManager.default.removeItem(at: movie.url)
-                                if let data = data {
-                                    await viewModel.sendVideo(data: data, filename: "video_\(Int(Date().timeIntervalSince1970))_\(index).\(ext.isEmpty ? "mp4" : ext)")
-                                }
-                            }
-                        } else if item.supportedContentTypes.contains(where: { $0.conforms(to: .image) }) {
-                            if let data = try? await item.loadTransferable(type: Data.self),
-                               let uiImage = UIImage(data: data),
-                               let jpegData = uiImage.jpegData(compressionQuality: 0.9) {
-                                await viewModel.sendImage(data: jpegData)
-                            }
-                        }
+                Task {
+                    let drafts = await prepareOutgoingMediaDrafts(from: captured)
+                    guard !drafts.isEmpty else {
+                        toastMessage = L10n.tr("common.operationFailed")
+                        return
                     }
+                    await viewModel.sendMediaBatch(drafts)
                 }
             }
 
@@ -1275,22 +2190,28 @@ struct GroupChatView: View {
 struct GroupMessageBubble: View {
     let message: GroupMessage
     let isFromMe: Bool
+    let resolvedReply: GroupReplyPreview?
     var myAvatarURL: String = ""
     var senderAvatarURL: String? = nil
     var senderNickname: String? = nil
+    var showsSenderNickname = true
+    var hasViewerClaimedRedPacket = false
     /// Second arg: the thumbnail's global-coordinate frame at tap time
     /// (used by the full-screen gallery for a hero grow-from-thumbnail).
     var onImageTap: ((String, CGRect) -> Void)?
     var onVideoTap: ((String) -> Void)?
-    var onReply: ((GroupMessage) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
     var onMention: ((String, String) -> Void)?
+    var onMenuRequested: ((CGRect) -> Void)?
+    var onMenuTouchSequenceEnded: (() -> Void)?
+    var recalledEditableText: String?
+    var onReeditRecalledText: ((String) -> Void)?
     /// Use the group-message direction instead of the embedded asset sender
     /// while independently delivered snapshots are being reconciled.
     var onChatMoneyTap: ((ChatMoneyPayload, Bool) -> Void)?
-
-    @State private var swipeOffset: CGFloat = 0
-    @State private var showMenu = false
+    var onForwardBundleTap: ((String) -> Void)?
+    @ObservedObject private var appConfig = AppRemoteConfigStore.shared
+    @State private var menuOwnsTouchSequence = false
 
     private var displaySenderAvatarURL: String {
         if let senderAvatarURL, !senderAvatarURL.isBlank { return senderAvatarURL }
@@ -1303,7 +2224,17 @@ struct GroupMessageBubble: View {
     }
 
     var body: some View {
-        if let receipt = message.chatMoneyReceiptPayload {
+        if message.isRecalled {
+            RecalledMessageTip(
+                senderName: displaySenderNickname,
+                isFromMe: isFromMe,
+                canReedit: isFromMe && recalledEditableText != nil,
+                onReedit: {
+                    guard let recalledEditableText else { return }
+                    onReeditRecalledText?(recalledEditableText)
+                }
+            )
+        } else if let receipt = message.chatMoneyReceiptPayload {
             ChatMoneyReceiptTip(payload: receipt)
         } else if message.isSystem {
             HStack {
@@ -1319,7 +2250,7 @@ struct GroupMessageBubble: View {
             }
             .padding(.vertical, 4)
         } else {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
@@ -1335,7 +2266,15 @@ struct GroupMessageBubble: View {
             }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 3) {
-                if let reply = message.replyTo {
+                if !isFromMe, showsSenderNickname {
+                    Text(displaySenderNickname)
+                        .font(.caption)
+                        .foregroundColor(AppColors.secondaryText)
+                        .lineLimit(1)
+                        .accessibilityLabel(L10n.tr("group.member.nickname.accessibility", displaySenderNickname))
+                }
+
+                if let reply = resolvedReply {
                     QuotedMessageView(
                         senderName: reply.senderID == AuthManager.shared.currentUser?.userID ? L10n.tr("common.me") : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
                         content: reply.content,
@@ -1345,124 +2284,14 @@ struct GroupMessageBubble: View {
                     )
                 }
 
-                if message.isImage {
-                    CachedAsyncImage(url: message.content)
-                        .onTapCaptureFrame { frame in
-                            onImageTap?(message.content, frame)
-                        }
-                        .longPressToSaveImage(url: message.content)
-                } else if message.isVideo {
-                    ZStack {
-                        VideoThumbnailView(videoURL: message.content)
-                            .frame(maxWidth: 200, maxHeight: 250)
-                            .cornerRadius(16)
-
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundColor(.white)
-                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                    }
-                    .cornerRadius(16)
-                    .onTapGesture {
-                        onVideoTap?(message.content)
-                    }
-                    .longPressToSaveVideo(url: message.content)
-                } else if message.isVoice {
-                    VoiceBubbleView(
-                        url: message.voiceURL ?? "",
-                        duration: message.voiceDuration,
-                        isFromMe: isFromMe
+                messageContent
+                    .messageMenuLongPress(
+                        onLongPress: { frame in
+                            menuOwnsTouchSequence = true
+                            onMenuRequested?(frame)
+                        },
+                        onTouchSequenceEnded: releaseMenuTouchOwnership
                     )
-                } else if let moneyPayload = message.chatMoneyPayload {
-                    ChatMoneyBubble(
-                        payload: moneyPayload,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe,
-                        senderName: isFromMe ? nil : displaySenderNickname,
-                        onTap: { onChatMoneyTap?(moneyPayload, isFromMe) }
-                    )
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        showMenu = true
-                    }
-                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                        Button(L10n.tr("common.reply")) { onReply?(message) }
-                        if !isFromMe {
-                            Button("@\(displaySenderNickname)") {
-                                onMention?(message.senderID, displaySenderNickname)
-                            }
-                        }
-                        Button(L10n.tr("common.cancel"), role: .cancel) {}
-                    }
-                } else if let stickerPayload = message.stickerPayload {
-                    StickerMessageBubble(
-                        payload: stickerPayload,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe,
-                        senderName: isFromMe ? nil : displaySenderNickname
-                    )
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        showMenu = true
-                    }
-                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                        Button(L10n.tr("common.reply")) { onReply?(message) }
-                        if !isFromMe {
-                            Button("@\(displaySenderNickname)") {
-                                onMention?(message.senderID, displaySenderNickname)
-                            }
-                        }
-                        Button(L10n.tr("common.cancel"), role: .cancel) {}
-                    }
-                } else if let giftPayload = message.giftPayload {
-                    GiftMessageBubble(
-                        payload: giftPayload,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe,
-                        senderName: isFromMe ? nil : displaySenderNickname,
-                        recipientFallback: L10n.tr("group.member"),
-                        recipientAvatarFallback: giftPayload.recipientID == AuthManager.shared.currentUser?.userID
-                            ? myAvatarURL
-                            : nil
-                    )
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        showMenu = true
-                    }
-                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                        Button(L10n.tr("common.reply")) { onReply?(message) }
-                        if !isFromMe {
-                            Button("@\(displaySenderNickname)") {
-                                onMention?(message.senderID, displaySenderNickname)
-                            }
-                        }
-                        Button(L10n.tr("common.cancel"), role: .cancel) {}
-                    }
-                } else {
-                    TimestampedTextBubble(
-                        content: message.content,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe,
-                        senderName: isFromMe ? nil : displaySenderNickname
-                    )
-                        .onLongPressGesture(minimumDuration: 0.5) {
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            showMenu = true
-                        }
-                        .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                            Button(L10n.tr("common.copy")) { UIPasteboard.general.string = message.content }
-                            Button(L10n.tr("common.reply")) { onReply?(message) }
-                            if !isFromMe {
-                                Button("@\(displaySenderNickname)") {
-                                    onMention?(message.senderID, displaySenderNickname)
-                                }
-                            }
-                            Button(L10n.tr("common.cancel"), role: .cancel) {}
-                        }
-                }
             }
 
             if isFromMe {
@@ -1477,22 +2306,82 @@ struct GroupMessageBubble: View {
             if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
-        .offset(x: swipeOffset)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onChanged { value in
-                    let h = value.translation.width
-                    if (isFromMe && h < 0) || (!isFromMe && h > 0) {
-                        swipeOffset = h * 0.4
-                    }
+        }
+    }
+
+    @ViewBuilder
+    private var messageContent: some View {
+        if appConfig.featureFlags.isEnabled("message_forward_merged_render_v1", default: true),
+           let bundle = ForwardBundleMessagePayload.parse(message.content, messageType: message.msgType) {
+            ForwardBundleMessageCard(payload: bundle, isFromMe: isFromMe) {
+                guard !menuOwnsTouchSequence else { return }
+                onForwardBundleTap?(bundle.bundleID)
+            }
+        } else if message.isImage {
+            CachedAsyncImage(
+                url: message.content,
+                previewURL: message.thumbnailURL
+            )
+                .onTapCaptureFrame(sourceID: message.content) { frame in
+                    guard !menuOwnsTouchSequence else { return }
+                    onImageTap?(message.content, frame)
                 }
-                .onEnded { value in
-                    if abs(value.translation.width) > 50 {
-                        onReply?(message)
-                    }
-                    withAnimation(.spring(response: 0.3)) { swipeOffset = 0 }
+        } else if message.isVideo {
+            VideoThumbnailView(
+                videoURL: message.content,
+                thumbnailURL: message.thumbnailURL,
+                showsPlayIndicator: true
+            )
+            .onTapGesture {
+                guard !menuOwnsTouchSequence else { return }
+                onVideoTap?(message.content)
+            }
+        } else if message.isVoice {
+            VoiceBubbleView(
+                url: message.voiceURL ?? "",
+                duration: message.voiceDuration,
+                isFromMe: isFromMe
+            )
+        } else if let moneyPayload = message.chatMoneyPayload {
+            ChatMoneyBubble(
+                payload: moneyPayload,
+                isFromMe: isFromMe,
+                senderName: nil,
+                hasViewerClaimedRedPacket: hasViewerClaimedRedPacket,
+                onTap: {
+                    guard !menuOwnsTouchSequence else { return }
+                    onChatMoneyTap?(moneyPayload, isFromMe)
                 }
-        )
+            )
+        } else if let stickerPayload = message.stickerPayload {
+            StickerMessageBubble(
+                payload: stickerPayload,
+                isFromMe: isFromMe,
+                senderName: nil
+            )
+        } else if let giftPayload = message.giftPayload {
+            GiftMessageBubble(
+                payload: giftPayload,
+                isFromMe: isFromMe,
+                senderName: nil,
+                recipientFallback: L10n.tr("group.member"),
+                recipientAvatarFallback: giftPayload.recipientID == AuthManager.shared.currentUser?.userID
+                    ? myAvatarURL
+                    : nil
+            )
+        } else {
+            TimestampedTextBubble(
+                content: message.content,
+                isFromMe: isFromMe,
+                senderName: nil
+            )
+        }
+    }
+
+    private func releaseMenuTouchOwnership() {
+        onMenuTouchSequenceEnded?()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            menuOwnsTouchSequence = false
         }
     }
 }
@@ -1501,28 +2390,41 @@ struct GroupMessageBubble: View {
 
 struct PendingGroupBubble: View {
     let pending: PendingGroupText
+    let resolvedReply: GroupReplyPreview?
     var avatarURL: String = ""
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 40)
-            HStack(alignment: .center, spacing: 6) {
-                if pending.status == .failed {
-                    Button {
-                        onRetry?()
-                    } label: {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .font(.system(size: 20))
-                    }
+            VStack(alignment: .trailing, spacing: 3) {
+                if let reply = resolvedReply {
+                    QuotedMessageView(
+                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID
+                            ? L10n.tr("common.me")
+                            : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
+                        content: reply.content,
+                        msgType: reply.msgType,
+                        isFromMe: true
+                    )
                 }
 
-                TimestampedTextBubble(
-                    content: pending.content,
-                    timeText: pending.formattedTime,
-                    isFromMe: true
-                )
+                HStack(alignment: .center, spacing: 6) {
+                    if pending.status == .failed {
+                        Button {
+                            onRetry?()
+                        } label: {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.system(size: 20))
+                        }
+                    }
+
+                    TimestampedTextBubble(
+                        content: pending.content,
+                        isFromMe: true
+                    )
+                }
             }
 
             UserAvatarButton(
@@ -1538,29 +2440,42 @@ struct PendingGroupBubble: View {
 
 struct PendingGroupStickerBubble: View {
     let pending: PendingGroupSticker
+    let resolvedReply: GroupReplyPreview?
     var avatarURL: String = ""
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 40)
-            HStack(alignment: .center, spacing: 6) {
-                if pending.status == .failed {
-                    Button {
-                        onRetry?()
-                    } label: {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .font(.system(size: 20))
-                    }
-                }
-
-                if let payload = StickerMessagePayload.parse(pending.content) {
-                    StickerMessageBubble(
-                        payload: payload,
-                        timeText: pending.formattedTime,
+            VStack(alignment: .trailing, spacing: 3) {
+                if let reply = resolvedReply {
+                    QuotedMessageView(
+                        senderName: reply.senderID == AuthManager.shared.currentUser?.userID
+                            ? L10n.tr("common.me")
+                            : (UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID),
+                        content: reply.content,
+                        msgType: reply.msgType,
                         isFromMe: true
                     )
+                }
+
+                HStack(alignment: .center, spacing: 6) {
+                    if pending.status == .failed {
+                        Button {
+                            onRetry?()
+                        } label: {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundColor(.red)
+                                .font(.system(size: 20))
+                        }
+                    }
+
+                    if let payload = StickerMessagePayload.parse(pending.content) {
+                        StickerMessageBubble(
+                            payload: payload,
+                            isFromMe: true
+                        )
+                    }
                 }
             }
 
@@ -1581,7 +2496,7 @@ struct PendingGroupMediaBubble: View {
     var onRetry: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Spacer(minLength: 40)
             HStack(alignment: .center, spacing: 6) {
                 if pending.status == .failed {
@@ -1590,34 +2505,46 @@ struct PendingGroupMediaBubble: View {
                             .foregroundColor(.red)
                             .font(.system(size: 20))
                     }
+                } else if pending.status == .sending {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppColors.secondaryText)
+                        .accessibilityLabel(L10n.tr("common.uploading"))
                 }
 
                 Group {
-                    if pending.msgType == "image", let image = UIImage(data: pending.data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
+                    if pending.msgType == "image" {
+                        LocalFirstPendingImage(
+                            identity: pending.id,
+                            data: pending.data,
+                            fileURL: pending.localFileURL
+                        )
+                    } else if pending.msgType == "video", let fileURL = pending.localFileURL {
+                        VideoThumbnailView(
+                            videoURL: fileURL.absoluteString,
+                            showsPlayIndicator: true
+                        )
                     } else {
                         ZStack {
-                            Color.blue.opacity(0.1)
-                            Image(systemName: "video.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(AppColors.secondaryText)
+                            Color.black.opacity(0.1)
+                            Circle()
+                                .fill(Color.black.opacity(0.42))
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(.white)
+                                .offset(x: 1)
                         }
+                        .frame(
+                            width: ChatMediaLayout.landscapeVideoSize.width,
+                            height: ChatMediaLayout.landscapeVideoSize.height
+                        )
                     }
                 }
-                .frame(width: 200, height: 140)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(alignment: .bottomTrailing) {
-                    Text(pending.formattedTime)
-                        .font(.system(size: 10))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.black.opacity(0.45), in: Capsule())
-                        .padding(6)
-                }
-                .opacity(pending.status == .sending ? 0.72 : 1)
+                .clipShape(RoundedRectangle(
+                    cornerRadius: ChatMediaLayout.mediaCornerRadius,
+                    style: .continuous
+                ))
             }
 
             UserAvatarButton(

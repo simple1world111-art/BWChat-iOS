@@ -12,6 +12,9 @@ struct MainTabView: View {
     @ObservedObject private var appearanceStore = ChatAppearanceStore.shared
     @ObservedObject private var languageStore = AppLanguageStore.shared
     @ObservedObject private var unreadBadgeStore = UnreadBadgeStore.shared
+    @ObservedObject private var messageSyncCoordinator = AppMessageSyncCoordinator.shared
+    @ObservedObject private var groupInviteRouteStore = GroupInviteRouteStore.shared
+    @ObservedObject private var activityInviteRouteStore = ActivityInviteRouteStore.shared
     @State private var tabs = DynamicTabDescriptor.defaultTabs
 
     private var tabBadges: [String: Int] {
@@ -42,10 +45,44 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("openGroupChat"))) { _ in
             selectedTab = 0
         }
+        .onReceive(messageSyncCoordinator.$pendingRoute.compactMap { $0 }) { _ in
+            if let index = tabs.firstIndex(where: {
+                $0.id.normalizedDynamicToken == "messages"
+            }) {
+                selectedTab = index
+            } else {
+                selectedTab = 0
+            }
+        }
+        .onReceive(groupInviteRouteStore.$pendingToken.compactMap { $0 }) { _ in
+            if let index = tabs.firstIndex(where: {
+                $0.id.normalizedDynamicToken == "messages"
+            }) {
+                selectedTab = index
+            } else {
+                selectedTab = 0
+            }
+        }
+        .onReceive(activityInviteRouteStore.$pendingToken.compactMap { $0 }) { _ in
+            if let index = tabs.firstIndex(where: {
+                $0.id.normalizedDynamicToken == "discover"
+            }) {
+                selectedTab = index
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openMainTab)) { notification in
             guard let tabID = notification.userInfo?["tabID"] as? String else { return }
             if let index = tabs.firstIndex(where: { $0.id.normalizedDynamicToken == tabID.normalizedDynamicToken }) {
                 selectedTab = index
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openLivePairChat)) { notification in
+            guard let contact = notification.object as? Contact else { return }
+            if let index = tabs.firstIndex(where: { $0.id.normalizedDynamicToken == "messages" }) {
+                selectedTab = index
+            }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .pushLivePairChat, object: contact)
             }
         }
         .task(id: AuthManager.shared.currentUser?.userID ?? "") {
@@ -445,8 +482,11 @@ struct GroupListView: View {
                 List {
                     ForEach(displayedGroups) { group in
                         Button {
-                            navigator.push(GroupChatView(group: group) {
-                                viewModel.markGroupAsRead(groupID: group.id)
+                            navigator.push(GroupChatView(group: group) { throughMessageID in
+                                viewModel.markGroupAsRead(
+                                    groupID: group.id,
+                                    throughMessageID: throughMessageID
+                                )
                             })
                         } label: {
                             GroupRow(group: group)
@@ -515,11 +555,17 @@ private struct GroupListModePicker: View {
 struct GroupRow: View {
     let group: ChatGroup
     @ObservedObject private var unreadStore = UnreadBadgeStore.shared
+    @ObservedObject private var notificationStore = GroupNotificationSettingsStore.shared
+    @ObservedObject private var groupInfoPreferencesStore = GroupInfoPreferencesStore.shared
 
     private var unreadCount: Int {
         unreadStore.conversationUnreadCount(
             for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
         ) ?? group.unreadCount
+    }
+
+    private var isMuted: Bool {
+        return notificationStore.settings(for: group.groupID).isMuted || group.isMuted
     }
 
     var body: some View {
@@ -528,7 +574,10 @@ struct GroupRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
-                    Text(group.name)
+                    Text(groupInfoPreferencesStore.displayName(
+                        for: group.groupID,
+                        fallback: group.name
+                    ))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(AppColors.primaryText)
                         .lineLimit(1)
@@ -536,6 +585,13 @@ struct GroupRow: View {
                     Text("(\(group.memberCount))")
                         .font(.system(size: 13))
                         .foregroundColor(AppColors.tertiaryText)
+
+                    if isMuted {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(AppColors.tertiaryText)
+                            .accessibilityLabel(L10n.tr("group.notifications.mute"))
+                    }
                 }
 
                 if let lastMsg = group.lastMessage {
@@ -569,7 +625,7 @@ struct GroupRow: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
-                        .background(AppColors.unreadBadge)
+                        .background(isMuted ? AppColors.mutedUnreadBadge : AppColors.unreadBadge)
                         .cornerRadius(10)
                 }
             }

@@ -3,6 +3,26 @@
 
 import Foundation
 
+struct ShortDramaOutgoingEpisode: Codable, Sendable {
+    let clientEpisodeID: String
+    let serverVideoID: String?
+    let episodeNumber: Int
+    let title: String
+    let intro: String
+    let unlockPriceGoldCoins: Int
+    let videoRelativePath: String?
+    let coverRelativePath: String?
+}
+
+struct ShortDramaOutgoingPayload: Codable, Sendable {
+    let clientSeriesID: String
+    let serverSeriesID: String?
+    let title: String
+    let intro: String
+    let coverRelativePath: String?
+    let episodes: [ShortDramaOutgoingEpisode]
+}
+
 struct ShortDramaCreator: Codable, Identifiable, Equatable, Hashable {
     let userID: String
     let username: String
@@ -113,13 +133,11 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
     let durationSeconds: Double?
     var playbackPositionSeconds: Double
     var likeCount: Int
-    var favoriteCount: Int
     var commentCount: Int
     var likedByMe: Bool
-    var favoritedByMe: Bool
     let publishStatus: ShortDramaPublishStatus?
     let statusMessage: String?
-    let unlockPriceCatFood: Int?
+    let unlockPriceGoldCoins: Int?
     var isUnlocked: Bool
     let isOwnedByCurrentUser: Bool
 
@@ -155,14 +173,9 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
         case progressSeconds = "progress_seconds"
         case likeCount = "like_count"
         case likesCount = "likes_count"
-        case favoriteCount = "favorite_count"
-        case favoritesCount = "favorites_count"
-        case collectCount = "collect_count"
         case commentCount = "comment_count"
         case commentsCount = "comments_count"
         case likedByMe = "liked_by_me"
-        case favoritedByMe = "favorited_by_me"
-        case collectedByMe = "collected_by_me"
         case status
         case publishStatus = "publish_status"
         case statusMessage = "status_message"
@@ -172,8 +185,8 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
         case failureReason = "failure_reason"
         case reason
         case message
-        case unlockPriceCatFood = "unlock_price_cat_food"
-        case unlockPriceCatFoodCamel = "unlockPriceCatFood"
+        case unlockPriceGoldCoins = "unlock_price_gold_coins"
+        case unlockPriceGoldCoinsCamel = "unlockPriceGoldCoins"
         case isUnlocked = "is_unlocked"
         case isUnlockedCamel = "isUnlocked"
         case isOwnedByCurrentUser = "is_owned_by_current_user"
@@ -209,7 +222,7 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
     }
 
     var requiresUnlock: Bool {
-        (unlockPriceCatFood ?? 0) > 0 && !isUnlocked && !isOwnedByCurrentUser
+        (unlockPriceGoldCoins ?? 0) > 0 && !isUnlocked && !isOwnedByCurrentUser
     }
 
     init(
@@ -227,13 +240,11 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
         durationSeconds: Double? = nil,
         playbackPositionSeconds: Double = 0,
         likeCount: Int = 0,
-        favoriteCount: Int = 0,
         commentCount: Int = 0,
         likedByMe: Bool = false,
-        favoritedByMe: Bool = false,
         publishStatus: ShortDramaPublishStatus? = nil,
         statusMessage: String? = nil,
-        unlockPriceCatFood: Int? = nil,
+        unlockPriceGoldCoins: Int? = nil,
         isUnlocked: Bool = false,
         isOwnedByCurrentUser: Bool = false
     ) {
@@ -251,13 +262,11 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
         self.durationSeconds = durationSeconds
         self.playbackPositionSeconds = playbackPositionSeconds
         self.likeCount = likeCount
-        self.favoriteCount = favoriteCount
         self.commentCount = commentCount
         self.likedByMe = likedByMe
-        self.favoritedByMe = favoritedByMe
         self.publishStatus = publishStatus
         self.statusMessage = statusMessage
-        self.unlockPriceCatFood = unlockPriceCatFood.flatMap { $0 > 0 ? min($0, 100) : nil }
+        self.unlockPriceGoldCoins = unlockPriceGoldCoins.flatMap { $0 > 0 ? min($0, 100) : nil }
         self.isUnlocked = isUnlocked
         self.isOwnedByCurrentUser = isOwnedByCurrentUser
     }
@@ -312,17 +321,10 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
         self.likeCount = container.flexInt(for: .likeCount)
             ?? container.flexInt(for: .likesCount)
             ?? 0
-        self.favoriteCount = container.flexInt(for: .favoriteCount)
-            ?? container.flexInt(for: .favoritesCount)
-            ?? container.flexInt(for: .collectCount)
-            ?? 0
         self.commentCount = container.flexInt(for: .commentCount)
             ?? container.flexInt(for: .commentsCount)
             ?? 0
         self.likedByMe = container.flexBool(for: .likedByMe) ?? false
-        self.favoritedByMe = container.flexBool(for: .favoritedByMe)
-            ?? container.flexBool(for: .collectedByMe)
-            ?? false
         self.publishStatus = (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .publishStatus))
             ?? (try? container.decodeIfPresent(ShortDramaPublishStatus.self, forKey: .status))
         self.statusMessage = container.flexString(for: .statusMessage)
@@ -332,9 +334,9 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
             ?? container.flexString(for: .rejectReason)
             ?? container.flexString(for: .reason)
             ?? container.flexString(for: .message)
-        let decodedUnlockPrice = container.flexInt(for: .unlockPriceCatFood)
-            ?? container.flexInt(for: .unlockPriceCatFoodCamel)
-        self.unlockPriceCatFood = decodedUnlockPrice.flatMap { $0 > 0 ? min($0, 100) : nil }
+        let decodedUnlockPrice = container.flexInt(for: .unlockPriceGoldCoins)
+            ?? container.flexInt(for: .unlockPriceGoldCoinsCamel)
+        self.unlockPriceGoldCoins = decodedUnlockPrice.flatMap { $0 > 0 ? min($0, 100) : nil }
         self.isUnlocked = container.flexBool(for: .isUnlocked)
             ?? container.flexBool(for: .isUnlockedCamel)
             ?? false
@@ -359,13 +361,11 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
         try container.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
         try container.encode(playbackPositionSeconds, forKey: .playbackPositionSeconds)
         try container.encode(likeCount, forKey: .likeCount)
-        try container.encode(favoriteCount, forKey: .favoriteCount)
         try container.encode(commentCount, forKey: .commentCount)
         try container.encode(likedByMe, forKey: .likedByMe)
-        try container.encode(favoritedByMe, forKey: .favoritedByMe)
         try container.encodeIfPresent(publishStatus, forKey: .publishStatus)
         try container.encodeIfPresent(statusMessage, forKey: .statusMessage)
-        try container.encodeIfPresent(unlockPriceCatFood, forKey: .unlockPriceCatFood)
+        try container.encodeIfPresent(unlockPriceGoldCoins, forKey: .unlockPriceGoldCoins)
         try container.encode(isUnlocked, forKey: .isUnlocked)
         try container.encode(isOwnedByCurrentUser, forKey: .isOwnedByCurrentUser)
     }
@@ -392,13 +392,11 @@ struct ShortDramaVideo: Codable, Identifiable, Equatable {
             durationSeconds: durationSeconds,
             playbackPositionSeconds: playbackPositionSeconds,
             likeCount: likeCount,
-            favoriteCount: favoriteCount,
             commentCount: commentCount,
             likedByMe: likedByMe,
-            favoritedByMe: favoritedByMe,
             publishStatus: publishStatus,
             statusMessage: statusMessage,
-            unlockPriceCatFood: unlockPriceCatFood,
+            unlockPriceGoldCoins: unlockPriceGoldCoins,
             isUnlocked: isUnlocked,
             isOwnedByCurrentUser: isOwnedByCurrentUser
         )
@@ -664,28 +662,25 @@ typealias ShortDramaSeriesPage = ShortDramaStudioPage
 
 struct ShortDramaUnlockResult: Decodable, Equatable {
     let video: ShortDramaVideo?
-    let walletBalance: WalletBalanceResponseData?
+    let charge: MixedAssetCharge?
+
+    var walletBalance: WalletBalanceResponseData? { charge?.walletBalance }
 
     enum CodingKeys: String, CodingKey {
         case video
         case episode
-        case walletBalance = "wallet_balance"
-        case walletBalanceCamel = "walletBalance"
-        case balance
     }
 
-    init(video: ShortDramaVideo?, walletBalance: WalletBalanceResponseData?) {
+    init(video: ShortDramaVideo?, charge: MixedAssetCharge?) {
         self.video = video
-        self.walletBalance = walletBalance
+        self.charge = charge
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.video = (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .video))
             ?? (try? container.decodeIfPresent(ShortDramaVideo.self, forKey: .episode))
-        self.walletBalance = (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .walletBalance))
-            ?? (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .walletBalanceCamel))
-            ?? container.flexInt(for: .balance).map(WalletBalanceResponseData.init(balance:))
+        self.charge = try MixedAssetCharge.decodeIfPresent(from: decoder)
     }
 }
 
@@ -982,36 +977,22 @@ struct ShortDramaCommentsPage: Codable, Equatable {
 
 struct ShortDramaInteractionResult: Decodable, Equatable {
     let liked: Bool?
-    let favorited: Bool?
     let likeCount: Int?
-    let favoriteCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case liked
-        case favorited
-        case favorite
-        case collected
         case likeCount = "like_count"
-        case favoriteCount = "favorite_count"
-        case collectCount = "collect_count"
     }
 
-    init(liked: Bool?, favorited: Bool?, likeCount: Int?, favoriteCount: Int?) {
+    init(liked: Bool?, likeCount: Int?) {
         self.liked = liked
-        self.favorited = favorited
         self.likeCount = likeCount
-        self.favoriteCount = favoriteCount
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.liked = container.flexBool(for: .liked)
-        self.favorited = container.flexBool(for: .favorited)
-            ?? container.flexBool(for: .favorite)
-            ?? container.flexBool(for: .collected)
         self.likeCount = container.flexInt(for: .likeCount)
-        self.favoriteCount = container.flexInt(for: .favoriteCount)
-            ?? container.flexInt(for: .collectCount)
     }
 }
 

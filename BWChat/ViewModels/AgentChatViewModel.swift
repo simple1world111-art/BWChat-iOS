@@ -23,18 +23,40 @@ enum AgentImageRequestMode: String, CaseIterable, Equatable {
     case transform
 
     static let transformInstructionPrefix = "请基于我上传的图片进行调整并生成一张新的图片。"
+    private static let toolInvocationInstruction = "请实际调用图片生成工具，不要只用文字描述。调整要求："
+    private static let defaultTransformInstruction = "请保持主体特征和整体构图。"
 
     func outboundText(userText: String) -> String {
         let trimmed = userText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard self == .transform else { return trimmed }
         guard !trimmed.isEmpty else {
-            return Self.transformInstructionPrefix + "请保持主体特征和整体构图。"
+            return Self.transformInstructionPrefix
+                + Self.toolInvocationInstruction
+                + Self.defaultTransformInstruction
         }
-        return Self.transformInstructionPrefix + "请实际调用图片生成工具，不要只用文字描述。调整要求：" + trimmed
+        return Self.transformInstructionPrefix + Self.toolInvocationInstruction + trimmed
     }
 
     static func isTransformRequest(text: String) -> Bool {
         text.hasPrefix(transformInstructionPrefix)
+    }
+
+    static func userVisibleText(from outboundText: String) -> String {
+        let trimmed = outboundText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isTransformRequest(text: trimmed) else { return trimmed }
+
+        let payload = String(trimmed.dropFirst(transformInstructionPrefix.count))
+        guard payload != defaultTransformInstruction,
+              payload != toolInvocationInstruction + defaultTransformInstruction else { return "" }
+        if payload.hasPrefix(toolInvocationInstruction) {
+            return String(payload.dropFirst(toolInvocationInstruction.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let marker = payload.range(of: "调整要求：") {
+            return String(payload[marker.upperBound...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ""
     }
 }
 
@@ -55,11 +77,86 @@ struct AgentImageGenerationPolicy: Equatable {
     var canGenerate: Bool { blockReason == nil }
 }
 
+enum AgentGeneratedMediaPollingDecision: Equatable {
+    case stop
+    case waitForMediaPart
+    case waitForGeneration
+}
+
+struct AgentGeneratedMediaPollingPolicy {
+    private static let inProgressStatuses: Set<String> = [
+        "queued", "pending", "processing", "generating"
+    ]
+
+    static func decision(
+        expectsGeneratedMedia: Bool,
+        mediaParts: [AgentMessagePart]
+    ) -> AgentGeneratedMediaPollingDecision {
+        guard expectsGeneratedMedia else { return .stop }
+        guard !mediaParts.isEmpty else { return .waitForMediaPart }
+
+        let hasUnsettledPart = mediaParts.contains { part in
+            let status = part.metadata.generationStatus?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if let status, inProgressStatuses.contains(status) { return true }
+            if status == "failed" || status == "expired" { return false }
+
+            if status == "ready" || status == "ready_locked" || status == "completed" {
+                if part.metadata.access == "unlocked" {
+                    return part.metadata.contentURL == nil
+                        && part.metadata.downloadURL == nil
+                }
+                if part.metadata.access == "locked" {
+                    return part.metadata.previewURL == nil
+                        && part.metadata.contentURL == nil
+                }
+                return true
+            }
+
+            // Older responses may omit generation_status. A usable media URL
+            // still proves that the generated asset has settled.
+            return part.metadata.previewURL == nil
+                && part.metadata.contentURL == nil
+                && part.metadata.downloadURL == nil
+        }
+        return hasUnsettledPart ? .waitForGeneration : .stop
+    }
+}
+
+struct AgentTurnProgressPresentationPolicy {
+    static func status(
+        turnStatus: String?,
+        turnIsTerminal: Bool,
+        isAwaitingGeneratedMedia: Bool,
+        isAwaitingTerminalResponse: Bool,
+        mediaDecision: AgentGeneratedMediaPollingDecision?
+    ) -> String? {
+        if isAwaitingGeneratedMedia {
+            // Once a paid-media part exists, its own bubble renders the image
+            // generation placeholder. The standalone card is only needed while
+            // the completed turn has not exposed that part yet.
+            return mediaDecision == .waitForGeneration ? nil : "waiting_image"
+        }
+        if isAwaitingTerminalResponse { return "waiting_response" }
+        guard !turnIsTerminal else { return nil }
+        return turnStatus
+    }
+}
+
+struct AgentTerminalResponsePollingPolicy {
+    static func shouldWait(turnStatus: String, hasRenderableResponse: Bool) -> Bool {
+        ["completed", "completed_with_errors"].contains(turnStatus)
+            && !hasRenderableResponse
+    }
+}
+
 @MainActor
 final class AgentChatViewModel: ObservableObject {
     @Published private(set) var messages: [AgentMessage] = []
     @Published private(set) var runtimeConfig: AgentRuntimeConfig?
-    @Published private(set) var walletBalance: Int?
+    @Published private(set) var spendableBalance: Int?
     @Published private(set) var currentTurn: AgentTurn?
     @Published private(set) var agentDisplayName: String
     @Published private(set) var agentAvatarAssetID: String?
@@ -67,6 +164,8 @@ final class AgentChatViewModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var isSending = false
+    @Published private(set) var isAwaitingGeneratedMedia = false
+    @Published private(set) var isAwaitingTerminalResponse = false
     @Published private(set) var isCreatingLatestVersionConversation = false
     @Published private(set) var requiresLatestVersionConversation = false
     @Published private(set) var unlockingMediaIDs: Set<String> = []
@@ -80,6 +179,7 @@ final class AgentChatViewModel: ObservableObject {
         let text: String
         let images: [AgentComposerImage]
         let imageRequestMode: AgentImageRequestMode
+        let replyToID: String?
         let clientMessageID: UUID
         let turnIdempotencyKey: UUID
         let uploadIdempotencyKeys: [UUID]
@@ -89,6 +189,7 @@ final class AgentChatViewModel: ObservableObject {
         let text: String
         let images: [AgentComposerImage]
         let imageRequestMode: AgentImageRequestMode
+        let replyToID: String?
     }
 
     private var pendingSend: SendOperation?
@@ -98,17 +199,26 @@ final class AgentChatViewModel: ObservableObject {
     private var latestVersionConversationIdempotencyKey = UUID()
     private var pollingTask: Task<Void, Never>?
     private var isSceneActive = true
+    private let terminalMediaAppearanceGracePeriod: TimeInterval = 45
+    private let terminalResponseAppearanceGracePeriod: TimeInterval = 45
 
     init(
         conversation: AgentConversation,
         runtimeConfig: AgentRuntimeConfig? = nil,
-        walletBalance: Int? = nil
+        spendableBalance: Int? = nil
     ) {
         self.conversation = conversation
         self.agentDisplayName = conversation.agentProfile.name
         self.agentAvatarAssetID = conversation.agentProfile.avatarAssetID
         self.runtimeConfig = runtimeConfig
-        self.walletBalance = walletBalance
+        self.spendableBalance = spendableBalance
+        if let cached = AgentChatLocalCache.cachedMessagePage(conversationID: conversation.id) {
+            self.messages = cached.messages.sorted { lhs, rhs in
+                if lhs.sequenceNo == rhs.sequenceNo { return lhs.id < rhs.id }
+                return lhs.sequenceNo < rhs.sequenceNo
+            }
+            self.hasMore = cached.hasMore
+        }
     }
 
     deinit {
@@ -127,7 +237,7 @@ final class AgentChatViewModel: ObservableObject {
             hasBlockingLockedMedia: messages.contains { message in
                 message.parts.contains { part in
                     guard part.type == "paid_media", part.metadata.mediaType != "video" else { return false }
-                    let status = part.metadata.generationStatus ?? "queued"
+                    let status = AgentPaidMediaStatePolicy.displayStatus(for: part.metadata)
                     return ["queued", "generating", "ready_locked"].contains(status)
                         && part.metadata.access != "unlocked"
                 }
@@ -136,7 +246,20 @@ final class AgentChatViewModel: ObservableObject {
     }
 
     var canSend: Bool {
-        !isSending && (currentTurn?.isTerminal ?? true)
+        !isSending
+            && !isAwaitingGeneratedMedia
+            && !isAwaitingTerminalResponse
+            && (currentTurn?.isTerminal ?? true)
+    }
+
+    var turnProgressStatus: String? {
+        AgentTurnProgressPresentationPolicy.status(
+            turnStatus: currentTurn?.status,
+            turnIsTerminal: currentTurn?.isTerminal ?? true,
+            isAwaitingGeneratedMedia: isAwaitingGeneratedMedia,
+            isAwaitingTerminalResponse: isAwaitingTerminalResponse,
+            mediaDecision: currentTurn.map { generatedMediaPollingDecision(for: $0) }
+        )
     }
 
     func applyUpdatedAgent(_ agent: AgentSummary) {
@@ -182,19 +305,17 @@ final class AgentChatViewModel: ObservableObject {
         defer { isLoading = false }
 
         if runtimeConfig == nil {
-            do { runtimeConfig = try await APIService.shared.getAgentRuntimeConfig() }
-            catch { errorMessage = message(for: error) }
+            runtimeConfig = try? await APIService.shared.getAgentRuntimeConfig()
         }
-        if walletBalance == nil {
-            do { walletBalance = try await APIService.shared.getWalletBalance().balance }
-            catch { errorMessage = message(for: error) }
+        if spendableBalance == nil {
+            spendableBalance = try? await APIService.shared.getWalletBalance().spendableBalance
         }
 
-        await reloadMessages()
+        await reloadMessages(reportErrors: messages.isEmpty)
         await resumeUnfinishedTurnIfNeeded()
     }
 
-    func reloadMessages() async {
+    func reloadMessages(reportErrors: Bool = true) async {
         do {
             let result = try await APIService.shared.getAgentMessages(
                 conversationID: conversation.id,
@@ -202,10 +323,11 @@ final class AgentChatViewModel: ObservableObject {
             )
             merge(result.0)
             hasMore = result.1
+            persistMessages()
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = message(for: error)
+            if reportErrors { errorMessage = message(for: error) }
         }
     }
 
@@ -221,6 +343,7 @@ final class AgentChatViewModel: ObservableObject {
             )
             merge(result.0)
             hasMore = result.1
+            persistMessages()
         } catch is CancellationError {
             return
         } catch {
@@ -231,7 +354,8 @@ final class AgentChatViewModel: ObservableObject {
     func send(
         text rawText: String,
         images: [AgentComposerImage],
-        imageRequestMode: AgentImageRequestMode = .analyze
+        imageRequestMode: AgentImageRequestMode = .analyze,
+        replyToID: String? = nil
     ) async -> Bool {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !images.isEmpty, canSend else { return false }
@@ -252,12 +376,18 @@ final class AgentChatViewModel: ObservableObject {
             text: imageRequestMode.outboundText(userText: text),
             images: limitedImages,
             imageRequestMode: imageRequestMode,
+            replyToID: replyToID,
             clientMessageID: UUID(),
             turnIdempotencyKey: UUID(),
             uploadIdempotencyKeys: limitedImages.map { _ in UUID() }
         )
         pendingSend = operation
-        lastPayload = LastPayload(text: text, images: limitedImages, imageRequestMode: imageRequestMode)
+        lastPayload = LastPayload(
+            text: text,
+            images: limitedImages,
+            imageRequestMode: imageRequestMode,
+            replyToID: replyToID
+        )
         return await execute(operation)
     }
 
@@ -272,23 +402,44 @@ final class AgentChatViewModel: ObservableObject {
         _ = await send(
             text: lastPayload.text,
             images: lastPayload.images,
-            imageRequestMode: lastPayload.imageRequestMode
+            imageRequestMode: lastPayload.imageRequestMode,
+            replyToID: lastPayload.replyToID
         )
     }
 
-    func unlockMedia(id: String) async {
+    func unlockMedia(
+        id: String,
+        paymentMethod: MediaUnlockPaymentMethod
+    ) async {
         guard !unlockingMediaIDs.contains(id) else { return }
         unlockingMediaIDs.insert(id)
-        let key = unlockIdempotencyKeys[id] ?? UUID()
-        unlockIdempotencyKeys[id] = key
+        let idempotencyScope = "\(id)|\(paymentMethod.idempotencyScope)"
+        let key = unlockIdempotencyKeys[idempotencyScope] ?? UUID()
+        unlockIdempotencyKeys[idempotencyScope] = key
         defer { unlockingMediaIDs.remove(id) }
 
         do {
-            let result = try await APIService.shared.unlockAgentMedia(id: id, idempotencyKey: key)
-            unlockIdempotencyKeys.removeValue(forKey: id)
-            walletBalance = result.balance
+            let result = try await APIService.shared.unlockAgentMedia(
+                id: id,
+                paymentMethod: paymentMethod,
+                idempotencyKey: key
+            )
+            unlockIdempotencyKeys.removeValue(forKey: idempotencyScope)
+            if let charge = result.charge {
+                WalletStore.shared.applyServerBalance(charge.walletBalance)
+                WalletTelemetry.recordMixedCharge(charge, operation: "agent_media_unlock")
+                spendableBalance = charge.walletBalance.spendableBalance
+            }
             needsWalletTopUp = false
-            await reloadMessages()
+            if !result.alreadyUnlocked,
+               let consumedProp = result.consumedProp,
+               let cardKind = paymentMethod.cardKind {
+                PropInventoryStore.shared.applyConsumption(
+                    consumedProp,
+                    fallbackKind: cardKind
+                )
+            }
+            await refreshUntilMediaUnlockIsVisible(id: id)
         } catch {
             if case APIError.serverError(let code, _) = error, code == 6303 {
                 needsWalletTopUp = true
@@ -296,6 +447,22 @@ final class AgentChatViewModel: ObservableObject {
             errorMessage = message(for: error)
             await refreshRuntimeConfigAfterCapabilityError(error)
         }
+    }
+
+    private func refreshUntilMediaUnlockIsVisible(id: String) async {
+        let startedAt = Date()
+        repeat {
+            await reloadMessages(reportErrors: false)
+            if AgentPaidMediaStatePolicy.hasVisibleUnlockedMedia(id: id, messages: messages) {
+                return
+            }
+            guard Date().timeIntervalSince(startedAt) < 30 else { return }
+            do {
+                try await Task.sleep(nanoseconds: 750_000_000)
+            } catch {
+                return
+            }
+        } while !Task.isCancelled
     }
 
     func setSceneActive(_ active: Bool) async {
@@ -339,6 +506,7 @@ final class AgentChatViewModel: ObservableObject {
                 conversationID: conversation.id,
                 clientMessageID: operation.clientMessageID,
                 parts: parts,
+                replyToID: operation.replyToID,
                 idempotencyKey: operation.turnIdempotencyKey
             )
             pendingSend = nil
@@ -346,6 +514,7 @@ final class AgentChatViewModel: ObservableObject {
             currentTurn = accepted.turn
             if operation.imageRequestMode == .transform {
                 expectedMediaTurnIDs.insert(accepted.turn.id)
+                isAwaitingGeneratedMedia = true
             }
             startPolling(turnID: accepted.turn.id)
             return true
@@ -372,6 +541,8 @@ final class AgentChatViewModel: ObservableObject {
 
     private func poll(turnID: String) async {
         let startedAt = Date()
+        var terminalWithoutMediaSince: Date?
+        var terminalWithoutResponseSince: Date?
         while !Task.isCancelled, isSceneActive, Date().timeIntervalSince(startedAt) < 20 * 60 {
             do {
                 let result = try await APIService.shared.getAgentTurn(id: turnID)
@@ -380,9 +551,45 @@ final class AgentChatViewModel: ObservableObject {
                 await reloadMessages()
 
                 if result.turn.isTerminal {
-                    applyTerminalState(result.turn)
-                    pollingTask = nil
-                    return
+                    var shouldHandleTerminalState = true
+                    if shouldWaitForTerminalResponse(result.turn) {
+                        isAwaitingTerminalResponse = true
+                        let waitingSince = terminalWithoutResponseSince ?? Date()
+                        terminalWithoutResponseSince = waitingSince
+                        shouldHandleTerminalState = Date().timeIntervalSince(waitingSince)
+                            >= terminalResponseAppearanceGracePeriod
+                    } else {
+                        isAwaitingTerminalResponse = false
+                        terminalWithoutResponseSince = nil
+                    }
+
+                    if shouldHandleTerminalState {
+                        isAwaitingTerminalResponse = false
+                        switch generatedMediaPollingDecision(for: result.turn) {
+                        case .stop:
+                            isAwaitingGeneratedMedia = false
+                            applyTerminalState(result.turn)
+                            pollingTask = nil
+                            return
+                        case .waitForMediaPart:
+                            isAwaitingGeneratedMedia = true
+                            let waitingSince = terminalWithoutMediaSince ?? Date()
+                            terminalWithoutMediaSince = waitingSince
+                            if Date().timeIntervalSince(waitingSince) >= terminalMediaAppearanceGracePeriod {
+                                isAwaitingGeneratedMedia = false
+                                applyTerminalState(result.turn)
+                                pollingTask = nil
+                                return
+                            }
+                        case .waitForGeneration:
+                            isAwaitingGeneratedMedia = true
+                            terminalWithoutMediaSince = nil
+                        }
+                    }
+                } else {
+                    isAwaitingTerminalResponse = false
+                    terminalWithoutMediaSince = nil
+                    terminalWithoutResponseSince = nil
                 }
             } catch is CancellationError {
                 return
@@ -395,6 +602,8 @@ final class AgentChatViewModel: ObservableObject {
         }
 
         if !Task.isCancelled, isSceneActive {
+            isAwaitingGeneratedMedia = false
+            isAwaitingTerminalResponse = false
             turnNotice = AgentTurnNotice(
                 message: "智能体仍在处理，可稍后返回继续查看",
                 allowsRetry: false,
@@ -405,14 +614,12 @@ final class AgentChatViewModel: ObservableObject {
 
     private func applyTerminalState(_ turn: AgentTurn) {
         let expectsMedia = expectsGeneratedMedia(for: turn)
-        let mediaParts = messages
-            .filter {
-                $0.sender.type == "agent"
-                    && ($0.turnID == turn.id || $0.id == turn.responseMessageID)
-            }
+        let responseMessages = agentResponseMessages(for: turn)
+        let mediaParts = responseMessages
             .flatMap(\.parts)
             .filter { $0.type == "paid_media" && $0.metadata.mediaType != "video" }
         let hasFailedMedia = mediaParts.contains { $0.metadata.generationStatus == "failed" }
+        let hasRenderableResponse = responseMessages.contains(where: isRenderableAgentResponse)
 
         #if DEBUG
         print(
@@ -449,6 +656,12 @@ final class AgentChatViewModel: ObservableObject {
                 allowsRetry: lastPayload != nil,
                 isFailure: true
             )
+        case "completed" where !expectsMedia && !hasRenderableResponse:
+            turnNotice = AgentTurnNotice(
+                message: "后端已完成处理，但回复消息尚未返回，请重试",
+                allowsRetry: lastPayload != nil,
+                isFailure: true
+            )
         default:
             turnNotice = nil
         }
@@ -468,6 +681,41 @@ final class AgentChatViewModel: ObservableObject {
         return hasInputImage && AgentImageRequestMode.isTransformRequest(text: text)
     }
 
+    private func generatedMediaPollingDecision(for turn: AgentTurn) -> AgentGeneratedMediaPollingDecision {
+        let mediaParts = agentResponseMessages(for: turn)
+            .flatMap(\.parts)
+            .filter { $0.type == "paid_media" && $0.metadata.mediaType != "video" }
+        return AgentGeneratedMediaPollingPolicy.decision(
+            expectsGeneratedMedia: expectsGeneratedMedia(for: turn),
+            mediaParts: mediaParts
+        )
+    }
+
+    private func shouldWaitForTerminalResponse(_ turn: AgentTurn) -> Bool {
+        AgentTerminalResponsePollingPolicy.shouldWait(
+            turnStatus: turn.status,
+            hasRenderableResponse: agentResponseMessages(for: turn)
+                .contains(where: isRenderableAgentResponse)
+        )
+    }
+
+    private func agentResponseMessages(for turn: AgentTurn) -> [AgentMessage] {
+        messages.filter {
+            $0.sender.type == "agent"
+                && ($0.turnID == turn.id || $0.id == turn.responseMessageID)
+        }
+    }
+
+    private func isRenderableAgentResponse(_ message: AgentMessage) -> Bool {
+        message.parts.contains { part in
+            switch part.type {
+            case "text": return !part.text.isBlank
+            case "input_image", "paid_media": return true
+            default: return false
+            }
+        }
+    }
+
     private func resumeUnfinishedTurnIfNeeded() async {
         guard isSceneActive else { return }
         var seenTurnIDs: Set<String> = []
@@ -482,9 +730,24 @@ final class AgentChatViewModel: ObservableObject {
                 let result = try await APIService.shared.getAgentTurn(id: id)
                 if let responseMessage = result.responseMessage { merge([responseMessage]) }
                 if result.turn.isTerminal {
-                    if newestTerminalResult == nil { newestTerminalResult = result }
+                    if newestTerminalResult == nil, shouldWaitForTerminalResponse(result.turn) {
+                        currentTurn = result.turn
+                        isAwaitingTerminalResponse = true
+                        startPolling(turnID: result.turn.id)
+                        return
+                    }
+                    switch generatedMediaPollingDecision(for: result.turn) {
+                    case .stop:
+                        if newestTerminalResult == nil { newestTerminalResult = result }
+                    case .waitForMediaPart, .waitForGeneration:
+                        currentTurn = result.turn
+                        isAwaitingGeneratedMedia = true
+                        startPolling(turnID: result.turn.id)
+                        return
+                    }
                 } else {
                     currentTurn = result.turn
+                    isAwaitingTerminalResponse = false
                     startPolling(turnID: result.turn.id)
                     return
                 }
@@ -497,11 +760,14 @@ final class AgentChatViewModel: ObservableObject {
 
         if let newestTerminalResult {
             currentTurn = newestTerminalResult.turn
+            isAwaitingGeneratedMedia = false
+            isAwaitingTerminalResponse = false
             applyTerminalState(newestTerminalResult.turn)
         }
     }
 
     private func merge(_ incoming: [AgentMessage]) {
+        let previousLatest = messages.last
         var bySequence = Dictionary(uniqueKeysWithValues: messages.map { ($0.sequenceNo, $0) })
         for message in incoming {
             if let existing = bySequence[message.sequenceNo], existing.updatedAt > message.updatedAt {
@@ -513,6 +779,27 @@ final class AgentChatViewModel: ObservableObject {
             if lhs.sequenceNo == rhs.sequenceNo { return lhs.id < rhs.id }
             return lhs.sequenceNo < rhs.sequenceNo
         }
+        persistMessages()
+        guard let latest = messages.last, latest != previousLatest else { return }
+        NotificationCenter.default.post(
+            name: .conversationPreviewDidChange,
+            object: AgentConversationPreviewUpdate(
+                conversationID: conversation.id,
+                lastMessage: AgentConversationPreviewResolver.text(
+                    for: latest,
+                    fallback: conversation.title
+                ),
+                lastMessageTime: latest.updatedAt
+            )
+        )
+    }
+
+    private func persistMessages() {
+        AgentChatLocalCache.saveMessages(
+            messages,
+            hasMore: hasMore,
+            conversationID: conversation.id
+        )
     }
 
     private func refreshRuntimeConfigAfterCapabilityError(_ error: Error) async {

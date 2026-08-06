@@ -71,6 +71,12 @@ class GroupsViewModel: ObservableObject {
             if groups != fetched {
                 groups = fetched
             }
+            for group in fetched {
+                GroupNotificationSettingsStore.shared.applyMutedSummary(
+                    groupID: group.groupID,
+                    isMuted: group.isMuted
+                )
+            }
             persist()
         } catch {
             if groups.isEmpty { errorMessage = L10n.tr("group.loadListFailed") }
@@ -94,12 +100,24 @@ class GroupsViewModel: ObservableObject {
         return false
     }
 
-    func markGroupAsRead(groupID: Int) {
-        applyLocalRead(groupID: groupID)
+    func markGroupAsRead(groupID: Int, throughMessageID: Int? = nil) {
+        if throughMessageID == nil {
+            applyLocalRead(groupID: groupID)
+        }
         // Tell server in background + sync app icon badge
         Task {
-            try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
-            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+            do {
+                if let receipt = try await APIService.shared.markGroupMessagesAsRead(
+                    groupID: groupID,
+                    throughMessageID: throughMessageID
+                ), receipt.isMeaningful {
+                    UnreadBadgeStore.shared.applyReadReceipt(receipt)
+                }
+            } catch {
+                // Preserve the current projection until the next snapshot.
+            }
+            AppMessageSyncCoordinator.shared.requestSync(.notification)
+            PushService.shared.syncBadgeFromUnreadState()
         }
     }
 
@@ -121,7 +139,8 @@ class GroupsViewModel: ObservableObject {
                     lastMessageTime: g.lastMessageTime,
                     lastMessageSender: g.lastMessageSender,
                     unreadCount: 0,
-                    isPublic: g.isPublic
+                    isPublic: g.isPublic,
+                    isMuted: g.isMuted
                 )
                 groups[index] = updated
                 persist()
@@ -175,7 +194,8 @@ class GroupsViewModel: ObservableObject {
                         lastMessageTime: g.lastMessageTime,
                         lastMessageSender: g.lastMessageSender,
                         unreadCount: g.unreadCount,
-                        isPublic: g.isPublic
+                        isPublic: g.isPublic,
+                        isMuted: g.isMuted
                     )
                     self.persist()
                 }
@@ -205,7 +225,12 @@ class GroupsViewModel: ObservableObject {
         ).inserted
 
         if isViewing {
-            Task { try? await APIService.shared.markGroupMessagesAsRead(groupID: message.groupID) }
+            Task {
+                _ = try? await APIService.shared.markGroupMessagesAsRead(
+                    groupID: message.groupID,
+                    throughMessageID: message.id
+                )
+            }
         }
 
         guard let index = groups.firstIndex(where: { $0.groupID == message.groupID }) else {
@@ -217,17 +242,25 @@ class GroupsViewModel: ObservableObject {
             return
         }
         let unreadDelta = (isFromOther && !isViewing && isNewIncomingEvent) ? 1 : 0
+        let lastMessage = message.isRecalled
+            ? ChatMessageRecallState.notice(
+                senderID: message.senderID,
+                viewerID: myID,
+                senderName: message.senderNickname
+            )
+            : Self.normalizedMessagePreview(message.content, msgType: message.msgType)
         groups[index] = ChatGroup(
             groupID: group.groupID,
             name: group.name,
             avatarURL: group.avatarURL,
             creatorID: group.creatorID,
             memberCount: group.memberCount,
-            lastMessage: Self.normalizedMessagePreview(message.content, msgType: message.msgType),
+            lastMessage: lastMessage,
             lastMessageTime: message.timestamp,
-            lastMessageSender: isChatMoneyReceipt ? nil : message.senderNickname,
+            lastMessageSender: (isChatMoneyReceipt || message.isRecalled) ? nil : message.senderNickname,
             unreadCount: isViewing ? 0 : group.unreadCount + unreadDelta,
-            isPublic: group.isPublic
+            isPublic: group.isPublic,
+            isMuted: group.isMuted
         )
         sortGroupsByLatestMessage()
         persist()
@@ -238,21 +271,28 @@ class GroupsViewModel: ObservableObject {
               let lastMessage = Self.stringValue(data["last_message"]),
               let lastMessageTime = Self.stringValue(data["last_message_time"]) else { return }
         let lastMessageType = Self.stringValue(data["msg_type"] ?? data["last_message_type"])
-        let previewMessage = Self.normalizedMessagePreview(lastMessage, msgType: lastMessageType)
+        let senderNickname = Self.stringValue(data["sender_nickname"])
+        let senderID = Self.stringValue(data["sender_id"])
+        let previewMessage = Self.normalizedMessagePreview(
+            lastMessage,
+            msgType: lastMessageType,
+            senderID: senderID,
+            senderName: senderNickname
+        )
         let isChatMoneyReceipt = ChatMoneyPreview.isReceipt(
             content: lastMessage,
             msgType: lastMessageType
         )
 
-        let senderNickname = Self.stringValue(data["sender_nickname"])
-        let senderID = Self.stringValue(data["sender_id"])
         let myID = AuthManager.shared.currentUser?.userID
 
         let isViewingThisGroup = senderID != myID && WebSocketService.shared.activeGroupID == groupID
 
         // Auto-mark as read on server if viewing this group
         if isViewingThisGroup {
-            Task { try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID) }
+            Task {
+                _ = try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
+            }
         }
 
         if let index = groups.firstIndex(where: { $0.groupID == groupID }) {
@@ -277,9 +317,13 @@ class GroupsViewModel: ObservableObject {
                 memberCount: g.memberCount,
                 lastMessage: previewMessage,
                 lastMessageTime: lastMessageTime,
-                lastMessageSender: isChatMoneyReceipt ? nil : (senderNickname ?? g.lastMessageSender),
+                lastMessageSender: (isChatMoneyReceipt || ChatMessageRecallState.isRecalledPreview(
+                    messageType: lastMessageType,
+                    content: lastMessage
+                )) ? nil : (senderNickname ?? g.lastMessageSender),
                 unreadCount: unreadCount,
-                isPublic: g.isPublic
+                isPublic: g.isPublic,
+                isMuted: g.isMuted
             )
             groups[index] = updated
             sortGroupsByLatestMessage()
@@ -314,13 +358,26 @@ class GroupsViewModel: ObservableObject {
                 lastMessageTime: group.lastMessageTime,
                 lastMessageSender: isChatMoneyReceipt ? nil : group.lastMessageSender,
                 unreadCount: group.unreadCount,
-                isPublic: group.isPublic
+                isPublic: group.isPublic,
+                isMuted: group.isMuted
             )
         }
     }
 
-    private static func normalizedMessagePreview(_ content: String?, msgType: String?) -> String? {
+    private static func normalizedMessagePreview(
+        _ content: String?,
+        msgType: String?,
+        senderID: String? = nil,
+        senderName: String? = nil
+    ) -> String? {
         guard let content else { return nil }
+        if ChatMessageRecallState.isRecalledPreview(messageType: msgType, content: content) {
+            return ChatMessageRecallState.notice(
+                senderID: senderID,
+                viewerID: AuthManager.shared.currentUser?.userID,
+                senderName: senderName
+            )
+        }
         if let stickerPreview = StickerMessagePayload.previewText(content: content, msgType: msgType) {
             return stickerPreview
         }

@@ -9,8 +9,10 @@ struct BWChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @ObservedObject private var callManager = CallManager.shared
+    @ObservedObject private var liveCallCoordinator = LiveCallCoordinator.shared
     @ObservedObject private var walletStore = WalletStore.shared
     @ObservedObject private var remoteConfigStore = AppRemoteConfigStore.shared
+    @ObservedObject private var authManager = AuthManager.shared
 
 
     var body: some Scene {
@@ -35,6 +37,7 @@ struct BWChatApp: App {
                     .transition(.move(edge: .bottom))
                     .zIndex(100)
                 }
+
             }
             .overlay {
                 if callManager.currentCall != nil && callManager.isMinimized {
@@ -42,6 +45,13 @@ struct BWChatApp: App {
                         .zIndex(200)
                 }
             }
+            .overlay(alignment: .top) {
+                if liveCallCoordinator.hasInvitation {
+                    LiveCallInvitationBanner()
+                        .zIndex(300)
+                }
+            }
+            .animation(.spring(response: 0.36, dampingFraction: 0.86), value: liveCallCoordinator.hasInvitation)
             .onChange(of: callManager.currentCall != nil) { hasCalling in
                 if hasCalling {
                     UIApplication.shared.sendAction(
@@ -58,13 +68,50 @@ struct BWChatApp: App {
                     )
                 }
             }
+            .onChange(of: authManager.currentUser?.userID) { _ in
+                Task { @MainActor in
+                    await remoteConfigStore.load(force: true)
+                }
+            }
             .onAppear {
                 Task {
-                    await remoteConfigStore.load()
+                    configureOutgoingUploads()
+                    async let configLoad: Void = remoteConfigStore.load(force: true)
+                    async let adMobInitialization: Bool = AdMobRuntime.initializeAtAppLaunch()
+                    await configLoad
+                    _ = await adMobInitialization
                     await refreshWalletBalanceIfNeeded()
                 }
             }
+            .onOpenURL { url in
+                if !ActivityInviteRouteStore.shared.handle(url) {
+                    _ = GroupInviteRouteStore.shared.handle(url)
+                }
+            }
             .toast(message: $callManager.errorMessage, duration: 4)
+            .toast(message: $liveCallCoordinator.errorMessage, duration: 4)
+            #if DEBUG
+            .overlay {
+                if ProcessInfo.processInfo.arguments.contains("-ActivityCenterPreview") {
+                    NavigationStack {
+                        ActivityCenterView(
+                            store: ActivityCenterStore(
+                                initialSnapshot: .preview,
+                                initialMatchedUsers: ActivityCenterPreviewSupport.matchedUsers
+                            ),
+                            initialWheelResult: ProcessInfo.processInfo.arguments.contains("-ActivityWheelResultPreview")
+                                ? ActivityCenterPreviewSupport.wheelResult
+                                : nil,
+                            initialShowsMatches: ProcessInfo.processInfo.arguments.contains("-ActivityContactMatchesPreview"),
+                            initialShowsPhoneBinding: ProcessInfo.processInfo.arguments.contains("-ActivityPhoneBindingPreview"),
+                            initialShowsWheel: ProcessInfo.processInfo.arguments.contains("-ActivityWheelPreview")
+                        )
+                    }
+                    .appLocalizedEnvironment()
+                    .environmentObject(ActivityCenterPreviewSupport.navigator)
+                }
+            }
+            #endif
         }
     }
 
@@ -73,7 +120,9 @@ struct BWChatApp: App {
         case .active:
             // App returned to foreground — ensure push & WebSocket are alive
             Task { @MainActor in
-                await remoteConfigStore.load()
+                AppMessageSyncCoordinator.shared.requestSync(.foreground)
+                configureOutgoingUploads()
+                await remoteConfigStore.load(force: true)
                 await refreshWalletBalanceIfNeeded()
                 PushService.shared.reregisterIfNeeded()
                 if AuthManager.shared.isLoggedIn && !WebSocketService.shared.isConnected {
@@ -95,7 +144,50 @@ struct BWChatApp: App {
         guard AuthManager.shared.isLoggedIn else { return }
         await walletStore.refreshBalanceFromServer()
     }
+
+    @MainActor
+    private func configureOutgoingUploads() {
+        guard let ownerID = AuthManager.shared.currentUser?.userID, !ownerID.isEmpty else { return }
+        UploadProjectionStore.shared.setOwner(ownerID)
+        BackgroundUploadCoordinator.shared.activate()
+    }
 }
+
+#if DEBUG
+@MainActor
+private enum ActivityCenterPreviewSupport {
+    static let navigator = UIKitNavigator()
+    static let wheelResult = ActivityWheelSpinResult(
+        spinID: "wheel-result-preview",
+        tierID: "tier_10",
+        costGoldCoins: 10,
+        prizeID: "tier_10_p20",
+        payoutGoldCoins: 20,
+        netDeltaGoldCoins: 10,
+        nextTierID: "tier_100"
+    )
+    static let matchedUsers = [
+        ActivityMatchedUser(
+            userID: "preview-friend-1",
+            nickname: "Momo",
+            avatarURL: "",
+            relation: "none"
+        ),
+        ActivityMatchedUser(
+            userID: "preview-friend-2",
+            nickname: "小可",
+            avatarURL: "",
+            relation: "none"
+        ),
+        ActivityMatchedUser(
+            userID: "preview-friend-3",
+            nickname: "Sunny",
+            avatarURL: "",
+            relation: "none"
+        )
+    ]
+}
+#endif
 
 // MARK: - AppDelegate for Push Notifications
 
@@ -115,6 +207,17 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
 
         return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        BackgroundUploadCoordinator.shared.handleEvents(
+            forBackgroundURLSession: identifier,
+            completionHandler: completionHandler
+        )
     }
 
     // MARK: - APNs Registration
@@ -144,7 +247,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        postConversationReloadIfNeeded(userInfo)
+        Task { @MainActor in
+            AppMessageSyncCoordinator.shared.receive(
+                userInfo,
+                opensConversation: false,
+                reason: .silentPush
+            )
+        }
         // APNs has already applied `aps.badge` while the app was suspended.
         // Do not copy that aggregate into UIKit here: the in-app source of
         // truth is the per-conversation unread store, refreshed above.
@@ -159,9 +268,17 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        let userInfo = notification.request.content.userInfo
-        let callPayload = Self.normalizedNotificationPayload(userInfo)
-        postConversationReloadIfNeeded(userInfo)
+        let userInfo = NotificationPayloadNormalizer.flatten(
+            notification.request.content.userInfo
+        )
+        let callPayload = userInfo
+        Task { @MainActor in
+            AppMessageSyncCoordinator.shared.receive(
+                userInfo,
+                opensConversation: false,
+                reason: .notification
+            )
+        }
 
         if scheduleIncomingCall(from: callPayload) {
             completionHandler([.sound])
@@ -177,6 +294,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
+        let notificationMode = Self.firstString(
+            userInfo,
+            keys: ["notification_mode", "notificationMode"]
+        )?.lowercased()
+        if notificationMode == "badge_only" {
+            completionHandler([])
+            return
+        }
+
         // Suppress DM notification banner if viewing that chat
         if let senderID = Self.stringValue(userInfo["sender_id"]),
            let activeChatID = WebSocketService.shared.activeChatUserID,
@@ -186,15 +312,35 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             return
         }
 
-        // Suppress group notification banner if viewing that group,
-        // UNLESS the user was @mentioned — always show those
-        let isMention = Self.boolValue(userInfo["is_mention"]) ?? false
-        if !isMention,
-           let groupID = Self.intValue(userInfo["group_id"]),
+        // A visible conversation already renders its messages in-app. Never
+        // duplicate those with a system banner or sound, including mentions.
+        if let groupID = Self.intValue(userInfo["group_id"]),
            let activeGroupID = WebSocketService.shared.activeGroupID,
            activeGroupID == groupID {
             completionHandler([])
             return
+        }
+
+        // Defensive foreground filtering for old push providers. The server
+        // remains the source of truth; this only prevents a stale alert from
+        // being reintroduced while the feature is enabled.
+        if AppRemoteConfigStore.shared.featureFlags.isEnabled(
+            "group_notification_settings_v1",
+            default: false
+        ),
+           let route = NotificationRoute.parse(userInfo),
+           route.conversationType == .group,
+           let groupID = route.groupID {
+            let settings = GroupNotificationSettingsStore.shared.settings(for: groupID)
+            if settings.isMuted,
+               !settings.shouldAlert(
+                senderID: route.senderID,
+                isDirectMention: route.isDirectMention,
+                isMentionAll: route.isMentionAll
+               ) {
+                completionHandler([])
+                return
+            }
         }
 
         // Show notification banner + sound
@@ -207,47 +353,24 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo
-        let callPayload = Self.normalizedNotificationPayload(userInfo)
-        postConversationReloadIfNeeded(userInfo)
+        let userInfo = NotificationPayloadNormalizer.flatten(
+            response.notification.request.content.userInfo
+        )
+        let callPayload = userInfo
+        Task { @MainActor in
+            AppMessageSyncCoordinator.shared.receive(
+                userInfo,
+                opensConversation: true,
+                reason: .notification
+            )
+        }
 
         if scheduleIncomingCall(from: callPayload) {
             completionHandler()
             return
         }
 
-        if let groupID = Self.intValue(userInfo["group_id"]) {
-            Task { @MainActor in
-                UnreadBadgeStore.shared.setConversationUnreadCount(
-                    0,
-                    for: ConversationReadTarget.group(groupID: groupID).listIdentity
-                )
-            }
-            NotificationCenter.default.post(
-                name: .init("openGroupChat"),
-                object: nil,
-                userInfo: ["group_id": groupID]
-            )
-        } else if let senderID = Self.stringValue(userInfo["sender_id"]) {
-            Task { @MainActor in
-                UnreadBadgeStore.shared.setConversationUnreadCount(
-                    0,
-                    for: ConversationReadTarget.direct(userID: senderID).listIdentity
-                )
-            }
-            NotificationCenter.default.post(
-                name: .init("openChat"),
-                object: nil,
-                userInfo: ["sender_id": senderID]
-            )
-        }
-
         completionHandler()
-    }
-
-    private func postConversationReloadIfNeeded(_ userInfo: [AnyHashable: Any]) {
-        guard userInfo["sender_id"] != nil || userInfo["group_id"] != nil else { return }
-        NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
     }
 
     private func scheduleIncomingCall(from payload: [AnyHashable: Any]) -> Bool {
@@ -296,25 +419,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         }
 
         return false
-    }
-
-    private static func normalizedNotificationPayload(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
-        var result = userInfo
-        let nested: [String: Any]?
-        if let dictionary = userInfo["data"] as? [String: Any] {
-            nested = dictionary
-        } else if let string = userInfo["data"] as? String,
-                  let data = string.data(using: .utf8),
-                  let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            nested = dictionary
-        } else {
-            nested = nil
-        }
-
-        nested?.forEach { key, value in
-            if result[key] == nil { result[key] = value }
-        }
-        return result
     }
 
     private static func firstString(_ data: [AnyHashable: Any], keys: [String]) -> String? {

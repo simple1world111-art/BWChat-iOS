@@ -1,13 +1,13 @@
 # BWChat 微信式红包与转账核心闭环后端实施 Prompt
 
-你是 BWChat 后端 Agent。请直接检查并修改后端仓库，使聊天猫粮红包和转账支持 iOS 端完整的微信式核心闭环。不要只给分析或伪代码；先识别技术栈、数据库、迁移工具、任务队列、WebSocket 和测试框架，再按现有风格实现并执行测试。
+你是 BWChat 后端 Agent。请直接检查并修改后端仓库，使聊天猫币红包和转账支持 iOS 端完整的微信式核心闭环。不要只给分析或伪代码；先识别技术栈、数据库、迁移工具、任务队列、WebSocket 和测试框架，再按现有风格实现并执行测试。
 
 ## 产品约束
 
-1. 货币为整数猫粮，不使用小数、浮点数、微信支付或真实货币。
+1. 货币为整数猫币，不使用小数、浮点数、微信支付或真实货币。
 2. 不新增支付密码、Face ID 或支付挑战；已登录 JWT 和现有风控继续生效。
 3. 支持私聊红包、群拼手气红包、群普通红包、群专属红包、私聊转账和群内指定成员转账。
-4. 未领取红包 24 小时后退回剩余猫粮；未收转账 24 小时后全额退回。
+4. 未领取红包 24 小时后退回剩余猫币；未收转账 24 小时后全额退回。
 5. 红包领取前不得通过消息、推送、WebSocket 或普通会话成员接口泄露金额。
 
 ## 保留并兼容现有端点
@@ -31,7 +31,7 @@ POST /wallet/transfers/{asset_id}/return
 ## 红包规则
 
 - `direct`：仅私聊接收者可领取，`packet_count=1`。
-- `lucky`：群成员每人最多一次，`total_amount >= packet_count`；并发分配必须保证每份至少 1 猫粮、总和精确等于 `total_amount`，最后一份领取后状态为 `completed`。
+- `lucky`：群成员每人最多一次，`total_amount >= packet_count`；并发分配必须保证每份至少 1 猫币、总和精确等于 `total_amount`，最后一份领取后状态为 `completed`。
 - `equal`：`amount_per_packet × packet_count` 必须精确等于 `total_amount`。
 - `exclusive`：仅 `recipient_id` 可领取，`packet_count=1`。
 - 群 `lucky` 与群 `equal` 的发送者只要仍是有效群成员，也可以像其他群成员一样领取一次自己发出的红包；不得因为 `sender_id == viewer_id` 将 `can_claim` 置为 `false`。仅私聊 `direct` 的发送者，以及不是指定对象的 `exclusive` 发送者不可领取。

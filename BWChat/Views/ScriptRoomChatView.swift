@@ -12,9 +12,8 @@ struct ScriptRoomChatView: View {
     private let bottomScrollAnchorID = "script-chat-bottom"
 
     init(roomID: String, initialRoom: ScriptRoom? = nil) {
-        _viewModel = StateObject(
-            wrappedValue: ScriptRoomViewModel(roomID: roomID, initialRoom: initialRoom)
-        )
+        let model = ScriptRoomViewModel(roomID: roomID, initialRoom: initialRoom)
+        _viewModel = StateObject(wrappedValue: model)
     }
 
     var body: some View {
@@ -49,7 +48,7 @@ struct ScriptRoomChatView: View {
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    if viewModel.room?.status == .active {
+                    if viewModel.hasAuthoritativeRoom, viewModel.room?.status == .active {
                         Button(role: .destructive) { showEndConfirmation = true } label: {
                             Label(ScriptText.value("结束剧情", "End story"), systemImage: "stop.circle")
                         }
@@ -143,10 +142,11 @@ struct ScriptRoomChatView: View {
                             .flippedRow()
 
                         ForEach(viewModel.messages.reversed()) { message in
+                            let isPlayer = isCurrentPlayer(message)
                             ScriptRoomMessageRow(
                                 message: message,
                                 role: role(for: message, in: room),
-                                isCurrentPlayer: isCurrentPlayer(message)
+                                isCurrentPlayer: isPlayer
                             )
                             .id(message.id)
                             .flippedRow()
@@ -256,7 +256,11 @@ struct ScriptRoomChatView: View {
                 )
                 .lineLimit(1...5)
                 .focused($isInputFocused)
-                .disabled(viewModel.room?.status != .active || viewModel.isGenerating)
+                .disabled(
+                    !viewModel.hasAuthoritativeRoom
+                        || viewModel.room?.status != .active
+                        || viewModel.isGenerating
+                )
                 .padding(.horizontal, 13)
                 .padding(.vertical, 10)
                 .background(AppColors.secondaryBackground)
@@ -375,9 +379,6 @@ private struct ScriptRoomMessageRow: View {
                     y: 2
                 )
 
-                Text(message.formattedTime)
-                    .font(.system(size: 9))
-                    .foregroundColor(AppColors.tertiaryText)
             }
 
             if isCurrentPlayer { avatar }

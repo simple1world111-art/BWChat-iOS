@@ -75,6 +75,8 @@ struct MapPresence: Decodable, Equatable {
     let status: String?
     let latitude: Double?
     let longitude: Double?
+    let displayLatitude: Double?
+    let displayLongitude: Double?
     let accuracyM: Double?
     let statusText: String?
     let updatedAt: String?
@@ -88,6 +90,10 @@ struct MapPresence: Decodable, Equatable {
         case status
         case latitude
         case longitude
+        case displayLat = "display_lat"
+        case displayLng = "display_lng"
+        case displayLatCamel = "displayLat"
+        case displayLngCamel = "displayLng"
         case accuracyM = "accuracy_m"
         case statusText = "status_text"
         case updatedAt = "updated_at"
@@ -102,6 +108,8 @@ struct MapPresence: Decodable, Equatable {
         status: String? = nil,
         latitude: Double? = nil,
         longitude: Double? = nil,
+        displayLatitude: Double? = nil,
+        displayLongitude: Double? = nil,
         accuracyM: Double? = nil,
         statusText: String? = nil,
         updatedAt: String? = nil,
@@ -114,6 +122,8 @@ struct MapPresence: Decodable, Equatable {
         self.status = status
         self.latitude = latitude
         self.longitude = longitude
+        self.displayLatitude = displayLatitude
+        self.displayLongitude = displayLongitude
         self.accuracyM = accuracyM
         self.statusText = statusText
         self.updatedAt = updatedAt
@@ -137,6 +147,10 @@ struct MapPresence: Decodable, Equatable {
         self.status = decodedStatus
         self.latitude = container.flexDouble(for: .latitude)
         self.longitude = container.flexDouble(for: .longitude)
+        self.displayLatitude = container.flexDouble(for: .displayLat)
+            ?? container.flexDouble(for: .displayLatCamel)
+        self.displayLongitude = container.flexDouble(for: .displayLng)
+            ?? container.flexDouble(for: .displayLngCamel)
         self.accuracyM = container.flexDouble(for: .accuracyM)
         self.statusText = container.flexString(for: .statusText)
         self.updatedAt = container.flexString(for: .updatedAt)
@@ -169,7 +183,13 @@ struct MapUser: Decodable, Identifiable, Equatable {
               displayLat.isFinite, displayLng.isFinite else {
             return false
         }
-        return (-90...90).contains(displayLat) && (-180...180).contains(displayLng)
+        guard (-90...90).contains(displayLat), (-180...180).contains(displayLng) else {
+            return false
+        }
+        // Some backends serialize a missing database point as (0, 0). Treat
+        // that sentinel as absent so it cannot make a valid response appear
+        // to contain a marker thousands of kilometres outside the viewport.
+        return abs(displayLat) > 0.000001 || abs(displayLng) > 0.000001
     }
 
     enum CodingKeys: String, CodingKey {
@@ -201,6 +221,8 @@ struct MapUser: Decodable, Identifiable, Equatable {
         case distanceText = "distance_text"
         case displayLat = "display_lat"
         case displayLng = "display_lng"
+        case displayLatCamel = "displayLat"
+        case displayLngCamel = "displayLng"
         case displayLatitude = "display_latitude"
         case displayLongitude = "display_longitude"
         case displayLon = "display_lon"
@@ -253,7 +275,7 @@ struct MapUser: Decodable, Identifiable, Equatable {
         displayLng: Double? = nil,
         lastActiveAt: String? = nil
     ) {
-        self.userID = userID
+        self.userID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.nickname = nickname
         self.avatarURL = avatarURL
         self.bio = bio
@@ -296,7 +318,7 @@ struct MapUser: Decodable, Identifiable, Equatable {
                 )
             )
         }
-        self.userID = userID
+        self.userID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.nickname = container.flexString(for: .nickname)
             ?? container.flexString(for: .displayName)
             ?? container.flexString(for: .name)
@@ -319,12 +341,12 @@ struct MapUser: Decodable, Identifiable, Equatable {
         self.distanceText = container.flexString(for: .distanceText)
         self.displayLat = Self.firstDouble(
             in: container,
-            keys: [.displayLat, .displayLatitude, .mapLat, .mapLatitude, .obfuscatedLat, .obfuscatedLatitude, .latitude, .lat]
+            keys: [.displayLat, .displayLatCamel, .displayLatitude, .mapLat, .mapLatitude, .obfuscatedLat, .obfuscatedLatitude, .latitude, .lat]
         )
             ?? nestedCoordinate?.latitude
         self.displayLng = Self.firstDouble(
             in: container,
-            keys: [.displayLng, .displayLongitude, .displayLon, .mapLng, .mapLongitude, .obfuscatedLng, .obfuscatedLongitude, .longitude, .lng, .lon, .long]
+            keys: [.displayLng, .displayLngCamel, .displayLongitude, .displayLon, .mapLng, .mapLongitude, .obfuscatedLng, .obfuscatedLongitude, .longitude, .lng, .lon, .long]
         )
             ?? nestedCoordinate?.longitude
         self.lastActiveAt = container.flexString(for: .lastActiveAt)
@@ -414,6 +436,8 @@ private struct MapUserCoordinate: Decodable {
         case long
         case displayLat = "display_lat"
         case displayLng = "display_lng"
+        case displayLatCamel = "displayLat"
+        case displayLngCamel = "displayLng"
         case displayLatitude = "display_latitude"
         case displayLongitude = "display_longitude"
         case displayLon = "display_lon"
@@ -451,12 +475,12 @@ private struct MapUserCoordinate: Decodable {
         let nestedCoordinate = Self.decodeNestedCoordinate(from: container)
         self.latitude = Self.firstDouble(
             in: container,
-            keys: [.displayLat, .displayLatitude, .mapLat, .mapLatitude, .obfuscatedLat, .obfuscatedLatitude, .latitude, .lat]
+            keys: [.displayLat, .displayLatCamel, .displayLatitude, .mapLat, .mapLatitude, .obfuscatedLat, .obfuscatedLatitude, .latitude, .lat]
         )
             ?? nestedCoordinate?.latitude
         self.longitude = Self.firstDouble(
             in: container,
-            keys: [.displayLng, .displayLongitude, .displayLon, .mapLng, .mapLongitude, .obfuscatedLng, .obfuscatedLongitude, .longitude, .lng, .lon, .long]
+            keys: [.displayLng, .displayLngCamel, .displayLongitude, .displayLon, .mapLng, .mapLongitude, .obfuscatedLng, .obfuscatedLongitude, .longitude, .lng, .lon, .long]
         )
             ?? nestedCoordinate?.longitude
     }
@@ -588,6 +612,8 @@ struct MapUsersResponseData: Decodable {
     let users: [MapUser]
     let effectiveRadiusM: Int?
     let constraints: MapRadiusConstraints?
+    let viewerID: String?
+    let snapshotID: String?
 
     enum CodingKeys: String, CodingKey {
         case users
@@ -602,16 +628,24 @@ struct MapUsersResponseData: Decodable {
         case effectiveRadiusM = "effective_radius_m"
         case radiusM = "radius_m"
         case constraints
+        case viewerID = "viewer_id"
+        case viewerIDCamel = "viewerId"
+        case snapshotID = "snapshot_id"
+        case snapshotIDCamel = "snapshotId"
     }
 
     init(
         users: [MapUser],
         effectiveRadiusM: Int? = nil,
-        constraints: MapRadiusConstraints? = nil
+        constraints: MapRadiusConstraints? = nil,
+        viewerID: String? = nil,
+        snapshotID: String? = nil
     ) {
         self.users = users
         self.effectiveRadiusM = effectiveRadiusM
         self.constraints = constraints
+        self.viewerID = viewerID
+        self.snapshotID = snapshotID
     }
 
     init(from decoder: Decoder) throws {
@@ -619,6 +653,8 @@ struct MapUsersResponseData: Decodable {
             self.users = list
             self.effectiveRadiusM = nil
             self.constraints = nil
+            self.viewerID = nil
+            self.snapshotID = nil
             return
         }
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -647,6 +683,45 @@ struct MapUsersResponseData: Decodable {
         self.effectiveRadiusM = container.flexInt(for: .effectiveRadiusM)
             ?? container.flexInt(for: .radiusM)
         self.constraints = try? container.decodeIfPresent(MapRadiusConstraints.self, forKey: .constraints)
+        self.viewerID = container.flexString(for: .viewerID)
+            ?? container.flexString(for: .viewerIDCamel)
+        self.snapshotID = container.flexString(for: .snapshotID)
+            ?? container.flexString(for: .snapshotIDCamel)
+    }
+
+    func belongsToViewer(_ expectedViewerID: String?) -> Bool {
+        guard let responseViewerID = viewerID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !responseViewerID.isEmpty,
+              let expectedViewerID = expectedViewerID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !expectedViewerID.isEmpty else {
+            // Backward compatible with servers that do not return viewer_id yet.
+            return true
+        }
+        return responseViewerID == expectedViewerID
+    }
+}
+
+enum MapUserCollectionPolicy {
+    static func normalized(_ users: [MapUser], viewerID: String?) -> [MapUser] {
+        let normalizedViewerID = viewerID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var orderedIDs: [String] = []
+        var usersByID: [String: MapUser] = [:]
+
+        for user in users {
+            let userID = user.userID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !userID.isEmpty, userID != normalizedViewerID else { continue }
+
+            if let existing = usersByID[userID] {
+                if !existing.hasMappableCoordinate, user.hasMappableCoordinate {
+                    usersByID[userID] = user
+                }
+            } else {
+                orderedIDs.append(userID)
+                usersByID[userID] = user
+            }
+        }
+
+        return orderedIDs.compactMap { usersByID[$0] }
     }
 }
 

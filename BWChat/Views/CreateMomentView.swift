@@ -2,10 +2,9 @@ import AVFoundation
 import SwiftUI
 import PhotosUI
 import UIKit
-import UniformTypeIdentifiers
 
 private struct MomentDraftMedia: Identifiable, @unchecked Sendable {
-    enum Kind: Sendable {
+    enum Kind: Sendable, Equatable {
         case image
         case video
 
@@ -19,18 +18,19 @@ private struct MomentDraftMedia: Identifiable, @unchecked Sendable {
 
     let id = UUID()
     let kind: Kind
-    let data: Data
+    let fileURL: URL
     let filename: String
     let mimeType: String
     let previewImage: UIImage?
+    let previewFileURL: URL?
 
-    var uploadMedia: MomentUploadMedia {
-        MomentUploadMedia(
+    var uploadFile: MomentUploadFile {
+        MomentUploadFile(
             kind: kind.uploadKind,
-            data: data,
+            fileURL: fileURL,
             filename: filename,
             mimeType: mimeType,
-            previewImageData: previewImage?.jpegData(compressionQuality: 0.82)
+            previewFileURL: previewFileURL
         )
     }
 }
@@ -39,19 +39,22 @@ struct CreateMomentView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var content = ""
-    @State private var selectedItems: [PhotosPickerItem] = []
+    @State private var selectedImageItems: [PhotosPickerItem] = []
+    @State private var selectedVideoItem: PhotosPickerItem?
     @State private var selectedMedia: [MomentDraftMedia] = []
-    @State private var unlockPriceCatFood: Int?
+    @State private var unlockPriceGoldCoins: Int?
     @State private var showUnlockOptions = false
     @State private var isPublishing = false
+    @State private var isImportingMedia = false
+    @State private var mediaImportTask: Task<Void, Never>?
     @State private var toastMessage: String?
+    @State private var draftID = UUID().uuidString
     @FocusState private var isContentFocused: Bool
 
     private let maxContentLength = 200
-    private let maxMediaCount = 9
     private let unlockPrices = [10, 50, 100, 200, 500, 1000]
 
-    var onPublish: (String, [MomentUploadMedia], Int?) -> Void
+    var onPublish: (MomentPublishDraft) -> Void
 
     var body: some View {
         NavigationStack {
@@ -102,26 +105,32 @@ struct CreateMomentView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!canPublish || isPublishing)
-                    .opacity(canPublish && !isPublishing ? 1 : 0.72)
+                    .opacity(canPublish ? 1 : 0.72)
                     .accessibilityLabel(L10n.tr("common.publish"))
                 }
             }
             .confirmationDialog(
-                L10n.tr("moment.catFoodUnlock"),
+                L10n.tr("moment.goldCoinUnlock"),
                 isPresented: $showUnlockOptions,
                 titleVisibility: .visible
             ) {
                 Button(L10n.tr("moment.unlock.none")) {
-                    unlockPriceCatFood = nil
+                    unlockPriceGoldCoins = nil
                 }
                 ForEach(unlockPrices, id: \.self) { price in
                     Button(L10n.tr("moment.unlock.price", price)) {
-                        unlockPriceCatFood = price
+                        unlockPriceGoldCoins = price
                     }
                 }
                 Button(L10n.tr("common.cancel"), role: .cancel) { }
             }
-            .toast(message: $toastMessage)
+        .toast(message: $toastMessage)
+        .onDisappear {
+            mediaImportTask?.cancel()
+            guard !isPublishing else { return }
+            let ownerID = AuthManager.shared.currentUser?.userID ?? "anonymous"
+            OutgoingFileStore.removeJob(ownerID: ownerID, jobID: draftID)
+        }
         }
     }
 
@@ -195,26 +204,32 @@ struct CreateMomentView: View {
     }
 
     private var mediaSection: some View {
-        LazyVGrid(columns: mediaColumns, alignment: .leading, spacing: 10) {
-            ForEach(selectedMedia) { media in
-                mediaPreviewCell(media)
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: mediaColumns, alignment: .leading, spacing: 10) {
+                ForEach(selectedMedia) { media in
+                    mediaPreviewCell(media)
+                }
+
+                if selectedMedia.isEmpty {
+                    imagePicker
+                    videoPicker
+                } else if selectedMedia.first?.kind == .image,
+                          selectedMedia.count < MomentMediaPolicy.maximumImageCount {
+                    imagePicker
+                }
             }
 
-            if selectedMedia.count < maxMediaCount {
-                PhotosPicker(
-                    selection: $selectedItems,
-                    maxSelectionCount: max(1, maxMediaCount - selectedMedia.count),
-                    matching: .any(of: [.images, .videos])
-                ) {
-                    addMediaTile
-                }
-                .buttonStyle(.plain)
-                .onChange(of: selectedItems) { items in
-                    Task { await loadSelectedMedia(items) }
-                }
-            }
+            Text(L10n.tr("moment.media.limitHint"))
+                .font(.system(size: 12))
+                .foregroundColor(AppColors.tertiaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onChange(of: selectedImageItems) { items in
+            startImageImport(items)
+        }
+        .onChange(of: selectedVideoItem) { item in
+            startVideoImport(item)
+        }
     }
 
     private var mediaColumns: [GridItem] {
@@ -225,14 +240,48 @@ struct CreateMomentView: View {
         min(96, floor((UIScreen.main.bounds.width - 32 - 36 - 20) / 3))
     }
 
-    private var addMediaTile: some View {
+    private var imagePicker: some View {
+        PhotosPicker(
+            selection: $selectedImageItems,
+            maxSelectionCount: max(
+                1,
+                MomentMediaPolicy.maximumImageCount - selectedMedia.count
+            ),
+            matching: .images
+        ) {
+            addMediaTile(
+                icon: "photo.on.rectangle.angled",
+                title: selectedMedia.isEmpty
+                    ? L10n.tr("moment.addImage")
+                    : L10n.tr("moment.continueAddImage")
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isImportingMedia)
+    }
+
+    private var videoPicker: some View {
+        PhotosPicker(selection: $selectedVideoItem, matching: .videos) {
+            addMediaTile(icon: "video.fill", title: L10n.tr("moment.addVideo"))
+        }
+        .buttonStyle(.plain)
+        .disabled(isImportingMedia)
+    }
+
+    private func addMediaTile(icon: String, title: String) -> some View {
         VStack(spacing: 9) {
-            Image(systemName: "camera.fill")
-                .font(.system(size: 28))
-                .foregroundColor(AppColors.primaryText)
-            Text(L10n.tr("moment.addMedia"))
+            if isImportingMedia {
+                ProgressView()
+                    .tint(AppColors.primaryText)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 27))
+                    .foregroundColor(AppColors.primaryText)
+            }
+            Text(title)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(AppColors.secondaryText)
+                .lineLimit(1)
         }
         .frame(width: mediaTileSize, height: mediaTileSize)
         .background(Color(hex: "F7F7F7"))
@@ -277,6 +326,7 @@ struct CreateMomentView: View {
                     .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 1)
             }
             .offset(x: 7, y: -7)
+            .disabled(isImportingMedia)
         }
         .frame(width: mediaTileSize, height: mediaTileSize)
     }
@@ -285,8 +335,8 @@ struct CreateMomentView: View {
         VStack(spacing: 0) {
             settingRow(
                 icon: "takeoutbag.and.cup.and.straw.fill",
-                title: L10n.tr("moment.catFoodUnlock"),
-                value: unlockPriceCatFood.map { L10n.tr("moment.unlock.price", $0) } ?? L10n.tr("moment.unlock.none")
+                title: L10n.tr("moment.goldCoinUnlock"),
+                value: unlockPriceGoldCoins.map { L10n.tr("moment.unlock.price", $0) } ?? L10n.tr("moment.unlock.none")
             ) {
                 showUnlockOptions = true
             }
@@ -327,17 +377,31 @@ struct CreateMomentView: View {
     }
 
     private var canPublish: Bool {
-        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !selectedMedia.isEmpty
+        guard !isImportingMedia else { return false }
+        let hasContent = !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasContent || !selectedMedia.isEmpty else { return false }
+        return (try? MomentMediaPolicy.validate(selectedMedia.map { $0.kind.uploadKind })) != nil
     }
 
     private func publish() {
         guard canPublish, !isPublishing else { return }
-        isPublishing = true
         let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        let uploads = selectedMedia.map(\.uploadMedia)
-        let price = selectedMedia.isEmpty ? nil : unlockPriceCatFood
+        let uploads = selectedMedia.map(\.uploadFile)
+        do {
+            try MomentMediaPolicy.validate(uploads.map(\.kind))
+        } catch {
+            toastMessage = error.localizedDescription
+            return
+        }
+        isPublishing = true
+        let price = selectedMedia.isEmpty ? nil : unlockPriceGoldCoins
 
-        onPublish(trimmedContent, uploads, price)
+        onPublish(MomentPublishDraft(
+            clientRequestID: draftID,
+            content: trimmedContent,
+            mediaFiles: uploads,
+            unlockPriceGoldCoins: price
+        ))
         dismiss()
     }
 
@@ -351,39 +415,136 @@ struct CreateMomentView: View {
         )
     }
 
-    private func loadSelectedMedia(_ items: [PhotosPickerItem]) async {
+    private func startImageImport(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
-        var loaded: [MomentDraftMedia] = []
-        let remaining = maxMediaCount - selectedMedia.count
+        guard !isImportingMedia, selectedMedia.first?.kind != .video else {
+            selectedImageItems = []
+            toastMessage = L10n.tr("moment.media.error.mixedTypes")
+            return
+        }
+        let remaining = MomentMediaPolicy.maximumImageCount - selectedMedia.count
+        guard remaining > 0 else {
+            selectedImageItems = []
+            toastMessage = L10n.tr(
+                "moment.media.error.tooManyImages",
+                MomentMediaPolicy.maximumImageCount
+            )
+            return
+        }
 
-        for (index, item) in items.prefix(remaining).enumerated() {
-            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }),
-               let video = try? await item.loadTransferable(type: VideoTransferable.self),
-               let videoData = await videoData(for: video.url) {
-                let filename = videoFilename(for: video.url, offset: index)
-                loaded.append(
-                    MomentDraftMedia(
-                        kind: .video,
-                        data: videoData,
-                        filename: filename,
-                        mimeType: mimeType(for: filename, fallback: "video/mp4"),
-                        previewImage: await videoPreviewImage(for: video.url)
-                    )
-                )
-                try? FileManager.default.removeItem(at: video.url)
-                continue
+        isImportingMedia = true
+        mediaImportTask?.cancel()
+        let startOffset = selectedMedia.count
+        mediaImportTask = Task {
+            let loaded = await loadSelectedImages(
+                items,
+                limit: remaining,
+                startOffset: startOffset
+            )
+            guard !Task.isCancelled else {
+                removeStagedDraftFiles()
+                return
             }
 
+            await MainActor.run {
+                let candidates = selectedMedia + loaded
+                do {
+                    try MomentMediaPolicy.validate(candidates.map { $0.kind.uploadKind })
+                    selectedMedia = candidates
+                    if loaded.isEmpty {
+                        toastMessage = L10n.tr("moment.media.error.loadFailed")
+                    }
+                } catch {
+                    toastMessage = error.localizedDescription
+                }
+                selectedImageItems = []
+                isImportingMedia = false
+                mediaImportTask = nil
+            }
+        }
+    }
+
+    private func startVideoImport(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        guard !isImportingMedia, selectedMedia.isEmpty else {
+            selectedVideoItem = nil
+            toastMessage = L10n.tr("moment.media.error.mixedTypes")
+            return
+        }
+
+        isImportingMedia = true
+        mediaImportTask?.cancel()
+        mediaImportTask = Task {
+            let loaded = await loadSelectedVideo(item)
+            guard !Task.isCancelled else {
+                removeStagedDraftFiles()
+                return
+            }
+
+            await MainActor.run {
+                if let loaded {
+                    do {
+                        try MomentMediaPolicy.validate([loaded.kind.uploadKind])
+                        selectedMedia = [loaded]
+                    } catch {
+                        toastMessage = error.localizedDescription
+                    }
+                } else {
+                    toastMessage = L10n.tr("moment.media.error.loadFailed")
+                }
+                selectedVideoItem = nil
+                isImportingMedia = false
+                mediaImportTask = nil
+            }
+        }
+    }
+
+    private func loadSelectedImages(
+        _ items: [PhotosPickerItem],
+        limit: Int,
+        startOffset: Int
+    ) async -> [MomentDraftMedia] {
+        var loaded: [MomentDraftMedia] = []
+        for (index, item) in items.prefix(limit).enumerated() {
+            guard !Task.isCancelled else { break }
             if let data = try? await item.loadTransferable(type: Data.self),
-               let media = await imageDraftMedia(from: data, offset: index) {
+               let media = await imageDraftMedia(from: data, offset: startOffset + index) {
                 loaded.append(media)
             }
         }
+        return loaded
+    }
 
-        await MainActor.run {
-            selectedMedia.append(contentsOf: loaded.prefix(maxMediaCount - selectedMedia.count))
-            selectedItems = []
-        }
+    private func loadSelectedVideo(_ item: PhotosPickerItem) async -> MomentDraftMedia? {
+        guard !Task.isCancelled,
+              let video = try? await item.loadTransferable(type: VideoTransferable.self)
+        else { return nil }
+        defer { try? FileManager.default.removeItem(at: video.url) }
+
+        let filename = videoFilename(for: video.url, offset: 0)
+        let preview = await videoPreviewImage(for: video.url)
+        guard !Task.isCancelled,
+              let stagedURL = try? await OutgoingFileStore.stage(
+                file: video.url,
+                ownerID: AuthManager.shared.currentUser?.userID ?? "anonymous",
+                jobID: draftID,
+                filename: filename
+              )
+        else { return nil }
+        let previewURL = await stagePreview(preview, filename: "preview_video.jpg")
+        return MomentDraftMedia(
+            kind: .video,
+            fileURL: stagedURL,
+            filename: filename,
+            mimeType: mimeType(for: filename, fallback: "video/mp4"),
+            previewImage: preview,
+            previewFileURL: previewURL
+        )
+    }
+
+    private func removeStagedDraftFiles() {
+        let ownerID = AuthManager.shared.currentUser?.userID ?? "anonymous"
+        OutgoingFileStore.removeJob(ownerID: ownerID, jobID: draftID)
     }
 
     private func imageFilename(offset: Int) -> String {
@@ -409,26 +570,39 @@ struct CreateMomentView: View {
 
     private func imageDraftMedia(from data: Data, offset: Int) async -> MomentDraftMedia? {
         let filename = imageFilename(offset: offset)
-
-        return await Task.detached(priority: .utility) {
+        let prepared = await Task.detached(priority: .utility) { () -> (Data, UIImage)? in
             let uploadData = APIService.compressImageForUpload(data)
             guard let image = UIImage(data: uploadData) ?? UIImage(data: data) else {
                 return nil
             }
-            return MomentDraftMedia(
-                kind: .image,
-                data: uploadData,
-                filename: filename,
-                mimeType: "image/jpeg",
-                previewImage: Self.previewImage(from: image, maxDimension: 360)
-            )
+            return (uploadData, Self.previewImage(from: image, maxDimension: 360))
         }.value
+        guard let prepared,
+              let fileURL = try? await OutgoingFileStore.stage(
+                data: prepared.0,
+                ownerID: AuthManager.shared.currentUser?.userID ?? "anonymous",
+                jobID: draftID,
+                filename: filename
+              ) else { return nil }
+        let previewURL = await stagePreview(prepared.1, filename: "preview_\(offset).jpg")
+        return MomentDraftMedia(
+            kind: .image,
+            fileURL: fileURL,
+            filename: filename,
+            mimeType: "image/jpeg",
+            previewImage: prepared.1,
+            previewFileURL: previewURL
+        )
     }
 
-    private func videoData(for url: URL) async -> Data? {
-        await Task.detached(priority: .utility) {
-            try? Data(contentsOf: url)
-        }.value
+    private func stagePreview(_ image: UIImage?, filename: String) async -> URL? {
+        guard let data = image?.jpegData(compressionQuality: 0.82) else { return nil }
+        return try? await OutgoingFileStore.stage(
+            data: data,
+            ownerID: AuthManager.shared.currentUser?.userID ?? "anonymous",
+            jobID: draftID,
+            filename: filename
+        )
     }
 
     nonisolated private static func previewImage(from image: UIImage, maxDimension: CGFloat) -> UIImage {

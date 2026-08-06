@@ -1,6 +1,8 @@
-# 媒体后台上传与可靠发布：后端实现 Prompt
+# BWChat Local-First Outbox 对应后端实现 Prompt（可直接交给后端 Agent）
 
 请直接在当前后端仓库中实现“图片/视频先在客户端本地展示，服务端后台可靠接收并最终提交业务记录”的能力，覆盖私聊、群聊、朋友圈和短剧。不要新建独立媒体微服务，也不要绑定新的云厂商；优先复用现有鉴权、对象存储、上传工具、消息表、朋友圈表、短剧表、任务队列、WebSocket 和 `{code,message,data}` 响应包装。
+
+这是与已完成 iOS Outbox 改造配套的后端任务。iOS 已使用账号隔离的 `client_request_id` / `client_message_id`、文件型后台 `URLSession`、可恢复状态机和 legacy 流式 multipart 适配器。后端必须保证幂等和可对账；不要用“客户端不要重试”规避重复写入问题。
 
 ## 一、先检查现有实现
 
@@ -44,7 +46,13 @@ expires_at
 created_at / updated_at
 ```
 
-唯一约束：`(owner_user_id, scene, client_request_id)`。所有状态推进必须使用事务或原子条件更新，不允许从终态回退。
+唯一约束至少为 `(owner_user_id, scene, client_request_id)`；一个业务任务含多个媒体时，part 再以 `(upload_id, part_role, ordinal)` 唯一。所有状态推进必须使用事务或原子条件更新，不允许从终态回退。
+
+新增能力发现接口（或并入现有 app-config）：
+
+`GET /media/capabilities`
+
+至少返回 `upload_sessions`、`resumable_uploads`、`idempotent_commits`、`client_message_id` 和协议版本。能力缺失时 iOS 会继续使用旧 multipart；不得仅凭 HTTP 404 以外的业务错误误判能力。
 
 接口建议（路径可按现有路由风格调整，但语义必须保留）：
 
@@ -92,6 +100,29 @@ created_at / updated_at
 
 ### 私聊与群聊
 
+#### 图片/视频预览必须原子交付
+
+iOS 聊天媒体请求现在一次 multipart 同时提交两份资源：
+
+- 图片：`image` 为压缩后的可查看大图，`thumbnail` 为最大边约 360 px 的轻量 JPEG 预览。
+- 视频：`video` 为视频文件，`thumbnail` 为客户端生成的首帧 JPEG 预览。
+
+后端必须接受并校验 `thumbnail`，将原资源和预览分别存储，并在同一条消息上返回：
+
+```json
+{
+  "msg_type": "image | video",
+  "content": "原图或原视频 URL",
+  "thumbnail_url": "可匿名或按现有媒体鉴权读取的 JPEG 预览 URL"
+}
+```
+
+只有在 `content` 与 `thumbnail_url` 均已写入、可读取且消息事务提交成功后，才能广播 `new_message` / `new_group_message` 和创建 APNs 任务。禁止先广播消息、再异步生成缩略图。HTTP 创建响应、WebSocket 事件、历史分页、最近消息、会话最后消息和 APNs 自定义字段必须携带同一个 `thumbnail_url`。接收端聊天列表直接展示 `thumbnail_url`，用户点击后才读取 `content`。
+
+媒体 APNs 必须是正常 alert push：`aps.alert.body` 分别使用 `[图片]` / `[视频]`，`aps["mutable-content"]` 为数字 `1`，顶层带 `msg_type`、`content`、`thumbnail_url`、`sender_id` 和 `client_message_id`，且 `notification_mode=alert`（除非该会话确实被用户免打扰）。不得因为正文是媒体 URL 就改发 silent 或 badge-only push。
+
+服务端仍需对大图执行魔数、尺寸和体积校验，但不要再次无上限解码；可以保留客户端已压缩的大图，或按既有安全策略做一次有上限的规范化。缩略图必须为安全可解码的 JPEG，限制像素尺寸与字节数。任何一份文件失败时都不得创建或广播残缺媒体消息。
+
 扩展现有发送消息接口，使图片和视频与文本一样接收 `client_message_id`，并为发送者建立唯一约束。推荐统一请求：
 
 ```json
@@ -108,6 +139,15 @@ created_at / updated_at
 
 旧 multipart 图片/视频接口暂时保留，内部可转调新流程，确保历史客户端兼容。
 
+强制要求：私聊文字、私聊图片/视频、群聊文字、群聊图片/视频全部接收并原样返回 `client_message_id`。HTTP 创建响应、WebSocket 事件、最近消息、历史分页和按 ID 查询返回的字段名及值必须一致。数据库分别按“发送账号 + client_message_id”建立唯一约束；发生唯一键冲突时读取并返回原消息，不能再次推送。
+
+提供对账接口（可以按项目路由风格调整）：
+
+- `GET /messages/by-client-id/{clientMessageID}`
+- `GET /groups/{groupID}/messages/by-client-id/{clientMessageID}`
+
+只允许发送者查询。未创建返回明确 `404/RESULT_NOT_FOUND`，不能用 500 表示。
+
 ### 朋友圈
 
 新增朋友圈草稿/提交语义，推荐：
@@ -119,15 +159,19 @@ created_at / updated_at
 
 发布接口重复调用返回同一 `moment`。异步审核可以事后隐藏，但不得因为媒体仍在上传就创建一个公开的残缺朋友圈。
 
+现有 legacy 创建朋友圈接口也必须接收 `client_request_id`，并在 `(owner_user_id, client_request_id)` 上唯一；重复请求返回同一条动态。补充 `GET /moments/by-client-id/{clientRequestID}` 用于“服务端可能成功但响应丢失”的确认。
+
 ### 短剧
 
 复用现有系列和分集草稿，不再要求一次 multipart 同时上传整段视频：
 
 - 系列和分集元数据先保存为 draft。
 - 封面、分集视频分别绑定已完成的 `upload_id`。
-- `POST /short-dramas/series/{seriesID}/episodes/{episodeID}/commit-media` 幂等绑定媒体。
+- `POST /short-drama/series/{seriesID}/episodes/{episodeID}/commit-media` 幂等绑定媒体。
 - 所有分集媒体完成后，现有 submit 接口原子推进到 submitted/processing。
 - 转码任务以 `episode_id + source_upload_id` 唯一，队列重跑不得生成重复转码任务。
+
+短剧路由前缀必须与现有 `/short-drama` 保持一致，不得另起 `/short-dramas`。系列使用稳定 `client_series_id`，每集使用稳定 `client_episode_id`，分别建立账号级唯一约束。系列 metadata upsert、分集 metadata upsert、媒体绑定和 submit 都必须幂等。提供按 client series/episode ID 查询的对账接口。单集失败不得回滚或重传其他已成功分集；重复 submit 只返回同一系列状态，不能重复创建审核或转码任务。
 
 ## 五、状态通知
 
@@ -179,6 +223,8 @@ MEDIA_PROCESSING_FAILED
 
 网络超时或 5xx 可重试；权限、格式和体积错误不可自动重试。响应继续使用项目现有 `{code,message,data}`。
 
+对于 commit 请求已经进入数据库事务但响应连接中断的情况，客户端会进入 `confirmationUnknown` 并调用上述按 client ID 查询接口；后端不得要求客户端盲目重复一个非幂等 POST。
+
 ## 八、验收与测试
 
 必须提供自动化测试并输出真实联调样例：
@@ -191,5 +237,8 @@ MEDIA_PROCESSING_FAILED
 6. 大视频流式处理不造成应用服务器内存随文件体积线性增长。
 7. 老 multipart 接口和旧客户端解码保持可用。
 8. 孤儿文件清理只删除未提交对象，不误删已发布业务资源。
+9. 同一账号以相同 client ID 并发提交 20 次：只产生一条业务记录、一次 WebSocket 事件和一次转码/审核任务。
+10. 私聊/群聊的 HTTP、WebSocket、最近列表和历史分页乱序到达时，均携带相同 `client_message_id`。
+11. 500MB 和 1GB legacy multipart 上传时应用服务器 RSS 不随文件体积线性增长，并记录测试峰值。
 
-最终交付：迁移文件、模型/路由/服务/队列改动、环境配置说明、回滚说明、自动化测试结果，以及供 iOS 使用的完整创建上传—上传/续传—complete—业务 commit 请求响应样例。
+最终交付：迁移文件、唯一索引及历史重复数据处理、模型/路由/服务/队列改动、能力开关、环境配置说明、回滚说明、自动化测试结果，以及供 iOS 使用的完整创建上传—上传/续传—complete—业务 commit—按 client ID 对账请求响应样例。不要只给设计文档；完成实现并运行测试后再交付。

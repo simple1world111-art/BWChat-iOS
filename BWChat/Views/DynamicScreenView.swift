@@ -261,7 +261,7 @@ struct DynamicComponentRenderer: View {
                         Text(L10n.tr("wallet.balance"))
                             .font(.system(size: 13))
                             .foregroundColor(AppColors.secondaryText)
-                        Text(walletStore.balance.map(String.init) ?? L10n.tr("common.loading"))
+                        Text(walletStore.goldCoinBalanceValue.map(String.init) ?? L10n.tr("common.loading"))
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(AppColors.primaryText)
                     }

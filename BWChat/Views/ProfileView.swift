@@ -47,7 +47,7 @@ struct ProfileView: View {
     }
 
     private var walletBalanceSubtitle: String {
-        if let balance = walletStore.balance {
+        if let balance = walletStore.goldCoinBalanceValue {
             return L10n.tr("profile.wallet.balance", balance)
         }
         return walletStore.isLoadingBalance ? L10n.tr("common.loading") : L10n.tr("common.tapToView")
@@ -65,11 +65,14 @@ struct ProfileView: View {
         dynamicItem(withID: "wallet")
     }
 
+    private var propBagItem: DynamicSectionItem? {
+        dynamicItem(withID: "prop_bag")
+    }
+
     private var mainFeatureItems: [DynamicSectionItem] {
         [
             dynamicItem(withID: "my_moments"),
-            dynamicItem(withID: "agent_hub"),
-            dynamicItem(withID: "my_short_dramas")
+            dynamicItem(withID: "agent_hub")
         ].compactMap { $0 }
     }
 
@@ -314,6 +317,12 @@ struct ProfileView: View {
             if !mainFeatureItems.isEmpty {
                 ProfileGroupedCard {
                     profileMenuRows(mainFeatureItems)
+                }
+            }
+
+            if let propBagItem {
+                ProfileGroupedCard {
+                    profileMenuRow(for: propBagItem)
                 }
             }
         }
@@ -699,6 +708,20 @@ struct ProfileSettingsView: View {
                     colors: [Color(hex: "2EC4B6"), Color(hex: "3A86FF")]
                 ) {
                     navigator.push(LanguageSettingsView())
+                }
+
+                ProfileRowDivider()
+
+                ProfileMenuRow(
+                    title: L10n.tr("chatBackground.globalTitle"),
+                    systemImage: "photo.on.rectangle.angled",
+                    colors: [Color(hex: "3A86FF"), Color(hex: "7C3AED")]
+                ) {
+                    navigator.push(ChatBackgroundSettingsView(
+                        targetType: .global,
+                        targetID: "global",
+                        title: L10n.tr("chatBackground.globalTitle")
+                    ))
                 }
             }
         }

@@ -91,6 +91,39 @@ final class MediaCacheManager: NSObject, ObservableObject {
         delayedTasks[mediaID] = nil
     }
 
+    /// Copies an already-uploaded local media file into the playback cache.
+    /// FileManager performs a file copy; the video is never materialized as Data.
+    func adoptLocalFile(mediaID: String, remoteURL: String, sourceURL: URL) {
+        ensureLoaded()
+        guard let scope = loadedScope, let directory = mediaDirectory(for: scope) else { return }
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let ext = sourceURL.pathExtension.nonEmpty ?? "mp4"
+        let filename = Self.hashedFilename(mediaID) + "." + ext
+        let destination = directory.appendingPathComponent(filename)
+        try? fileManager.removeItem(at: destination)
+        do {
+            try fileManager.copyItem(at: sourceURL, to: destination)
+            try fileManager.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: destination.path
+            )
+            entries[mediaID] = Entry(
+                id: mediaID,
+                remoteURL: remoteURL,
+                relativePath: filename,
+                isHLS: false,
+                byteCount: allocatedSize(of: destination),
+                createdAt: Date(),
+                lastAccessedAt: Date()
+            )
+            totalBytes = entries.values.reduce(0) { $0 + $1.byteCount }
+            pruneIfNeeded()
+            persistIndex()
+        } catch {
+            try? fileManager.removeItem(at: destination)
+        }
+    }
+
     func clearCurrentAccount() {
         ensureLoaded()
         guard let directory = mediaDirectory() else { return }

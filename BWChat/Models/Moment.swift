@@ -156,7 +156,7 @@ struct MomentMedia: Codable, Identifiable, Equatable {
 }
 
 struct MomentUploadMedia: Sendable {
-    enum Kind: Sendable {
+    enum Kind: String, Sendable, Equatable, Codable {
         case image
         case video
     }
@@ -182,25 +182,83 @@ struct MomentUploadMedia: Sendable {
     }
 }
 
+enum MomentMediaValidationError: Error, Equatable, Sendable, LocalizedError {
+    case mixedMediaTypes
+    case tooManyImages(maximum: Int)
+    case tooManyVideos(maximum: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .mixedMediaTypes:
+            return L10n.tr("moment.media.error.mixedTypes")
+        case .tooManyImages(let maximum):
+            return L10n.tr("moment.media.error.tooManyImages", maximum)
+        case .tooManyVideos:
+            return L10n.tr("moment.media.error.tooManyVideos")
+        }
+    }
+}
+
+enum MomentMediaPolicy {
+    static let maximumImageCount = 9
+    static let maximumVideoCount = 1
+
+    static func validate(_ kinds: [MomentUploadMedia.Kind]) throws {
+        let imageCount = kinds.filter { $0 == .image }.count
+        let videoCount = kinds.filter { $0 == .video }.count
+
+        if imageCount > 0, videoCount > 0 {
+            throw MomentMediaValidationError.mixedMediaTypes
+        }
+        if imageCount > maximumImageCount {
+            throw MomentMediaValidationError.tooManyImages(maximum: maximumImageCount)
+        }
+        if videoCount > maximumVideoCount {
+            throw MomentMediaValidationError.tooManyVideos(maximum: maximumVideoCount)
+        }
+    }
+}
+
+struct MomentUploadFile: Sendable {
+    let kind: MomentUploadMedia.Kind
+    let fileURL: URL
+    let filename: String
+    let mimeType: String
+    let previewFileURL: URL?
+}
+
+struct MomentOutgoingPayload: Codable, Sendable {
+    let content: String
+    let unlockPriceGoldCoins: Int?
+}
+
+struct MomentPublishDraft: Sendable {
+    let clientRequestID: String
+    let content: String
+    let mediaFiles: [MomentUploadFile]
+    let unlockPriceGoldCoins: Int?
+}
+
 struct Moment: Codable, Identifiable, Equatable {
     let id: Int
     let author: MomentAuthor
     let content: String
     let images: [String]
     let media: [MomentMedia]
-    let unlockPriceCatFood: Int?
+    let unlockPriceGoldCoins: Int?
     let isUnlocked: Bool
     let locationName: String?
     let createdAt: String
     let likes: [MomentAuthor]
     let comments: [MomentComment]
     let likedByMe: Bool
+    let clientRequestID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, author, content, images
         case media
-        case unlockPriceCatFood = "unlock_price_cat_food"
-        case unlockPriceCatFoodCamel = "unlockPriceCatFood"
+        case unlockPriceGoldCoins = "unlock_price_gold_coins"
+        case unlockPriceGoldCoinsCamel = "unlockPriceGoldCoins"
         case isUnlocked = "is_unlocked"
         case isUnlockedCamel = "isUnlocked"
         case locationName = "location_name"
@@ -209,10 +267,12 @@ struct Moment: Codable, Identifiable, Equatable {
         case likes, comments
         case likedByMe = "liked_by_me"
         case likedByMeCamel = "likedByMe"
+        case clientRequestID = "client_request_id"
+        case clientRequestIDCamel = "clientRequestId"
     }
 
     var hasLockedMedia: Bool {
-        (unlockPriceCatFood ?? 0) > 0 && !isUnlocked && (!media.isEmpty || !images.isEmpty)
+        (unlockPriceGoldCoins ?? 0) > 0 && !isUnlocked && (!media.isEmpty || !images.isEmpty)
     }
 
     var unlockedImageURLs: [String] {
@@ -229,9 +289,10 @@ struct Moment: Codable, Identifiable, Equatable {
         comments: [MomentComment],
         likedByMe: Bool,
         media: [MomentMedia]? = nil,
-        unlockPriceCatFood: Int? = nil,
+        unlockPriceGoldCoins: Int? = nil,
         isUnlocked: Bool? = nil,
-        locationName: String? = nil
+        locationName: String? = nil,
+        clientRequestID: String? = nil
     ) {
         let resolvedMedia = media ?? Self.mediaFromLegacyImages(images)
         self.id = id
@@ -239,14 +300,15 @@ struct Moment: Codable, Identifiable, Equatable {
         self.content = content
         self.images = images.isEmpty ? Self.legacyImages(from: resolvedMedia) : images
         self.media = resolvedMedia
-        let normalizedUnlockPrice = unlockPriceCatFood.flatMap { $0 > 0 ? $0 : nil }
-        self.unlockPriceCatFood = normalizedUnlockPrice
+        let normalizedUnlockPrice = unlockPriceGoldCoins.flatMap { $0 > 0 ? $0 : nil }
+        self.unlockPriceGoldCoins = normalizedUnlockPrice
         self.isUnlocked = isUnlocked ?? (normalizedUnlockPrice == nil ? !resolvedMedia.contains { $0.isLocked } : false)
         self.locationName = locationName?.nilIfBlank
         self.createdAt = createdAt
         self.likes = likes
         self.comments = comments
         self.likedByMe = likedByMe
+        self.clientRequestID = clientRequestID
     }
 
     init(from decoder: Decoder) throws {
@@ -254,8 +316,8 @@ struct Moment: Codable, Identifiable, Equatable {
         let legacyImages = (try? container.decodeIfPresent([String].self, forKey: .images)) ?? []
         let decodedMedia = (try? container.decodeIfPresent([MomentMedia].self, forKey: .media)) ?? []
         let resolvedMedia = decodedMedia.isEmpty ? Self.mediaFromLegacyImages(legacyImages) : decodedMedia
-        let decodedPrice = container.flexInt(for: .unlockPriceCatFood)
-            ?? container.flexInt(for: .unlockPriceCatFoodCamel)
+        let decodedPrice = container.flexInt(for: .unlockPriceGoldCoins)
+            ?? container.flexInt(for: .unlockPriceGoldCoinsCamel)
         let decodedUnlocked = container.flexBool(for: .isUnlocked)
             ?? container.flexBool(for: .isUnlockedCamel)
 
@@ -265,7 +327,7 @@ struct Moment: Codable, Identifiable, Equatable {
         self.images = legacyImages.isEmpty ? Self.legacyImages(from: resolvedMedia) : legacyImages
         self.media = resolvedMedia
         let normalizedUnlockPrice = decodedPrice.flatMap { $0 > 0 ? $0 : nil }
-        self.unlockPriceCatFood = normalizedUnlockPrice
+        self.unlockPriceGoldCoins = normalizedUnlockPrice
         self.isUnlocked = decodedUnlocked ?? (normalizedUnlockPrice == nil ? !resolvedMedia.contains { $0.isLocked } : false)
         self.locationName = (container.flexString(for: .locationName)
             ?? container.flexString(for: .locationNameCamel))?.nilIfBlank
@@ -275,6 +337,8 @@ struct Moment: Codable, Identifiable, Equatable {
         self.likedByMe = container.flexBool(for: .likedByMe)
             ?? container.flexBool(for: .likedByMeCamel)
             ?? false
+        self.clientRequestID = container.flexString(for: .clientRequestID)
+            ?? container.flexString(for: .clientRequestIDCamel)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -284,13 +348,18 @@ struct Moment: Codable, Identifiable, Equatable {
         try container.encode(content, forKey: .content)
         try container.encode(images, forKey: .images)
         try container.encode(media, forKey: .media)
-        try container.encodeIfPresent(unlockPriceCatFood, forKey: .unlockPriceCatFood)
+        try container.encodeIfPresent(unlockPriceGoldCoins, forKey: .unlockPriceGoldCoins)
         try container.encode(isUnlocked, forKey: .isUnlocked)
         try container.encodeIfPresent(locationName, forKey: .locationName)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(likes, forKey: .likes)
         try container.encode(comments, forKey: .comments)
         try container.encode(likedByMe, forKey: .likedByMe)
+        try container.encodeIfPresent(clientRequestID, forKey: .clientRequestID)
+    }
+
+    var presentationIdentity: String {
+        clientRequestID.map { "client:\($0)" } ?? "server:\(id)"
     }
 
     var formattedTime: String {
@@ -349,31 +418,105 @@ struct Moment: Codable, Identifiable, Equatable {
     }
 }
 
+/// Account-scoped disk snapshot shared by the public feed, "My Moments", and
+/// public profile screens. Optional fields keep snapshots written by older app
+/// versions decodable during migration.
+struct CachedMomentFeedSnapshot: Codable, Equatable {
+    let items: [Moment]
+    let hasMore: Bool
+    let nextBeforeID: Int?
+    let snapshotComplete: Bool?
+
+    init(
+        items: [Moment],
+        hasMore: Bool,
+        nextBeforeID: Int? = nil,
+        snapshotComplete: Bool? = nil
+    ) {
+        self.items = items
+        self.hasMore = hasMore
+        self.nextBeforeID = nextBeforeID
+        self.snapshotComplete = snapshotComplete
+    }
+}
+
+/// Strict transport contract for all first-page Moments endpoints. A missing
+/// `moments` field is a malformed/degraded response, not an empty feed.
+struct MomentFeedResponseData: Decodable {
+    let moments: [Moment]
+    let hasMore: Bool
+    let snapshotComplete: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case moments
+        case hasMore = "has_more"
+        case snapshotComplete = "snapshot_complete"
+        case isComplete = "is_complete"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        moments = try container.decode([Moment].self, forKey: .moments)
+        hasMore = container.flexBool(for: .hasMore) ?? false
+        snapshotComplete = container.flexBool(for: .snapshotComplete)
+            ?? container.flexBool(for: .isComplete)
+    }
+}
+
+enum MomentCacheNamespace {
+    static let publicFeed = "moments-feed"
+    static let userFeed = "moments-user"
+
+    /// UserProfileViewModel used this namespace before all Moments surfaces
+    /// were consolidated. Keep it readable so an app upgrade cannot strand a
+    /// user's existing offline snapshot.
+    static let legacyProfileUserFeed = "user-moments"
+}
+
+enum MomentFirstPageReplacementPolicy {
+    /// A transport-successful empty array is not necessarily an authoritative
+    /// empty feed. During backend restart, cache warm-up, replica lag, or a
+    /// degraded response, preserving the last non-empty snapshot is safer.
+    /// The backend can explicitly confirm a legitimate empty snapshot with
+    /// `snapshot_complete: true`.
+    static func shouldAccept(
+        itemCount: Int,
+        replacingLocalCount: Int,
+        snapshotComplete: Bool?
+    ) -> Bool {
+        guard itemCount == 0, replacingLocalCount > 0 else { return true }
+        return snapshotComplete == true
+    }
+}
+
 struct MomentUnlockResponseData: Decodable {
     let moment: Moment?
-    let walletBalance: WalletBalanceResponseData?
+    let charge: MixedAssetCharge?
+    let consumedProp: PropConsumptionResult?
+    let alreadyUnlocked: Bool
+
+    var walletBalance: WalletBalanceResponseData? { charge?.walletBalance }
 
     enum CodingKeys: String, CodingKey {
         case moment
-        case walletBalance = "wallet_balance"
-        case walletBalanceCamel = "walletBalance"
-        case balance
-        case wallet
+        case consumedProp = "consumed_prop"
+        case alreadyUnlocked = "already_unlocked"
     }
 
     init(from decoder: Decoder) throws {
         if let directMoment = try? Moment(from: decoder) {
             self.moment = directMoment
-            self.walletBalance = nil
+            self.charge = nil
+            self.consumedProp = nil
+            self.alreadyUnlocked = false
             return
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.moment = try? container.decodeIfPresent(Moment.self, forKey: .moment)
-        self.walletBalance = (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .walletBalance))
-            ?? (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .walletBalanceCamel))
-            ?? (try? container.decodeIfPresent(WalletBalanceResponseData.self, forKey: .wallet))
-            ?? container.flexInt(for: .balance).map(WalletBalanceResponseData.init(balance:))
+        self.charge = try MixedAssetCharge.decodeIfPresent(from: decoder)
+        self.consumedProp = try? container.decodeIfPresent(PropConsumptionResult.self, forKey: .consumedProp)
+        self.alreadyUnlocked = (try? container.decodeIfPresent(Bool.self, forKey: .alreadyUnlocked)) ?? false
     }
 }
 

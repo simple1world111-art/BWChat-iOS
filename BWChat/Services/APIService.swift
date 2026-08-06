@@ -2,7 +2,10 @@
 // HTTP API service using URLSession
 
 import Foundation
+import Combine
 import UIKit
+import ImageIO
+import AVFoundation
 
 enum AuthRequestAuthorizer {
     /// The only place in the client that constructs an HTTP Authorization
@@ -34,11 +37,39 @@ enum AuthRequestAuthorizer {
     }
 }
 
+enum SensitiveLogRedactor {
+    private static let patterns: [NSRegularExpression] = [
+        #"(?i)(authorization\s*[\"']?\s*[:=]\s*[\"']?(?:bearer\s+)?)[^\s,\"'}&]+"#,
+        #"(?i)(round[-_]?token\s*[\"']?\s*[:=]\s*[\"']?)[^\s,\"'}&]+"#,
+        #"(?i)((?:phone_e164|verification_code|sms_code|invite_token|code_or_token)\s*[\"']?\s*[:=]\s*[\"']?)[^\s,\"'}&]+"#,
+        #"(?i)(ticket\s*[\"']?\s*[:=]\s*[\"']?)[^&\s,\"'}]+"#,
+        #"(?i)(ticket%3d)[^&\s\"']+"#
+    ].compactMap { try? NSRegularExpression(pattern: $0) }
+
+    static func redact(_ value: String) -> String {
+        patterns.reduce(value) { partial, pattern in
+            pattern.stringByReplacingMatches(
+                in: partial,
+                range: NSRange(partial.startIndex..., in: partial),
+                withTemplate: "$1<redacted>"
+            )
+        }
+    }
+}
+
+enum SensitiveHTTPResponsePolicy {
+    static func apply(to request: inout URLRequest) {
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+    }
+}
+
 enum APIError: Error, LocalizedError {
     case invalidURL
     case invalidResponse
     case unauthorized
     case serverError(code: Int, message: String)
+    case businessError(code: String, message: String, context: WalletBalanceErrorContext?)
     case networkError(Error)
     case decodingError(Error)
 
@@ -51,9 +82,62 @@ enum APIError: Error, LocalizedError {
             // Gateway/proxy bodies are often raw HTML (for example "502 Bad Gateway").
             // Keep that detail in diagnostics, but never surface infrastructure text in UI.
             return (500...599).contains(code) ? L10n.tr("api.serverUnavailable") : message
+        case .businessError(let code, let message, _):
+            return WalletBusinessError.userFacingMessage(code: code, serverMessage: message)
         case .networkError: return L10n.tr("api.networkUnavailable")
         case .decodingError: return L10n.tr("api.decodingError")
         }
+    }
+}
+
+struct WalletBalanceErrorContext: Decodable, Equatable {
+    let requiredAmount: Int?
+    let goldCoinBalance: GoldCoinAmount?
+    let activityCatFoodBalance: ActivityCatFoodAmount?
+    let spendableBalance: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case requiredAmount = "required_amount"
+        case goldCoinBalance = "gold_coin_balance"
+        case activityCatFoodBalance = "activity_cat_food_balance"
+        case spendableBalance = "spendable_balance"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requiredAmount = container.flexInt(for: .requiredAmount)
+        goldCoinBalance = container.flexInt(for: .goldCoinBalance).map(GoldCoinAmount.init)
+        activityCatFoodBalance = container.flexInt(for: .activityCatFoodBalance).map(ActivityCatFoodAmount.init)
+        spendableBalance = container.flexInt(for: .spendableBalance)
+    }
+}
+
+enum WalletBusinessError {
+    static let insufficientSpendableBalance = "insufficient_spendable_balance"
+    static let insufficientGoldCoins = "insufficient_gold_coins"
+    static let activityCatFoodDisabled = "activity_cat_food_disabled"
+
+    static func userFacingMessage(code: String, serverMessage: String?) -> String {
+        switch normalized(code) {
+        case insufficientSpendableBalance:
+            return L10n.tr("wallet.error.insufficientSpendableBalance")
+        case insufficientGoldCoins:
+            return L10n.tr("wallet.error.insufficientGoldCoins")
+        case activityCatFoodDisabled:
+            return L10n.tr("wallet.error.activityCatFoodDisabled")
+        default:
+            let clean = serverMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return clean.isEmpty ? L10n.tr("api.invalidResponse") : clean
+        }
+    }
+
+    static func isActivityCatFoodDisabled(_ error: Error) -> Bool {
+        guard case APIError.businessError(let code, _, _) = error else { return false }
+        return normalized(code) == activityCatFoodDisabled
+    }
+
+    private static func normalized(_ code: String) -> String {
+        code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
@@ -108,6 +192,30 @@ struct APIResponseWrapper<T: Decodable>: Decodable {
     let code: Int
     let message: String
     let data: T?
+
+    private enum CodingKeys: String, CodingKey {
+        case code, message, data
+    }
+
+    init(code: Int, message: String, data: T?) {
+        self.code = code
+        self.message = message
+        self.data = data
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let integerCode = try? container.decodeIfPresent(Int.self, forKey: .code) {
+            code = integerCode
+        } else if let stringCode = try? container.decodeIfPresent(String.self, forKey: .code),
+                  let integerCode = Int(stringCode) {
+            code = integerCode
+        } else {
+            code = 0
+        }
+        message = (try? container.decodeIfPresent(String.self, forKey: .message)) ?? ""
+        data = try container.decodeIfPresent(T.self, forKey: .data)
+    }
 
     func requiredData() throws -> T {
         guard let data else {
@@ -379,9 +487,30 @@ private struct StructuredErrorResponse: Decodable {
     }
 }
 
+private struct SymbolicBusinessErrorResponse: Decodable {
+    let code: String?
+    let message: String?
+    let data: WalletBalanceErrorContext?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case message
+        case data
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        code = container.flexString(for: .code)
+        message = container.flexString(for: .message)
+        let nested = try? container.decodeIfPresent(WalletBalanceErrorContext.self, forKey: .data)
+        self.data = nested ?? (try? WalletBalanceErrorContext(from: decoder))
+    }
+}
+
 private struct GiftDirectMessageResponseData: Decodable {
     let message: Message?
     let fallbackContent: String?
+    let charge: MixedAssetCharge?
 
     enum CodingKeys: String, CodingKey {
         case message
@@ -397,11 +526,13 @@ private struct GiftDirectMessageResponseData: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedCharge = try MixedAssetCharge.decodeIfPresent(from: decoder)
         for key in [CodingKeys.message, .msg, .chatMessage, .chatMessageCamel, .data, .item] {
             if let message = try? container.decodeIfPresent(Message.self, forKey: key),
                message.isUsableGiftResponse {
                 self.message = message
                 self.fallbackContent = message.content
+                self.charge = decodedCharge
                 return
             }
         }
@@ -414,12 +545,14 @@ private struct GiftDirectMessageResponseData: Decodable {
 
         self.message = directMessage
         self.fallbackContent = content ?? directMessage?.content
+        self.charge = decodedCharge
     }
 }
 
 private struct GiftGroupMessageResponseData: Decodable {
     let message: GroupMessage?
     let fallbackContent: String?
+    let charge: MixedAssetCharge?
 
     enum CodingKeys: String, CodingKey {
         case message
@@ -437,11 +570,13 @@ private struct GiftGroupMessageResponseData: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedCharge = try MixedAssetCharge.decodeIfPresent(from: decoder)
         for key in [CodingKeys.message, .msg, .groupMessage, .groupMessageCamel, .chatMessage, .chatMessageCamel, .data, .item] {
             if let message = try? container.decodeIfPresent(GroupMessage.self, forKey: key),
                message.isUsableGiftResponse {
                 self.message = message
                 self.fallbackContent = message.content
+                self.charge = decodedCharge
                 return
             }
         }
@@ -454,6 +589,7 @@ private struct GiftGroupMessageResponseData: Decodable {
 
         self.message = directMessage
         self.fallbackContent = content ?? directMessage?.content
+        self.charge = decodedCharge
     }
 }
 
@@ -466,6 +602,161 @@ private extension Message {
 private extension GroupMessage {
     var isUsableGiftResponse: Bool {
         id != 0 || msgType == "gift" || GiftMessagePayload.parse(content) != nil
+    }
+}
+
+struct FollowRelationshipChange {
+    let relationship: FollowRelationship
+    let user: FollowUser?
+}
+
+@MainActor
+final class FollowRelationshipStore {
+    static let shared = FollowRelationshipStore()
+
+    let changes = PassthroughSubject<FollowRelationshipChange, Never>()
+
+    private init() {}
+
+    @discardableResult
+    func apply(_ relationship: FollowRelationship, targetUserID: String) -> FollowRelationship {
+        let normalized = normalizedRelationship(relationship, targetUserID: targetUserID)
+        let user = updateCachedProfile(with: normalized)
+        updateCurrentUserFollowCaches(with: normalized, user: user)
+        changes.send(FollowRelationshipChange(relationship: normalized, user: user))
+        return normalized
+    }
+
+    private func normalizedRelationship(
+        _ relationship: FollowRelationship,
+        targetUserID: String
+    ) -> FollowRelationship {
+        guard relationship.userID != targetUserID else { return relationship }
+        return FollowRelationship(
+            userID: targetUserID,
+            followedByMe: relationship.followedByMe,
+            followsMe: relationship.followsMe,
+            isFriend: relationship.isFriend,
+            followRequested: relationship.followRequested,
+            followingCount: relationship.followingCount,
+            followerCount: relationship.followerCount
+        )
+    }
+
+    private func updateCachedProfile(with relationship: FollowRelationship) -> FollowUser? {
+        guard let key = CacheKey.current(namespace: "profiles", key: relationship.userID),
+              let cached: CachedSnapshot<PublicProfile> = AppCacheRepository.shared.cachedValue(for: key)
+        else {
+            return nil
+        }
+
+        var profile = cached.value
+        let wasFollowedByMe = profile.followedByMe
+        apply(relationship, to: &profile)
+        if relationship.followerCount == nil, wasFollowedByMe != relationship.followedByMe {
+            profile.followerCount = max(
+                0,
+                profile.followerCount + (relationship.followedByMe ? 1 : -1)
+            )
+        }
+        AppCacheRepository.shared.save(profile, for: key, policy: .profile)
+        return profile.followUser
+    }
+
+    private func updateCurrentUserFollowCaches(
+        with relationship: FollowRelationship,
+        user: FollowUser?
+    ) {
+        guard let currentUserID = AuthManager.shared.currentUser?.userID else { return }
+        updateCachedList(
+            key: CacheKey.current(namespace: "follows", key: "\(currentUserID).followers"),
+            relationship: relationship,
+            user: user,
+            controlsMembership: false
+        )
+        updateCachedList(
+            key: CacheKey.current(namespace: "follows", key: "\(currentUserID).following"),
+            relationship: relationship,
+            user: user,
+            controlsMembership: true
+        )
+    }
+
+    private func updateCachedList(
+        key: CacheKey?,
+        relationship: FollowRelationship,
+        user: FollowUser?,
+        controlsMembership: Bool
+    ) {
+        guard let key,
+              let cached: CachedSnapshot<FollowUsersPage> = AppCacheRepository.shared.cachedValue(for: key)
+        else {
+            return
+        }
+
+        let page = cached.value
+        var users = page.users
+        var didChange = false
+        if let index = users.firstIndex(where: { $0.userID == relationship.userID }) {
+            if controlsMembership && !relationship.followedByMe {
+                users.remove(at: index)
+                didChange = true
+            } else {
+                let wasFollowedByMe = users[index].followedByMe
+                apply(relationship, to: &users[index])
+                if relationship.followerCount == nil,
+                   wasFollowedByMe != relationship.followedByMe {
+                    users[index].followerCount = max(
+                        0,
+                        users[index].followerCount + (relationship.followedByMe ? 1 : -1)
+                    )
+                }
+                didChange = true
+            }
+        } else if controlsMembership, relationship.followedByMe, var user {
+            apply(relationship, to: &user)
+            users.insert(user, at: 0)
+            didChange = true
+        } else if controlsMembership, relationship.followedByMe {
+            AppCacheRepository.shared.invalidate(key)
+            return
+        }
+        guard didChange else { return }
+
+        AppCacheRepository.shared.save(
+            FollowUsersPage(users: users, hasMore: page.hasMore, nextPage: page.nextPage),
+            for: key,
+            policy: .profile
+        )
+    }
+
+    private func apply(_ relationship: FollowRelationship, to profile: inout PublicProfile) {
+        profile.followedByMe = relationship.followedByMe
+        profile.followsMe = relationship.followsMe
+        profile.isFriend = relationship.isFriend
+        if let followRequested = relationship.followRequested {
+            profile.followRequested = followRequested
+        } else if relationship.followedByMe {
+            profile.followRequested = false
+        }
+        if let followerCount = relationship.followerCount {
+            profile.followerCount = followerCount
+        }
+        if let followingCount = relationship.followingCount {
+            profile.followingCount = followingCount
+        }
+    }
+
+    private func apply(_ relationship: FollowRelationship, to user: inout FollowUser) {
+        user.followedByMe = relationship.followedByMe
+        user.followsMe = relationship.followsMe
+        user.isFriend = relationship.isFriend
+        if let followerCount = relationship.followerCount {
+            user.followerCount = followerCount
+        }
+        if let followingCount = relationship.followingCount {
+            user.followingCount = followingCount
+        }
     }
 }
 
@@ -758,12 +1049,15 @@ class APIService {
     }
 
     func getConversations() async throws -> [Conversation] {
-        struct ConversationsData: Decodable {
-            let conversations: [Conversation]
-        }
+        try await getConversationSyncSnapshot().conversations
+    }
 
-        let response: APIResponseWrapper<ConversationsData> = try await get(path: "/chat/conversations")
-        return try response.requiredData().conversations
+    func getConversationSyncSnapshot() async throws -> ConversationSyncSnapshot {
+        let response: APIResponseWrapper<ConversationSyncSnapshot> = try await get(
+            path: "/chat/conversations",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
     }
 
     // MARK: - Messages
@@ -796,27 +1090,97 @@ class APIService {
         return (data.messages, data.hasMore)
     }
 
-    func markMessagesAsRead(contactID: String) async throws {
-        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+    func clearDirectMessageHistory(contactID: String) async throws -> DirectHistoryClearReceipt {
+        guard let url = URL(
+            string: baseURL + "/chat/messages/\(Self.pathComponent(contactID))/history"
+        ) else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "Idempotency-Key")
+        addAuthHeader(&request)
+        let response: APIResponseWrapper<DirectHistoryClearReceipt> = try await perform(request)
+        let receipt = try response.requiredData()
+        guard receipt.conversationID.isBlank else { return receipt }
+        return DirectHistoryClearReceipt(
+            conversationID: contactID,
+            clearedBeforeMessageID: receipt.clearedBeforeMessageID,
+            clearedAt: receipt.clearedAt,
+            revision: receipt.revision
+        )
+    }
+
+    func getMessageContext(
+        contactID: String,
+        messageID: Int,
+        before: Int = 20,
+        after: Int = 20
+    ) async throws -> [Message] {
+        struct ContextData: Decodable {
+            let messages: [Message]
+        }
+        let response: APIResponseWrapper<ContextData> = try await get(
+            path: "/chat/messages/\(contactID)/\(messageID)/context",
+            queryItems: [
+                URLQueryItem(name: "before", value: "\(before)"),
+                URLQueryItem(name: "after", value: "\(after)")
+            ]
+        )
+        return try response.requiredData().messages
+    }
+
+    func recallMessage(contactID: String, messageID: Int) async throws -> Message {
+        let response: APIResponseWrapper<Message> = try await postJSON(
+            path: "/chat/messages/\(Self.pathComponent(contactID))/\(messageID)/recall",
+            body: [:]
+        )
+        return try response.requiredData()
+    }
+
+    func markMessagesAsRead(
+        contactID: String,
+        throughMessageID: Int? = nil,
+        idempotencyKey: UUID = UUID()
+    ) async throws -> ConversationReadReceipt? {
+        var body: [String: Any] = ["idempotency_key": idempotencyKey.uuidString]
+        if let throughMessageID { body["through_message_id"] = throughMessageID }
+        let response: APIResponseWrapper<ConversationReadReceipt> = try await postJSON(
             path: "/chat/messages/\(contactID)/read",
-            body: [:]
+            body: body
         )
+        return response.data
     }
 
-    func markGroupMessagesAsRead(groupID: Int) async throws {
-        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+    func markGroupMessagesAsRead(
+        groupID: Int,
+        throughMessageID: Int? = nil,
+        idempotencyKey: UUID = UUID()
+    ) async throws -> ConversationReadReceipt? {
+        var body: [String: Any] = ["idempotency_key": idempotencyKey.uuidString]
+        if let throughMessageID { body["through_message_id"] = throughMessageID }
+        let response: APIResponseWrapper<ConversationReadReceipt> = try await postJSON(
             path: "/groups/\(groupID)/messages/read",
-            body: [:]
+            body: body
         )
+        return response.data
     }
 
-    func sendTextMessage(receiverID: String, content: String, replyToID: Int? = nil) async throws -> Message {
+    func sendTextMessage(
+        receiverID: String,
+        content: String,
+        replyToID: Int? = nil,
+        clientMessageID: String? = nil
+    ) async throws -> Message {
         var body: [String: Any] = [
             "receiver_id": receiverID,
             "content": content,
         ]
         if let replyID = replyToID {
             body["reply_to_id"] = replyID
+        }
+        if let clientMessageID {
+            body["client_message_id"] = clientMessageID
         }
 
         let response: APIResponseWrapper<Message> = try await postJSON(path: "/chat/messages/text", body: body)
@@ -830,7 +1194,8 @@ class APIService {
         receiverID: String,
         packID: String,
         stickerID: String,
-        replyToID: Int? = nil
+        replyToID: Int? = nil,
+        clientMessageID: String? = nil
     ) async throws -> Message {
         var body: [String: Any] = [
             "receiver_id": receiverID,
@@ -839,6 +1204,9 @@ class APIService {
         ]
         if let replyToID {
             body["reply_to_id"] = replyToID
+        }
+        if let clientMessageID {
+            body["client_message_id"] = clientMessageID
         }
 
         let response: APIResponseWrapper<Message> = try await postJSON(path: "/chat/messages/sticker", body: body)
@@ -853,15 +1221,28 @@ class APIService {
         return try response.requiredData().gifts
     }
 
-    func sendGiftMessage(receiverID: String, giftID: String) async throws -> Message {
+    func sendGiftMessage(
+        receiverID: String,
+        giftID: String,
+        idempotencyKey: UUID
+    ) async throws -> Message {
         let body: [String: Any] = [
             "receiver_id": receiverID,
             "recipient_id": receiverID,
-            "gift_id": giftID
+            "gift_id": giftID,
+            "idempotency_key": idempotencyKey.uuidString
         ]
-        let response: APIResponseWrapper<GiftDirectMessageResponseData> = try await postJSON(path: "/chat/messages/gift", body: body)
+        let response: APIResponseWrapper<GiftDirectMessageResponseData> = try await postJSON(
+            path: "/chat/messages/gift",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
         guard let data = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
+        }
+        if let charge = data.charge {
+            WalletStore.shared.applyServerBalance(charge.walletBalance)
+            WalletTelemetry.recordMixedCharge(charge, operation: "gift_direct")
         }
         return Self.normalizedGiftMessage(
             data.message,
@@ -949,7 +1330,7 @@ class APIService {
         if let fixed = GiftCatalogItem.fixed(for: giftID) {
             payload["gift_name"] = fixed.name
             payload["asset_key"] = fixed.assetKey
-            payload["amount"] = fixed.price
+            payload["gold_coin_amount"] = fixed.price
             payload["receiver_currency"] = fixed.receiverCurrency.rawValue
         }
 
@@ -969,14 +1350,20 @@ class APIService {
         return value
     }
 
-    func sendImageMessage(receiverID: String, imageData: Data, filename: String) async throws -> Message {
+    func sendImageMessage(
+        receiverID: String,
+        imageData: Data,
+        filename: String,
+        clientMessageID: String? = nil
+    ) async throws -> Message {
         let compressed = Self.compressImageForUpload(imageData)
         let response: APIResponseWrapper<Message> = try await uploadImage(
             path: "/chat/messages/image",
             fieldName: "receiver_id",
             fieldValue: receiverID,
             imageData: compressed,
-            filename: filename
+            filename: filename,
+            additionalFields: clientMessageID.map { ["client_message_id": $0] } ?? [:]
         )
         guard let msg = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -984,18 +1371,98 @@ class APIService {
         return msg
     }
 
-    func sendVideoMessage(receiverID: String, videoData: Data, filename: String) async throws -> Message {
+    func sendImageMessage(
+        receiverID: String,
+        imageFileURL: URL,
+        filename: String,
+        job: OutgoingJob,
+        part: OutgoingPart
+    ) async throws -> Message {
+        // The durable/file-backed path is the one used by the chat UI. Keep
+        // the upload policy here as a final guard so restored outbox jobs and
+        // callers that did not originate in PhotosPicker cannot bypass image
+        // resizing and the byte cap.
+        let files = try await Self.preparedChatImageFilesForUpload(imageFileURL)
+        let response: APIResponseWrapper<Message> = try await legacyBackgroundMultipartUpload(
+            path: "/chat/messages/image",
+            textFields: [
+                LegacyMultipartTextField(name: "receiver_id", value: receiverID),
+                LegacyMultipartTextField(name: "client_message_id", value: job.clientRequestID)
+            ],
+            fileFields: [
+                LegacyMultipartFileField(
+                    name: "image",
+                    filename: filename,
+                    mimeType: "image/jpeg",
+                    fileURL: files.original
+                ),
+                LegacyMultipartFileField(
+                    name: "thumbnail",
+                    filename: Self.chatThumbnailFilename(for: filename),
+                    mimeType: "image/jpeg",
+                    fileURL: files.thumbnail
+                )
+            ],
+            job: job,
+            part: part,
+            timeout: 180
+        )
+        return try response.requiredData()
+    }
+
+    func sendVideoMessage(
+        receiverID: String,
+        videoData: Data,
+        filename: String,
+        clientMessageID: String? = nil
+    ) async throws -> Message {
         let response: APIResponseWrapper<Message> = try await uploadVideo(
             path: "/chat/messages/video",
             fieldName: "receiver_id",
             fieldValue: receiverID,
             videoData: videoData,
-            filename: filename
+            filename: filename,
+            additionalFields: clientMessageID.map { ["client_message_id": $0] } ?? [:]
         )
         guard let msg = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
         }
         return msg
+    }
+
+    func sendVideoMessage(
+        receiverID: String,
+        videoFileURL: URL,
+        filename: String,
+        job: OutgoingJob,
+        part: OutgoingPart
+    ) async throws -> Message {
+        let thumbnailURL = try await Self.preparedChatVideoThumbnailFileForUpload(videoFileURL)
+        let response: APIResponseWrapper<Message> = try await legacyBackgroundMultipartUpload(
+            path: "/chat/messages/video",
+            textFields: [
+                LegacyMultipartTextField(name: "receiver_id", value: receiverID),
+                LegacyMultipartTextField(name: "client_message_id", value: job.clientRequestID)
+            ],
+            fileFields: [
+                LegacyMultipartFileField(
+                    name: "video",
+                    filename: filename,
+                    mimeType: Self.videoMIMEType(filename: filename),
+                    fileURL: videoFileURL
+                ),
+                LegacyMultipartFileField(
+                    name: "thumbnail",
+                    filename: Self.chatThumbnailFilename(for: filename),
+                    mimeType: "image/jpeg",
+                    fileURL: thumbnailURL
+                )
+            ],
+            job: job,
+            part: part,
+            timeout: 600
+        )
+        return try response.requiredData()
     }
 
     func sendVoiceMessage(receiverID: String, voiceData: Data, duration: Double, filename: String) async throws -> Message {
@@ -1074,7 +1541,10 @@ class APIService {
     // MARK: - Map Dating
 
     func getMapPresence() async throws -> MapPresence {
-        let response: APIResponseWrapper<MapPresenceResponseData> = try await get(path: "/map/me")
+        let response: APIResponseWrapper<MapPresenceResponseData> = try await get(
+            path: "/map/me",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
         guard let presence = response.data?.presence else {
             throw APIError.serverError(code: response.code, message: response.message)
         }
@@ -1084,11 +1554,17 @@ class APIService {
     func updateMapLocation(
         latitude: Double,
         longitude: Double,
-        accuracyM: Double?
+        accuracyM: Double?,
+        source: MapLocationRecordSource,
+        eventID: String,
+        recordedAt: Date
     ) async throws -> MapPresence {
         var body: [String: Any] = [
             "latitude": latitude,
-            "longitude": longitude
+            "longitude": longitude,
+            "source": source.rawValue,
+            "event_id": eventID,
+            "recorded_at": ISO8601DateFormatter().string(from: recordedAt)
         ]
         if let accuracyM {
             body["accuracy_m"] = accuracyM
@@ -1175,9 +1651,38 @@ class APIService {
 
         let response: APIResponseWrapper<MapUsersResponseData> = try await get(
             path: "/map/nearby",
-            queryItems: queryItems
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
         )
-        return try response.requiredData()
+        let data = try response.requiredData()
+        guard data.belongsToViewer(AuthManager.shared.currentUser?.userID) else {
+            throw APIError.invalidResponse
+        }
+        return data
+    }
+
+    /// Loads every account that the backend can place on the public map.
+    /// This collection endpoint intentionally has no radius, relationship,
+    /// visibility-scope, online-status, or client-side result-limit parameter.
+    func getAllMapUsers(lat: Double?, lng: Double?) async throws -> MapUsersResponseData {
+        var queryItems: [URLQueryItem] = []
+        if let lat {
+            queryItems.append(URLQueryItem(name: "lat", value: "\(lat)"))
+        }
+        if let lng {
+            queryItems.append(URLQueryItem(name: "lng", value: "\(lng)"))
+        }
+
+        let response: APIResponseWrapper<MapUsersResponseData> = try await get(
+            path: "/map/users",
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let data = try response.requiredData()
+        guard data.belongsToViewer(AuthManager.shared.currentUser?.userID) else {
+            throw APIError.invalidResponse
+        }
+        return data
     }
 
     func getFriendMapUsers(
@@ -1199,9 +1704,14 @@ class APIService {
 
         let response: APIResponseWrapper<MapUsersResponseData> = try await get(
             path: "/map/friends",
-            queryItems: queryItems
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
         )
-        return try response.requiredData()
+        let data = try response.requiredData()
+        guard data.belongsToViewer(AuthManager.shared.currentUser?.userID) else {
+            throw APIError.invalidResponse
+        }
+        return data
     }
 
     func getMapUserDetail(userID: String, lat: Double?, lng: Double?) async throws -> MapUser {
@@ -1215,7 +1725,8 @@ class APIService {
 
         let response: APIResponseWrapper<MapUserResponseData> = try await get(
             path: "/map/users/\(Self.pathComponent(userID))",
-            queryItems: queryItems
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
         )
         guard let user = response.data?.user else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -1330,11 +1841,39 @@ class APIService {
         return (data.messages, data.hasMore)
     }
 
+    func getGroupMessageContext(
+        groupID: Int,
+        messageID: Int,
+        before: Int = 20,
+        after: Int = 20
+    ) async throws -> [GroupMessage] {
+        struct ContextData: Decodable {
+            let messages: [GroupMessage]
+        }
+        let response: APIResponseWrapper<ContextData> = try await get(
+            path: "/groups/\(groupID)/messages/\(messageID)/context",
+            queryItems: [
+                URLQueryItem(name: "before", value: "\(before)"),
+                URLQueryItem(name: "after", value: "\(after)")
+            ]
+        )
+        return try response.requiredData().messages
+    }
+
+    func recallGroupMessage(groupID: Int, messageID: Int) async throws -> GroupMessage {
+        let response: APIResponseWrapper<GroupMessage> = try await postJSON(
+            path: "/groups/\(groupID)/messages/\(messageID)/recall",
+            body: [:]
+        )
+        return try response.requiredData()
+    }
+
     func sendGroupText(
         groupID: Int,
         content: String,
         replyToID: Int? = nil,
         mentions: [String] = [],
+        mentionAll: Bool = false,
         clientMessageID: String? = nil
     ) async throws -> GroupMessage {
         var body: [String: Any] = ["content": content]
@@ -1343,6 +1882,9 @@ class APIService {
         }
         if !mentions.isEmpty {
             body["mentions"] = mentions
+        }
+        if mentionAll {
+            body["mention_all"] = true
         }
         if let clientMessageID {
             body["client_message_id"] = clientMessageID
@@ -1386,18 +1928,29 @@ class APIService {
         return msg
     }
 
-    func sendGroupGift(groupID: Int, recipientID: String, giftID: String) async throws -> GroupMessage {
+    func sendGroupGift(
+        groupID: Int,
+        recipientID: String,
+        giftID: String,
+        idempotencyKey: UUID
+    ) async throws -> GroupMessage {
         let body: [String: Any] = [
             "recipient_id": recipientID,
             "receiver_id": recipientID,
-            "gift_id": giftID
+            "gift_id": giftID,
+            "idempotency_key": idempotencyKey.uuidString
         ]
         let response: APIResponseWrapper<GiftGroupMessageResponseData> = try await postJSON(
             path: "/groups/\(groupID)/messages/gift",
-            body: body
+            body: body,
+            idempotencyKey: idempotencyKey
         )
         guard let data = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
+        }
+        if let charge = data.charge {
+            WalletStore.shared.applyServerBalance(charge.walletBalance)
+            WalletTelemetry.recordMixedCharge(charge, operation: "gift_group")
         }
         return Self.normalizedGroupGiftMessage(
             data.message,
@@ -1408,14 +1961,20 @@ class APIService {
         )
     }
 
-    func sendGroupImage(groupID: Int, imageData: Data, filename: String) async throws -> GroupMessage {
+    func sendGroupImage(
+        groupID: Int,
+        imageData: Data,
+        filename: String,
+        clientMessageID: String? = nil
+    ) async throws -> GroupMessage {
         let compressed = Self.compressImageForUpload(imageData)
         let response: APIResponseWrapper<GroupMessage> = try await uploadImage(
             path: "/groups/\(groupID)/messages/image",
             fieldName: nil,
             fieldValue: nil,
             imageData: compressed,
-            filename: filename
+            filename: filename,
+            additionalFields: clientMessageID.map { ["client_message_id": $0] } ?? [:]
         )
         guard let msg = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -1423,18 +1982,88 @@ class APIService {
         return msg
     }
 
-    func sendGroupVideo(groupID: Int, videoData: Data, filename: String) async throws -> GroupMessage {
+    func sendGroupImage(
+        groupID: Int,
+        imageFileURL: URL,
+        filename: String,
+        job: OutgoingJob,
+        part: OutgoingPart
+    ) async throws -> GroupMessage {
+        let files = try await Self.preparedChatImageFilesForUpload(imageFileURL)
+        let response: APIResponseWrapper<GroupMessage> = try await legacyBackgroundMultipartUpload(
+            path: "/groups/\(groupID)/messages/image",
+            textFields: [LegacyMultipartTextField(name: "client_message_id", value: job.clientRequestID)],
+            fileFields: [
+                LegacyMultipartFileField(
+                    name: "image",
+                    filename: filename,
+                    mimeType: "image/jpeg",
+                    fileURL: files.original
+                ),
+                LegacyMultipartFileField(
+                    name: "thumbnail",
+                    filename: Self.chatThumbnailFilename(for: filename),
+                    mimeType: "image/jpeg",
+                    fileURL: files.thumbnail
+                )
+            ],
+            job: job,
+            part: part,
+            timeout: 180
+        )
+        return try response.requiredData()
+    }
+
+    func sendGroupVideo(
+        groupID: Int,
+        videoData: Data,
+        filename: String,
+        clientMessageID: String? = nil
+    ) async throws -> GroupMessage {
         let response: APIResponseWrapper<GroupMessage> = try await uploadVideo(
             path: "/groups/\(groupID)/messages/video",
             fieldName: nil,
             fieldValue: nil,
             videoData: videoData,
-            filename: filename
+            filename: filename,
+            additionalFields: clientMessageID.map { ["client_message_id": $0] } ?? [:]
         )
         guard let msg = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
         }
         return msg
+    }
+
+    func sendGroupVideo(
+        groupID: Int,
+        videoFileURL: URL,
+        filename: String,
+        job: OutgoingJob,
+        part: OutgoingPart
+    ) async throws -> GroupMessage {
+        let thumbnailURL = try await Self.preparedChatVideoThumbnailFileForUpload(videoFileURL)
+        let response: APIResponseWrapper<GroupMessage> = try await legacyBackgroundMultipartUpload(
+            path: "/groups/\(groupID)/messages/video",
+            textFields: [LegacyMultipartTextField(name: "client_message_id", value: job.clientRequestID)],
+            fileFields: [
+                LegacyMultipartFileField(
+                    name: "video",
+                    filename: filename,
+                    mimeType: Self.videoMIMEType(filename: filename),
+                    fileURL: videoFileURL
+                ),
+                LegacyMultipartFileField(
+                    name: "thumbnail",
+                    filename: Self.chatThumbnailFilename(for: filename),
+                    mimeType: "image/jpeg",
+                    fileURL: thumbnailURL
+                )
+            ],
+            job: job,
+            part: part,
+            timeout: 600
+        )
+        return try response.requiredData()
     }
 
     func sendGroupVoice(groupID: Int, voiceData: Data, duration: Double, filename: String) async throws -> GroupMessage {
@@ -1463,6 +2092,189 @@ class APIService {
             throw APIError.serverError(code: response.code, message: response.message)
         }
         return data
+    }
+
+    func getGroupNotificationSettings(groupID: Int) async throws -> GroupNotificationSettings {
+        let response: APIResponseWrapper<GroupNotificationSettings> = try await get(
+            path: "/groups/\(groupID)/notification-settings",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func updateGroupNotificationSettings(
+        groupID: Int,
+        isMuted: Bool? = nil,
+        notifyMentionsMe: Bool? = nil,
+        notifyMentionsAll: Bool? = nil,
+        importantMemberIDs: [String]? = nil
+    ) async throws -> GroupNotificationSettings {
+        var body: [String: Any] = [:]
+        if let isMuted { body["muted"] = isMuted }
+        if let notifyMentionsMe { body["notify_mentions_me"] = notifyMentionsMe }
+        if let notifyMentionsAll { body["notify_mentions_all"] = notifyMentionsAll }
+        if let importantMemberIDs { body["important_member_ids"] = importantMemberIDs }
+        guard !body.isEmpty else {
+            return try await getGroupNotificationSettings(groupID: groupID)
+        }
+
+        let response: APIResponseWrapper<GroupNotificationSettings> = try await patchJSON(
+            path: "/groups/\(groupID)/notification-settings",
+            body: body
+        )
+        return try response.requiredData()
+    }
+
+    func updateGroupViewerSettings(
+        groupID: Int,
+        remark: String? = nil,
+        showMemberNicknames: Bool? = nil
+    ) async throws -> GroupViewerSettings {
+        var body: [String: Any] = [:]
+        if let remark { body["remark"] = remark }
+        if let showMemberNicknames { body["show_member_nicknames"] = showMemberNicknames }
+        guard !body.isEmpty else {
+            return try await getGroupDetail(groupID: groupID).viewerSettings
+        }
+        let response: APIResponseWrapper<GroupViewerSettings> = try await patchJSON(
+            path: "/groups/\(groupID)/viewer-settings",
+            body: body
+        )
+        return try response.requiredData()
+    }
+
+    func updateMyGroupNickname(groupID: Int, nickname: String) async throws -> GroupMember {
+        let response: APIResponseWrapper<GroupMember> = try await patchJSON(
+            path: "/groups/\(groupID)/members/me",
+            body: ["nickname": nickname]
+        )
+        return try response.requiredData()
+    }
+
+    func updateGroupAnnouncement(
+        groupID: Int,
+        title: String,
+        content: String
+    ) async throws -> GroupAnnouncement {
+        let response: APIResponseWrapper<GroupAnnouncement> = try await putJSON(
+            path: "/groups/\(groupID)/announcement",
+            body: ["title": title, "content": content]
+        )
+        return try response.requiredData()
+    }
+
+    func createGroupInvite(groupID: Int) async throws -> GroupInvite {
+        let response: APIResponseWrapper<GroupInvite> = try await postJSON(
+            path: "/groups/\(groupID)/invites",
+            body: ["expires_in_days": 7],
+            idempotencyKey: UUID()
+        )
+        return try response.requiredData()
+    }
+
+    func revokeGroupInvite(groupID: Int, inviteID: String) async throws {
+        guard let url = URL(
+            string: baseURL + "/groups/\(groupID)/invites/\(Self.pathComponent(inviteID))"
+        ) else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        addAuthHeader(&request)
+        try await performNoContent(request)
+    }
+
+    func getGroupInvitePreview(token: String) async throws -> GroupInvitePreview {
+        let response: APIResponseWrapper<GroupInvitePreview> = try await get(
+            path: "/group-invites/\(Self.pathComponent(token))",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func acceptGroupInvite(token: String) async throws -> GroupInviteAcceptResult {
+        let response: APIResponseWrapper<GroupInviteAcceptResult> = try await postJSON(
+            path: "/group-invites/\(Self.pathComponent(token))/accept",
+            body: [:],
+            idempotencyKey: UUID()
+        )
+        return try response.requiredData()
+    }
+
+    func searchGroupMessages(
+        groupID: Int,
+        query: String,
+        senderID: String? = nil,
+        messageType: String? = nil,
+        from: Date? = nil,
+        to: Date? = nil,
+        cursor: String? = nil,
+        limit: Int = 30
+    ) async throws -> GroupMessageSearchPage {
+        var queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))
+        ]
+        if let senderID, !senderID.isBlank {
+            queryItems.append(URLQueryItem(name: "sender_id", value: senderID))
+        }
+        if let messageType, !messageType.isBlank {
+            queryItems.append(URLQueryItem(name: "message_type", value: messageType))
+        }
+        let formatter = ISO8601DateFormatter()
+        if let from { queryItems.append(URLQueryItem(name: "from", value: formatter.string(from: from))) }
+        if let to { queryItems.append(URLQueryItem(name: "to", value: formatter.string(from: to))) }
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let response: APIResponseWrapper<GroupMessageSearchPage> = try await get(
+            path: "/groups/\(groupID)/messages/search",
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func clearGroupMessageHistory(groupID: Int) async throws -> GroupHistoryClearReceipt {
+        guard let url = URL(string: baseURL + "/groups/\(groupID)/messages/history") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "Idempotency-Key")
+        addAuthHeader(&request)
+        let response: APIResponseWrapper<GroupHistoryClearReceipt> = try await perform(request)
+        return try response.requiredData()
+    }
+
+    func reportGroup(groupID: Int, reason: String, detail: String?) async throws {
+        var body: [String: Any] = ["reason": reason]
+        if let detail, !detail.isBlank { body["detail"] = detail }
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/groups/\(groupID)/reports",
+            body: body,
+            idempotencyKey: UUID()
+        )
+    }
+
+    func updateConversationPreference(
+        conversationType: String,
+        targetID: String,
+        isPinned: Bool
+    ) async throws -> ConversationPreference {
+        let response: APIResponseWrapper<ConversationPreference> = try await putJSON(
+            path: "/chat/conversations/\(Self.pathComponent(conversationType))/\(Self.pathComponent(targetID))/preferences",
+            body: ["is_pinned": isPinned, "is_hidden": false]
+        )
+        return try response.requiredData()
+    }
+
+    func hideConversation(conversationType: String, targetID: String) async throws -> ConversationPreference {
+        let response: APIResponseWrapper<ConversationPreference> = try await putJSON(
+            path: "/chat/conversations/\(Self.pathComponent(conversationType))/\(Self.pathComponent(targetID))/preferences",
+            body: ["is_pinned": false, "is_hidden": true]
+        )
+        return try response.requiredData()
     }
 
     func addGroupMembers(groupID: Int, memberIDs: [String]) async throws {
@@ -1555,6 +2367,209 @@ class APIService {
         )
     }
 
+    // MARK: One-to-one live call invitations
+
+    func getOneToOneLiveSlots(
+        filter: String,
+        cursor: String? = nil,
+        limit: Int = 30
+    ) async throws -> OneToOneLiveSlotPage {
+        var queryItems = [
+            URLQueryItem(name: "filter", value: filter),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        if let cursor, !cursor.isEmpty {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        guard var components = URLComponents(string: baseURL + "/one-to-one-live/slots") else {
+            throw APIError.invalidURL
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 15
+        )
+        request.httpMethod = "GET"
+        request.setValue("no-cache, no-store", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        addAuthHeader(&request)
+        let response: APIResponseWrapper<OneToOneLiveSlotPage> = try await perform(request)
+        return try response.requiredData()
+    }
+
+    func getCurrentOneToOneLiveSlot() async throws -> OneToOneLiveSlot? {
+        let response: APIResponseWrapper<OneToOneLiveCurrentSlotData> = try await get(
+            path: "/one-to-one-live/slots/me/current",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return response.data?.slot
+    }
+
+    func createOneToOneLiveSlot(
+        characterSetting: String,
+        liveAvatarAssetID: String?,
+        allowedCallTypes: [CallType],
+        idempotencyKey: UUID
+    ) async throws -> OneToOneLiveSlot {
+        var body: [String: Any] = [
+            "character_setting": characterSetting,
+            "allowed_call_types": LiveSlotCallTypePolicy.normalized(allowedCallTypes).map(\.rawValue),
+            "idempotency_key": idempotencyKey.uuidString
+        ]
+        if let liveAvatarAssetID,
+           !liveAvatarAssetID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["live_avatar_asset_id"] = liveAvatarAssetID
+        }
+        let response: APIResponseWrapper<OneToOneLiveSlotCreationData> = try await postJSON(
+            path: "/one-to-one-live/slots",
+            body: body,
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData().slot
+    }
+
+    func uploadOneToOneLiveAvatar(
+        imageData: Data,
+        idempotencyKey: UUID
+    ) async throws -> OneToOneLiveAvatarUpload {
+        let compressed = Self.compressImageForUpload(
+            imageData,
+            maxDimension: 1024,
+            quality: 0.82,
+            maxBytes: 1_000_000
+        )
+        let response: APIResponseWrapper<OneToOneLiveAvatarUpload> = try await uploadImage(
+            path: "/one-to-one-live/assets/avatar",
+            fieldName: nil,
+            fieldValue: nil,
+            imageFieldName: "file",
+            imageData: compressed,
+            filename: "live-avatar.jpg",
+            idempotencyKey: idempotencyKey
+        )
+        guard let data = response.data,
+              !data.assetID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !data.liveAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func deleteOneToOneLiveSlot(slotID: String, idempotencyKey: UUID) async throws {
+        guard let url = URL(string: baseURL + "/one-to-one-live/slots/\(Self.pathComponent(slotID))") else {
+            throw APIError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue(idempotencyKey.uuidString, forHTTPHeaderField: "Idempotency-Key")
+        addAuthHeader(&request)
+        let _: APIResponseWrapper<EmptyData> = try await perform(request)
+    }
+
+    func heartbeatOneToOneLiveSlot(slotID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/one-to-one-live/slots/\(Self.pathComponent(slotID))/heartbeat",
+            body: [:]
+        )
+    }
+
+    func requestOneToOneLiveCall(
+        slotID: String,
+        callType: CallType,
+        paymentMethod: LiveCallPaymentMethod = .spendableBalance,
+        idempotencyKey: UUID = UUID()
+    ) async throws -> LiveCallInvitationResponse {
+        let invitation = LiveCallInvitationRequest(
+            callType: callType,
+            paymentMethod: paymentMethod,
+            idempotencyKey: idempotencyKey
+        )
+        let response: APIResponseWrapper<LiveCallInvitationResponse> = try await postJSON(
+            path: "/one-to-one-live/slots/\(slotID)/invite",
+            body: invitation.body,
+            idempotencyKey: invitation.idempotencyKey
+        )
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func acceptOneToOneLiveCall(callID: String) async throws -> CallJoinResponse {
+        let response: APIResponseWrapper<CallJoinResponse> = try await postJSON(
+            path: "/one-to-one-live/calls/\(callID)/accept",
+            body: [:]
+        )
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func joinAcceptedOneToOneLiveCall(callID: String) async throws -> CallJoinResponse {
+        let response: APIResponseWrapper<CallJoinResponse> = try await postJSON(
+            path: "/one-to-one-live/calls/\(callID)/join",
+            body: [:]
+        )
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func getOneToOneLiveCallState(callID: String) async throws -> OneToOneLiveCallState {
+        let response: APIResponseWrapper<OneToOneLiveCallState> = try await get(
+            path: "/one-to-one-live/calls/\(Self.pathComponent(callID))",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func rejectOneToOneLiveCall(callID: String, reason: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/one-to-one-live/calls/\(callID)/reject",
+            body: ["reason": reason]
+        )
+    }
+
+    func cancelOneToOneLiveCall(callID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/one-to-one-live/calls/\(callID)/cancel",
+            body: [:]
+        )
+    }
+
+    func startAgentOneToOneLiveMatch(
+        roleSetting: String,
+        sourceAgentID: String,
+        clientMatchID: String
+    ) async throws -> AgentLiveMatchResponse {
+        let response: APIResponseWrapper<AgentLiveMatchResponse> = try await postJSON(
+            path: "/one-to-one-live/matches",
+            body: [
+                "role_setting": roleSetting,
+                "source_agent_id": sourceAgentID,
+                "client_match_id": clientMatchID
+            ]
+        )
+        guard let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        return data
+    }
+
+    func cancelAgentOneToOneLiveMatch(matchID: String) async throws {
+        let _: APIResponseWrapper<EmptyData> = try await postJSON(
+            path: "/one-to-one-live/matches/\(matchID)/cancel",
+            body: [:]
+        )
+    }
+
     func reportCallQuality(callID: String, report: CallQualityReport) async throws {
         let _: APIResponseWrapper<EmptyData> = try await postJSON(
             path: "/call/\(callID)/quality-report",
@@ -1584,6 +2599,25 @@ class APIService {
             throw APIError.serverError(code: response.code, message: response.message)
         }
         return data
+    }
+
+    // MARK: - Chat Forwarding
+
+    func forwardMessages(_ requestBody: ForwardRequest) async throws -> ForwardOperationResult {
+        let response: APIResponseWrapper<ForwardOperationResult> = try await sendEncodable(
+            method: "POST",
+            path: "/chat/forwards",
+            body: requestBody,
+            idempotencyKey: requestBody.clientOperationID
+        )
+        return try response.requiredData()
+    }
+
+    func getForwardBundle(bundleID: String) async throws -> ForwardBundle {
+        let response: APIResponseWrapper<ForwardBundle> = try await get(
+            path: "/chat/forward-bundles/\(Self.pathComponent(bundleID))"
+        )
+        return try response.requiredData()
     }
 
     // MARK: - Push
@@ -1676,7 +2710,8 @@ class APIService {
             path: "/follows/\(Self.pathComponent(userID))",
             body: [:]
         )
-        return response.data ?? FollowRelationship(userID: userID, followedByMe: true)
+        let relationship = response.data ?? FollowRelationship(userID: userID, followedByMe: true)
+        return FollowRelationshipStore.shared.apply(relationship, targetUserID: userID)
     }
 
     func unfollowUser(userID: String) async throws -> FollowRelationship {
@@ -1687,14 +2722,16 @@ class APIService {
         request.httpMethod = "DELETE"
         addAuthHeader(&request)
         let response: APIResponseWrapper<FollowRelationship> = try await perform(request)
-        return response.data ?? FollowRelationship(userID: userID, followedByMe: false)
+        let relationship = response.data ?? FollowRelationship(userID: userID, followedByMe: false)
+        return FollowRelationshipStore.shared.apply(relationship, targetUserID: userID)
     }
 
     func getFollowRelationship(userID: String) async throws -> FollowRelationship {
         let response: APIResponseWrapper<FollowRelationship> = try await get(
             path: "/follows/\(Self.pathComponent(userID))/relationship"
         )
-        return response.data ?? FollowRelationship(userID: userID, followedByMe: false)
+        let relationship = response.data ?? FollowRelationship(userID: userID, followedByMe: false)
+        return FollowRelationshipStore.shared.apply(relationship, targetUserID: userID)
     }
 
     func getRecommendedUsers(limit: Int = 18, excludeUserID: String? = nil) async throws -> [FollowUser] {
@@ -1813,9 +2850,204 @@ class APIService {
         return data
     }
 
-    func getWalletTransactions() async throws -> [WalletTransaction] {
-        let response: APIResponseWrapper<WalletTransactionsResponseData> = try await get(path: "/wallet/transactions")
-        return try response.requiredData().transactions
+    func getPropBag() async throws -> PropBagPage {
+        let response: APIResponseWrapper<PropBagPage> = try await get(
+            path: "/me/prop-bag",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func getWalletTransactionPage(
+        cursor: String? = nil,
+        limit: Int = 50
+    ) async throws -> WalletTransactionsResponseData {
+        var queryItems = [
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, 100))))
+        ]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let response: APIResponseWrapper<WalletTransactionsResponseData> = try await get(
+            path: "/wallet/transactions",
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func getActivityCatFoodTransactions(
+        cursor: String? = nil,
+        limit: Int = 20
+    ) async throws -> ActivityCatFoodTransactionPage {
+        var queryItems = [
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, 50))))
+        ]
+        if let cursor, !cursor.isBlank {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let response: APIResponseWrapper<ActivityCatFoodTransactionPage> = try await get(
+            path: "/wallet/activity-cat-food/transactions",
+            queryItems: queryItems,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func getWalletAdRewardStatus() async throws -> WalletAdRewardStatusResponseData {
+        let response: APIResponseWrapper<WalletAdRewardStatusResponseData> = try await get(
+            path: "/wallet/ad-rewards/status"
+        )
+        return try response.requiredData()
+    }
+
+    func createWalletAdRewardSession(adUnitID: String) async throws -> WalletAdRewardSessionResponseData {
+        let response: APIResponseWrapper<WalletAdRewardSessionResponseData> = try await postJSON(
+            path: "/wallet/ad-rewards/sessions",
+            body: [
+                "platform": "ios",
+                "ad_unit_id": adUnitID,
+                "reward_item": WalletCurrency.goldCoins.rawValue
+            ]
+        )
+        return try response.requiredData()
+    }
+
+    // MARK: Activity Center
+
+    func getActivityCenter() async throws -> ActivityCenterSnapshot {
+        let response: APIResponseWrapper<ActivityCenterSnapshot> = try await get(
+            path: "/activity-center",
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try response.requiredData()
+    }
+
+    func claimActivityCheckIn(idempotencyKey: UUID) async throws -> ActivityCenterGrantResult {
+        let response: APIResponseWrapper<ActivityCenterGrantResult> = try await postJSON(
+            path: "/activity-center/check-in/claim",
+            body: [:],
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData()
+    }
+
+    func claimActivityMeal(
+        windowID: String,
+        idempotencyKey: UUID
+    ) async throws -> ActivityCenterGrantResult {
+        let response: APIResponseWrapper<ActivityCenterGrantResult> = try await postJSON(
+            path: "/activity-center/meals/\(Self.pathComponent(windowID))/claim",
+            body: [:],
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData()
+    }
+
+    func spinActivityWheel(
+        configVersion: String,
+        tierID: String,
+        idempotencyKey: UUID
+    ) async throws -> ActivityWheelSpinEnvelope {
+        let response: APIResponseWrapper<ActivityWheelSpinEnvelope> = try await postJSON(
+            path: "/activity-center/wheel/spins",
+            body: [
+                "expected_config_version": configVersion,
+                "tier_id": tierID
+            ],
+            idempotencyKey: idempotencyKey
+        )
+        return try response.requiredData()
+    }
+
+    func createActivityContactDiscoverySession() async throws -> ActivityContactDiscoverySession {
+        let response: APIResponseWrapper<ActivityContactDiscoverySession> = try await postJSON(
+            path: "/activity-center/contact-discovery/sessions",
+            body: [:],
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
+    }
+
+    func matchActivityContacts(
+        sessionID: String,
+        saltVersion: String,
+        phoneHashes: [String],
+        idempotencyKey: UUID
+    ) async throws -> ActivityContactMatchResult {
+        let response: APIResponseWrapper<ActivityContactMatchResult> = try await postJSON(
+            path: "/activity-center/contact-discovery/sessions/\(Self.pathComponent(sessionID))/match",
+            body: [
+                "salt_version": saltVersion,
+                "phone_hashes": phoneHashes
+            ],
+            idempotencyKey: idempotencyKey,
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
+    }
+
+    func createActivityInviteShareSession() async throws -> ActivityInviteShareSession {
+        let response: APIResponseWrapper<ActivityInviteShareSession> = try await postJSON(
+            path: "/activity-center/invite-share-sessions",
+            body: [:],
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
+    }
+
+    func completeActivityInviteShareSession(
+        sessionID: String,
+        idempotencyKey: UUID
+    ) async throws -> ActivityCenterGrantResult {
+        let response: APIResponseWrapper<ActivityCenterGrantResult> = try await postJSON(
+            path: "/activity-center/invite-share-sessions/\(Self.pathComponent(sessionID))/complete",
+            body: [:],
+            idempotencyKey: idempotencyKey,
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
+    }
+
+    func redeemActivityInvite(
+        codeOrToken: String,
+        idempotencyKey: UUID
+    ) async throws -> ActivityCenterSnapshot {
+        let response: APIResponseWrapper<ActivityCenterSnapshot> = try await postJSON(
+            path: "/activity-center/invites/redeem",
+            body: ["code_or_token": codeOrToken],
+            idempotencyKey: idempotencyKey,
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
+    }
+
+    func createActivityPhoneVerificationSession(
+        e164Phone: String
+    ) async throws -> ActivityPhoneVerificationSession {
+        let response: APIResponseWrapper<ActivityPhoneVerificationSession> = try await postJSON(
+            path: "/account/phone/verification-sessions",
+            body: ["phone_e164": e164Phone],
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
+    }
+
+    func verifyActivityPhone(
+        sessionID: String,
+        code: String,
+        idempotencyKey: UUID
+    ) async throws -> ActivityCenterSnapshot {
+        let response: APIResponseWrapper<ActivityCenterSnapshot> = try await postJSON(
+            path: "/account/phone/verify",
+            body: [
+                "session_id": sessionID,
+                "code": code
+            ],
+            idempotencyKey: idempotencyKey,
+            containsSensitiveResponse: true
+        )
+        return try response.requiredData()
     }
 
     // MARK: Chat Money
@@ -1869,10 +3101,10 @@ class APIService {
     }
 
     func getChatMoneyDetail(assetID: String) async throws -> ChatMoneyDetail {
-        let response: APIResponseWrapper<ChatMoneyDetail> = try await get(
+        let response: APIResponseWrapper<ChatMoneyDetailResponseData> = try await get(
             path: "/wallet/chat-money/\(Self.pathComponent(assetID))"
         )
-        return try response.requiredData()
+        return try response.requiredData().detail
     }
 
     func claimRedPacket(assetID: String) async throws -> ChatMoneyActionResult {
@@ -1932,14 +3164,14 @@ class APIService {
     }
 
     func createWalletWithdrawal(
-        amount: Int,
+        goldCoinAmount: Int,
         usdtAmount: String? = nil,
         payoutMethod: String? = nil,
         payoutAccount: String? = nil,
         network: String? = nil,
         walletAddress: String? = nil
     ) async throws -> WalletWithdrawal? {
-        var body: [String: Any] = ["amount": amount]
+        var body: [String: Any] = ["gold_coin_amount": goldCoinAmount]
         if let usdtAmount {
             body["usdt_amount"] = usdtAmount
         }
@@ -2385,11 +3617,15 @@ class APIService {
         return try response.requiredData()
     }
 
-    func unlockAgentMedia(id: String, idempotencyKey: UUID) async throws -> AgentMediaUnlock {
+    func unlockAgentMedia(
+        id: String,
+        paymentMethod: MediaUnlockPaymentMethod,
+        idempotencyKey: UUID
+    ) async throws -> AgentMediaUnlock {
         let response: APIResponseWrapper<AgentMediaUnlock> = try await agentJSONRequest(
             method: "POST",
             path: "/agent-media/\(Self.pathComponent(id))/unlock",
-            body: [:],
+            body: paymentMethod.requestBody,
             idempotencyKey: idempotencyKey
         )
         return try response.requiredData()
@@ -2471,20 +3707,39 @@ class APIService {
         quality: CGFloat = 0.7,
         maxBytes: Int = 2_000_000
     ) -> Data {
-        guard let image = UIImage(data: data) else { return data }
+        guard maxDimension > 0,
+              maxBytes > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return data }
+
+        // Avoid a second lossy JPEG pass when the picker already prepared the
+        // photo. Reading ImageIO metadata does not decode the full-size bitmap.
+        if data.count <= maxBytes,
+           isJPEG(data),
+           let pixelSize = imagePixelSize(source),
+           max(pixelSize.width, pixelSize.height) <= maxDimension {
+            return data
+        }
+
         let minDimension = min(maxDimension, 640)
         var currentMaxDimension = maxDimension
         var bestData: Data?
+        let qualitySteps = [quality, 0.65, 0.55, 0.45, 0.35]
+            .map { min(max($0, 0.1), 1.0) }
+            .reduce(into: [CGFloat]()) { result, value in
+                if !result.contains(value) {
+                    result.append(value)
+                }
+            }
 
         while true {
-            let resized = resizedImage(image, maxDimension: currentMaxDimension)
-            let qualitySteps = [quality, 0.65, 0.55, 0.45, 0.35]
-                .map { min(max($0, 0.1), 1.0) }
-                .reduce(into: [CGFloat]()) { result, value in
-                    if !result.contains(value) {
-                        result.append(value)
-                    }
-                }
+            // ImageIO creates a bounded thumbnail directly from the encoded
+            // source. UIImage(data:) could otherwise decode a 48 MP photo into
+            // hundreds of MB before it is resized.
+            guard let resized = downsampledImage(
+                source,
+                maxDimension: currentMaxDimension
+            ) else { break }
 
             for step in qualitySteps {
                 guard let compressed = resized.jpegData(compressionQuality: step) else { continue }
@@ -2506,23 +3761,112 @@ class APIService {
         return data
     }
 
+    /// Produces a JPEG sibling inside the durable outbox directory. The
+    /// original remains available for the optimistic preview while the much
+    /// smaller derivative is streamed by the background URLSession.
+    nonisolated private static func preparedChatImageFilesForUpload(
+        _ sourceURL: URL
+    ) async throws -> (original: URL, thumbnail: URL) {
+        try await Task.detached(priority: .utility) {
+            let sourceData = try Data(contentsOf: sourceURL, options: .mappedIfSafe)
+            let preparedData = compressImageForUpload(sourceData)
+            let originalURL: URL
+            if preparedData == sourceData {
+                originalURL = sourceURL
+            } else {
+                originalURL = sourceURL
+                    .deletingPathExtension()
+                    .appendingPathExtension("upload.jpg")
+                try preparedData.write(
+                    to: originalURL,
+                    options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+                )
+            }
+
+            let thumbnailData = compressImageForUpload(
+                preparedData,
+                maxDimension: 360,
+                quality: 0.58,
+                maxBytes: 140_000
+            )
+            let thumbnailURL = sourceURL
+                .deletingPathExtension()
+                .appendingPathExtension("thumbnail.jpg")
+            try thumbnailData.write(
+                to: thumbnailURL,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
+            return (originalURL, thumbnailURL)
+        }.value
+    }
+
+    nonisolated private static func preparedChatVideoThumbnailFileForUpload(
+        _ sourceURL: URL
+    ) async throws -> URL {
+        try await Task.detached(priority: .utility) {
+            let asset = AVURLAsset(url: sourceURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 480, height: 480)
+            let cgImage = try generator.copyCGImage(at: .zero, actualTime: nil)
+            let image = UIImage(cgImage: cgImage)
+            guard let data = image.jpegData(compressionQuality: 0.62) else {
+                throw APIError.invalidResponse
+            }
+            let destinationURL = sourceURL
+                .deletingPathExtension()
+                .appendingPathExtension("thumbnail.jpg")
+            try data.write(
+                to: destinationURL,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
+            return destinationURL
+        }.value
+    }
+
+    nonisolated private static func chatThumbnailFilename(for filename: String) -> String {
+        let base = URL(fileURLWithPath: filename)
+            .deletingPathExtension()
+            .lastPathComponent
+        return "\(base)_thumb.jpg"
+    }
+
     nonisolated static func compressBackgroundImageForUpload(_ data: Data) -> Data {
         compressImageForUpload(data, maxDimension: 1280, quality: 0.72, maxBytes: 900_000)
     }
 
-    nonisolated private static func resizedImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
-        let width = image.size.width
-        let height = image.size.height
-        guard max(width, height) > maxDimension else { return image }
+    nonisolated private static func downsampledImage(
+        _ source: CGImageSource,
+        maxDimension: CGFloat
+    ) -> UIImage? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxDimension)),
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            options as CFDictionary
+        ) else { return nil }
+        return UIImage(cgImage: image)
+    }
 
-        let ratio = maxDimension / max(width, height)
-        let newSize = CGSize(width: width * ratio, height: height * ratio)
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: newSize))
-        }
+    nonisolated private static func imagePixelSize(_ source: CGImageSource) -> CGSize? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber
+        else { return nil }
+        return CGSize(width: width.doubleValue, height: height.doubleValue)
+    }
+
+    nonisolated private static func isJPEG(_ data: Data) -> Bool {
+        data.count >= 3
+            && data[data.startIndex] == 0xFF
+            && data[data.index(after: data.startIndex)] == 0xD8
+            && data[data.index(data.startIndex, offsetBy: 2)] == 0xFF
     }
 
     private static func pathComponent(_ raw: String) -> String {
@@ -2533,9 +3877,28 @@ class APIService {
 
     // MARK: - Private Helpers
 
+    private func sendEncodable<Body: Encodable, Response: Decodable>(
+        method: String,
+        path: String,
+        body: Body,
+        idempotencyKey: UUID? = nil
+    ) async throws -> Response {
+        guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(idempotencyKey.uuidString, forHTTPHeaderField: "Idempotency-Key")
+        }
+        request.httpBody = try JSONEncoder().encode(body)
+        addAuthHeader(&request)
+        return try await perform(request)
+    }
+
     private func get<T: Decodable>(
         path: String,
-        queryItems: [URLQueryItem] = []
+        queryItems: [URLQueryItem] = [],
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> T {
         guard var components = URLComponents(string: baseURL + path) else {
             throw APIError.invalidURL
@@ -2547,8 +3910,11 @@ class APIService {
             throw APIError.invalidURL
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: cachePolicy)
         request.httpMethod = "GET"
+        if cachePolicy == .reloadIgnoringLocalCacheData {
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        }
         addAuthHeader(&request)
 
         return try await perform(request)
@@ -2557,7 +3923,9 @@ class APIService {
     private func postJSON<T: Decodable>(
         path: String,
         body: [String: Any],
-        auth: Bool = true
+        auth: Bool = true,
+        idempotencyKey: UUID? = nil,
+        containsSensitiveResponse: Bool = false
     ) async throws -> T {
         guard let url = URL(string: baseURL + path) else {
             throw APIError.invalidURL
@@ -2566,6 +3934,15 @@ class APIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(
+                idempotencyKey.uuidString,
+                forHTTPHeaderField: "Idempotency-Key"
+            )
+        }
+        if containsSensitiveResponse {
+            SensitiveHTTPResponsePolicy.apply(to: &request)
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         if auth {
@@ -2616,12 +3993,103 @@ class APIService {
         return try await perform(request)
     }
 
+    private func legacyBackgroundMultipartUpload<T: Decodable>(
+        path: String,
+        textFields: [LegacyMultipartTextField],
+        fileFields: [LegacyMultipartFileField],
+        job: OutgoingJob,
+        part: OutgoingPart,
+        timeout: TimeInterval
+    ) async throws -> T {
+        guard let url = URL(string: baseURL + path) else { throw APIError.invalidURL }
+        let boundary = "BWChat-\(UUID().uuidString)"
+        let multipartURL = try OutgoingFileStore.jobDirectory(ownerID: job.ownerID, jobID: job.clientRequestID)
+            .appendingPathComponent("multipart-\(part.id).body", isDirectory: false)
+
+        OutgoingStore.shared.updateJob(id: job.id, ownerID: job.ownerID, state: .preparing)
+        if let sourceURL = fileFields.first?.fileURL,
+           let digest = try? await OutgoingFileStore.sha256(of: sourceURL) {
+            OutgoingStore.shared.updatePart(
+                id: part.id,
+                ownerID: job.ownerID,
+                state: .preparing,
+                sha256: digest
+            )
+        }
+        try await Task.detached(priority: .utility) {
+            try LegacyMultipartAdapter.build(
+                textFields: textFields,
+                fileFields: fileFields,
+                destinationURL: multipartURL,
+                boundary: boundary
+            )
+        }.value
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(job.clientRequestID, forHTTPHeaderField: "Idempotency-Key")
+        addAuthHeader(&request)
+
+        do {
+            let result = try await UploadEngine.shared.upload(
+                request: request,
+                multipartFileURL: multipartURL,
+                job: job,
+                part: part
+            )
+            try? FileManager.default.removeItem(at: multipartURL)
+            guard (200..<300).contains(result.response.statusCode) else {
+                let message = String(data: result.data, encoding: .utf8) ?? "HTTP \(result.response.statusCode)"
+                if result.response.statusCode == 408
+                    || result.response.statusCode == 429
+                    || (500...599).contains(result.response.statusCode) {
+                    await UploadEngine.shared.markRetryWaiting(
+                        jobID: job.id,
+                        ownerID: job.ownerID,
+                        error: URLError(.badServerResponse),
+                        attempt: job.attemptCount
+                    )
+                    throw URLError(.badServerResponse)
+                }
+                throw APIError.serverError(code: result.response.statusCode, message: message)
+            }
+            do {
+                return try JSONDecoder().decode(T.self, from: result.data)
+            } catch {
+                await UploadEngine.shared.markConfirmationUnknown(
+                    jobID: job.id,
+                    ownerID: job.ownerID,
+                    code: "response-decode-failed"
+                )
+                throw APIError.decodingError(error)
+            }
+        } catch {
+            if (error as NSError).code == NSURLErrorCancelled {
+                throw error
+            }
+            throw error
+        }
+    }
+
+    nonisolated private static func videoMIMEType(filename: String) -> String {
+        switch (filename as NSString).pathExtension.lowercased() {
+        case "mov": return "video/quicktime"
+        case "m4v": return "video/x-m4v"
+        default: return "video/mp4"
+        }
+    }
+
     private func uploadImage<T: Decodable>(
         path: String,
         fieldName: String?,
         fieldValue: String?,
+        imageFieldName: String = "image",
         imageData: Data,
-        filename: String
+        filename: String,
+        additionalFields: [String: String] = [:],
+        idempotencyKey: UUID? = nil
     ) async throws -> T {
         guard let url = URL(string: baseURL + path) else {
             throw APIError.invalidURL
@@ -2631,6 +4099,9 @@ class APIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(idempotencyKey.uuidString, forHTTPHeaderField: "Idempotency-Key")
+        }
         request.timeoutInterval = 90
         addAuthHeader(&request)
 
@@ -2641,9 +4112,14 @@ class APIService {
             body.append("Content-Disposition: form-data; name=\"\(fieldName)\"\r\n\r\n".data(using: .utf8)!)
             body.append("\(fieldValue)\r\n".data(using: .utf8)!)
         }
+        for (name, value) in additionalFields.sorted(by: { $0.key < $1.key }) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
         // image field
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"image\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(imageFieldName)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
         body.append(imageData)
         body.append("\r\n".data(using: .utf8)!)
@@ -2660,7 +4136,8 @@ class APIService {
         fieldName: String?,
         fieldValue: String?,
         videoData: Data,
-        filename: String
+        filename: String,
+        additionalFields: [String: String] = [:]
     ) async throws -> T {
         guard let url = URL(string: baseURL + path) else {
             throw APIError.invalidURL
@@ -2678,6 +4155,11 @@ class APIService {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"\(fieldName)\"\r\n\r\n".data(using: .utf8)!)
             body.append("\(fieldValue)\r\n".data(using: .utf8)!)
+        }
+        for (name, value) in additionalFields.sorted(by: { $0.key < $1.key }) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
         }
         let ext = (filename as NSString).pathExtension.lowercased()
         let mimeType: String
@@ -2730,10 +4212,38 @@ class APIService {
         return data
     }
 
-    func createGameSession(gameID: String) async throws -> GameSession {
+    func createGameLobbySession(
+        gameID: String,
+        idempotencyKey: UUID = UUID()
+    ) async throws -> GameSession {
         let response: APIResponseWrapper<GameSession> = try await postJSON(
             path: "/games/\(Self.pathComponent(gameID))/sessions",
-            body: [:]
+            body: GameLobbySessionRequest.requestBody,
+            idempotencyKey: idempotencyKey,
+            containsSensitiveResponse: true
+        )
+        guard response.code == 0, let data = response.data else {
+            throw APIError.serverError(code: response.code, message: response.message)
+        }
+        #if DEBUG
+        print(
+            "[GameLobby] created entry_price_gold_coins="
+                + "\(data.entryPriceGoldCoins.map(String.init) ?? "-")"
+        )
+        #endif
+        return data
+    }
+
+    func startGameRound(
+        gameID: String,
+        sessionID: String,
+        idempotencyKey: UUID
+    ) async throws -> GameRoundStart {
+        let response: APIResponseWrapper<GameRoundStart> = try await postJSON(
+            path: "/games/\(Self.pathComponent(gameID))/sessions/\(Self.pathComponent(sessionID))/rounds",
+            body: GameRoundStartRequestPayload.requestBody,
+            idempotencyKey: idempotencyKey,
+            containsSensitiveResponse: true
         )
         guard response.code == 0, let data = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -2890,15 +4400,15 @@ class APIService {
         videoFilename: String,
         coverData: Data,
         coverFilename: String,
-        unlockPriceCatFood: Int? = nil
+        unlockPriceGoldCoins: Int? = nil
     ) async throws -> ShortDramaEpisodeUploadResult {
         var fields: [(String, String)] = [
             ("title", title),
             ("intro", intro),
             ("episode_number", "\(episodeNumber)")
         ]
-        if let unlockPriceCatFood {
-            fields.append(("unlock_price_cat_food", "\(min(max(unlockPriceCatFood, 0), 100))"))
+        if let unlockPriceGoldCoins {
+            fields.append(("unlock_price_gold_coins", "\(min(max(unlockPriceGoldCoins, 0), 100))"))
         }
         let response: APIResponseWrapper<ShortDramaEpisodeUploadResult> = try await shortDramaMultipartRequest(
             path: "/short-drama/series/\(Self.pathComponent(seriesID))/episodes",
@@ -2923,12 +4433,63 @@ class APIService {
         return response.data ?? ShortDramaEpisodeUploadResult(video: nil, status: nil)
     }
 
+    func uploadShortDramaEpisode(
+        seriesID: String,
+        clientEpisodeID: String,
+        title: String,
+        intro: String,
+        episodeNumber: Int,
+        videoFileURL: URL,
+        videoFilename: String,
+        coverFileURL: URL,
+        coverFilename: String,
+        unlockPriceGoldCoins: Int? = nil,
+        job: OutgoingJob,
+        part: OutgoingPart
+    ) async throws -> ShortDramaEpisodeUploadResult {
+        var fields = [
+            LegacyMultipartTextField(name: "title", value: title),
+            LegacyMultipartTextField(name: "intro", value: intro),
+            LegacyMultipartTextField(name: "episode_number", value: String(episodeNumber)),
+            LegacyMultipartTextField(name: "client_episode_id", value: clientEpisodeID),
+            LegacyMultipartTextField(name: "client_series_id", value: job.clientRequestID)
+        ]
+        if let unlockPriceGoldCoins {
+            fields.append(LegacyMultipartTextField(
+                name: "unlock_price_gold_coins",
+                value: String(min(max(unlockPriceGoldCoins, 0), 100))
+            ))
+        }
+        let response: APIResponseWrapper<ShortDramaEpisodeUploadResult> = try await legacyBackgroundMultipartUpload(
+            path: "/short-drama/series/\(Self.pathComponent(seriesID))/episodes",
+            textFields: fields,
+            fileFields: [
+                LegacyMultipartFileField(
+                    name: "video",
+                    filename: videoFilename,
+                    mimeType: Self.videoMIMEType(filename: videoFilename),
+                    fileURL: videoFileURL
+                ),
+                LegacyMultipartFileField(
+                    name: "cover",
+                    filename: coverFilename,
+                    mimeType: "image/jpeg",
+                    fileURL: coverFileURL
+                )
+            ],
+            job: job,
+            part: part,
+            timeout: 600
+        )
+        return response.data ?? ShortDramaEpisodeUploadResult(video: nil, status: nil)
+    }
+
     func updateShortDramaEpisode(
         videoID: String,
         title: String,
         intro: String,
         episodeNumber: Int,
-        unlockPriceCatFood: Int
+        unlockPriceGoldCoins: Int
     ) async throws -> ShortDramaVideo {
         let response: APIResponseWrapper<ShortDramaVideo> = try await patchJSON(
             path: "/short-drama/videos/\(Self.pathComponent(videoID))",
@@ -2936,7 +4497,7 @@ class APIService {
                 "title": title,
                 "intro": intro,
                 "episode_number": episodeNumber,
-                "unlock_price_cat_food": min(max(unlockPriceCatFood, 0), 100)
+                "unlock_price_gold_coins": min(max(unlockPriceGoldCoins, 0), 100)
             ]
         )
         guard let video = response.data else {
@@ -2945,10 +4506,12 @@ class APIService {
         return video
     }
 
-    func submitShortDramaSeries(seriesID: String) async throws -> ShortDramaSeries {
+    func submitShortDramaSeries(seriesID: String, clientRequestID: String? = nil) async throws -> ShortDramaSeries {
+        var body: [String: String] = [:]
+        if let clientRequestID { body["client_request_id"] = clientRequestID }
         let response: APIResponseWrapper<ShortDramaSeries> = try await postJSON(
             path: "/short-drama/series/\(Self.pathComponent(seriesID))/submit",
-            body: [:]
+            body: body
         )
         guard let series = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -2956,10 +4519,14 @@ class APIService {
         return series
     }
 
-    func unlockShortDramaEpisode(videoID: String) async throws -> ShortDramaUnlockResult {
+    func unlockShortDramaEpisode(
+        videoID: String,
+        idempotencyKey: UUID
+    ) async throws -> ShortDramaUnlockResult {
         let response: APIResponseWrapper<ShortDramaUnlockResult> = try await postJSON(
             path: "/short-drama/videos/\(Self.pathComponent(videoID))/unlock",
-            body: [:]
+            body: ["idempotency_key": idempotencyKey.uuidString],
+            idempotencyKey: idempotencyKey
         )
         guard let result = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -2981,7 +4548,7 @@ class APIService {
         let path = "/short-drama/videos/\(Self.pathComponent(videoID))/like"
         if liked {
             let response: APIResponseWrapper<ShortDramaInteractionResult> = try await postJSON(path: path, body: [:])
-            return response.data ?? ShortDramaInteractionResult(liked: true, favorited: nil, likeCount: nil, favoriteCount: nil)
+            return response.data ?? ShortDramaInteractionResult(liked: true, likeCount: nil)
         }
 
         guard let url = URL(string: baseURL + path) else {
@@ -2991,24 +4558,7 @@ class APIService {
         request.httpMethod = "DELETE"
         addAuthHeader(&request)
         let response: APIResponseWrapper<ShortDramaInteractionResult> = try await perform(request)
-        return response.data ?? ShortDramaInteractionResult(liked: false, favorited: nil, likeCount: nil, favoriteCount: nil)
-    }
-
-    func setShortDramaFavorited(videoID: String, favorited: Bool) async throws -> ShortDramaInteractionResult {
-        let path = "/short-drama/videos/\(Self.pathComponent(videoID))/favorite"
-        if favorited {
-            let response: APIResponseWrapper<ShortDramaInteractionResult> = try await postJSON(path: path, body: [:])
-            return response.data ?? ShortDramaInteractionResult(liked: nil, favorited: true, likeCount: nil, favoriteCount: nil)
-        }
-
-        guard let url = URL(string: baseURL + path) else {
-            throw APIError.invalidURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        addAuthHeader(&request)
-        let response: APIResponseWrapper<ShortDramaInteractionResult> = try await perform(request)
-        return response.data ?? ShortDramaInteractionResult(liked: nil, favorited: false, likeCount: nil, favoriteCount: nil)
+        return response.data ?? ShortDramaInteractionResult(liked: false, likeCount: nil)
     }
 
     func getShortDramaComments(
@@ -3136,38 +4686,20 @@ class APIService {
     // MARK: - Moments
 
     /// Personalized feed containing posts from users followed by the current user.
-    func getMomentsFollowing(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool) {
-        struct FeedData: Decodable {
-            let moments: [Moment]
-            let hasMore: Bool
-            enum CodingKeys: String, CodingKey {
-                case moments
-                case hasMore = "has_more"
-            }
-        }
-
+    func getMomentsFollowing(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool, Bool?) {
         var path = "/moments/feed?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
-        let response: APIResponseWrapper<FeedData> = try await get(path: path)
+        let response: APIResponseWrapper<MomentFeedResponseData> = try await get(path: path)
         let data = try response.requiredData()
-        return (data.moments, data.hasMore)
+        return (data.moments, data.hasMore, data.snapshotComplete)
     }
 
-    func getMomentsWorld(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool) {
-        struct FeedData: Decodable {
-            let moments: [Moment]
-            let hasMore: Bool
-            enum CodingKeys: String, CodingKey {
-                case moments
-                case hasMore = "has_more"
-            }
-        }
-
+    func getMomentsWorld(beforeID: Int? = nil, limit: Int = 20) async throws -> ([Moment], Bool, Bool?) {
         var path = "/moments/world?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
-        let response: APIResponseWrapper<FeedData> = try await get(path: path)
+        let response: APIResponseWrapper<MomentFeedResponseData> = try await get(path: path)
         let data = try response.requiredData()
-        return (data.moments, data.hasMore)
+        return (data.moments, data.hasMore, data.snapshotComplete)
     }
 
     func createMoment(content: String, imageDataList: [(Data, String)]) async throws -> Moment {
@@ -3177,15 +4709,16 @@ class APIService {
         return try await createMoment(
             content: content,
             mediaDataList: mediaDataList,
-            unlockPriceCatFood: nil
+            unlockPriceGoldCoins: nil
         )
     }
 
     func createMoment(
         content: String,
         mediaDataList: [MomentUploadMedia],
-        unlockPriceCatFood: Int?
+        unlockPriceGoldCoins: Int?
     ) async throws -> Moment {
+        try MomentMediaPolicy.validate(mediaDataList.map(\.kind))
         guard let url = URL(string: baseURL + "/moments/create") else {
             throw APIError.invalidURL
         }
@@ -3200,7 +4733,7 @@ class APIService {
             boundary: boundary,
             content: content,
             mediaDataList: mediaDataList,
-            unlockPriceCatFood: unlockPriceCatFood
+            unlockPriceGoldCoins: unlockPriceGoldCoins
         )
 
         let response: APIResponseWrapper<Moment> = try await performUpload(request, body: body)
@@ -3210,20 +4743,76 @@ class APIService {
         return moment
     }
 
+    func createMoment(
+        content: String,
+        mediaFiles: [MomentUploadFile],
+        unlockPriceGoldCoins: Int?,
+        job: OutgoingJob,
+        parts: [OutgoingPart]
+    ) async throws -> Moment {
+        try MomentMediaPolicy.validate(mediaFiles.map(\.kind))
+        guard let trackingPart = parts.first else { throw APIError.invalidResponse }
+        for (part, media) in zip(parts, mediaFiles) {
+            if let digest = try? await OutgoingFileStore.sha256(of: media.fileURL) {
+                OutgoingStore.shared.updatePart(
+                    id: part.id,
+                    ownerID: job.ownerID,
+                    state: .preparing,
+                    sha256: digest
+                )
+            }
+        }
+        var fields = [
+            LegacyMultipartTextField(name: "content", value: content),
+            LegacyMultipartTextField(name: "client_request_id", value: job.clientRequestID)
+        ]
+        if let unlockPriceGoldCoins, unlockPriceGoldCoins > 0 {
+            fields.append(LegacyMultipartTextField(
+                name: "unlock_price_gold_coins",
+                value: String(unlockPriceGoldCoins)
+            ))
+        }
+        let response: APIResponseWrapper<Moment> = try await legacyBackgroundMultipartUpload(
+            path: "/moments/create",
+            textFields: fields,
+            fileFields: mediaFiles.map {
+                LegacyMultipartFileField(
+                    name: "media",
+                    filename: $0.filename,
+                    mimeType: $0.mimeType,
+                    fileURL: $0.fileURL
+                )
+            },
+            job: job,
+            part: trackingPart,
+            timeout: mediaFiles.contains { $0.kind == .video } ? 600 : 180
+        )
+        let moment = try response.requiredData()
+        for part in parts {
+            OutgoingStore.shared.updatePart(
+                id: part.id,
+                ownerID: job.ownerID,
+                state: .succeeded,
+                uploadedBytes: part.byteSize
+            )
+        }
+        return moment
+    }
+
     nonisolated private static func momentMultipartBody(
         boundary: String,
         content: String,
         mediaDataList: [MomentUploadMedia],
-        unlockPriceCatFood: Int?
+        unlockPriceGoldCoins: Int?
     ) async -> Data {
         await Task.detached(priority: .utility) {
             var body = Data()
             appendMomentTextField(name: "content", value: content, boundary: boundary, to: &body)
 
-            if let unlockPriceCatFood, unlockPriceCatFood > 0 {
+            if let unlockPriceGoldCoins, unlockPriceGoldCoins > 0 {
                 appendMomentTextField(
-                    name: "unlock_price_cat_food",
-                    value: "\(unlockPriceCatFood)",
+                    name: "unlock_price_gold_coins",
+                    value: "\(unlockPriceGoldCoins)",
                     boundary: boundary,
                     to: &body
                 )
@@ -3272,10 +4861,15 @@ class APIService {
         return compressImageForUpload(media.data)
     }
 
-    func unlockMoment(momentID: Int) async throws -> MomentUnlockResponseData {
+    func unlockMoment(
+        momentID: Int,
+        paymentMethod: MediaUnlockPaymentMethod,
+        idempotencyKey: UUID = UUID()
+    ) async throws -> MomentUnlockResponseData {
         let response: APIResponseWrapper<MomentUnlockResponseData> = try await postJSON(
             path: "/moments/\(momentID)/unlock",
-            body: [:] as [String: String]
+            body: paymentMethod.requestBody,
+            idempotencyKey: idempotencyKey
         )
         guard let data = response.data else {
             throw APIError.serverError(code: response.code, message: response.message)
@@ -3283,21 +4877,12 @@ class APIService {
         return data
     }
 
-    func getUserMoments(userID: String, limit: Int = 20, beforeID: Int? = nil) async throws -> ([Moment], Bool) {
-        struct FeedData: Decodable {
-            let moments: [Moment]
-            let hasMore: Bool
-            enum CodingKeys: String, CodingKey {
-                case moments
-                case hasMore = "has_more"
-            }
-        }
-
+    func getUserMoments(userID: String, limit: Int = 20, beforeID: Int? = nil) async throws -> ([Moment], Bool, Bool?) {
         var path = "/moments/user/\(Self.pathComponent(userID))?limit=\(limit)"
         if let bid = beforeID { path += "&before_id=\(bid)" }
-        let response: APIResponseWrapper<FeedData> = try await get(path: path)
+        let response: APIResponseWrapper<MomentFeedResponseData> = try await get(path: path)
         let data = try response.requiredData()
-        return (data.moments, data.hasMore)
+        return (data.moments, data.hasMore, data.snapshotComplete)
     }
 
     func toggleMomentLike(momentID: Int) async throws -> Bool {
@@ -3422,11 +5007,49 @@ class APIService {
             logoutOnUnauthorized: logoutOnUnauthorized
         ) { request in
             try await self.session.data(for: request)
-        } decode: { data, request, _ in
+        } decode: { data, request, response in
             do {
                 return try JSONDecoder().decode(T.self, from: data)
             } catch {
-                Self.logDecodingError(error, data: data, request: request, type: T.self)
+                Self.logDecodingError(
+                    error,
+                    data: data,
+                    request: request,
+                    response: response,
+                    type: T.self
+                )
+                throw APIError.decodingError(error)
+            }
+        }
+    }
+
+    /// Accepts both the app's JSON envelope and a standards-compliant empty
+    /// 204 response. Delete endpoints may legitimately return either shape.
+    private func performNoContent(
+        _ request: URLRequest,
+        allowRetry: Bool = true,
+        logoutOnUnauthorized: Bool = true
+    ) async throws {
+        let _: Bool = try await performTransport(
+            request,
+            allowRetry: allowRetry,
+            logoutOnUnauthorized: logoutOnUnauthorized
+        ) { request in
+            try await self.session.data(for: request)
+        } decode: { data, request, _ in
+            if data.isEmpty {
+                return true
+            }
+            do {
+                _ = try JSONDecoder().decode(APIResponseWrapper<EmptyData>.self, from: data)
+                return true
+            } catch {
+                Self.logDecodingError(
+                    error,
+                    data: data,
+                    request: request,
+                    type: APIResponseWrapper<EmptyData>.self
+                )
                 throw APIError.decodingError(error)
             }
         }
@@ -3601,11 +5224,17 @@ class APIService {
         let message: String
         let detailResponse = try? decoder.decode(DetailErrorResponse.self, from: data)
         let envelopeResponse = try? decoder.decode(APIResponseWrapper<EmptyData>.self, from: data)
+        let symbolicResponse = try? decoder.decode(SymbolicBusinessErrorResponse.self, from: data)
+        let structuredResponse = try? decoder.decode(StructuredErrorResponse.self, from: data)
         if let detailMessage = detailResponse?.detail?.message,
            !detailMessage.isEmpty {
             message = detailMessage
-        } else if let structuredResponse = try? decoder.decode(StructuredErrorResponse.self, from: data),
-                  let structuredMessage = structuredResponse.userFacingMessage {
+        } else if let businessMessage = LiveCallBusinessErrorPolicy.message(
+            code: symbolicResponse?.code,
+            serverMessage: symbolicResponse?.message
+        ) {
+            message = businessMessage
+        } else if let structuredMessage = structuredResponse?.userFacingMessage {
             message = structuredMessage
         } else if let errorResponse = envelopeResponse {
             message = errorResponse.message
@@ -3617,7 +5246,33 @@ class APIService {
         let requestID = response.value(forHTTPHeaderField: "X-Request-ID")
             ?? response.value(forHTTPHeaderField: "X-Correlation-ID")
             ?? "-"
-        print("[APIService] HTTP \(response.statusCode) \(path) request_id=\(requestID): \(message)")
+        let diagnosticMessage = SensitiveLogRedactor.redact(message)
+        print("[APIService] HTTP \(response.statusCode) \(path) request_id=\(requestID): \(diagnosticMessage)")
+        #if DEBUG
+        if path.hasPrefix("/api/v1/games/"), path.hasSuffix("/rounds") {
+            let context = symbolicResponse?.data
+            let symbolicCode = symbolicResponse?.code
+                ?? structuredResponse?.data?.errorCode
+                ?? "-"
+            print(
+                "[GameRoundStart] rejected http_status=\(response.statusCode) "
+                    + "code=\(SensitiveLogRedactor.redact(symbolicCode)) "
+                    + "required=\(context?.requiredAmount.map(String.init) ?? "-") "
+                    + "gold=\(context?.goldCoinBalance.map { String($0.value) } ?? "-") "
+                    + "activity=\(context?.activityCatFoodBalance.map { String($0.value) } ?? "-") "
+                    + "spendable=\(context?.spendableBalance.map(String.init) ?? "-")"
+            )
+        }
+        #endif
+        if let symbolicCode = symbolicResponse?.code ?? structuredResponse?.data?.errorCode,
+           !symbolicCode.isBlank,
+           Int(symbolicCode) == nil {
+            return APIError.businessError(
+                code: symbolicCode,
+                message: message,
+                context: symbolicResponse?.data
+            )
+        }
         let envelopeCode = envelopeResponse.flatMap { $0.code == 0 ? nil : $0.code }
         let businessCode = detailResponse?.detail?.code ?? envelopeCode
         return APIError.serverError(code: businessCode ?? response.statusCode, message: message)
@@ -3794,9 +5449,9 @@ class APIService {
         _ error: Error,
         data: Data,
         request: URLRequest,
+        response: HTTPURLResponse? = nil,
         type: T.Type
     ) {
-        #if DEBUG
         let codingPath: [CodingKey]
         let description: String
         switch error {
@@ -3811,13 +5466,37 @@ class APIService {
             description = error.localizedDescription
         }
         let path = codingPath.map(\.stringValue).joined(separator: ".")
-        let topLevelKeys = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?
+        let jsonObject = try? JSONSerialization.jsonObject(with: data)
+        let topLevelKeys = (jsonObject as? [String: Any])?
             .keys.sorted().joined(separator: ",") ?? "-"
+        let responseShape = sanitizedJSONShape(jsonObject, depth: 3)
+        let requestID = response?.value(forHTTPHeaderField: "x-request-id") ?? "-"
         print(
             "[APIService] decode failure \(request.url?.path ?? "") "
                 + "type=\(String(describing: type)) coding_path=\(path.isEmpty ? "-" : path) "
-                + "bytes=\(data.count) top_keys=\(topLevelKeys) detail=\(description)"
+                + "request_id=\(requestID) bytes=\(data.count) top_keys=\(topLevelKeys) "
+                + "shape=\(responseShape) detail=\(description)"
         )
-        #endif
+    }
+
+    /// Logs JSON field names and value types only. This is intentionally safe for
+    /// production diagnostics: response values, tokens, invite codes, phone data,
+    /// and user-generated content never enter the console.
+    private static func sanitizedJSONShape(_ value: Any?, depth: Int) -> String {
+        guard depth > 0, let value else { return value == nil ? "missing" : "…" }
+        if value is NSNull { return "null" }
+        if let object = value as? [String: Any] {
+            let fields = object.keys.sorted().map { key in
+                "\(key):\(sanitizedJSONShape(object[key], depth: depth - 1))"
+            }.joined(separator: ",")
+            return "{\(fields)}"
+        }
+        if let array = value as? [Any] {
+            guard let first = array.first else { return "[]" }
+            return "[\(array.count)x\(sanitizedJSONShape(first, depth: depth - 1))]"
+        }
+        if value is String { return "string" }
+        if value is NSNumber { return "number" }
+        return String(describing: type(of: value))
     }
 }

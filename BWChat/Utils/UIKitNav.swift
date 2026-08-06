@@ -24,22 +24,160 @@ import UIKit
 @MainActor
 final class UIKitNavigator: ObservableObject {
     weak var navigationController: UINavigationController?
+    private var appOverlayHostingController: UIViewController?
 
     var canPopPushedController: Bool {
         (navigationController?.viewControllers.count ?? 0) > 1
     }
 
-    func push<V: View>(_ view: V) {
+    /// Presents lightweight SwiftUI content above the complete app chrome,
+    /// including the UIKit navigation bar. This is intentionally not a modal
+    /// transition: transient surfaces such as the red-packet envelope should
+    /// appear to float over the current conversation without pushing or
+    /// replacing it.
+    func presentAppOverlay<Content: View>(
+        animated: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) {
+        guard let rootViewController = navigationController?.view.window?.rootViewController else {
+            return
+        }
+
+        dismissAppOverlay(animated: false)
+
+        let host = UIHostingController(
+            rootView: AnyView(
+                content()
+                    .environmentObject(self)
+                    .appLocalizedEnvironment()
+            )
+        )
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+
+        rootViewController.addChild(host)
+        rootViewController.view.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: rootViewController.view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: rootViewController.view.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: rootViewController.view.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: rootViewController.view.bottomAnchor)
+        ])
+        host.didMove(toParent: rootViewController)
+        appOverlayHostingController = host
+
+        guard animated else { return }
+        host.view.alpha = 0
+        UIView.animate(
+            withDuration: 0.18,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState]
+        ) {
+            host.view.alpha = 1
+        }
+    }
+
+    /// Presents interactive form content as a true UIKit modal while keeping
+    /// the SwiftUI surface visually transparent. Unlike a child-controller
+    /// overlay, this gives text inputs an isolated responder chain and prevents
+    /// the underlying chat composer from retaining keyboard focus.
+    func presentAppModalOverlay<Content: View>(
+        animated: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) {
+        guard let rootViewController = navigationController?.view.window?.rootViewController else {
+            return
+        }
+
+        dismissAppOverlay(animated: false)
+        rootViewController.view.window?.endEditing(true)
+
+        let host = UIHostingController(
+            rootView: AnyView(
+                content()
+                    .environmentObject(self)
+                    .appLocalizedEnvironment()
+            )
+        )
+        host.view.backgroundColor = .clear
+        host.modalPresentationStyle = .overFullScreen
+        host.modalTransitionStyle = .crossDissolve
+
+        var presenter = rootViewController
+        while let presented = presenter.presentedViewController,
+              !presented.isBeingDismissed {
+            presenter = presented
+        }
+
+        appOverlayHostingController = host
+        presenter.present(host, animated: animated)
+    }
+
+    func dismissAppOverlay(animated: Bool = true) {
+        guard let host = appOverlayHostingController else { return }
+        appOverlayHostingController = nil
+
+        if host.presentingViewController != nil {
+            host.view.endEditing(true)
+            host.dismiss(animated: animated)
+            return
+        }
+
+        let removeOverlay = {
+            host.willMove(toParent: nil)
+            host.view.removeFromSuperview()
+            host.removeFromParent()
+        }
+
+        guard animated, host.view.window != nil else {
+            removeOverlay()
+            return
+        }
+
+        UIView.animate(
+            withDuration: 0.16,
+            delay: 0,
+            options: [.curveEaseIn, .beginFromCurrentState]
+        ) {
+            host.view.alpha = 0
+        } completion: { _ in
+            removeOverlay()
+        }
+    }
+
+    func push<V: View>(_ view: V, allowsSwipeBack: Bool = true) {
         guard let navigationController else { return }
+        // A control revealed underneath an interactive pop can receive the
+        // gesture's final touch. Reject only that interactive transition.
+        // Legitimate pushes triggered while a popover is dismissing must wait
+        // for its non-interactive transition to finish instead of being lost.
+        guard navigationController.transitionCoordinator?.isInteractive != true else { return }
         performWhenReady(on: navigationController) { [weak self, weak navigationController] in
             guard let self, let navigationController else { return }
             let host = NavigableHostingController(
                 rootView: AnyView(view.environmentObject(self).appLocalizedEnvironment())
             )
+            host.allowsSwipeBack = allowsSwipeBack
             host.hidesBottomBarWhenPushed = true
             navigationController.pushViewController(host, animated: true)
             navigationController.repairNavigationSurface()
         }
+    }
+
+    /// Opens the app's existing public-profile destination for both the
+    /// current account and other users. Callers pass only a trusted user ID;
+    /// URL interpretation stays outside the profile route.
+    @discardableResult
+    func openUserProfile(userID: String) -> Bool {
+        let normalizedUserID = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedUserID.isEmpty,
+              let navigationController,
+              navigationController.transitionCoordinator == nil else {
+            return false
+        }
+
+        push(UserProfileView(userID: normalizedUserID))
+        return true
     }
 
     func pop() {
@@ -72,6 +210,18 @@ final class UIKitNavigator: ObservableObject {
         performWhenReady(on: navigationController) { [weak navigationController] in
             guard let navigationController else { return }
             navigationController.popToRootViewController(animated: true)
+            navigationController.repairNavigationSurface()
+        }
+    }
+
+    /// Clears a tab's retained child screens without animating an offscreen
+    /// navigation controller. Used when a cross-tab flow has semantically
+    /// finished the source screen.
+    func resetToRoot() {
+        guard let navigationController else { return }
+        performWhenReady(on: navigationController) { [weak navigationController] in
+            guard let navigationController else { return }
+            navigationController.popToRootViewController(animated: false)
             navigationController.repairNavigationSurface()
         }
     }
@@ -182,6 +332,8 @@ private struct DynamicTabPlaceholderView: View {
 }
 
 final class NavigableHostingController: UIHostingController<AnyView> {
+    var allowsSwipeBack = true
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateRootTabBarSafeArea()
@@ -190,7 +342,7 @@ final class NavigableHostingController: UIHostingController<AnyView> {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled =
-            (navigationController?.viewControllers.count ?? 0) > 1
+            navigationController?.allowsSwipeBackFromTopViewController ?? false
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -230,8 +382,13 @@ final class NavigableHostingController: UIHostingController<AnyView> {
 }
 
 private extension UINavigationController {
+    var allowsSwipeBackFromTopViewController: Bool {
+        guard viewControllers.count > 1 else { return false }
+        return (topViewController as? NavigableHostingController)?.allowsSwipeBack ?? true
+    }
+
     func repairNavigationSurface() {
-        interactivePopGestureRecognizer?.isEnabled = viewControllers.count > 1
+        interactivePopGestureRecognizer?.isEnabled = allowsSwipeBackFromTopViewController
 
         guard let tabBar = tabBarController?.tabBar else { return }
         if viewControllers.count <= 1 {
@@ -266,7 +423,7 @@ private extension UINavigationController {
 
 final class TabBarAlphaFixDelegate: NSObject, UINavigationControllerDelegate {
     private func restoreInteractivePop(for nc: UINavigationController) {
-        nc.interactivePopGestureRecognizer?.isEnabled = nc.viewControllers.count > 1
+        nc.interactivePopGestureRecognizer?.isEnabled = nc.allowsSwipeBackFromTopViewController
     }
 
     func normalizeTabBar(for nc: UINavigationController) {
@@ -335,7 +492,7 @@ final class InteractivePopDelegate: NSObject, UIGestureRecognizerDelegate {
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let navigationController else { return false }
-        return navigationController.viewControllers.count > 1
+        return navigationController.allowsSwipeBackFromTopViewController
             && navigationController.transitionCoordinator == nil
     }
 }
@@ -350,7 +507,9 @@ final class SwipeBackCoordinator: NSObject, UIGestureRecognizerDelegate {
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.delegate = self
-        pan.cancelsTouchesInView = false
+        // Once the horizontal back pan wins, cancel the pending SwiftUI button
+        // touch instead of delivering its touch-up to the revealed source view.
+        pan.cancelsTouchesInView = true
         navigationController.view.addGestureRecognizer(pan)
         self.panGesture = pan
     }
@@ -358,7 +517,7 @@ final class SwipeBackCoordinator: NSObject, UIGestureRecognizerDelegate {
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard gesture.state == .ended,
               let navigationController,
-              navigationController.viewControllers.count > 1,
+              navigationController.allowsSwipeBackFromTopViewController,
               navigationController.transitionCoordinator == nil
         else { return }
 
@@ -375,7 +534,7 @@ final class SwipeBackCoordinator: NSObject, UIGestureRecognizerDelegate {
         guard gestureRecognizer === panGesture,
               let pan = gestureRecognizer as? UIPanGestureRecognizer,
               let navigationController,
-              navigationController.viewControllers.count > 1,
+              navigationController.allowsSwipeBackFromTopViewController,
               navigationController.transitionCoordinator == nil,
               let view = pan.view
         else { return false }
@@ -703,7 +862,8 @@ struct MainTabController: UIViewControllerRepresentable {
             tabBarController.viewControllers?
                 .compactMap { $0 as? UINavigationController }
                 .forEach { nav in
-                    nav.interactivePopGestureRecognizer?.isEnabled = nav.viewControllers.count > 1
+                    nav.interactivePopGestureRecognizer?.isEnabled =
+                        nav.allowsSwipeBackFromTopViewController
                 }
 
             guard let nav = tabBarController.selectedViewController as? UINavigationController else {

@@ -513,6 +513,7 @@ struct DynamicSection: Codable, Equatable, Identifiable {
                     order: 10,
                     route: DynamicRoute(type: "native", name: "wallet")
                 ),
+                profilePropBagEntry,
                 DynamicSectionItem(
                     id: "my_moments",
                     type: "row",
@@ -528,6 +529,16 @@ struct DynamicSection: Codable, Equatable, Identifiable {
             ]
         )
     ]
+
+    static let profilePropBagEntry = DynamicSectionItem(
+        id: "prop_bag",
+        type: "row",
+        titleKey: "propBag.title",
+        systemImage: "shippingbox.fill",
+        colors: ["675AF5", "9D64F4"],
+        order: 15,
+        route: DynamicRoute(type: "native", name: "prop_bag")
+    )
 
     static let profileAgentEntry = DynamicSectionItem(
         id: "agent_hub",
@@ -926,6 +937,11 @@ struct DynamicTabDescriptor: Codable, Equatable, Identifiable {
 // MARK: - Web and Assets
 
 struct WebViewPolicy: Codable, Equatable {
+    /// Bundled rollout baseline for production-hosted games. This is merged
+    /// into the effective `allowedDomains` list before game URL validation;
+    /// `blockedDomains` still has final precedence.
+    static let bundledGameDomains = ["id7.com"]
+
     var allowedDomains: [String]
     var blockedDomains: [String]?
     var allowedBridgeMethods: [String]
@@ -970,7 +986,7 @@ struct WebViewPolicy: Codable, Equatable {
     }
 
     static let `default` = WebViewPolicy(
-        allowedDomains: ["playdot.games"],
+        allowedDomains: ["id7.com", "playdot.games"],
         blockedDomains: [],
         allowedBridgeMethods: ["close", "openRoute", "getAppInfo", "setNavigationTitle"],
         externalDomainsOpenInSafari: true,
@@ -996,6 +1012,17 @@ struct WebViewPolicy: Codable, Equatable {
             return false
         }
         return allowedDomains.contains { host.matchesDynamicDomain($0) }
+    }
+
+    var gameLaunchPolicy: WebViewPolicy {
+        var policy = self
+        for domain in Self.bundledGameDomains where !policy.allowedDomains.contains(where: {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(domain) == .orderedSame
+        }) {
+            policy.allowedDomains.append(domain)
+        }
+        return policy
     }
 }
 
@@ -1094,25 +1121,115 @@ struct RemoteAsset: Codable, Equatable, Identifiable {
 // MARK: - Wallet
 
 struct WalletRemoteConfig: Codable, Equatable {
-    var catFoodProducts: [WalletRemoteProduct]?
-    var withdrawalNetworks: [String]?
+    var goldCoinProducts: [WalletRemoteProduct]?
+    var withdrawalNetworks: [WalletWithdrawalNetworkRemoteConfig]?
     var exchangeRateDisplay: String?
+    var usdtPerGoldCoin: Double?
+    var minimumWithdrawalUSDT: Double?
+    var withdrawalStepUSDT: Double?
     var termsURL: String?
     var adRewardEnabled: Bool?
+    var adReward: WalletAdRewardRemoteConfig?
+    var activityCatFood: WalletActivityCatFoodRemoteConfig?
+    var activityCatFoodEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case catFoodProducts = "cat_food_products"
+        case goldCoinProducts = "gold_coin_products"
         case withdrawalNetworks = "withdrawal_networks"
         case exchangeRateDisplay = "exchange_rate_display"
+        case usdtPerGoldCoin = "usdt_per_gold_coin"
+        case minimumWithdrawalUSDT = "minimum_withdrawal_usdt"
+        case withdrawalStepUSDT = "withdrawal_step_usdt"
         case termsURL = "terms_url"
         case adRewardEnabled = "ad_reward_enabled"
+        case adReward = "ad_reward"
+        case activityCatFood = "activity_cat_food"
+        case activityCatFoodEnabled = "activity_cat_food_enabled"
+    }
+
+    init(
+        goldCoinProducts: [WalletRemoteProduct]? = nil,
+        withdrawalNetworks: [String]? = nil,
+        exchangeRateDisplay: String? = nil,
+        usdtPerGoldCoin: Double? = nil,
+        minimumWithdrawalUSDT: Double? = nil,
+        withdrawalStepUSDT: Double? = nil,
+        termsURL: String? = nil,
+        adRewardEnabled: Bool? = nil,
+        adReward: WalletAdRewardRemoteConfig? = nil,
+        activityCatFood: WalletActivityCatFoodRemoteConfig? = nil,
+        activityCatFoodEnabled: Bool? = nil
+    ) {
+        self.goldCoinProducts = goldCoinProducts
+        self.withdrawalNetworks = withdrawalNetworks?.map {
+            WalletWithdrawalNetworkRemoteConfig(network: $0)
+        }
+        self.exchangeRateDisplay = exchangeRateDisplay
+        self.usdtPerGoldCoin = usdtPerGoldCoin
+        self.minimumWithdrawalUSDT = minimumWithdrawalUSDT
+        self.withdrawalStepUSDT = withdrawalStepUSDT
+        self.termsURL = termsURL
+        self.adRewardEnabled = adRewardEnabled
+        self.adReward = adReward
+        self.activityCatFood = activityCatFood
+        self.activityCatFoodEnabled = activityCatFoodEnabled
+    }
+
+    /// Wallet configuration is owned by several backend modules and some fields
+    /// have evolved from scalar values to structured payloads. Decode every
+    /// section independently so an unrelated schema change cannot discard the
+    /// rewarded-ad configuration.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.goldCoinProducts = try? container.decodeIfPresent(
+            [WalletRemoteProduct].self,
+            forKey: .goldCoinProducts
+        )
+
+        if let networks = try? container.decodeIfPresent(
+            [String].self,
+            forKey: .withdrawalNetworks
+        ) {
+            self.withdrawalNetworks = networks.map {
+                WalletWithdrawalNetworkRemoteConfig(network: $0)
+            }
+        } else if let networks = try? container.decodeIfPresent(
+            [WalletWithdrawalNetworkRemoteConfig].self,
+            forKey: .withdrawalNetworks
+        ) {
+            self.withdrawalNetworks = networks
+        } else {
+            self.withdrawalNetworks = nil
+        }
+
+        self.exchangeRateDisplay = try? container.decodeIfPresent(
+            String.self,
+            forKey: .exchangeRateDisplay
+        )
+        self.usdtPerGoldCoin = container.flexDouble(for: .usdtPerGoldCoin)
+        self.minimumWithdrawalUSDT = container.flexDouble(for: .minimumWithdrawalUSDT)
+        self.withdrawalStepUSDT = container.flexDouble(for: .withdrawalStepUSDT)
+        self.termsURL = try? container.decodeIfPresent(String.self, forKey: .termsURL)
+        self.adRewardEnabled = try? container.decodeIfPresent(Bool.self, forKey: .adRewardEnabled)
+        self.adReward = try? container.decodeIfPresent(
+            WalletAdRewardRemoteConfig.self,
+            forKey: .adReward
+        )
+        self.activityCatFood = try? container.decodeIfPresent(
+            WalletActivityCatFoodRemoteConfig.self,
+            forKey: .activityCatFood
+        )
+        self.activityCatFoodEnabled = try? container.decodeIfPresent(
+            Bool.self,
+            forKey: .activityCatFoodEnabled
+        )
     }
 
     static let `default` = WalletRemoteConfig(
-        catFoodProducts: AppConfig.catFoodProducts.enumerated().map { index, product in
+        goldCoinProducts: AppConfig.goldCoinProducts.enumerated().map { index, product in
             WalletRemoteProduct(
                 productID: product.productID,
-                coins: product.coins,
+                goldCoinAmount: product.coins,
                 order: (index + 1) * 10,
                 recommended: false,
                 badgeI18n: nil
@@ -1120,37 +1237,198 @@ struct WalletRemoteConfig: Codable, Equatable {
         },
         withdrawalNetworks: ["TRC20", "ERC20", "BEP20"],
         exchangeRateDisplay: nil,
+        usdtPerGoldCoin: WalletWithdrawalPolicy.fallback.usdtPerGoldCoin,
+        minimumWithdrawalUSDT: WalletWithdrawalPolicy.fallback.minimumUSDT,
+        withdrawalStepUSDT: WalletWithdrawalPolicy.fallback.stepUSDT,
         termsURL: nil,
-        adRewardEnabled: true
+        adRewardEnabled: true,
+        adReward: WalletAdRewardRemoteConfig(
+            iosAdUnitIDs: AdMobConfiguration.bundledGameRewardedAdUnitIDs,
+            rewardItem: WalletCurrency.goldCoins.rawValue
+        ),
+        activityCatFood: nil,
+        activityCatFoodEnabled: nil
     )
 
-    var effectiveCatFoodProducts: [CatFoodProductConfig] {
-        let knownByID = Dictionary(uniqueKeysWithValues: AppConfig.catFoodProducts.map { ($0.productID, $0) })
-        let remoteProducts = (catFoodProducts ?? [])
+    var effectiveGoldCoinProducts: [GoldCoinProductConfig] {
+        let knownByID = Dictionary(uniqueKeysWithValues: AppConfig.goldCoinProducts.map { ($0.productID, $0) })
+        let remoteProducts = (goldCoinProducts ?? [])
             .filter { knownByID[$0.productID] != nil }
             .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
-            .compactMap { remote -> CatFoodProductConfig? in
+            .compactMap { remote -> GoldCoinProductConfig? in
                 guard let fallback = knownByID[remote.productID] else { return nil }
-                return CatFoodProductConfig(
+                return GoldCoinProductConfig(
                     productID: remote.productID,
-                    coins: remote.coins ?? fallback.coins,
+                    coins: remote.goldCoinAmount ?? fallback.coins,
                     fallbackPriceUSD: fallback.fallbackPriceUSD
                 )
             }
-        return remoteProducts.isEmpty ? AppConfig.catFoodProducts : remoteProducts
+        return remoteProducts.isEmpty ? AppConfig.goldCoinProducts : remoteProducts
     }
 
     var effectiveWithdrawalNetworks: [String] {
         let cleaned = (withdrawalNetworks ?? [])
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.enabled != false }
+            .map { $0.network.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         return cleaned.isEmpty ? ["TRC20", "ERC20", "BEP20"] : cleaned
+    }
+
+    func effectiveWithdrawalPolicy(for network: String?) -> WalletWithdrawalPolicy {
+        let normalizedNetwork = network?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let networkConfig = withdrawalNetworks?
+            .filter { $0.enabled != false }
+            .first { item in
+                guard let normalizedNetwork, !normalizedNetwork.isEmpty else { return false }
+                return item.network.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    == normalizedNetwork
+            }
+        let enabledNetworkMinimum = withdrawalNetworks?
+            .filter { $0.enabled != false }
+            .compactMap(\.minimumUSDT)
+            .filter { $0 > 0 }
+            .min()
+
+        return WalletWithdrawalPolicy(
+            usdtPerGoldCoin: networkConfig?.usdtPerGoldCoin
+                ?? usdtPerGoldCoin
+                ?? WalletWithdrawalPolicy.fallback.usdtPerGoldCoin,
+            minimumUSDT: networkConfig?.minimumUSDT
+                ?? minimumWithdrawalUSDT
+                ?? enabledNetworkMinimum
+                ?? WalletWithdrawalPolicy.fallback.minimumUSDT,
+            stepUSDT: networkConfig?.stepUSDT
+                ?? withdrawalStepUSDT
+                ?? WalletWithdrawalPolicy.fallback.stepUSDT
+        )
+    }
+
+    var effectiveActivityCatFoodEnabled: Bool {
+        activityCatFood?.enabled == true || activityCatFoodEnabled == true
+    }
+}
+
+struct WalletActivityCatFoodRemoteConfig: Codable, Equatable {
+    let enabled: Bool?
+}
+
+/// Trusted app configuration for rewarded ads initiated by hosted H5 games.
+/// The backend can replace this list without requiring an App Store release.
+struct WalletAdRewardRemoteConfig: Codable, Equatable {
+    var iosAdUnitIDs: [String]?
+    var iosWalletAdUnitID: String?
+    var rewardItem: String?
+
+    enum CodingKeys: String, CodingKey {
+        case iosAdUnitIDs = "ios_ad_unit_ids"
+        case iosWalletAdUnitID = "ios_wallet_ad_unit_id"
+        case rewardItem = "reward_item"
+    }
+
+    init(
+        iosAdUnitIDs: [String]? = nil,
+        iosWalletAdUnitID: String? = nil,
+        rewardItem: String? = nil
+    ) {
+        self.iosAdUnitIDs = iosAdUnitIDs
+        self.iosWalletAdUnitID = iosWalletAdUnitID
+        self.rewardItem = rewardItem
+    }
+
+    var rewardsGoldCoins: Bool {
+        rewardItem?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            == WalletCurrency.goldCoins.rawValue
+    }
+}
+
+struct WalletWithdrawalPolicy: Equatable {
+    let usdtPerGoldCoin: Double
+    let minimumUSDT: Double
+    let stepUSDT: Double
+
+    static let fallback = WalletWithdrawalPolicy(
+        usdtPerGoldCoin: 0.005,
+        minimumUSDT: 0.5,
+        stepUSDT: 0.5
+    )
+
+    init(usdtPerGoldCoin: Double, minimumUSDT: Double, stepUSDT: Double) {
+        self.usdtPerGoldCoin = usdtPerGoldCoin > 0 ? usdtPerGoldCoin : 0.005
+        self.minimumUSDT = minimumUSDT > 0 ? minimumUSDT : 0.5
+        self.stepUSDT = stepUSDT > 0 ? stepUSDT : 0.5
+    }
+
+    func rawUSDTAmount(forGoldCoins goldCoinAmount: Int) -> Double {
+        Double(max(goldCoinAmount, 0)) * usdtPerGoldCoin
+    }
+
+    func maximumUSDTAmount(forGoldCoins goldCoinAmount: Int) -> Double {
+        let rawAmount = rawUSDTAmount(forGoldCoins: goldCoinAmount)
+        guard rawAmount + 0.000_000_1 >= stepUSDT else { return 0 }
+        return floor((rawAmount + 0.000_000_1) / stepUSDT) * stepUSDT
+    }
+
+    func canWithdraw(goldCoinAmount: Int) -> Bool {
+        maximumUSDTAmount(forGoldCoins: goldCoinAmount) + 0.000_000_1 >= minimumUSDT
+    }
+
+    func isValidUSDTIncrement(_ amount: Double) -> Bool {
+        guard amount > 0 else { return false }
+        let units = amount / stepUSDT
+        return abs(units - units.rounded()) < 0.000_001
+    }
+
+    func requiredGoldCoins(forUSDT amount: Double) -> Int {
+        max(1, Int((amount / usdtPerGoldCoin).rounded(.up)))
+    }
+}
+
+struct WalletWithdrawalNetworkRemoteConfig: Codable, Equatable, Identifiable {
+    let network: String
+    let enabled: Bool?
+    let minimumUSDT: Double?
+    let stepUSDT: Double?
+    let usdtPerGoldCoin: Double?
+
+    var id: String { network }
+
+    enum CodingKeys: String, CodingKey {
+        case network
+        case enabled
+        case minimumUSDT = "min_usdt"
+        case stepUSDT = "step_usdt"
+        case usdtPerGoldCoin = "usdt_per_gold_coin"
+    }
+
+    init(
+        network: String,
+        enabled: Bool? = true,
+        minimumUSDT: Double? = nil,
+        stepUSDT: Double? = nil,
+        usdtPerGoldCoin: Double? = nil
+    ) {
+        self.network = network
+        self.enabled = enabled
+        self.minimumUSDT = minimumUSDT
+        self.stepUSDT = stepUSDT
+        self.usdtPerGoldCoin = usdtPerGoldCoin
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        network = container.flexString(for: .network) ?? ""
+        enabled = container.flexBool(for: .enabled)
+        minimumUSDT = container.flexDouble(for: .minimumUSDT)
+        stepUSDT = container.flexDouble(for: .stepUSDT)
+        usdtPerGoldCoin = container.flexDouble(for: .usdtPerGoldCoin)
     }
 }
 
 struct WalletRemoteProduct: Codable, Equatable, Identifiable {
     var productID: String
-    var coins: Int?
+    var goldCoinAmount: Int?
     var order: Int?
     var recommended: Bool?
     var badgeI18n: [String: String]?
@@ -1159,8 +1437,8 @@ struct WalletRemoteProduct: Codable, Equatable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case productID = "product_id"
-        case coins
-        case order
+        case goldCoinAmount = "gold_coin_amount"
+        case order = "sort_order"
         case recommended
         case badgeI18n = "badge_i18n"
     }
@@ -1233,7 +1511,7 @@ struct DynamicScreen: Codable, Equatable, Identifiable {
                 id: "hero",
                 type: "banner",
                 props: [
-                    "title": .object(["zh-Hans": .string("今天也来领猫粮"), "en": .string("Claim today's cat food")]),
+                    "title": .object(["zh-Hans": .string("今天也来领金币"), "en": .string("Claim today's gold coins")]),
                     "subtitle": .object(["zh-Hans": .string("完成聊天、发动态、送礼物获得奖励"), "en": .string("Chat, post, and gift to earn rewards")]),
                     "system_image": .string("gift.fill")
                 ],
@@ -1324,7 +1602,7 @@ struct DynamicScreen: Codable, Equatable, Identifiable {
                         id: "wallet_help",
                         type: "row",
                         props: [
-                            "title": .object(["zh-Hans": .string("钱包与猫粮"), "en": .string("Wallet and cat food")]),
+                            "title": .object(["zh-Hans": .string("钱包与金币"), "en": .string("Wallet and gold coins")]),
                             "system_image": .string("pawprint.fill")
                         ],
                         action: DynamicRoute(type: "screen", screenID: "wallet_terms")
@@ -1353,7 +1631,7 @@ struct DynamicScreen: Codable, Equatable, Identifiable {
                 id: "wallet_terms_text",
                 type: "text",
                 props: [
-                    "title": .object(["zh-Hans": .string("猫粮购买始终通过 App Store StoreKit 完成。价格以系统展示为准。"), "en": .string("Cat food purchases always use App Store StoreKit. System price display is authoritative.")])
+                    "title": .object(["zh-Hans": .string("金币购买始终通过 App Store StoreKit 完成。价格以系统展示为准。"), "en": .string("Gold Coins purchases always use App Store StoreKit. System price display is authoritative.")])
                 ]
             )
         ]

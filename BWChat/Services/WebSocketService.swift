@@ -13,7 +13,81 @@ enum WSMessageType: String {
     case groupCreated = "group_created"
     case friendRequest = "friend_request"
     case friendAccepted = "friend_accepted"
+    case conversationReadState = "conversation_read_state"
     case pong
+}
+
+/// Compatibility rules for live-invitation events during the backend rollout.
+/// The canonical protocol remains `{ "type": "one_to_one_live.call_invite", "data": ... }`.
+enum LiveCallWebSocketCompatibility {
+    static func normalizedType(_ rawType: String) -> String {
+        rawType
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+    }
+
+    static func payload(from envelope: [String: Any]) -> [String: Any]? {
+        for key in ["data", "payload"] {
+            if let dictionary = dictionaryValue(envelope[key]) {
+                return dictionary
+            }
+        }
+
+        var rootPayload = envelope
+        rootPayload.removeValue(forKey: "type")
+        return rootPayload.isEmpty ? nil : rootPayload
+    }
+
+    static func isLegacyLiveInvite(_ payload: [String: Any]) -> Bool {
+        var candidates = [payload]
+        for key in ["data", "payload", "invitation", "call"] {
+            if let nested = dictionaryValue(payload[key]) {
+                candidates.append(nested)
+            }
+        }
+
+        for candidate in candidates {
+            if firstString(candidate, keys: ["slot_id", "live_slot_id", "slotId"]) != nil {
+                return true
+            }
+
+            let source = firstString(
+                candidate,
+                keys: ["invitation_source", "source", "call_source", "scene"]
+            )?
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+            if source == "one_to_one_live"
+                || source == "live_lobby"
+                || source == "agent_match"
+                || source == "live" {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func dictionaryValue(_ value: Any?) -> [String: Any]? {
+        if let dictionary = value as? [String: Any] { return dictionary }
+        if let string = value as? String,
+           let data = string.data(using: .utf8),
+           let dictionary = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return dictionary
+        }
+        return nil
+    }
+
+    private static func firstString(_ data: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = data[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            if let value = data[key] as? NSNumber { return value.stringValue }
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -39,6 +113,12 @@ class WebSocketService: ObservableObject {
     let groupContactUpdatePublisher = PassthroughSubject<[String: Any], Never>()
     let groupRemovedPublisher = PassthroughSubject<Int, Never>()
     let groupRenamedPublisher = PassthroughSubject<(Int, String), Never>()
+    let groupNotificationSettingsPublisher = PassthroughSubject<GroupNotificationSettings, Never>()
+    let groupViewerSettingsPublisher = PassthroughSubject<GroupViewerSettings, Never>()
+    let groupAnnouncementPublisher = PassthroughSubject<GroupAnnouncement, Never>()
+    let groupMemberUpdatePublisher = PassthroughSubject<GroupMemberUpdateEvent, Never>()
+    let groupHistoryClearPublisher = PassthroughSubject<GroupHistoryClearReceipt, Never>()
+    let conversationPreferencePublisher = PassthroughSubject<ConversationPreference, Never>()
     let cacheCleanupPublisher = PassthroughSubject<[String], Never>()
     let scriptTurnStatePublisher = PassthroughSubject<ScriptTurnState, Never>()
     let chatMoneyUpdatePublisher = PassthroughSubject<ChatMoneyUpdateEvent, Never>()
@@ -51,11 +131,26 @@ class WebSocketService: ObservableObject {
     let callRejectPublisher = PassthroughSubject<[String: Any], Never>()
     let callBusyPublisher = PassthroughSubject<[String: Any], Never>()
 
+    // Lightweight one-to-one live invitations. These intentionally use a
+    // separate channel from normal calls so they never trigger the existing
+    // full-screen incoming-call UI or ringtone before the recipient accepts.
+    let liveCallInvitePublisher = PassthroughSubject<[String: Any], Never>()
+    let liveCallAcceptedPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveCallRejectedPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveCallCancelledPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveMatchExhaustedPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveMatchCancelledPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveCallBillingPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveSlotCreatedPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveSlotUpdatedPublisher = PassthroughSubject<[String: Any], Never>()
+    let liveSlotEndedPublisher = PassthroughSubject<[String: Any], Never>()
+
     // Group call signaling
     let groupCallInvitePublisher = PassthroughSubject<[String: Any], Never>()
     let groupCallEndedPublisher = PassthroughSubject<[String: Any], Never>()
 
     private var webSocketTask: URLSessionWebSocketTask?
+    private var connectionOwnerID: String?
     private var heartbeatTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
     private var healthCheckTask: Task<Void, Never>?
@@ -127,8 +222,10 @@ class WebSocketService: ObservableObject {
             return
         }
         guard !isConnecting && webSocketTask == nil else { return }
+        guard let ownerID = AuthManager.shared.currentUser?.userID, !ownerID.isEmpty else { return }
         isManuallyDisconnected = false
         isConnecting = true
+        connectionOwnerID = ownerID
         reconnectDelay = 1
 
         heartbeatTask?.cancel()
@@ -170,6 +267,7 @@ class WebSocketService: ObservableObject {
         reconnectTask = nil
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+        connectionOwnerID = nil
         isConnected = false
     }
 
@@ -186,6 +284,7 @@ class WebSocketService: ObservableObject {
                         self.isConnecting = false
                         self.startHeartbeat()
                         self.startHealthCheck()
+                        AppMessageSyncCoordinator.shared.requestSync(.webSocketReconnect)
                         // A successful receive means this session made it
                         // past the handshake; any previous refresh attempt
                         // is forgiven so the next disconnect can try
@@ -216,10 +315,13 @@ class WebSocketService: ObservableObject {
 
     // Parse raw JSON and route to the correct publisher
     private func processRawJSON(_ data: Data) {
+        guard let ownerID = connectionOwnerID,
+              AuthManager.shared.currentUser?.userID == ownerID else { return }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String else {
+              let rawType = json["type"] as? String else {
             return
         }
+        let type = LiveCallWebSocketCompatibility.normalizedType(rawType)
 
         switch type {
         case "new_message":
@@ -228,8 +330,20 @@ class WebSocketService: ObservableObject {
                let msgJSON = try? JSONSerialization.data(withJSONObject: msgData),
                let msg = try? JSONDecoder().decode(Message.self, from: msgJSON) {
                 // Persist for every incoming message (not only when a chat screen is open).
-                MessageStore.shared.saveMessage(msg)
-                newMessagePublisher.send(msg)
+                if MessageStore.shared.saveMessage(msg, ownerID: ownerID) {
+                    if let previewRequest = ChatMediaPreviewRequest.resolve(
+                        messageType: msg.msgType,
+                        content: msg.content,
+                        thumbnailURL: msg.thumbnailURL
+                    ) {
+                        ChatMediaPreviewPreloader.schedule([previewRequest], limit: 1)
+                    }
+                    if msg.senderID != ownerID,
+                       let route = NotificationRoute.parse(json) {
+                        UnreadBadgeStore.shared.applyNotification(route)
+                    }
+                    newMessagePublisher.send(msg)
+                }
             }
 
         case "user_status":
@@ -246,8 +360,29 @@ class WebSocketService: ObservableObject {
             if let msgData = json["data"],
                let msgJSON = try? JSONSerialization.data(withJSONObject: msgData),
                let msg = try? JSONDecoder().decode(GroupMessage.self, from: msgJSON) {
-                MessageStore.shared.saveGroupMessage(msg)
-                groupMessagePublisher.send(msg)
+                if MessageStore.shared.saveGroupMessage(msg, ownerID: ownerID) {
+                    if let previewRequest = ChatMediaPreviewRequest.resolve(
+                        messageType: msg.msgType,
+                        content: msg.content,
+                        thumbnailURL: msg.thumbnailURL
+                    ) {
+                        ChatMediaPreviewPreloader.schedule([previewRequest], limit: 1)
+                    }
+                    if msg.senderID != ownerID,
+                       let route = NotificationRoute.parse(json) {
+                        UnreadBadgeStore.shared.applyNotification(route)
+                    }
+                    groupMessagePublisher.send(msg)
+                }
+            }
+
+        case "conversation_read_state":
+            if let receiptData = json["data"] ?? Optional(json),
+               let receiptJSON = try? JSONSerialization.data(withJSONObject: receiptData),
+               let receipt = try? JSONDecoder().decode(ConversationReadReceipt.self, from: receiptJSON),
+               receipt.isMeaningful {
+                UnreadBadgeStore.shared.applyReadReceipt(receipt)
+                AppMessageSyncCoordinator.shared.requestSync(.notification)
             }
 
         case "group_created":
@@ -282,7 +417,63 @@ class WebSocketService: ObservableObject {
 
         case "group_contact_update":
             if let d = json["data"] as? [String: Any] {
+                if let groupID = Self.intValue(d["group_id"] ?? d["groupID"]),
+                   let isMuted = Self.boolValue(d["is_muted"] ?? d["isMuted"]) {
+                    GroupNotificationSettingsStore.shared.applyMutedSummary(
+                        groupID: groupID,
+                        isMuted: isMuted
+                    )
+                }
                 groupContactUpdatePublisher.send(d)
+            }
+
+        case "group_notification_settings_updated":
+            if let settingsData = json["data"] ?? Optional(json),
+               let settingsJSON = try? JSONSerialization.data(withJSONObject: settingsData),
+               let settings = try? JSONDecoder().decode(
+                GroupNotificationSettings.self,
+                from: settingsJSON
+               ) {
+                GroupNotificationSettingsStore.shared.apply(settings)
+                groupNotificationSettingsPublisher.send(settings)
+            }
+
+        case "group_viewer_settings_updated":
+            if let settingsData = json["data"] ?? Optional(json),
+               let settingsJSON = try? JSONSerialization.data(withJSONObject: settingsData),
+               let settings = try? JSONDecoder().decode(GroupViewerSettings.self, from: settingsJSON) {
+                GroupInfoPreferencesStore.shared.apply(settings)
+                groupViewerSettingsPublisher.send(settings)
+            }
+
+        case "group_announcement_updated":
+            if let announcementData = json["data"] ?? Optional(json),
+               let announcementJSON = try? JSONSerialization.data(withJSONObject: announcementData),
+               let announcement = try? JSONDecoder().decode(GroupAnnouncement.self, from: announcementJSON) {
+                groupAnnouncementPublisher.send(announcement)
+            }
+
+        case "group_member_updated", "group_member_profile_updated":
+            if let updateData = json["data"] ?? Optional(json),
+               let updateJSON = try? JSONSerialization.data(withJSONObject: updateData),
+               let update = try? JSONDecoder().decode(GroupMemberUpdateEvent.self, from: updateJSON) {
+                groupMemberUpdatePublisher.send(update)
+            }
+
+        case "group_history_cleared":
+            if let receiptData = json["data"] ?? Optional(json),
+               let receiptJSON = try? JSONSerialization.data(withJSONObject: receiptData),
+               let receipt = try? JSONDecoder().decode(GroupHistoryClearReceipt.self, from: receiptJSON) {
+                GroupInfoPreferencesStore.shared.applyHistoryClear(receipt)
+                groupHistoryClearPublisher.send(receipt)
+            }
+
+        case "conversation_preferences_updated":
+            if let preferenceData = json["data"] ?? Optional(json),
+               let preferenceJSON = try? JSONSerialization.data(withJSONObject: preferenceData),
+               let preference = try? JSONDecoder().decode(ConversationPreference.self, from: preferenceJSON) {
+                ConversationPreferenceStore.shared.apply(preference)
+                conversationPreferencePublisher.send(preference)
             }
 
         case "group_removed":
@@ -316,16 +507,16 @@ class WebSocketService: ObservableObject {
                let updateJSON = try? JSONSerialization.data(withJSONObject: updateData),
                let update = try? JSONDecoder().decode(ChatMoneyUpdateEvent.self, from: updateJSON) {
                 if let message = update.directMessage {
-                    MessageStore.shared.saveMessage(message)
+                    _ = MessageStore.shared.saveMessage(message, ownerID: ownerID)
                 }
                 if let message = update.groupMessage {
-                    MessageStore.shared.saveGroupMessage(message)
+                    _ = MessageStore.shared.saveGroupMessage(message, ownerID: ownerID)
                 }
                 if let message = update.directReceiptMessage {
-                    MessageStore.shared.saveMessage(message)
+                    _ = MessageStore.shared.saveMessage(message, ownerID: ownerID)
                 }
                 if let message = update.groupReceiptMessage {
-                    MessageStore.shared.saveGroupMessage(message)
+                    _ = MessageStore.shared.saveGroupMessage(message, ownerID: ownerID)
                 }
                 if let balance = update.walletBalance {
                     WalletStore.shared.applyServerBalance(balance)
@@ -334,8 +525,12 @@ class WebSocketService: ObservableObject {
             }
 
         case "call_invite":
-            if let d = Self.dictionaryValue(json["data"]) {
-                callOfferPublisher.send(d)
+            if let d = LiveCallWebSocketCompatibility.payload(from: json) {
+                if LiveCallWebSocketCompatibility.isLegacyLiveInvite(d) {
+                    liveCallInvitePublisher.send(d)
+                } else {
+                    callOfferPublisher.send(d)
+                }
             }
 
         case "call_offer":
@@ -366,6 +561,76 @@ class WebSocketService: ObservableObject {
         case "call_busy":
             if let d = Self.dictionaryValue(json["data"]) {
                 callBusyPublisher.send(d)
+            }
+
+        case "one_to_one_live.call_invite",
+             "one_to_one_live.call.invite",
+             "one_to_one_live_call_invite",
+             "live_call_invite":
+            if let d = LiveCallWebSocketCompatibility.payload(from: json) {
+                liveCallInvitePublisher.send(d)
+            }
+
+        case "one_to_one_live.call_accepted":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveCallAcceptedPublisher.send(d)
+            }
+
+        case "one_to_one_live.call_rejected":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveCallRejectedPublisher.send(d)
+            }
+
+        case "one_to_one_live.call_cancelled", "one_to_one_live.call_expired":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveCallCancelledPublisher.send(d)
+            }
+
+        case "one_to_one_live.match_exhausted":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveMatchExhaustedPublisher.send(d)
+            }
+
+        case "one_to_one_live.match_cancelled":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveMatchCancelledPublisher.send(d)
+            }
+
+        case "one_to_one_live.billing_updated",
+             "one_to_one_live.earning_updated",
+             "one_to_one_live.experience_reserved",
+             "one_to_one_live.experience_started",
+             "one_to_one_live.experience_consumed",
+             "one_to_one_live.experience_released",
+             "one_to_one_live.experience_completed",
+             "one_to_one_live.overage_started":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveCallBillingPublisher.send(d)
+            }
+
+        case "one_to_one_live.billing_insufficient":
+            if var d = Self.dictionaryValue(json["data"]) {
+                // Preserve the event semantic even when an older backend omits
+                // the reason field from data.
+                if d["reason"] == nil {
+                    d["reason"] = "billing_insufficient"
+                }
+                liveCallBillingPublisher.send(d)
+            }
+
+        case "one_to_one_live.slot.created":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveSlotCreatedPublisher.send(d)
+            }
+
+        case "one_to_one_live.slot.updated":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveSlotUpdatedPublisher.send(d)
+            }
+
+        case "one_to_one_live.slot.ended":
+            if let d = Self.dictionaryValue(json["data"]) {
+                liveSlotEndedPublisher.send(d)
             }
 
         case "group_call_invite":
@@ -505,6 +770,19 @@ class WebSocketService: ObservableObject {
         if let int = value as? Int { return int }
         if let number = value as? NSNumber { return number.intValue }
         if let string = value as? String { return Int(string) }
+        return nil
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool? {
+        if let bool = value as? Bool { return bool }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let string = value as? String {
+            switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes": return true
+            case "false", "0", "no": return false
+            default: return nil
+            }
+        }
         return nil
     }
 

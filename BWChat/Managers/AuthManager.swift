@@ -71,12 +71,40 @@ enum AuthSessionError: Error {
     case accessTokenReadbackMismatch
 }
 
+/// Decides whether a cached session is definitively unusable. Transport,
+/// decoding, cancellation, and server-availability failures only mean the
+/// session cannot be verified right now; they must never erase credentials or
+/// make account-scoped offline data inaccessible.
+enum CachedSessionValidationFailurePolicy {
+    static func shouldInvalidateSession(for error: Error) -> Bool {
+        if error is CancellationError { return false }
+        guard let apiError = error as? APIError else { return false }
+        switch apiError {
+        case .unauthorized:
+            return true
+        case .serverError(let code, _):
+            return code == 401 || code == 403
+        case .businessError(let code, _, _):
+            let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return [
+                "invalid_token",
+                "refresh_token_expired",
+                "refresh_token_invalid",
+                "session_revoked"
+            ].contains(normalized)
+        case .invalidURL, .invalidResponse, .networkError, .decodingError:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class AuthManager: ObservableObject {
     static let shared = AuthManager()
 
     @Published var isLoggedIn: Bool = false
     @Published var currentUser: User?
+    @Published private(set) var isSessionUnverified: Bool = false
 
     private static let tokenKey = "jwt_token"
     private static let refreshTokenKey = "jwt_refresh_token"
@@ -141,28 +169,33 @@ final class AuthManager: ObservableObject {
         inMemoryRefreshToken = Self.normalizeToken(tokenStore.load(Self.refreshTokenKey))
         isLoggedIn = inMemoryAccessToken != nil
 
-        // Restore cached user info
-        if restoreCachedUser, isLoggedIn,
-           let data = UserDefaults.standard.data(forKey: currentUserKey),
-           let user = try? JSONDecoder().decode(User.self, from: data) {
-            currentUser = user
-            if applicationSideEffectsEnabled {
-                MessageStore.shared.setActiveOwner(user.userID)
-            }
+        // Restore the account identity before any protected view is created.
+        // The full User snapshot is preferred, but the last account id is
+        // sufficient to unlock that account's offline cache after a model
+        // migration or an interrupted UserDefaults write.
+        if restoreCachedUser, isLoggedIn {
+            _ = restoreCachedIdentityIfAvailable()
         }
     }
 
     func login(token: String, refreshToken: String, user: User) throws {
         try updateSessionTokens(accessToken: token, refreshToken: refreshToken, source: "login")
         self.currentUser = user
+        self.isSessionUnverified = false
         persistUser(user)
         rememberAccount(user.userID)
         if applicationSideEffectsEnabled {
             MessageStore.shared.setActiveOwner(user.userID)
+            UnreadBadgeStore.shared.resetForCurrentAccount()
         }
         // This is deliberately last: views may start protected requests as
         // soon as this published value changes.
         self.isLoggedIn = true
+        if applicationSideEffectsEnabled {
+            Task {
+                await LoginLocationRecorder.shared.recordAfterLogin(userID: user.userID)
+            }
+        }
     }
 
     func updateSessionTokens(accessToken: String, refreshToken: String, source: String) throws {
@@ -194,14 +227,16 @@ final class AuthManager: ObservableObject {
         self.refreshToken = nil
         self.currentUser = nil
         self.isLoggedIn = false
+        self.isSessionUnverified = false
         if applicationSideEffectsEnabled {
             UserDefaults.standard.removeObject(forKey: currentUserKey)
         }
         if let previousUserID { rememberAccount(previousUserID) }
         if applicationSideEffectsEnabled {
             MessageStore.shared.setActiveOwner(nil)
-            UnreadBadgeStore.shared.setChatUnreadCount(0)
+            UnreadBadgeStore.shared.resetForCurrentAccount()
             UnreadBadgeStore.shared.setMomentsUnreadCount(0)
+            AppMessageSyncCoordinator.shared.discardPendingRoute()
             ChatAppearanceStore.shared.clear()
             WebSocketService.shared.disconnect()
         }
@@ -235,7 +270,65 @@ final class AuthManager: ObservableObject {
         rememberAccount(user.userID)
         if applicationSideEffectsEnabled, isLoggedIn {
             MessageStore.shared.setActiveOwner(user.userID)
+            UnreadBadgeStore.shared.resetForCurrentAccount()
         }
+    }
+
+    /// Keeps a previously authenticated account usable while the server is
+    /// temporarily unreachable. Credentials and cached identity remain intact;
+    /// network-backed operations can retry when connectivity returns.
+    func markSessionUnverified() {
+        guard token != nil, currentUser != nil else { return }
+        isSessionUnverified = true
+        isLoggedIn = true
+        if applicationSideEffectsEnabled {
+            MessageStore.shared.setActiveOwner(currentUser?.userID)
+        }
+    }
+
+    func markSessionVerified() {
+        isSessionUnverified = false
+    }
+
+    /// Repairs the lightweight account identity without making a network
+    /// request. This is intentionally account-scoped and requires a token.
+    @discardableResult
+    func restoreCachedIdentityIfAvailable() -> Bool {
+        guard token != nil else { return false }
+        if let currentUser, !currentUser.userID.isEmpty {
+            if applicationSideEffectsEnabled {
+                MessageStore.shared.setActiveOwner(currentUser.userID)
+            }
+            return true
+        }
+
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: currentUserKey),
+           let user = try? JSONDecoder().decode(User.self, from: data),
+           !user.userID.isEmpty {
+            currentUser = user
+            if applicationSideEffectsEnabled {
+                MessageStore.shared.setActiveOwner(user.userID)
+            }
+            return true
+        }
+
+        guard let userID = defaults.string(forKey: "bbchat.last_active_account_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !userID.isEmpty else { return false }
+        let cached = UserCacheManager.shared.getUser(userID)
+        let repaired = User(
+            userID: userID,
+            username: cached?.username ?? "",
+            nickname: cached?.nickname ?? userID,
+            avatarURL: cached?.avatarURL ?? ""
+        )
+        currentUser = repaired
+        if applicationSideEffectsEnabled {
+            persistUser(repaired)
+            MessageStore.shared.setActiveOwner(userID)
+        }
+        return true
     }
 
     private func persistUser(_ user: User) {

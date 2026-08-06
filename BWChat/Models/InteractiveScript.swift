@@ -476,7 +476,7 @@ struct ScriptAsset: Decodable, Equatable {
     }
 }
 
-struct ScriptRoleAssignment: Decodable, Equatable, Hashable {
+struct ScriptRoleAssignment: Codable, Equatable, Hashable {
     let roleID: String
     let actorType: ScriptActorType
     let userID: String?
@@ -495,7 +495,7 @@ struct ScriptRoleAssignment: Decodable, Equatable, Hashable {
     }
 }
 
-struct ScriptRoomSnapshot: Decodable, Equatable {
+struct ScriptRoomSnapshot: Codable, Equatable {
     let title: String
     let synopsis: String
     let coverURL: String
@@ -531,9 +531,17 @@ struct ScriptRoomSnapshot: Decodable, Equatable {
             ?? (try? container.decodeIfPresent([ScriptRole].self, forKey: .characters))
             ?? []
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(title, forKey: .title)
+        try container.encode(synopsis, forKey: .synopsis)
+        try container.encode(coverURL, forKey: .coverURL)
+        try container.encode(roles, forKey: .roles)
+    }
 }
 
-struct ScriptRoom: Decodable, Identifiable, Equatable {
+struct ScriptRoom: Codable, Identifiable, Equatable {
     let roomID: String
     let scriptID: String
     let groupID: Int
@@ -589,6 +597,38 @@ struct ScriptRoom: Decodable, Identifiable, Equatable {
         } else {
             scriptSnapshot = try container.decode(ScriptRoomSnapshot.self, forKey: .snapshot)
         }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(roomID, forKey: .roomID)
+        try container.encode(scriptID, forKey: .scriptID)
+        try container.encode(groupID, forKey: .groupID)
+        try container.encode(status, forKey: .status)
+        try container.encode(playerRoleID, forKey: .playerRoleID)
+        try container.encode(assignments, forKey: .assignments)
+        try container.encode(scriptSnapshot, forKey: .scriptSnapshot)
+    }
+
+    init?(provisionalConversationRow row: Conversation) {
+        guard row.isScriptRoom,
+              let roomID = row.scriptRoomID,
+              !roomID.isBlank,
+              let groupID = row.resolvedGroupID else { return nil }
+        self.init(
+            roomID: roomID,
+            scriptID: row.scriptID ?? "",
+            groupID: groupID,
+            status: .active,
+            playerRoleID: "",
+            assignments: [],
+            scriptSnapshot: ScriptRoomSnapshot(
+                title: row.name,
+                synopsis: "",
+                coverURL: row.avatarURL,
+                roles: []
+            )
+        )
     }
 }
 

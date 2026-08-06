@@ -1,5 +1,5 @@
 // BWChat/Views/WalletView.swift
-// Wallet (猫粮) recharge page backed by StoreKit consumable products.
+// Wallet (金币) recharge page backed by StoreKit consumable products.
 
 import SwiftUI
 import UIKit
@@ -9,9 +9,8 @@ struct WalletView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject private var walletStore = WalletStore.shared
     @ObservedObject private var appConfig = AppRemoteConfigStore.shared
-    @StateObject private var adRewardService = AdRewardService()
 
-    @State private var selectedTab = 0            // 0: 我的猫粮, 1: 收益提现
+    @State private var selectedTab = ProcessInfo.processInfo.arguments.contains("-walletEarningsReviewScreenshot") ? 1 : 0
     @State private var selectedAmountIndex = 0
     @State private var agreedToTerms = false
     @State private var alertMessage: String?
@@ -25,12 +24,16 @@ struct WalletView: View {
     @State private var withdrawalAmountText = ""
     @FocusState private var focusedWithdrawalField: WithdrawalField?
 
-    private var packages: [CatFoodProductConfig] {
-        appConfig.config.wallet?.effectiveCatFoodProducts ?? AppConfig.catFoodProducts
+    private var packages: [GoldCoinProductConfig] {
+        appConfig.config.wallet?.effectiveGoldCoinProducts ?? AppConfig.goldCoinProducts
     }
 
     private var withdrawalNetworks: [String] {
         appConfig.config.wallet?.effectiveWithdrawalNetworks ?? ["TRC20", "ERC20", "BEP20"]
+    }
+
+    private var withdrawalPolicy: WalletWithdrawalPolicy {
+        walletStore.withdrawalPolicy(for: withdrawalNetwork.isBlank ? nil : withdrawalNetwork)
     }
 
     private enum WithdrawalField: Hashable {
@@ -38,7 +41,7 @@ struct WalletView: View {
         case amount
     }
 
-    private var selectedPackage: CatFoodProductConfig {
+    private var selectedPackage: GoldCoinProductConfig {
         packages[min(selectedAmountIndex, max(packages.count - 1, 0))]
     }
 
@@ -47,19 +50,19 @@ struct WalletView: View {
     }
 
     private var hasLoadedAnyBalance: Bool {
-        walletStore.balanceDetail != nil || walletStore.balance != nil
+        walletStore.hasLoadedWallet
     }
 
-    private var catFoodBalanceText: String {
-        walletStore.balance.map(String.init) ?? L10n.tr("common.loading")
+    private var goldCoinBalanceText: String {
+        walletStore.goldCoinBalanceValue.map(String.init) ?? L10n.tr("common.loading")
     }
 
     private var earningsBalanceText: String {
-        hasLoadedAnyBalance ? String(walletStore.earningsCatFoodBalance) : L10n.tr("common.loading")
+        hasLoadedAnyBalance ? String(walletStore.earningsGoldCoinBalance) : L10n.tr("common.loading")
     }
 
-    private var isCatFoodBalanceLoading: Bool {
-        walletStore.balance == nil
+    private var isGoldCoinBalanceLoading: Bool {
+        walletStore.goldCoinBalance == nil
     }
 
     private var isEarningsBalanceLoading: Bool {
@@ -74,13 +77,15 @@ struct WalletView: View {
         .interactiveSpring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.08)
     }
 
-    private var isAdRewardEntryEnabled: Bool {
-        let remotelyEnabled = (appConfig.config.wallet?.adRewardEnabled ?? true)
-            && appConfig.featureFlags.isEnabled("wallet_ad_reward_entry", default: true)
+    private var isAdRewardConfigured: Bool {
         #if DEBUG
-        return remotelyEnabled
+        return true
         #else
-        return AdMobConfiguration.productionRewardDeliveryEnabled && remotelyEnabled
+        // Production delivery is enabled remotely only after AdMob SSV and
+        // server-side wallet crediting are ready. The entry itself stays visible.
+        return appConfig.config.wallet?.adRewardEnabled == true
+            && appConfig.config.wallet?.adReward?.rewardsGoldCoins == true
+            && appConfig.featureFlags.isEnabled("wallet_ad_reward_delivery", default: false)
         #endif
     }
 
@@ -88,8 +93,13 @@ struct WalletView: View {
         ZStack(alignment: .top) {
             WalletMainBackground()
 
+            Color.white
+                .frame(height: 60)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(.container, edges: .bottom)
+
             if selectedTab == 0 {
-                catFoodPage
+                goldCoinPage
             } else {
                 earningsPage
             }
@@ -114,14 +124,14 @@ struct WalletView: View {
         .toolbarBackground(isWithdrawalFormFocused ? Color.white.opacity(0.96) : Color.clear, for: .navigationBar)
         .toolbarBackground(isWithdrawalFormFocused ? .visible : .hidden, for: .navigationBar)
         .task {
-            await appConfig.load()
-            await walletStore.refreshBalanceFromServer()
-            await walletStore.loadProducts()
-            await walletStore.loadTransactions()
-            await walletStore.loadWithdrawals()
-            if isAdRewardEntryEnabled {
-                await adRewardService.load()
-            }
+            // Remote config is already refreshed at launch, login changes, and
+            // foreground entry. Avoid another forced fetch here because each
+            // published loading/ETag update invalidates this large wallet view.
+            async let balance: Void = walletStore.refreshBalanceFromServer()
+            async let products: Void = walletStore.loadProducts()
+            async let transactions: Void = walletStore.loadTransactions()
+            async let withdrawals: Void = walletStore.loadWithdrawals()
+            _ = await (balance, products, transactions, withdrawals)
         }
         .onChange(of: packages.map(\.productID)) { _ in
             selectedAmountIndex = min(selectedAmountIndex, max(packages.count - 1, 0))
@@ -129,12 +139,8 @@ struct WalletView: View {
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
-            adRewardService.refreshDailyCounter()
             Task {
                 await walletStore.refreshBalanceFromServer()
-                if isAdRewardEntryEnabled && adRewardService.hasRemainingViews {
-                    await adRewardService.load()
-                }
             }
         }
         .onDisappear {
@@ -151,7 +157,6 @@ struct WalletView: View {
         }
         .toast(message: $toastMessage)
         .centerToast(message: $centerToastMessage)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(
             KeyboardDismissTapInstaller(
                 isEnabled: selectedTab == 1,
@@ -161,98 +166,89 @@ struct WalletView: View {
         )
     }
 
-    private var catFoodPage: some View {
+    private var goldCoinPage: some View {
         GeometryReader { geo in
-            let compact = geo.size.height < 650
-            let panelHeight: CGFloat = compact ? 276 : 320
-            let cleanBackgroundTop: CGFloat = compact ? 212 : 270
-            let bottomGroupLift: CGFloat = compact ? 24 : 30
-            let statsOffset = geo.size.height * 0.05
+            if geo.size.width > 1, geo.size.height > 1 {
+                let compact = geo.size.height < 650
+                let topPadding: CGFloat = compact ? 30 : 48
+                let sectionGap: CGFloat = compact ? 18 : 26
+                let bottomPadding = max(geo.safeAreaInsets.bottom, compact ? 10 : 14)
 
-            ZStack(alignment: .top) {
-                Color(hex: "FFF4C9")
-                    .frame(height: max(geo.size.height - cleanBackgroundTop + geo.safeAreaInsets.bottom, 0))
-                    .offset(y: cleanBackgroundTop)
-                    .ignoresSafeArea(edges: .bottom)
-                Color.white
-                    .frame(height: bottomGroupLift + geo.safeAreaInsets.bottom)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .ignoresSafeArea(edges: .bottom)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Spacer().frame(height: topPadding)
+                        pawIcon(compact: compact)
 
-                VStack(spacing: 0) {
-                    Spacer().frame(height: (compact ? 52 : 72) + statsOffset)
+                        goldCoinBalanceHeader(compact: compact)
+                            .padding(.top, compact ? 0 : 2)
 
-                    pawIcon(compact: compact)
+                        Spacer(minLength: sectionGap)
 
-                    catFoodBalanceHeader(compact: compact)
-                        .padding(.top, compact ? 0 : 2)
-                }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                        WalletAdRewardBanner(
+                            compact: compact,
+                            isConfigured: isAdRewardConfigured,
+                            onCenterToast: { centerToastMessage = $0 }
+                        )
+                        .equatable()
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, compact ? 10 : 14)
 
-                VStack(spacing: compact ? 10 : 14) {
-                    Spacer(minLength: 0)
-                    if isAdRewardEntryEnabled {
-                        adRewardBanner(compact: compact)
-                            .padding(.horizontal, 20)
+                        rechargePanel(
+                            compact: compact,
+                            availableWidth: geo.size.width,
+                            bottomPadding: bottomPadding
+                        )
                     }
-
-                    rechargePanel(compact: compact, panelHeight: panelHeight)
+                    .frame(width: geo.size.width)
+                    .frame(minHeight: geo.size.height, alignment: .top)
                 }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                .offset(y: -bottomGroupLift)
+                .scrollDismissesKeyboard(.interactively)
             }
         }
     }
 
     private var earningsPage: some View {
         GeometryReader { geo in
-            let stableHeight = max(geo.size.height, UIScreen.main.bounds.height)
-            let compact = stableHeight < 650
-            let verticalShift = min(stableHeight, 820) * 0.02
-            let normalTopGap: CGFloat = (compact ? 56 : 72) + verticalShift
-            let cardHeight: CGFloat = compact ? 130 : 148
-            let summaryAreaHeight = cardHeight
-            let normalPanelGap: CGFloat = compact ? 28 : 36
-            let normalPanelTop = normalTopGap + summaryAreaHeight + normalPanelGap
-            let focusedPanelTop: CGFloat = compact ? 210 : 240
-            let panelTop = isWithdrawalFormFocused ? max(focusedPanelTop, normalPanelTop) : normalPanelTop
-            let topGap = isWithdrawalFormFocused ? panelTop : normalTopGap
-            let panelGap = isWithdrawalFormFocused ? 0 : normalPanelGap
-            let panelHeight = max(
-                stableHeight - panelTop + geo.safeAreaInsets.bottom,
-                compact ? 390 : 470
-            )
-            let buttonBottomPadding = earningsButtonBottomPadding(
-                compact: compact,
-                panelHeight: panelHeight,
-                safeAreaBottom: geo.safeAreaInsets.bottom
-            )
+            if geo.size.width > 1, geo.size.height > 1 {
+                let compact = geo.size.height < 650
+                let normalTopGap: CGFloat = compact ? 30 : 48
+                let cardHeight: CGFloat = compact ? 130 : 148
+                let normalPanelGap: CGFloat = compact ? 20 : 28
+                let topGap = isWithdrawalFormFocused ? (compact ? 10 : 14) : normalTopGap
+                let panelBottomPadding = max(geo.safeAreaInsets.bottom, compact ? 14 : 18)
 
-            VStack(spacing: 0) {
-                Spacer().frame(height: topGap)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Spacer().frame(height: topGap)
 
-                if !isWithdrawalFormFocused {
-                    earningsSummaryCard(compact: compact)
-                        .frame(height: cardHeight)
-                        .padding(.horizontal, 20)
-                        .transition(.opacity)
+                        if !isWithdrawalFormFocused {
+                            earningsSummaryCard(compact: compact)
+                                .frame(height: cardHeight)
+                                .padding(.horizontal, 20)
+                                .transition(.opacity)
+
+                            Spacer().frame(height: normalPanelGap)
+                        }
+
+                        earningsActionPanel(
+                            compact: compact,
+                            buttonBottomPadding: panelBottomPadding,
+                            availableWidth: geo.size.width
+                        )
+
+                    }
+                    .frame(width: geo.size.width)
+                    .frame(minHeight: geo.size.height, alignment: .top)
+                    .animation(walletKeyboardTransitionAnimation, value: isWithdrawalFormFocused)
                 }
-
-                Spacer().frame(height: panelGap)
-
-                earningsActionPanel(compact: compact, buttonBottomPadding: buttonBottomPadding)
-                    .frame(height: panelHeight)
-                    .ignoresSafeArea(edges: .bottom)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .frame(width: geo.size.width, height: stableHeight, alignment: .top)
-            .animation(walletKeyboardTransitionAnimation, value: isWithdrawalFormFocused)
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private var tabHeader: some View {
         HStack(spacing: 18) {
-            tabButton(L10n.tr("wallet.myCatFood"), index: 0)
+            tabButton(L10n.tr("wallet.myGoldCoins"), index: 0)
             tabButton(L10n.tr("wallet.creatorEarnings"), index: 1)
         }
         .frame(width: 246)
@@ -284,37 +280,56 @@ struct WalletView: View {
         .buttonStyle(.plain)
     }
 
-    private func catFoodBalanceHeader(compact: Bool) -> some View {
-        VStack(spacing: compact ? 5 : 7) {
-            Text(L10n.tr("wallet.balance"))
-                .font(.system(size: compact ? 16 : 18, weight: .semibold))
-                .foregroundColor(.black.opacity(0.8))
-                .lineLimit(1)
-                .minimumScaleFactor(0.62)
-                .allowsTightening(true)
-                .padding(.horizontal, 24)
+    private func goldCoinBalanceHeader(compact: Bool) -> some View {
+        VStack(spacing: compact ? 7 : 10) {
+            walletAssetMetric(
+                title: L10n.tr("wallet.goldCoinBalance"),
+                value: goldCoinBalanceText,
+                isLoading: isGoldCoinBalanceLoading,
+                compact: compact
+            )
+            .frame(maxWidth: 240)
 
-            Text(catFoodBalanceText)
-                .font(.system(size: isCatFoodBalanceLoading ? (compact ? 21 : 25) : (compact ? 34 : 41), weight: .bold))
-                .foregroundColor(.black)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Button {
-                openCatFoodDetails()
-            } label: {
-                HStack(spacing: 4) {
-                    Text(L10n.tr("wallet.details"))
-                        .font(.system(size: compact ? 15 : 17, weight: .medium))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.68)
-                        .allowsTightening(true)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: compact ? 12 : 14, weight: .bold))
-                }
-                .foregroundColor(.black.opacity(0.48))
+            Button(action: openGoldCoinDetails) {
+                walletDetailLink(L10n.tr("wallet.goldCoinDetails"), compact: compact)
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, compact ? 16 : 24)
+    }
+
+    private func walletAssetMetric(
+        title: String,
+        value: String,
+        isLoading: Bool,
+        compact: Bool
+    ) -> some View {
+        VStack(spacing: compact ? 3 : 5) {
+            Text(title)
+                .font(.system(size: compact ? 11 : 13, weight: .semibold))
+                .foregroundColor(.black.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+            Text(value)
+                .font(.system(size: isLoading ? (compact ? 13 : 15) : (compact ? 23 : 28), weight: .bold))
+                .foregroundColor(.black)
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func walletDetailLink(_ title: String, compact: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+            Image(systemName: "chevron.right")
+                .font(.system(size: compact ? 10 : 11, weight: .bold))
+        }
+        .font(.system(size: compact ? 12 : 13, weight: .medium))
+        .foregroundColor(.black.opacity(0.48))
     }
 
     private var earningsBalanceHeader: some View {
@@ -336,7 +351,7 @@ struct WalletView: View {
         let containerHeight: CGFloat = compact ? 122 : 153
 
         return ZStack {
-            Image("wallet_paw_badge")
+            Image("wallet_gold_coin_badge")
                 .resizable()
                 .scaledToFit()
                 .frame(width: size, height: size)
@@ -370,11 +385,11 @@ struct WalletView: View {
         .frame(height: 100)
     }
 
-    private var catFoodStatCard: some View {
+    private var goldCoinStatCard: some View {
         VStack(spacing: 0) {
             walletBalanceRow(
                 title: L10n.tr("wallet.rechargeClaimBalance"),
-                value: walletStore.rechargeClaimBalance,
+                value: walletStore.rechargeGoldCoinBalance,
                 systemImage: "plus.circle.fill"
             )
         }
@@ -417,15 +432,14 @@ struct WalletView: View {
         value.map(String.init) ?? L10n.tr("common.loading")
     }
 
-    private func usdtNumberText(for catFoodAmount: Int) -> String {
-        String(format: "%.2f", walletStore.usdtAmount(for: catFoodAmount))
+    private func usdtNumberText(for goldCoinAmount: Int) -> String {
+        String(format: "%.2f", withdrawalPolicy.rawUSDTAmount(forGoldCoins: goldCoinAmount))
     }
 
     private var maxWithdrawableUSDTAmount: Double {
-        let rawAmount = walletStore.usdtAmount(for: walletStore.withdrawableCatFoodBalanceForAction)
-        let halfUSDTStep = 0.5
-        guard rawAmount >= halfUSDTStep else { return 0 }
-        return floor((rawAmount + 0.000_000_1) / halfUSDTStep) * halfUSDTStep
+        withdrawalPolicy.maximumUSDTAmount(
+            forGoldCoins: walletStore.withdrawableGoldCoinBalanceForAction
+        )
     }
 
     private var maxWithdrawableUSDTNumberText: String {
@@ -433,115 +447,42 @@ struct WalletView: View {
     }
 
     private var hasWithdrawableUSDTAmount: Bool {
-        maxWithdrawableUSDTAmount >= 0.5
+        withdrawalPolicy.canWithdraw(
+            goldCoinAmount: walletStore.withdrawableGoldCoinBalanceForAction
+        )
     }
 
     private var withdrawalUSDTPlaceholder: String {
-        L10n.tr("wallet.usdt.maxWithdrawable", maxWithdrawableUSDTNumberText)
+        hasWithdrawableUSDTAmount
+            ? L10n.tr("wallet.usdt.maxWithdrawable", maxWithdrawableUSDTNumberText)
+            : withdrawalMinimumText
+    }
+
+    private var withdrawalMinimumText: String {
+        L10n.tr(
+            "wallet.withdrawal.minimumUSDT",
+            String(format: "%.2f", withdrawalPolicy.minimumUSDT)
+        )
+    }
+
+    private var withdrawalStepText: String {
+        String(format: "%.2f", withdrawalPolicy.stepUSDT)
     }
 
     private var withdrawalNetworkDisplayText: String {
         withdrawalNetwork.isBlank ? L10n.tr("wallet.usdt.network.select") : withdrawalNetwork
     }
 
-    private func adRewardBanner(compact: Bool) -> some View {
-        Button {
-            Task { await presentRewardedAd() }
-        } label: {
-            rechargeJumpRow(
-                compact: compact,
-                title: L10n.tr("wallet.adReward", adRewardService.remainingViewCount),
-                icon: .play
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(adRewardService.state == .presenting || !adRewardService.hasRemainingViews)
-        .opacity(adRewardService.state == .presenting || !adRewardService.hasRemainingViews ? 0.62 : 1)
-    }
-
-    @MainActor
-    private func presentRewardedAd() async {
-        guard adRewardService.hasRemainingViews else {
-            alertMessage = L10n.tr("wallet.adRewardDailyLimitReached")
-            return
-        }
-
-        let earnedReward = await adRewardService.present()
-        guard earnedReward else {
-            if adRewardService.state == .failed || adRewardService.lastErrorMessage != nil {
-                alertMessage = L10n.tr("wallet.adRewardLoadFailed")
-            }
-            return
-        }
-
-        #if DEBUG
-        centerToastMessage = L10n.tr("common.done")
-        #else
-        centerToastMessage = L10n.tr("wallet.adRewardCompletedPending")
-        #endif
-        await walletStore.refreshBalanceFromServer(forceRefresh: true)
-        await walletStore.loadTransactions(forceRefresh: true)
-    }
-
-    private enum RechargeJumpIcon {
-        case play
-    }
-
-    private func rechargeJumpRow(
+    private func rechargePanel(
         compact: Bool,
-        title: String,
-        icon: RechargeJumpIcon
+        availableWidth: CGFloat,
+        bottomPadding: CGFloat
     ) -> some View {
-        let cornerRadius: CGFloat = compact ? 15 : 18
-
-        return HStack(spacing: compact ? 8 : 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9)
-                    .fill(Color(hex: "FFD400"))
-                    .frame(width: compact ? 20 : 24, height: compact ? 20 : 24)
-
-                switch icon {
-                case .play:
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white)
-                        .offset(x: 1)
-                }
-            }
-
-            Text(title)
-                .font(.system(size: compact ? 13 : 14, weight: .medium))
-                .foregroundColor(.black.opacity(0.68))
-                .lineLimit(2)
-                .minimumScaleFactor(0.64)
-                .allowsTightening(true)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: compact ? 15 : 18, weight: .semibold))
-                .foregroundColor(.black.opacity(0.5))
-        }
-        .padding(.horizontal, compact ? 13 : 18)
-        .frame(height: compact ? 46 : 54)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(Color(hex: "FFF1A8").opacity(0.58))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius)
-                        .stroke(Color.white.opacity(0.74), lineWidth: 1)
-                )
-        )
-        .shadow(color: Color(hex: "C99A10").opacity(0.12), radius: 12, x: 0, y: 5)
-    }
-
-    private func rechargePanel(compact: Bool, panelHeight: CGFloat) -> some View {
         let cardVerticalSpacing: CGFloat = compact ? 12 : 16
+        let horizontalPadding: CGFloat = 18
+        let columnSpacing: CGFloat = 12
+        let contentWidth = max(availableWidth - horizontalPadding * 2, 0)
+        let columnWidth = max((contentWidth - columnSpacing * 2) / 3, 0)
 
         return VStack(spacing: 0) {
             if let productLoadError = walletStore.productLoadError {
@@ -556,13 +497,13 @@ struct WalletView: View {
             }
 
             LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
+                GridItem(.fixed(columnWidth), spacing: columnSpacing),
+                GridItem(.fixed(columnWidth), spacing: columnSpacing),
+                GridItem(.fixed(columnWidth), spacing: columnSpacing)
             ], spacing: cardVerticalSpacing) {
                 ForEach(packages.indices, id: \.self) { amountCard(index: $0, compact: compact) }
             }
-            .padding(.horizontal, 18)
+            .frame(width: contentWidth)
 
             Button {
                 Task { await purchaseSelectedPackage() }
@@ -619,54 +560,51 @@ struct WalletView: View {
             .padding(.bottom, compact ? 2 : 4)
         }
         .padding(.top, compact ? 10 : 12)
-        .padding(.bottom, compact ? 2 : 3)
-        .frame(maxWidth: .infinity)
-        .frame(height: panelHeight, alignment: .top)
+        .padding(.bottom, bottomPadding)
+        .frame(width: availableWidth, alignment: .top)
         .background(Color.white)
         .clipShape(WalletTopRoundedShape(radius: 30))
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private func earningsSummaryCard(compact: Bool) -> some View {
-        let catFoodValue = balanceDisplayText(hasLoadedAnyBalance ? walletStore.earningsCatFoodBalance : nil)
-        let usdtValue = hasLoadedAnyBalance
-            ? usdtNumberText(for: walletStore.earningsCatFoodBalance)
-            : L10n.tr("common.loading")
-        let symbolWidth: CGFloat = compact ? 34 : 40
+        let withdrawableGoldCoins = walletStore.walletBalance?.withdrawableGoldCoinBalance.value
+        let totalGoldCoinValue = balanceDisplayText(walletStore.goldCoinBalanceValue)
+        let withdrawableGoldCoinValue = balanceDisplayText(withdrawableGoldCoins)
+        let usdtValue = withdrawableGoldCoins.map { usdtNumberText(for: $0) }
+            ?? L10n.tr("common.loading")
 
         return VStack(spacing: 0) {
-            VStack(spacing: compact ? 9 : 12) {
-                HStack(alignment: .center, spacing: 0) {
-                    earningsMetricTitle(
-                        title: L10n.tr("wallet.totalCatFood"),
-                        compact: compact
-                    )
-                    .frame(maxWidth: .infinity)
+            HStack(alignment: .center, spacing: 0) {
+                earningsSummaryMetric(
+                    title: L10n.tr("wallet.goldCoinBalance"),
+                    value: totalGoldCoinValue,
+                    compact: compact
+                )
 
-                    Color.clear
-                        .frame(width: symbolWidth)
+                Rectangle()
+                    .fill(Color.black.opacity(0.08))
+                    .frame(width: 1, height: compact ? 46 : 52)
+                    .padding(.horizontal, compact ? 6 : 8)
 
-                    earningsMetricTitle(
-                        title: L10n.tr("wallet.usdt.estimated"),
-                        compact: compact
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(height: compact ? 20 : 24)
+                earningsSummaryMetric(
+                    title: L10n.tr("wallet.withdrawableBalance"),
+                    value: withdrawableGoldCoinValue,
+                    compact: compact
+                )
 
-                HStack(alignment: .center, spacing: 0) {
-                    earningsMetricValue(catFoodValue, compact: compact)
-                        .frame(maxWidth: .infinity)
+                Text("≈")
+                    .font(.system(size: compact ? 15 : 17, weight: .bold))
+                    .foregroundColor(Color(hex: "B58A00").opacity(0.74))
+                    .frame(width: compact ? 22 : 26, alignment: .center)
 
-                    Text("≈")
-                        .font(.system(size: compact ? 20 : 23, weight: .bold))
-                        .foregroundColor(Color(hex: "B58A00").opacity(0.74))
-                        .frame(width: symbolWidth, alignment: .center)
-
-                    earningsMetricValue(usdtValue, compact: compact)
-                        .frame(maxWidth: .infinity)
-                }
-                .frame(height: compact ? 36 : 42)
+                earningsSummaryMetric(
+                    title: L10n.tr("wallet.usdt.estimated"),
+                    value: usdtValue,
+                    compact: compact
+                )
             }
+            .frame(height: compact ? 60 : 68)
 
             Spacer(minLength: compact ? 8 : 10)
 
@@ -689,9 +627,33 @@ struct WalletView: View {
         .shadow(color: Color.black.opacity(0.035), radius: 12, x: 0, y: 4)
     }
 
+    private func earningsSummaryMetric(
+        title: String,
+        value: String,
+        compact: Bool
+    ) -> some View {
+        VStack(spacing: compact ? 5 : 7) {
+            Text(title)
+                .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                .foregroundColor(.black.opacity(0.66))
+                .lineLimit(1)
+                .minimumScaleFactor(0.58)
+                .allowsTightening(true)
+
+            Text(value)
+                .font(.system(size: compact ? 23 : 27, weight: .bold))
+                .monospacedDigit()
+                .foregroundColor(.black)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .allowsTightening(true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     private func withdrawalRecordShortcutRow(compact: Bool) -> some View {
         HStack(alignment: .center, spacing: 10) {
-            Text(L10n.tr("wallet.withdrawal.minimumUSDT"))
+            Text(withdrawalMinimumText)
                 .font(.system(size: compact ? 11 : 12, weight: .medium))
                 .foregroundColor(.black.opacity(0.42))
                 .lineLimit(1)
@@ -751,7 +713,7 @@ struct WalletView: View {
                 .buttonStyle(.plain)
                 .overlay(alignment: .top) {
                     if isUSDTInfoBubbleVisible {
-                        Text("100猫粮≈$0.5")
+                        Text("100金币≈$0.5")
                             .font(.system(size: compact ? 10 : 11, weight: .semibold))
                             .foregroundColor(.black.opacity(0.82))
                             .lineLimit(1)
@@ -789,7 +751,11 @@ struct WalletView: View {
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private func earningsActionPanel(compact: Bool, buttonBottomPadding: CGFloat) -> some View {
+    private func earningsActionPanel(
+        compact: Bool,
+        buttonBottomPadding: CGFloat,
+        availableWidth: CGFloat
+    ) -> some View {
         VStack(alignment: .leading, spacing: compact ? 14 : 16) {
             usdtWithdrawalTextField(
                 title: L10n.tr("wallet.usdt.address"),
@@ -836,39 +802,10 @@ struct WalletView: View {
         }
         .padding(.horizontal, 18)
         .padding(.top, compact ? 22 : 26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(width: availableWidth, alignment: .top)
         .background(Color.white)
         .clipShape(WalletTopRoundedShape(radius: 30))
-        .ignoresSafeArea(edges: .bottom)
-    }
-
-    private func earningsButtonBottomPadding(
-        compact: Bool,
-        panelHeight: CGFloat,
-        safeAreaBottom: CGFloat
-    ) -> CGFloat {
-        let targetPadding = rechargeButtonScreenBottomInset(compact: compact)
-        let topPadding: CGFloat = compact ? 22 : 26
-        let moduleHeight: CGFloat = compact ? 88 : 97
-        let moduleSpacing: CGFloat = compact ? 14 : 16
-        let buttonHeight: CGFloat = compact ? 42 : 52
-        let minimumButtonGap: CGFloat = compact ? 12 : 16
-        let estimatedFormHeight = moduleHeight * 3 + moduleSpacing * 2
-        let maxPaddingWithoutOverlap = panelHeight
-            - topPadding
-            - estimatedFormHeight
-            - minimumButtonGap
-            - buttonHeight
-        let minimumBottomPadding = safeAreaBottom + (compact ? 12 : 16)
-
-        return max(
-            minimumBottomPadding,
-            min(targetPadding, maxPaddingWithoutOverlap)
-        )
-    }
-
-    private func rechargeButtonScreenBottomInset(compact: Bool) -> CGFloat {
-        compact ? 86 : 103
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private func usdtWithdrawalTextField(
@@ -1100,7 +1037,7 @@ struct WalletView: View {
             return
         }
 
-        let maxCatFoodAmount = walletStore.withdrawableCatFoodBalanceForAction
+        let maxGoldCoinAmount = walletStore.withdrawableGoldCoinBalanceForAction
         let maxUSDTAmount = maxWithdrawableUSDTAmount
 
         guard !withdrawalNetwork.isBlank else {
@@ -1114,20 +1051,27 @@ struct WalletView: View {
             return
         }
 
-        let usdtCents = Int((usdtAmount * 100).rounded())
-        guard usdtCents.isMultiple(of: 50) else {
-            alertMessage = L10n.tr("wallet.withdrawal.amount.multipleOfHalfUSDT")
+        guard usdtAmount + 0.000_000_1 >= withdrawalPolicy.minimumUSDT else {
+            alertMessage = withdrawalMinimumText
             return
         }
 
-        guard usdtAmount <= maxUSDTAmount + 0.005 else {
+        guard withdrawalPolicy.isValidUSDTIncrement(usdtAmount) else {
+            alertMessage = L10n.tr(
+                "wallet.withdrawal.amount.multipleOfHalfUSDT",
+                withdrawalStepText
+            )
+            return
+        }
+
+        guard usdtAmount <= maxUSDTAmount + 0.000_000_1 else {
             alertMessage = L10n.tr("wallet.withdrawal.amount.invalid")
             return
         }
 
         let amount = min(
-            maxCatFoodAmount,
-            max(1, Int((usdtAmount / WalletStore.usdtPerCatFood).rounded(.up)))
+            maxGoldCoinAmount,
+            withdrawalPolicy.requiredGoldCoins(forUSDT: usdtAmount)
         )
 
         do {
@@ -1254,7 +1198,7 @@ struct WalletView: View {
         } label: {
             VStack(spacing: compact ? 9 : 12) {
                 HStack(spacing: compact ? 2 : 3) {
-                    Image("wallet_paw_badge")
+                    Image("wallet_gold_coin_badge")
                         .resizable()
                         .scaledToFit()
                         .frame(width: compact ? 21 : 28, height: compact ? 21 : 28)
@@ -1285,7 +1229,7 @@ struct WalletView: View {
         .buttonStyle(.plain)
     }
 
-    private func openCatFoodDetails() {
+    private func openGoldCoinDetails() {
         dismissWalletInputState()
         navigator.push(WalletTransactionDetailView().hidesTabBarOnPush())
     }
@@ -1330,6 +1274,162 @@ struct WalletView: View {
 
 }
 
+/// Keeps AdMob's loading and presentation state out of `WalletView` so the
+/// animated entry does not invalidate the balance header, product grid, and
+/// withdrawal form on every SDK callback.
+private struct WalletAdRewardBanner: View, Equatable {
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var adRewardService = AdRewardService()
+    @State private var isPreparing = false
+    @State private var alertMessage: String?
+
+    let compact: Bool
+    let isConfigured: Bool
+    let onCenterToast: (String) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.compact == rhs.compact && lhs.isConfigured == rhs.isConfigured
+    }
+
+    private var isAvailable: Bool {
+        isConfigured && adRewardService.serverDeliveryEnabled
+    }
+
+    private var isBusy: Bool {
+        isPreparing
+            || adRewardService.state == .loading
+            || adRewardService.state == .presenting
+            || adRewardService.isAwaitingServerCredit
+    }
+
+    private var title: String {
+        if adRewardService.isAwaitingServerCredit {
+            return L10n.tr("wallet.adRewardCompletedPending")
+        }
+        if isBusy {
+            return L10n.tr("wallet.adRewardPreparing")
+        }
+        return L10n.tr("wallet.adReward", adRewardService.remainingViewCount)
+    }
+
+    var body: some View {
+        Button {
+            Task { await presentRewardedAd() }
+        } label: {
+            row
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || !adRewardService.hasRemainingViews)
+        .opacity(isBusy || !adRewardService.hasRemainingViews ? 0.62 : 1)
+        .task(id: isConfigured) {
+            await prepareRewardedAd()
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            adRewardService.refreshDailyCounter()
+            Task { await prepareRewardedAd() }
+        }
+        .alert(L10n.tr("common.notice"), isPresented: Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )) {
+            Button(L10n.tr("common.ok"), role: .cancel) {}
+        } message: {
+            Text(alertMessage ?? "")
+        }
+    }
+
+    private var row: some View {
+        let cornerRadius: CGFloat = compact ? 15 : 18
+
+        return HStack(spacing: compact ? 8 : 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color(hex: "FFD400"))
+                    .frame(width: compact ? 20 : 24, height: compact ? 20 : 24)
+
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .offset(x: 1)
+                }
+            }
+
+            Text(title)
+                .font(.system(size: compact ? 13 : 14, weight: .medium))
+                .foregroundColor(.black.opacity(0.68))
+                .lineLimit(2)
+                .minimumScaleFactor(0.64)
+                .allowsTightening(true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: compact ? 15 : 18, weight: .semibold))
+                .foregroundColor(.black.opacity(0.5))
+        }
+        .padding(.horizontal, compact ? 13 : 18)
+        .frame(height: compact ? 46 : 54)
+        .background(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                // A solid translucent fill avoids continuously recompositing a
+                // live blur while ProgressView is animating.
+                .fill(Color(hex: "FFF3B5").opacity(0.96))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(Color.white.opacity(0.74), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color(hex: "C99A10").opacity(0.1), radius: 8, x: 0, y: 4)
+    }
+
+    @MainActor
+    private func prepareRewardedAd() async {
+        guard isConfigured, !isPreparing else { return }
+        isPreparing = true
+        defer { isPreparing = false }
+
+        await adRewardService.syncServerCounter()
+        guard isAvailable, adRewardService.hasRemainingViews else { return }
+        await adRewardService.load()
+    }
+
+    @MainActor
+    private func presentRewardedAd() async {
+        guard isAvailable else {
+            alertMessage = L10n.tr("wallet.adRewardUnavailable")
+            return
+        }
+        guard adRewardService.hasRemainingViews else {
+            alertMessage = L10n.tr("wallet.adRewardDailyLimitReached")
+            return
+        }
+
+        let earnedReward = await adRewardService.present()
+        guard earnedReward else {
+            if !adRewardService.hasRemainingViews {
+                alertMessage = L10n.tr("wallet.adRewardDailyLimitReached")
+            } else if adRewardService.state == .failed
+                        || adRewardService.lastErrorMessage != nil {
+                alertMessage = L10n.tr("wallet.adRewardLoadFailed")
+            }
+            return
+        }
+
+        onCenterToast(L10n.tr("wallet.adRewardCompletedPending"))
+        await adRewardService.waitForServerCredit()
+        await WalletStore.shared.refreshBalanceFromServer(forceRefresh: true)
+        await WalletStore.shared.loadTransactions(forceRefresh: true)
+        if !adRewardService.isAwaitingServerCredit, isAvailable {
+            await adRewardService.load(force: true)
+        }
+    }
+}
+
 struct WalletTransactionDetailView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @ObservedObject private var walletStore = WalletStore.shared
@@ -1337,7 +1437,7 @@ struct WalletTransactionDetailView: View {
 
     private var visibleTransactions: [WalletTransaction] {
         walletStore.transactions.filter { transaction in
-            guard transaction.currency == .catFood else { return false }
+            guard transaction.currency == .goldCoins else { return false }
             switch selectedTab {
             case .income:
                 return isIncome(transaction)
@@ -1359,10 +1459,12 @@ struct WalletTransactionDetailView: View {
                         ProgressView()
                             .tint(AppColors.accent)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if let error = walletStore.transactionLoadError, walletStore.transactions.isEmpty {
+                    } else if let error = walletStore.transactionLoadError,
+                              walletStore.transactions.isEmpty,
+                              !walletStore.canLoadMoreTransactions {
                         WalletEmptyState(title: error)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if visibleTransactions.isEmpty {
+                    } else if visibleTransactions.isEmpty && !walletStore.canLoadMoreTransactions {
                         WalletEmptyState(title: L10n.tr("wallet.records.empty"))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
@@ -1371,9 +1473,13 @@ struct WalletTransactionDetailView: View {
                                 ForEach(visibleTransactions) { transaction in
                                     WalletTransactionRow(transaction: transaction)
                                 }
+                                WalletTransactionPaginationFooter()
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
+                        }
+                        .refreshable {
+                            await walletStore.loadTransactions(forceRefresh: true)
                         }
                         .background(Color(hex: "F7F7F7"))
                     }
@@ -1550,7 +1656,9 @@ private struct WalletTransactionsSheet: View {
                 if walletStore.isLoadingTransactions && walletStore.transactions.isEmpty {
                     ProgressView()
                         .tint(AppColors.accent)
-                } else if let error = walletStore.transactionLoadError, walletStore.transactions.isEmpty {
+                } else if let error = walletStore.transactionLoadError,
+                          walletStore.transactions.isEmpty,
+                          !walletStore.canLoadMoreTransactions {
                     VStack(spacing: 12) {
                         Image(systemName: "exclamationmark.circle")
                             .font(.system(size: 34))
@@ -1559,7 +1667,7 @@ private struct WalletTransactionsSheet: View {
                             .font(.system(size: 14))
                             .foregroundColor(AppColors.secondaryText)
                     }
-                } else if walletStore.transactions.isEmpty {
+                } else if walletStore.transactions.isEmpty && !walletStore.canLoadMoreTransactions {
                     VStack(spacing: 12) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 34))
@@ -1574,6 +1682,7 @@ private struct WalletTransactionsSheet: View {
                             ForEach(walletStore.transactions) { transaction in
                                 WalletTransactionRow(transaction: transaction)
                             }
+                            WalletTransactionPaginationFooter()
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -1589,7 +1698,7 @@ private struct WalletTransactionsSheet: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        Task { await walletStore.loadTransactions() }
+                        Task { await walletStore.loadTransactions(forceRefresh: true) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -1602,6 +1711,38 @@ private struct WalletTransactionsSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+}
+
+private struct WalletTransactionPaginationFooter: View {
+    @ObservedObject private var walletStore = WalletStore.shared
+
+    @ViewBuilder
+    var body: some View {
+        if let cursor = walletStore.transactionNextCursor, !cursor.isBlank {
+            if let error = walletStore.transactionLoadError {
+                VStack(spacing: 8) {
+                    Text(error)
+                        .font(.system(size: 13))
+                        .foregroundColor(AppColors.secondaryText)
+                        .multilineTextAlignment(.center)
+                    Button(L10n.tr("common.retry")) {
+                        Task { await walletStore.loadMoreTransactions() }
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+            } else {
+                ProgressView()
+                    .tint(AppColors.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .task(id: cursor) {
+                        await walletStore.loadMoreTransactions()
+                    }
+            }
+        }
     }
 }
 
@@ -1770,14 +1911,14 @@ private struct WalletWithdrawalRow: View {
                 Circle()
                     .fill(Color(hex: "FFD54A").opacity(0.18))
                     .frame(width: 36, height: 36)
-                Image("wallet_paw_badge")
+                Image("wallet_gold_coin_badge")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 24, height: 24)
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.tr("wallet.withdrawal.amountValue", withdrawal.amount))
+                Text(L10n.tr("wallet.withdrawal.amountValue", withdrawal.goldCoinAmount.value))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(AppColors.primaryText)
                     .lineLimit(1)
@@ -1837,11 +1978,15 @@ private struct WalletWithdrawalRow: View {
 
 private struct WalletMainBackground: View {
     var body: some View {
-        Image("wallet_paw_background")
-            .resizable()
-            .scaledToFill()
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
+        GeometryReader { geo in
+            Image("wallet_gold_coin_background")
+                .resizable()
+                .scaledToFill()
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 

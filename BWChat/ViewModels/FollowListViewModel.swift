@@ -2,6 +2,7 @@
 // Paginated following/follower lists with optimistic follow actions.
 
 import Foundation
+import Combine
 
 enum FollowListKind {
     case following
@@ -34,6 +35,7 @@ final class FollowListViewModel: ObservableObject {
 
     private var nextPage: Int? = 1
     private var hasLoaded = false
+    private var cancellables = Set<AnyCancellable>()
 
     init(kind: FollowListKind, userID: String?) {
         self.kind = kind
@@ -43,6 +45,11 @@ final class FollowListViewModel: ObservableObject {
             users = cached.value.users
             nextPage = cached.value.nextPage
         }
+        FollowRelationshipStore.shared.changes
+            .sink { [weak self] change in
+                self?.apply(change)
+            }
+            .store(in: &cancellables)
     }
 
     var hasMore: Bool {
@@ -169,6 +176,47 @@ final class FollowListViewModel: ObservableObject {
         }
         if let followingCount = relationship.followingCount {
             users[index].followingCount = followingCount
+        }
+        persist()
+    }
+
+    private func apply(_ change: FollowRelationshipChange) {
+        let relationship = change.relationship
+        let currentUserID = AuthManager.shared.currentUser?.userID
+        let isCurrentUserFollowingList = kind == .following
+            && (userID == nil || userID == currentUserID)
+
+        if isCurrentUserFollowingList {
+            if relationship.followedByMe {
+                if users.contains(where: { $0.userID == relationship.userID }) {
+                    applyRelationship(relationship, to: relationship.userID)
+                } else if var user = change.user {
+                    applyRelationship(relationship, to: &user)
+                    users.insert(user, at: 0)
+                    persist()
+                }
+            } else {
+                let previousCount = users.count
+                users.removeAll { $0.userID == relationship.userID }
+                if users.count != previousCount {
+                    persist()
+                }
+            }
+            return
+        }
+
+        applyRelationship(relationship, to: relationship.userID)
+    }
+
+    private func applyRelationship(_ relationship: FollowRelationship, to user: inout FollowUser) {
+        user.followedByMe = relationship.followedByMe
+        user.followsMe = relationship.followsMe
+        user.isFriend = relationship.isFriend
+        if let followerCount = relationship.followerCount {
+            user.followerCount = followerCount
+        }
+        if let followingCount = relationship.followingCount {
+            user.followingCount = followingCount
         }
     }
 }

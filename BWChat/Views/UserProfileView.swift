@@ -12,6 +12,7 @@ struct UserProfileView: View {
     @State private var selectedTab: ProfileContentTab = .moments
     @State private var showMoreActions = false
     @State private var toastMessage: String?
+    @State private var videoPreviewItem: VideoPreviewItem?
 
     private let gridSpacing: CGFloat = 1
 
@@ -20,30 +21,8 @@ struct UserProfileView: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                if viewModel.isLoading && viewModel.profile == nil {
-                    ProgressView()
-                        .tint(AppColors.accent)
-                        .padding(.top, 96)
-                } else if let profile = viewModel.profile {
-                    profileHeader(profile)
-                    profileActions(profile)
-                    profileSuggestions(profile)
-                    profileHighlights(profile)
-                    profileTabs
-                    if selectedTab == .moments && profile.isPrivate && !profile.canViewMoments {
-                        privateAccountState
-                    } else {
-                        profileContent
-                    }
-                } else {
-                    emptyState
-                        .padding(.top, 96)
-                }
-            }
-            .padding(.bottom, 28)
-        }
+        profilePage
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppColors.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -98,16 +77,57 @@ struct UserProfileView: View {
         .task(id: selectedTab) {
             await loadSelectedTab()
         }
-        .refreshable {
-            async let profileTask: () = viewModel.loadProfile(forceRefresh: true)
-            async let contentTask: () = refreshSelectedTab()
-            async let suggestionsTask: () = viewModel.loadSuggestedUsers()
-            await profileTask
-            await contentTask
-            await suggestionsTask
+        .fullScreenCover(item: $videoPreviewItem) { item in
+            VideoPlayerView(videoURL: item.url)
         }
         .toast(message: $viewModel.errorMessage)
         .toast(message: $toastMessage)
+    }
+
+    private var profilePage: some View {
+        GeometryReader { geometry in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    if viewModel.isLoading && viewModel.profile == nil {
+                        ProgressView()
+                            .tint(AppColors.accent)
+                            .padding(.top, 96)
+                    } else if let profile = viewModel.profile {
+                        profileHeader(profile)
+                        profileActions(profile)
+                        profileSuggestions(profile)
+                        profileHighlights(profile)
+                        profileTabs
+                        // Keep enough content below the tabs for the outer scroll view to
+                        // preserve its offset when a shorter or loading tab is selected.
+                        Group {
+                            if selectedTab == .moments && profile.isPrivate && !profile.canViewMoments {
+                                privateAccountState
+                            } else {
+                                profileContent(for: selectedTab)
+                            }
+                        }
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: geometry.size.height,
+                            alignment: .top
+                        )
+                    } else {
+                        emptyState
+                            .padding(.top, 96)
+                    }
+                }
+                .padding(.bottom, 28)
+            }
+            .refreshable {
+                async let profileTask: () = viewModel.loadProfile(forceRefresh: true)
+                async let contentTask: () = refresh(tab: selectedTab)
+                async let suggestionsTask: () = viewModel.loadSuggestedUsers()
+                await profileTask
+                await contentTask
+                await suggestionsTask
+            }
+        }
     }
 
     private func profileHeader(_ profile: PublicProfile) -> some View {
@@ -288,7 +308,7 @@ struct UserProfileView: View {
                 .disabled(viewModel.isUpdatingFollow)
 
                 Button {
-                    if profile.canMessage {
+                    if profile.canOpenDirectConversation {
                         openMessage(with: profile)
                     } else {
                         toastMessage = L10n.tr("profile.message.unavailable")
@@ -428,8 +448,8 @@ struct UserProfileView: View {
     }
 
     @ViewBuilder
-    private var profileContent: some View {
-        switch selectedTab {
+    private func profileContent(for tab: ProfileContentTab) -> some View {
+        switch tab {
         case .moments:
             momentsList
         case .agents:
@@ -451,7 +471,7 @@ struct UserProfileView: View {
             }
             .padding(.top, 42)
         } else if viewModel.agents.isEmpty {
-            emptyContent
+            emptyContent(for: .agents)
                 .padding(.top, 54)
         } else {
             LazyVStack(spacing: 12) {
@@ -467,6 +487,7 @@ struct UserProfileView: View {
                     .buttonStyle(.plain)
                     .disabled(viewModel.openingAgentIDs.contains(agent.id))
                     .onAppear {
+                        guard selectedTab == .agents else { return }
                         viewModel.loadMoreAgentsIfNeeded(currentAgentID: agent.id)
                     }
                 }
@@ -488,7 +509,7 @@ struct UserProfileView: View {
                 .tint(AppColors.accent)
                 .padding(.top, 52)
         } else if viewModel.moments.isEmpty {
-            emptyContent
+            emptyContent(for: .moments)
                 .padding(.top, 54)
         } else {
             LazyVStack(spacing: 0) {
@@ -502,14 +523,15 @@ struct UserProfileView: View {
                             navigator.push(MomentDetailView(momentID: moment.id))
                         },
                         onDelete: {},
-                        onMediaTap: { _, _ in
-                            navigator.push(MomentDetailView(momentID: moment.id))
+                        onMediaTap: { media, frame in
+                            openMomentMedia(media, in: moment, sourceFrame: frame)
                         },
                         onUnlock: {
                             navigator.push(MomentDetailView(momentID: moment.id))
                         }
                     )
                     .onAppear {
+                        guard selectedTab == .moments else { return }
                         viewModel.loadMoreMomentsIfNeeded(currentMomentID: moment.id)
                     }
 
@@ -526,6 +548,41 @@ struct UserProfileView: View {
         }
     }
 
+    private func openMomentMedia(
+        _ media: MomentMedia,
+        in moment: Moment,
+        sourceFrame: CGRect
+    ) {
+        let currentUserID = AuthManager.shared.currentUser?.userID ?? ""
+        let isLockedForViewer = (moment.unlockPriceGoldCoins ?? 0) > 0
+            && !moment.isUnlocked
+            && moment.author.userID != currentUserID
+
+        guard !isLockedForViewer else {
+            toastMessage = "请先解锁后查看"
+            return
+        }
+
+        if media.type == .video {
+            guard !media.url.isEmpty else { return }
+            videoPreviewItem = VideoPreviewItem(url: media.url)
+            return
+        }
+
+        let imageURLs = moment.unlockedImageURLs.isEmpty
+            ? moment.images
+            : moment.unlockedImageURLs
+        guard !imageURLs.isEmpty else { return }
+
+        ImageGalleryState.shared.show(
+            urls: imageURLs,
+            index: imageURLs.firstIndex(of: media.url) ?? 0,
+            sourceFrame: sourceFrame,
+            sourceContentMode: .fill,
+            sourceCornerRadius: moment.media.count == 1 ? 6 : 8
+        )
+    }
+
     @ViewBuilder
     private var shortDramasList: some View {
         if viewModel.isLoadingShortDramas && viewModel.shortDramas.isEmpty {
@@ -538,7 +595,7 @@ struct UserProfileView: View {
             }
             .padding(.top, 42)
         } else if viewModel.shortDramas.isEmpty {
-            emptyContent
+            emptyContent(for: .shortDramas)
                 .padding(.top, 54)
         } else {
             LazyVStack(spacing: 14) {
@@ -551,6 +608,7 @@ struct UserProfileView: View {
                         onOpenEpisode: { openShortDrama(series, episodeID: $0.id) }
                     )
                     .onAppear {
+                        guard selectedTab == .shortDramas else { return }
                         viewModel.loadMoreShortDramasIfNeeded(currentSeriesID: series.id)
                     }
                 }
@@ -584,13 +642,13 @@ struct UserProfileView: View {
         .padding(.horizontal, 24)
     }
 
-    private var emptyContent: some View {
+    private func emptyContent(for tab: ProfileContentTab) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: selectedTab.emptySystemImage)
+            Image(systemName: tab.emptySystemImage)
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundColor(AppColors.tertiaryText)
 
-            Text(L10n.tr(selectedTab.emptyTitleKey))
+            Text(L10n.tr(tab.emptyTitleKey))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(AppColors.secondaryText)
         }
@@ -608,8 +666,8 @@ struct UserProfileView: View {
         }
     }
 
-    private func refreshSelectedTab() async {
-        switch selectedTab {
+    private func refresh(tab: ProfileContentTab) async {
+        switch tab {
         case .moments:
             await viewModel.loadInitialMoments(refresh: true)
         case .agents:
@@ -725,9 +783,9 @@ struct UserProfileView: View {
     }
 
     private func openMessage(with profile: PublicProfile) {
-        guard !profile.userID.isBlank else { return }
+        guard let userID = profile.directConversationUserID else { return }
         navigator.push(ChatView(contact: Contact(
-            userID: profile.userID,
+            userID: userID,
             nickname: profile.nickname,
             avatarURL: profile.avatarURL,
             lastMessage: nil,
@@ -1183,15 +1241,24 @@ private struct ProfileHighlightCover: View {
     }
 
     private func loadImage() async {
-        guard !url.isBlank else {
+        let requestedURL = url
+        let requestedCacheKey = cacheKey
+        guard !requestedURL.isBlank else {
             image = nil
             isLoading = false
             return
         }
+        if let cached = ImageCacheManager.shared.image(for: requestedCacheKey) {
+            image = cached
+            isLoading = false
+            return
+        }
+        image = nil
         isLoading = true
-        let loaded = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+        let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL, thumbnail: true)
+        guard !Task.isCancelled, requestedURL == url else { return }
         if let loaded {
-            ImageCacheManager.shared.setImage(loaded, for: cacheKey)
+            ImageCacheManager.shared.setImage(loaded, for: requestedCacheKey)
         }
         image = loaded
         isLoading = false
@@ -1225,7 +1292,7 @@ private struct UserProfileGridItem: Identifiable {
         guard let firstMedia = selectedMedia else { return nil }
         self.moment = moment
         self.media = firstMedia
-        self.isLockedForViewer = (moment.unlockPriceCatFood ?? 0) > 0
+        self.isLockedForViewer = (moment.unlockPriceGoldCoins ?? 0) > 0
             && !moment.isUnlocked
             && moment.author.userID != currentUserID
     }
@@ -1371,15 +1438,24 @@ private struct ProfileGridImage: View {
     }
 
     private func loadImage() async {
-        guard !url.isBlank else {
+        let requestedURL = url
+        let requestedCacheKey = thumbCacheKey
+        guard !requestedURL.isBlank else {
             image = nil
             isLoading = false
             return
         }
 
-        if image == nil {
-            image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+        if let cached = ImageCacheManager.shared.image(for: requestedCacheKey) {
+            image = cached
+            isLoading = false
+            return
         }
+        image = nil
+        isLoading = true
+        let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL, thumbnail: true)
+        guard !Task.isCancelled, requestedURL == url else { return }
+        image = loaded
         isLoading = false
     }
 }

@@ -13,7 +13,6 @@ struct ShortDramaVideoPage: View {
     let isPlaybackTarget: Bool
     let onTogglePlayback: () -> Void
     let onToggleLike: () -> Void
-    let onToggleFavorite: () -> Void
     let onToggleFollow: () -> Void
     let onOpenComments: () -> Void
     let onOpenCreator: () -> Void
@@ -53,7 +52,7 @@ struct ShortDramaVideoPage: View {
                     VStack(spacing: 9) {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 24, weight: .bold))
-                        Text(L10n.tr("shortDrama.unlock.confirmMessage", video.unlockPriceCatFood ?? 0))
+                        Text(L10n.tr("shortDrama.unlock.confirmMessage", video.unlockPriceGoldCoins ?? 0))
                             .font(.subheadline.weight(.bold))
                             .multilineTextAlignment(.center)
                     }
@@ -72,7 +71,6 @@ struct ShortDramaVideoPage: View {
                         video: video,
                         onToggleFollow: onToggleFollow,
                         onToggleLike: onToggleLike,
-                        onToggleFavorite: onToggleFavorite,
                         onOpenComments: onOpenComments,
                         onOpenCreator: onOpenCreator
                     )
@@ -283,7 +281,10 @@ private struct ShortDramaCoverBackdrop: View {
                 image = nil
                 return
             }
-            image = await ImageCacheManager.shared.loadImage(from: path)
+            image = nil
+            let loaded = await ImageCacheManager.shared.loadImage(from: path)
+            guard !Task.isCancelled, path == resolvedPath else { return }
+            image = loaded
         }
     }
 }

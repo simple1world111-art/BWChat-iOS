@@ -1,10 +1,48 @@
 import Foundation
+import OSLog
 
 enum AppRemoteConfigSource: String {
     case bundled
     case cache
     case remote
     case fixture
+}
+
+enum AppRemoteConfigUpdatePolicy {
+    static let rewardedAdAllowlistMigrationVersion = "2026.07.31.admob-1011630693"
+
+    /// HTTP 200 replaces the complete cached snapshot. In particular, ad-unit
+    /// allowlists are never unioned across config versions. HTTP 304 preserves
+    /// the cached snapshot byte-for-byte.
+    static func configAfterResponse(
+        cached: AppRemoteConfig,
+        fetched: AppRemoteConfig?,
+        notModified: Bool
+    ) -> AppRemoteConfig {
+        if notModified {
+            return cached
+        }
+        return fetched ?? cached
+    }
+
+    /// Older clients could merge the rewarded-ad allowlist while keeping the
+    /// latest config version and ETag. A later 304 would then preserve that
+    /// poisoned snapshot forever. Reject only the known migration version when
+    /// its allowlist is not the exact production value so the store also drops
+    /// its ETag and performs an unconditional fetch.
+    static func requiresRewardedAdAllowlistRecovery(
+        _ config: AppRemoteConfig
+    ) -> Bool {
+        guard config.configVersion == rewardedAdAllowlistMigrationVersion else {
+            return false
+        }
+        let configuredIDs = Set(
+            RewardedAdUnitResolver.normalizedIDs(
+                config.wallet?.adReward?.iosAdUnitIDs
+            )
+        )
+        return configuredIDs != [AdMobConfiguration.productionRewardedAdUnitID]
+    }
 }
 
 @MainActor
@@ -55,6 +93,10 @@ struct FeatureFlagService {
 @MainActor
 final class AppRemoteConfigStore: ObservableObject {
     static let shared = AppRemoteConfigStore()
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "BWChat",
+        category: "RemoteConfig"
+    )
 
     @Published private(set) var config: AppRemoteConfig
     @Published private(set) var source: AppRemoteConfigSource
@@ -65,7 +107,7 @@ final class AppRemoteConfigStore: ObservableObject {
 
     private let defaults: UserDefaults
     private var scopeID: String
-    private var loadTask: Task<Void, Never>?
+    private var loadTask: (scopeID: String, task: Task<Void, Never>)?
 
     var featureFlags: FeatureFlagService {
         FeatureFlagService(flags: config.featureFlags)
@@ -85,6 +127,7 @@ final class AppRemoteConfigStore: ObservableObject {
         self.lastETag = defaults.string(forKey: Self.etagKey(scopeID: scopeID))
         self.lastFetchDate = defaults.object(forKey: Self.lastFetchKey(scopeID: scopeID)) as? Date
         RemoteAssetManager.shared.apply(config.assetManifest)
+        logActiveConfig(reason: "startup_cache")
     }
 
     func load(force: Bool = false, ignoreETag: Bool = false) async {
@@ -95,50 +138,106 @@ final class AppRemoteConfigStore: ObservableObject {
             return
         }
 
-        if let loadTask {
-            await loadTask.value
+        let requestedScopeID = scopeID
+        if let activeLoad = loadTask {
+            await activeLoad.task.value
+            if loadTask?.scopeID == activeLoad.scopeID {
+                loadTask = nil
+            }
+            syncScopeIfNeeded()
+            if activeLoad.scopeID != requestedScopeID || scopeID != requestedScopeID {
+                await load(force: force, ignoreETag: ignoreETag)
+            }
             return
         }
 
+        let requestETag = ignoreETag ? nil : lastETag
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.performLoad(ignoreETag: ignoreETag)
+            await self.performLoad(
+                scopeID: requestedScopeID,
+                ifNoneMatch: requestETag
+            )
         }
-        loadTask = task
+        loadTask = (requestedScopeID, task)
         await task.value
-        loadTask = nil
+        if loadTask?.scopeID == requestedScopeID {
+            loadTask = nil
+        }
+        syncScopeIfNeeded()
+        if scopeID != requestedScopeID {
+            await load(force: force, ignoreETag: ignoreETag)
+        }
     }
 
-    private func performLoad(ignoreETag: Bool) async {
-
-        isLoading = true
-        defer { isLoading = false }
+    private func performLoad(scopeID requestedScopeID: String, ifNoneMatch: String?) async {
+        if scopeID == requestedScopeID {
+            isLoading = true
+        }
+        defer {
+            if scopeID == requestedScopeID {
+                isLoading = false
+            }
+        }
 
         do {
-            let result = try await APIService.shared.fetchAppRemoteConfig(ifNoneMatch: ignoreETag ? nil : lastETag)
+            let result = try await APIService.shared.fetchAppRemoteConfig(ifNoneMatch: ifNoneMatch)
             let now = Date()
-            lastFetchDate = now
-            defaults.set(now, forKey: Self.lastFetchKey(scopeID: scopeID))
+            defaults.set(now, forKey: Self.lastFetchKey(scopeID: requestedScopeID))
+            if scopeID == requestedScopeID {
+                lastFetchDate = now
+            }
 
             if result.notModified {
-                lastError = nil
                 if let etag = result.etag {
-                    lastETag = etag
-                    defaults.set(etag, forKey: Self.etagKey(scopeID: scopeID))
+                    defaults.set(etag, forKey: Self.etagKey(scopeID: requestedScopeID))
+                    if scopeID == requestedScopeID {
+                        lastETag = etag
+                    }
+                }
+                if scopeID == requestedScopeID {
+                    lastError = nil
+                    logActiveConfig(reason: "http_304")
                 }
                 return
             }
 
-            guard let remoteConfig = result.config else { return }
-            apply(remoteConfig, source: .remote)
-            if let etag = result.etag {
-                lastETag = etag
-                defaults.set(etag, forKey: Self.etagKey(scopeID: scopeID))
+            guard let fetchedConfig = result.config else {
+                if scopeID == requestedScopeID {
+                    lastError = "Remote config response did not include a config"
+                }
+                return
             }
-            persist(remoteConfig)
-            lastError = nil
+            let cachedConfig = Self.cachedConfig(
+                defaults: defaults,
+                scopeID: requestedScopeID
+            ) ?? .bundledDefault
+            let remoteConfig = AppRemoteConfigUpdatePolicy.configAfterResponse(
+                cached: cachedConfig,
+                fetched: fetchedConfig,
+                notModified: false
+            )
+            guard isConfigUsable(remoteConfig) else {
+                if scopeID == requestedScopeID {
+                    lastError = "Unsupported remote config"
+                }
+                return
+            }
+            persist(remoteConfig, scopeID: requestedScopeID)
+            if let etag = result.etag {
+                defaults.set(etag, forKey: Self.etagKey(scopeID: requestedScopeID))
+            } else {
+                defaults.removeObject(forKey: Self.etagKey(scopeID: requestedScopeID))
+            }
+            if scopeID == requestedScopeID {
+                apply(remoteConfig, source: .remote)
+                lastETag = result.etag
+                lastError = nil
+            }
         } catch {
-            lastError = error.localizedDescription
+            if scopeID == requestedScopeID {
+                lastError = error.localizedDescription
+            }
         }
     }
 
@@ -189,6 +288,7 @@ final class AppRemoteConfigStore: ObservableObject {
         config = nextConfig
         self.source = source
         RemoteAssetManager.shared.apply(nextConfig.assetManifest)
+        logActiveConfig(reason: "apply_\(source.rawValue)")
     }
 
     private func isConfigUsable(_ nextConfig: AppRemoteConfig) -> Bool {
@@ -199,9 +299,22 @@ final class AppRemoteConfigStore: ObservableObject {
         return true
     }
 
-    private func persist(_ config: AppRemoteConfig) {
+    private func persist(_ config: AppRemoteConfig, scopeID: String) {
         guard let data = try? JSONEncoder().encode(config) else { return }
         defaults.set(data, forKey: Self.configKey(scopeID: scopeID))
+    }
+
+    private func logActiveConfig(reason: String) {
+        let configuredIDs = RewardedAdUnitResolver.normalizedIDs(
+            config.wallet?.adReward?.iosAdUnitIDs
+        )
+        let effectiveIDs = configuredIDs.isEmpty
+            ? AdMobConfiguration.bundledGameRewardedAdUnitIDs
+            : configuredIDs
+        let suffixes = effectiveIDs.map { String($0.suffix(8)) }.joined(separator: ",")
+        Self.logger.notice(
+            "active reason=\(reason, privacy: .public) source=\(self.source.rawValue, privacy: .public) config_version=\(self.config.configVersion, privacy: .public) ad_unit_suffixes=\(suffixes, privacy: .public)"
+        )
     }
 
     private static var currentScopeID: String {
@@ -215,6 +328,17 @@ final class AppRemoteConfigStore: ObservableObject {
         guard let config = try? JSONDecoder().decode(AppRemoteConfig.self, from: data) else { return nil }
         guard isCurrentStickerConfigVersion(config.configVersion) else {
             print("[StickerConfig] invalidating cached config_version=\(config.configVersion), minimum=2026.07.12.1")
+            return nil
+        }
+        if AppRemoteConfigUpdatePolicy.requiresRewardedAdAllowlistRecovery(config) {
+            let suffixes = RewardedAdUnitResolver.normalizedIDs(
+                config.wallet?.adReward?.iosAdUnitIDs
+            )
+            .map { String($0.suffix(8)) }
+            .joined(separator: ",")
+            logger.error(
+                "invalidating poisoned rewarded-ad config config_version=\(config.configVersion, privacy: .public) ad_unit_suffixes=\(suffixes, privacy: .public)"
+            )
             return nil
         }
         return config

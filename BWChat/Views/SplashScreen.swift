@@ -14,9 +14,17 @@ struct SplashScreen: View {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("-chatMoneyTransferPreview") {
                 ChatMoneyTransferFeedbackPreviewView()
-            } else if ProcessInfo.processInfo.arguments.contains("-walletReviewScreenshot") {
+            } else if ProcessInfo.processInfo.arguments.contains("-gameReentryReview") {
+                GameReentryReviewView()
+            } else if ProcessInfo.processInfo.arguments.contains("-walletReviewScreenshot")
+                || ProcessInfo.processInfo.arguments.contains("-walletEarningsReviewScreenshot") {
                 NavigationStack {
                     WalletView()
+                        .environmentObject(UIKitNavigator())
+                }
+            } else if ProcessInfo.processInfo.arguments.contains("-propBagReviewScreenshot") {
+                NavigationStack {
+                    PropBagView()
                         .environmentObject(UIKitNavigator())
                 }
             } else if isCheckingToken {
@@ -105,30 +113,22 @@ struct SplashScreen: View {
     private func validateCachedSession() async {
         guard authManager.token != nil else { return }
 
-        // Watchdog: regardless of what happens to the verify+refresh chain
-        // (URLSession hang, retry loop, deadlock in older code paths),
-        // guarantee the user lands on the LoginView within ~20s instead of
-        // staring at the splash forever. URLSession's per-request timeout
-        // is 15s, so this is purely a safety net for paths that bypass it.
-        // Reproduced with peter (u005) — refresh token rejected, but the
-        // app never advanced past splash. The watchdog ensures that even
-        // if a future bug strands the auth chain, the user can recover
-        // by simply reopening LoginView and entering credentials.
+        // The watchdog is a UI escape hatch, not an authentication verdict.
+        // A slow or unreachable server must never erase a previously valid
+        // session or make its account-scoped cache disappear.
         let watchdog = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 20_000_000_000)
-            // CRITICAL: Task.cancel() doesn't stop a task's body — it just
-            // marks Task.isCancelled = true and lets Task.sleep throw a
-            // CancellationError. Because we wrap that in `try?`, the
-            // throw gets swallowed and the rest of THIS body continues
-            // running. Without the guard below, every successful login
-            // (which calls `watchdog.cancel()` on its way out) would
-            // immediately resume this task and fire authManager.logout()
-            // — nuking the freshly-restored session and bouncing the
-            // user back to LoginView on every app launch. The guard
-            // makes "cancelled" mean what we actually want: don't run.
             guard !Task.isCancelled else { return }
             if isCheckingToken {
-                authManager.logout()
+                if authManager.restoreCachedIdentityIfAvailable() {
+                    authManager.markSessionUnverified()
+                    resumeAuthenticatedSession()
+                } else {
+                    // No account identity means there is no safe cache scope to
+                    // open. Show LoginView without deleting Keychain tokens;
+                    // the still-running validation may recover the session.
+                    authManager.isLoggedIn = false
+                }
                 isCheckingToken = false
             }
         }
@@ -136,9 +136,17 @@ struct SplashScreen: View {
         do {
             let user = try await APIService.shared.verifyToken()
             authManager.updateUser(user)
+            authManager.markSessionVerified()
             resumeAuthenticatedSession()
         } catch {
-            // Access token expired — attempt refresh
+            if error is CancellationError {
+                watchdog.cancel()
+                return
+            }
+
+            // Access token may be expired. Attempt refresh once, but distinguish
+            // an explicit credential rejection from a temporary inability to
+            // reach or decode the refresh endpoint.
             do {
                 let (newToken, newRefreshToken, user) = try await APIService.shared.refreshTokens()
                 try authManager.updateSessionTokens(
@@ -147,9 +155,17 @@ struct SplashScreen: View {
                     source: "splash-refresh"
                 )
                 authManager.updateUser(user)
+                authManager.markSessionVerified()
                 resumeAuthenticatedSession()
-            } catch {
-                authManager.logout()
+            } catch let refreshError {
+                if CachedSessionValidationFailurePolicy.shouldInvalidateSession(for: refreshError) {
+                    authManager.logout()
+                } else if authManager.restoreCachedIdentityIfAvailable() {
+                    authManager.markSessionUnverified()
+                    resumeAuthenticatedSession()
+                } else {
+                    authManager.isLoggedIn = false
+                }
             }
         }
 
@@ -163,3 +179,78 @@ struct SplashScreen: View {
         PushService.shared.ensureTokenUploaded()
     }
 }
+
+#if DEBUG
+@MainActor
+private struct GameReentryReviewView: View {
+    private struct Launch {
+        let game: GameCatalogItem
+        let session: GameSession
+        let url: URL
+    }
+
+    @StateObject private var navigator = UIKitNavigator()
+    @State private var launch: Launch?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let launch {
+                    InAppWebView(
+                        url: launch.url,
+                        title: launch.game.name,
+                        restrictToInitialOrigin: true,
+                        gameEntryContext: GameEntryContext(
+                            gameID: launch.game.id,
+                            sessionID: launch.session.sessionID,
+                            walletStore: .shared,
+                            startRound: { request in
+                                try await APIService.shared.startGameRound(
+                                    gameID: launch.game.id,
+                                    sessionID: launch.session.sessionID,
+                                    idempotencyKey: request.idempotencyKey
+                                )
+                            }
+                        )
+                    )
+                } else if let errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 32, weight: .semibold))
+                        Text(L10n.tr("common.operationFailed"))
+                            .font(.headline)
+                        Text(errorMessage)
+                            .font(.subheadline)
+                            .foregroundColor(AppColors.secondaryText)
+                    }
+                    .multilineTextAlignment(.center)
+                    .padding(24)
+                } else {
+                    ProgressView()
+                }
+            }
+        }
+        .environmentObject(navigator)
+        .task {
+            guard launch == nil, errorMessage == nil else { return }
+            do {
+                let page = try await APIService.shared.getRecommendedGames(limit: 50)
+                guard let game = page.items.first(where: { $0.id == "just_clear" }) else {
+                    throw APIError.invalidResponse
+                }
+                let session = try await APIService.shared.createGameLobbySession(gameID: game.id)
+                try GameLobbySessionResponseValidator.validate(session)
+                let policy = AppRemoteConfigStore.shared.config.webViewPolicy.gameLaunchPolicy
+                guard let url = URL(string: session.launchURL),
+                      GameWebSecurity.allowsInitialGameURL(url, policy: policy) else {
+                    throw APIError.invalidURL
+                }
+                launch = Launch(game: game, session: session, url: url)
+            } catch {
+                errorMessage = GameRoundStartErrorText.message(for: error)
+            }
+        }
+    }
+}
+#endif

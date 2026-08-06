@@ -17,19 +17,22 @@ class GroupChatViewModel: ObservableObject {
     @Published var pendingStickers: [PendingGroupSticker] = []
     @Published var pendingMedia: [PendingGroupMedia] = []
     @Published var replyingTo: GroupMessage?
-    @Published var mentionedUserIDs: [String] = []
     @Published var showMentionPicker = false
     @Published var mentionAlertMessage: GroupMessage?
 
     let group: ChatGroup
+    private let ownerID: String
     private var cancellables = Set<AnyCancellable>()
     private let store = MessageStore.shared
     private var isSyncingLatest = false
     private var apiConfirmedMessageIDs = Set<Int>()
     private var webSocketConfirmedMessageIDs = Set<Int>()
+    private var isReadingLatest = true
     private var nextOptimisticMessageID = Int.max / 4
     private var optimisticStickerMessageIDs = Set<Int>()
     private var optimisticStickerSignatures: [Int: StickerSendSignature] = [:]
+    private var locallyEnqueuedMediaClientIDs = Set<String>()
+    private var giftIdempotencyKeys: [String: UUID] = [:]
 
     private enum GroupMessageSource {
         case apiResponse
@@ -75,12 +78,124 @@ class GroupChatViewModel: ObservableObject {
 
     init(group: ChatGroup) {
         self.group = group
-        let initial = store.loadGroupMessages(groupID: group.groupID)
+        self.ownerID = AuthManager.shared.currentUser?.userID ?? ""
+        let initial = store.loadGroupMessages(ownerID: ownerID, groupID: group.groupID)
         _messages = Published(initialValue: initial)
+        let restored = Self.restorePending(ownerID: ownerID, groupID: group.groupID)
+        _pendingTexts = Published(initialValue: restored.texts)
+        _pendingMedia = Published(initialValue: restored.media)
+        locallyEnqueuedMediaClientIDs = Set(restored.media.map(\.id))
         if !initial.isEmpty {
             _hasMore = Published(initialValue: initial.count >= 30)
         }
+        ChatMediaPreviewPreloader.schedule(
+            initial.compactMap(Self.mediaPreviewRequest),
+            limit: 8
+        )
         setupWebSocketListener()
+        setupOutboxRecoveryListener()
+        Task { [weak self] in await self?.resumeDurableOutboxIfNeeded() }
+    }
+
+    private func resumeDurableOutboxIfNeeded() async {
+        await UploadEngine.shared.recover(
+            ownerID: ownerID,
+            jobIDs: Set(pendingTexts.map(\.id) + pendingMedia.map(\.id))
+        )
+        let jobs = OutgoingStore.shared.jobs(ownerID: ownerID).filter {
+            $0.scene == .groupMessage && $0.businessKey == String(group.groupID)
+        }
+        let jobsByID = Dictionary(uniqueKeysWithValues: jobs.map { ($0.id, $0) })
+
+        for pending in pendingTexts {
+            guard let job = jobsByID[pending.id] else { continue }
+            switch job.state {
+            case .staging, .queued, .preparing:
+                await retryPendingText(pending)
+            case .retryWaiting where job.nextAttemptAt.map({ $0 <= Date() }) ?? true:
+                await retryPendingText(pending)
+            case .failedPermanent:
+                markPendingTextFailed(id: pending.id)
+            default:
+                break
+            }
+        }
+
+        for pending in pendingMedia {
+            guard let job = jobsByID[pending.id] else { continue }
+            switch job.state {
+            case .staging, .queued, .preparing:
+                retryPendingMedia(pending)
+            case .retryWaiting:
+                if job.attemptCount < OutgoingRetryPolicy.maximumAutomaticAttempts {
+                    scheduleDurableMediaRetry(job: job, pendingID: pending.id)
+                } else {
+                    markPendingMediaFailed(id: pending.id)
+                    OutgoingStore.shared.updateJob(
+                        id: job.id,
+                        ownerID: ownerID,
+                        state: .failedPermanent,
+                        lastErrorCode: job.lastErrorCode
+                    )
+                }
+            case .confirmationUnknown:
+                _ = await scheduleTransientMediaRetry(
+                    pendingID: pending.id,
+                    error: URLError(.networkConnectionLost)
+                )
+            case .failedPermanent:
+                markPendingMediaFailed(id: pending.id)
+            case .uploading, .committing, .cancelled, .succeeded:
+                break
+            }
+        }
+    }
+
+    private static func restorePending(ownerID: String, groupID: Int) -> (texts: [PendingGroupText], media: [PendingGroupMedia]) {
+        guard !ownerID.isEmpty else { return ([], []) }
+        var texts: [PendingGroupText] = []
+        var media: [PendingGroupMedia] = []
+        for job in OutgoingStore.shared.jobs(ownerID: ownerID) {
+            guard job.scene == .groupMessage,
+                  job.businessKey == String(groupID),
+                  job.state != .succeeded,
+                  job.state != .cancelled,
+                  let payload = try? JSONDecoder().decode(ChatOutgoingPayload.self, from: job.payload) else { continue }
+            if payload.msgType == "text" {
+                texts.append(PendingGroupText(
+                    id: job.id,
+                    content: payload.content,
+                    replyID: payload.replyToID,
+                    mentions: payload.mentions,
+                    mentionAll: payload.mentionAll,
+                    status: job.state.isUserVisibleFailure ? .failed : .sending,
+                    createdAt: job.createdAt
+                ))
+            } else if payload.msgType == "image" || payload.msgType == "video" {
+                let part = OutgoingStore.shared.parts(jobID: job.id).first
+                media.append(PendingGroupMedia(
+                    id: job.id,
+                    msgType: payload.msgType,
+                    data: nil,
+                    localFileURL: part.map { OutgoingFileStore.absoluteURL(for: $0.localRelativePath) },
+                    filename: payload.filename ?? (payload.msgType == "image" ? "image.jpg" : "video.mp4"),
+                    createdAt: job.createdAt,
+                    status: job.state.isUserVisibleFailure ? .failed : .sending
+                ))
+            }
+        }
+        return (texts, media)
+    }
+
+    private func makeOutgoingJob(id: String, payload: ChatOutgoingPayload, state: OutgoingState = .queued) -> OutgoingJob {
+        OutgoingJob(
+            clientRequestID: id,
+            ownerID: ownerID,
+            scene: .groupMessage,
+            businessKey: String(group.groupID),
+            payload: (try? JSONEncoder().encode(payload)) ?? Data(),
+            state: state
+        )
     }
 
     func loadMessages() async {
@@ -88,27 +203,36 @@ class GroupChatViewModel: ObservableObject {
         if showBlockingLoader { isLoading = true }
         defer { isLoading = false }
 
-        let cached = store.loadGroupMessages(groupID: group.groupID)
+        let cached = await store.loadGroupMessagesAsync(
+            ownerID: ownerID,
+            groupID: group.groupID
+        )
         if !cached.isEmpty {
+            ChatMediaPreviewPreloader.schedule(
+                cached.compactMap(Self.mediaPreviewRequest),
+                limit: 6
+            )
             messages = cached
             hasMore = cached.count >= 30
         }
 
-        let latestID = store.latestGroupMessageID(groupID: group.groupID)
+        let latestID = await store.latestGroupMessageIDAsync(
+            ownerID: ownerID,
+            groupID: group.groupID
+        )
         do {
             if let latestID = latestID {
                 let allNew = try await fetchNewerGroupMessages(afterID: latestID)
-                mergeFetchedGroupMessages(allNew)
+                await mergeFetchedGroupMessages(allNew)
                 let recent = try await fetchRecentGroupMessages()
-                mergeFetchedGroupMessages(recent)
+                await mergeFetchedGroupMessages(recent)
             } else {
                 // First visit to this group on this device (no local cache).
                 // Pull the latest page so the UI renders fast; backfill below.
                 let (msgs, _) = try await APIService.shared.getGroupMessages(
                     groupID: group.groupID, limit: 100
                 )
-                store.saveGroupMessages(msgs)
-                messages = msgs
+                await mergeFetchedGroupMessages(msgs)
                 hasMore = false
             }
 
@@ -140,7 +264,7 @@ class GroupChatViewModel: ObservableObject {
         for _ in 0..<maxPages {
             guard let before = cursor else {
                 markBackfilled()
-                updateHasCachedOlderMessages()
+                await updateHasCachedOlderMessages()
                 return
             }
             do {
@@ -149,67 +273,171 @@ class GroupChatViewModel: ObservableObject {
                 )
                 if older.isEmpty {
                     markBackfilled()
-                    updateHasCachedOlderMessages()
+                    await updateHasCachedOlderMessages()
                     return
                 }
-                store.saveGroupMessages(older)
+                await store.saveGroupMessagesAsync(older, ownerID: ownerID)
                 cursor = older.first?.id
                 if !hasOlder {
                     markBackfilled()
-                    updateHasCachedOlderMessages()
+                    await updateHasCachedOlderMessages()
                     return
                 }
             } catch {
                 // Give up silently; surface the manual scroll-up path so
                 // the user can retry later. Don't mark as backfilled so
                 // next app open will retry.
-                updateHasCachedOlderMessages(fallback: true)
+                await updateHasCachedOlderMessages(fallback: true)
                 return
             }
         }
         // Hit the safety cap — leave scroll-up enabled for older history.
         // Don't mark as backfilled; next open may pick up more history.
-        updateHasCachedOlderMessages(fallback: true)
+        await updateHasCachedOlderMessages(fallback: true)
     }
 
-    private func updateHasCachedOlderMessages(fallback: Bool = false) {
+    private func updateHasCachedOlderMessages(fallback: Bool = false) async {
         guard let firstID = messages.first?.id else {
             hasMore = false
             return
         }
-        let cachedOlder = store.loadGroupMessages(groupID: group.groupID, beforeID: firstID, limit: 1)
+        let cachedOlder = await store.loadGroupMessagesAsync(
+            ownerID: ownerID,
+            groupID: group.groupID,
+            beforeID: firstID,
+            limit: 1
+        )
         hasMore = cachedOlder.isEmpty ? fallback : true
     }
 
     func loadMoreMessages() async {
         guard hasMore, let first = messages.first else { return }
 
-        let cached = store.loadGroupMessages(groupID: group.groupID, beforeID: first.id)
+        let cached = await store.loadGroupMessagesAsync(
+            ownerID: ownerID,
+            groupID: group.groupID,
+            beforeID: first.id
+        )
         if !cached.isEmpty {
+            ChatMediaPreviewPreloader.schedule(
+                cached.compactMap(Self.mediaPreviewRequest),
+                limit: 6
+            )
             messages.insert(contentsOf: cached, at: 0)
-            hasMore = store.loadGroupMessages(groupID: group.groupID, beforeID: cached.first!.id, limit: 1).count > 0
+            hasMore = await store.loadGroupMessagesAsync(
+                ownerID: ownerID,
+                groupID: group.groupID,
+                beforeID: cached.first!.id,
+                limit: 1
+            ).count > 0
             return
         }
 
         do {
             let (msgs, more) = try await APIService.shared.getGroupMessages(groupID: group.groupID, beforeID: first.id)
-            store.saveGroupMessages(msgs)
-            messages.insert(contentsOf: msgs, at: 0)
-            hasMore = more
+            let visible = store.visibleGroupMessages(
+                msgs,
+                ownerID: ownerID,
+                groupID: group.groupID
+            )
+            await mergeFetchedGroupMessages(visible)
+            hasMore = more && !visible.isEmpty
         } catch {
             errorMessage = userFacingSendError(error, fallbackKey: "messages.loadFailed")
         }
     }
 
-    func submitText() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    func deleteLocally(messageIDs: Set<Int>) {
+        guard !messageIDs.isEmpty, !ownerID.isEmpty else { return }
+        store.hideGroupMessages(ownerID: ownerID, groupID: group.groupID, messageIDs: messageIDs)
+        messages.removeAll { messageIDs.contains($0.id) }
+        if let replyID = replyingTo?.id, messageIDs.contains(replyID) {
+            replyingTo = nil
+        }
+        let latest = messages.last
+        NotificationCenter.default.post(
+            name: .conversationPreviewDidChange,
+            object: LocalConversationPreviewUpdate(
+                target: .group(groupID: group.groupID),
+                lastMessage: latest.map(localPreviewText),
+                lastMessageTime: latest?.timestamp
+            )
+        )
+    }
+
+    func applyHistoryClear(throughSequence: Int64) {
+        messages.removeAll { message in
+            guard let sequence = message.historySequence else { return true }
+            return sequence <= throughSequence
+        }
+        replyingTo = nil
+        hasMore = false
+        NotificationCenter.default.post(
+            name: .conversationPreviewDidChange,
+            object: LocalConversationPreviewUpdate(
+                target: .group(groupID: group.groupID),
+                lastMessage: messages.last.map(localPreviewText),
+                lastMessageTime: messages.last?.timestamp
+            )
+        )
+    }
+
+    func recallMessage(messageID: Int) async throws {
+        let recalled = try await APIService.shared.recallGroupMessage(
+            groupID: group.groupID,
+            messageID: messageID
+        )
+        await mergeFetchedGroupMessages([recalled])
+        NotificationCenter.default.post(name: .conversationPreviewDidChange, object: recalled)
+        if replyingTo?.id == messageID {
+            replyingTo = nil
+        }
+    }
+
+    private func localPreviewText(_ message: GroupMessage) -> String {
+        if message.isRecalled {
+            return ChatMessageRecallState.notice(
+                senderID: message.senderID,
+                viewerID: ownerID,
+                senderName: message.senderNickname
+            )
+        }
+        if message.isImage { return L10n.tr("message.image") }
+        if message.isVideo { return L10n.tr("message.video") }
+        if message.isVoice { return L10n.tr("message.voice") }
+        if message.isSticker { return L10n.tr("message.sticker") }
+        return message.content
+    }
+
+    func loadContext(around messageID: Int) async -> Bool {
+        if messages.contains(where: { $0.id == messageID }) { return true }
+        do {
+            let context = try await APIService.shared.getGroupMessageContext(
+                groupID: group.groupID,
+                messageID: messageID
+            )
+            await mergeFetchedGroupMessages(context)
+            return messages.contains(where: { $0.id == messageID })
+        } catch {
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.loadFailed")
+            return false
+        }
+    }
+
+    func submitText(
+        text submittedText: String? = nil,
+        mentions: [String] = [],
+        mentionAll: Bool = false
+    ) {
+        let sourceText = submittedText ?? inputText
+        let text = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
         let replyID = replyingTo?.id
-        let mentions = mentionedUserIDs
-        inputText = ""
+        if inputText == sourceText {
+            inputText = ""
+        }
         replyingTo = nil
-        mentionedUserIDs = []
 
         let pendingID = UUID().uuidString
         let pending = PendingGroupText(
@@ -217,22 +445,48 @@ class GroupChatViewModel: ObservableObject {
             content: text,
             replyID: replyID,
             mentions: mentions,
+            mentionAll: mentionAll,
             status: .sending
         )
         pendingTexts.append(pending)
+        let payload = ChatOutgoingPayload(
+            conversationID: String(group.groupID),
+            msgType: "text",
+            content: text,
+            replyToID: replyID,
+            mentions: mentions,
+            mentionAll: mentionAll
+        )
+        let outgoingJob = makeOutgoingJob(id: pendingID, payload: payload)
 
         Task { [weak self] in
-            await self?.finishTextSend(pendingID: pendingID, text: text, replyID: replyID, mentions: mentions)
+            // Keep durable persistence off MainActor so the pending bubble can
+            // be rendered before SQLite or the network send starts.
+            try? await OutgoingStore.shared.createAsync(outgoingJob)
+            await self?.finishTextSend(
+                pendingID: pendingID,
+                text: text,
+                replyID: replyID,
+                mentions: mentions,
+                mentionAll: mentionAll
+            )
         }
     }
 
-    private func finishTextSend(pendingID: String, text: String, replyID: Int?, mentions: [String] = []) async {
+    private func finishTextSend(
+        pendingID: String,
+        text: String,
+        replyID: Int?,
+        mentions: [String] = [],
+        mentionAll: Bool = false
+    ) async {
         do {
             let response = try await APIService.shared.sendGroupText(
                 groupID: group.groupID,
                 content: text,
                 replyToID: replyID,
                 mentions: mentions,
+                mentionAll: mentionAll,
                 clientMessageID: pendingID
             )
             let msg = normalizedOutgoingMessage(
@@ -241,15 +495,54 @@ class GroupChatViewModel: ObservableObject {
                 expectedContent: text,
                 replyID: replyID,
                 mentions: mentions,
+                mentionAll: mentionAll,
                 clientMessageID: pendingID
             )
             store.saveGroupMessage(msg)
-            removePendingText(id: pendingID)
-            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
+            confirmPendingText(
+                pendingID: pendingID,
+                with: msg,
+                source: .apiResponse
+            )
+            OutgoingStore.shared.updateJob(
+                id: pendingID,
+                ownerID: ownerID,
+                state: .succeeded,
+                serverID: String(msg.id)
+            )
+            ChatDraftStore.shared.removeIfMatching(
+                text: text,
+                replyID: replyID,
+                conversationType: "group",
+                conversationID: String(group.groupID)
+            )
         } catch {
+            if scheduleTransientTextRetry(pendingID: pendingID, error: error) { return }
             markPendingTextFailed(id: pendingID)
+            OutgoingStore.shared.updateJob(
+                id: pendingID,
+                ownerID: ownerID,
+                state: .failedPermanent,
+                lastErrorCode: String(describing: error)
+            )
             errorMessage = userFacingSendError(error, fallbackKey: "messages.sendFailed")
         }
+    }
+
+    private func scheduleTransientTextRetry(pendingID: String, error: Error) -> Bool {
+        guard UploadEngine.isTransient(error),
+              let job = OutgoingStore.shared.jobs(ownerID: ownerID).first(where: { $0.id == pendingID }),
+              job.attemptCount < 5 else { return false }
+        Task { await UploadEngine.shared.markRetryWaiting(jobID: job.id, ownerID: ownerID, error: error, attempt: job.attemptCount) }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(min(pow(2, Double(job.attemptCount)), 30) * 1_000_000_000))
+            guard let self,
+                  let pending = pendingTexts.first(where: { $0.id == pendingID }),
+                  OutgoingStore.shared.jobs(ownerID: ownerID).contains(where: { $0.id == job.id && $0.state == .retryWaiting }) else { return }
+            OutgoingStore.shared.updateJob(id: job.id, ownerID: ownerID, state: .queued)
+            await retryPendingText(pending)
+        }
+        return true
     }
 
     func retryPendingText(_ pending: PendingGroupText) async {
@@ -260,14 +553,12 @@ class GroupChatViewModel: ObservableObject {
             pendingID: pending.id,
             text: pending.content,
             replyID: pending.replyID,
-            mentions: pending.mentions
+            mentions: pending.mentions,
+            mentionAll: pending.mentionAll
         )
     }
 
     func sendSticker(pack: StickerPack, sticker: StickerItem) async {
-        isSending = true
-        defer { isSending = false }
-
         let replyMessage = replyingTo
         let replyID = replyMessage?.id
         let clientMessageID = UUID().uuidString
@@ -329,8 +620,11 @@ class GroupChatViewModel: ObservableObject {
                 clientMessageID: pendingID
             )
             store.saveGroupMessage(msg)
-            removePendingSticker(id: pendingID)
-            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
+            confirmPendingSticker(
+                pendingID: pendingID,
+                with: msg,
+                source: .apiResponse
+            )
         } catch {
             markPendingStickerFailed(id: pendingID)
             errorMessage = userFacingSendError(error, fallbackKey: "messages.stickerSendFailed")
@@ -349,6 +643,16 @@ class GroupChatViewModel: ObservableObject {
         )
     }
 
+    func deletePending(id: String) {
+        OutgoingRetryScheduler.shared.cancel(ownerID: ownerID, jobID: id)
+        pendingTexts.removeAll { $0.id == id }
+        pendingStickers.removeAll { $0.id == id }
+        pendingMedia.removeAll { $0.id == id }
+        Task {
+            await UploadEngine.shared.cancel(jobID: id, ownerID: ownerID)
+        }
+    }
+
     func setReply(to message: GroupMessage) {
         replyingTo = message
     }
@@ -357,24 +661,54 @@ class GroupChatViewModel: ObservableObject {
         replyingTo = nil
     }
 
-    func addMention(userID: String, nickname: String) {
-        if !mentionedUserIDs.contains(userID) {
-            mentionedUserIDs.append(userID)
-        }
-        inputText += "@\(nickname) "
-        showMentionPicker = false
-    }
-
     func sendImage(data: Data) async {
-        let pending = PendingGroupMedia(msgType: "image", data: data, filename: "img_\(UUID().uuidString).jpg")
-        pendingMedia.append(pending)
-        enqueueMediaUpload(pending)
+        await sendMediaBatch([
+            OutgoingMediaDraft(kind: .image, data: data, filename: "img_\(UUID().uuidString).jpg")
+        ])
     }
 
     func sendVideo(data: Data, filename: String) async {
-        let pending = PendingGroupMedia(msgType: "video", data: data, filename: filename)
-        pendingMedia.append(pending)
-        enqueueMediaUpload(pending)
+        await sendMediaBatch([
+            OutgoingMediaDraft(kind: .video, data: data, filename: filename)
+        ])
+    }
+
+    /// Publish local rows immediately. Preview generation, durable recovery,
+    /// staging, and uploads all run after the timeline mutation.
+    func sendMediaBatch(_ drafts: [OutgoingMediaDraft]) async {
+        guard !drafts.isEmpty else { return }
+
+        let pendings = drafts.map { draft in
+            PendingGroupMedia(
+                id: draft.id.uuidString,
+                msgType: draft.kind == .image ? "image" : "video",
+                data: draft.data,
+                localFileURL: draft.localFileURL,
+                filename: draft.filename
+            )
+        }
+
+        for pending in pendings {
+            locallyEnqueuedMediaClientIDs.insert(pending.id)
+        }
+
+        pendingMedia.append(contentsOf: pendings)
+
+        for pending in pendings where pending.msgType == "image" {
+            guard let data = pending.data else { continue }
+            let cacheKey = "pending-media:\(pending.id)"
+            Task(priority: .userInitiated) {
+                await ImageCacheManager.shared.prepareLocalPreview(data: data, for: cacheKey)
+            }
+        }
+
+        for (pending, draft) in zip(pendings, drafts) {
+            if let sourceURL = draft.localFileURL {
+                enqueueMediaUpload(pending, sourceURL: sourceURL)
+            } else {
+                enqueueMediaUpload(pending)
+            }
+        }
     }
 
     func retryPendingMedia(_ pending: PendingGroupMedia) {
@@ -384,37 +718,225 @@ class GroupChatViewModel: ObservableObject {
     }
 
     private func enqueueMediaUpload(_ pending: PendingGroupMedia) {
-        BackgroundUploadCoordinator.shared.enqueue(id: "group-\(group.groupID)-\(pending.id)") { [self] in
-            await finishMediaSend(pending)
+        if let fileURL = pending.localFileURL {
+            enqueuePersistedMediaUpload(pending, fileURL: fileURL)
+            return
+        }
+        guard let data = pending.data else { return }
+        enqueueMediaUploadTask(id: "group-media-\(pending.id)") { [weak self] in
+            guard let self else { return }
+            await persistMediaJob(pending)
+            do {
+                let uploadData: Data
+                if pending.msgType == "image" {
+                    uploadData = await Task.detached(priority: .userInitiated) {
+                        APIService.compressImageForUpload(data)
+                    }.value
+                } else {
+                    uploadData = data
+                }
+                let fileURL = try await OutgoingFileStore.stage(
+                    data: uploadData,
+                    ownerID: ownerID,
+                    jobID: pending.id,
+                    filename: pending.filename
+                )
+                if let index = pendingMedia.firstIndex(where: { $0.id == pending.id }) {
+                    pendingMedia[index].localFileURL = fileURL
+                }
+                await performPersistedMediaUpload(pending, fileURL: fileURL)
+            } catch {
+                await markMediaFailed(pending, error: error)
+            }
         }
     }
 
-    private func finishMediaSend(_ pending: PendingGroupMedia) async {
+    private func enqueueMediaUpload(_ pending: PendingGroupMedia, sourceURL: URL) {
+        enqueueMediaUploadTask(id: "group-media-\(pending.id)") { [weak self] in
+            guard let self else { return }
+            await persistMediaJob(pending)
+            do {
+                let fileURL = try await OutgoingFileStore.stage(
+                    file: sourceURL,
+                    ownerID: ownerID,
+                    jobID: pending.id,
+                    filename: pending.filename
+                )
+                if pending.msgType == "video" {
+                    await ImageCacheManager.shared.adoptLocalVideoThumbnail(
+                        fileURL,
+                        for: fileURL.absoluteString
+                    )
+                }
+                if let index = pendingMedia.firstIndex(where: { $0.id == pending.id }) {
+                    pendingMedia[index].localFileURL = fileURL
+                }
+                removeTemporaryMediaSourceIfNeeded(sourceURL)
+                await performPersistedMediaUpload(pending, fileURL: fileURL)
+            } catch {
+                removeTemporaryMediaSourceIfNeeded(sourceURL)
+                await markMediaFailed(pending, error: error)
+            }
+        }
+    }
+
+    private func removeTemporaryMediaSourceIfNeeded(_ sourceURL: URL) {
+        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL.path + "/"
+        guard sourceURL.standardizedFileURL.path.hasPrefix(temporaryRoot) else { return }
+        try? FileManager.default.removeItem(at: sourceURL)
+    }
+
+    private func enqueuePersistedMediaUpload(_ pending: PendingGroupMedia, fileURL: URL) {
+        enqueueMediaUploadTask(id: "group-media-\(pending.id)") { [weak self] in
+            guard let self else { return }
+            await performPersistedMediaUpload(pending, fileURL: fileURL)
+        }
+    }
+
+    private func enqueueMediaUploadTask(
+        id: String,
+        _ operation: @escaping @MainActor () async -> Void
+    ) {
+        BackgroundUploadCoordinator.shared.enqueue(id: id, operation: operation)
+    }
+
+    private func performPersistedMediaUpload(
+        _ pending: PendingGroupMedia,
+        fileURL: URL
+    ) async {
+        let payload = ChatOutgoingPayload(
+            conversationID: String(group.groupID),
+            msgType: pending.msgType,
+            filename: pending.filename
+        )
+        let job = makeOutgoingJob(id: pending.id, payload: payload)
+        let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
+        let newPart = OutgoingPart(
+            jobID: job.id,
+            role: pending.msgType,
+            ordinal: 0,
+            localRelativePath: OutgoingFileStore.relativePath(for: fileURL),
+            filename: pending.filename,
+            mimeType: pending.msgType == "image" ? "image/jpeg" : "video/mp4",
+            byteSize: Int64(values?.fileSize ?? 0),
+            state: .queued
+        )
+        let part = OutgoingStore.shared.parts(jobID: job.id).first ?? newPart
+        do {
+            try await UploadEngine.shared.enqueue(job: job, parts: [part])
+            await finishMediaSend(pending, fileURL: fileURL, job: job, part: part)
+        } catch {
+            await markMediaFailed(pending, error: error)
+        }
+    }
+
+    private func finishMediaSend(_ pending: PendingGroupMedia, fileURL: URL, job: OutgoingJob, part: OutgoingPart) async {
         do {
             let response: GroupMessage
             if pending.msgType == "video" {
                 response = try await APIService.shared.sendGroupVideo(
                     groupID: group.groupID,
-                    videoData: pending.data,
-                    filename: pending.filename
+                    videoFileURL: fileURL,
+                    filename: pending.filename,
+                    job: job,
+                    part: part
                 )
             } else {
                 response = try await APIService.shared.sendGroupImage(
                     groupID: group.groupID,
-                    imageData: pending.data,
-                    filename: pending.filename
+                    imageFileURL: fileURL,
+                    filename: pending.filename,
+                    job: job,
+                    part: part
                 )
             }
-            let msg = normalizedOutgoingMessage(response, expectedType: pending.msgType)
-            store.saveGroupMessage(msg)
-            pendingMedia.removeAll { $0.id == pending.id }
-            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
-        } catch {
-            if let index = pendingMedia.firstIndex(where: { $0.id == pending.id }) {
-                pendingMedia[index].status = .failed
+            let msg = normalizedOutgoingMessage(response, expectedType: pending.msgType, clientMessageID: pending.id)
+            if pending.msgType == "video" {
+                MediaCacheManager.shared.adoptLocalFile(
+                    mediaID: "chat-video:\(msg.content)",
+                    remoteURL: msg.content,
+                    sourceURL: fileURL
+                )
+                await ImageCacheManager.shared.adoptLocalVideoThumbnail(
+                    fileURL,
+                    for: msg.content,
+                    thumbnailURL: msg.thumbnailURL
+                )
+            } else {
+                await ImageCacheManager.shared.adoptLocalFile(
+                    fileURL,
+                    for: msg.content,
+                    previewURL: msg.thumbnailURL
+                )
             }
-            let key = pending.msgType == "video" ? "messages.videoSendFailed" : "messages.imageSendFailed"
-            errorMessage = userFacingSendError(error, fallbackKey: key)
+            store.saveGroupMessage(msg)
+            confirmPendingMedia(pendingID: pending.id, with: msg, source: .apiResponse)
+            OutgoingStore.shared.updateJob(id: job.id, ownerID: ownerID, state: .succeeded, serverID: String(msg.id))
+        } catch {
+            await markMediaFailed(pending, error: error)
+        }
+    }
+
+    private func persistMediaJob(_ pending: PendingGroupMedia) async {
+        let payload = ChatOutgoingPayload(
+            conversationID: String(group.groupID),
+            msgType: pending.msgType,
+            filename: pending.filename
+        )
+        try? await OutgoingStore.shared.createAsync(
+            makeOutgoingJob(id: pending.id, payload: payload, state: .staging)
+        )
+    }
+
+    private func markMediaFailed(_ pending: PendingGroupMedia, error: Error) async {
+        if await scheduleTransientMediaRetry(pendingID: pending.id, error: error) { return }
+        markPendingMediaFailed(id: pending.id)
+        OutgoingStore.shared.updateJob(
+            id: pending.id,
+            ownerID: ownerID,
+            state: .failedPermanent,
+            lastErrorCode: String(describing: error)
+        )
+        let key = pending.msgType == "video" ? "messages.videoSendFailed" : "messages.imageSendFailed"
+        errorMessage = userFacingSendError(error, fallbackKey: key)
+    }
+
+    private func scheduleTransientMediaRetry(pendingID: String, error: Error) async -> Bool {
+        guard var job = OutgoingStore.shared.jobs(ownerID: ownerID).first(where: { $0.id == pendingID }),
+              OutgoingRetryPolicy.shouldRetry(job: job, error: error) else { return false }
+        if job.state != .retryWaiting {
+            await UploadEngine.shared.markRetryWaiting(
+                jobID: job.id,
+                ownerID: ownerID,
+                error: error,
+                attempt: job.attemptCount
+            )
+            guard let refreshed = OutgoingStore.shared.jobs(ownerID: ownerID)
+                .first(where: { $0.id == pendingID }) else { return false }
+            job = refreshed
+        }
+        scheduleDurableMediaRetry(job: job, pendingID: pendingID)
+        return true
+    }
+
+    private func scheduleDurableMediaRetry(job: OutgoingJob, pendingID: String) {
+        OutgoingRetryScheduler.shared.schedule(
+            ownerID: ownerID,
+            jobID: job.id,
+            notBefore: OutgoingRetryPolicy.scheduledDate(for: job)
+        ) { [self] in
+            guard AuthManager.shared.currentUser?.userID == ownerID,
+                  let current = pendingMedia.first(where: { $0.id == pendingID }),
+                  OutgoingStore.shared.jobs(ownerID: ownerID).contains(where: {
+                      $0.id == job.id && ($0.state == .retryWaiting || $0.state == .confirmationUnknown)
+                  }) else { return }
+            retryPendingMedia(current)
+        }
+    }
+
+    private func markPendingMediaFailed(id: String) {
+        if let index = pendingMedia.firstIndex(where: { $0.id == id }) {
+            pendingMedia[index].status = .failed
         }
     }
 
@@ -441,23 +963,24 @@ class GroupChatViewModel: ObservableObject {
             throw APIError.serverError(code: 400, message: L10n.tr("gift.cannotSendToSelf"))
         }
 
-        isSending = true
-        defer { isSending = false }
+        // Do not route gift transport through the composer's global sending
+        // state. Retain the key across ambiguous failures to avoid duplicate
+        // charges while the local gift animation remains responsive.
+        let idempotencyScope = "\(recipientID)|\(gift.giftID)"
+        let idempotencyKey = giftIdempotencyKeys[idempotencyScope] ?? UUID()
+        giftIdempotencyKeys[idempotencyScope] = idempotencyKey
 
-        do {
-            let response = try await APIService.shared.sendGroupGift(
-                groupID: group.groupID,
-                recipientID: recipientID,
-                giftID: gift.giftID
-            )
-            let msg = normalizedOutgoingMessage(response, expectedType: "gift")
-            store.saveGroupMessage(msg)
-            appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
-            Task { await WalletStore.shared.refreshBalanceFromServer() }
-        } catch {
-            errorMessage = userFacingSendError(error, fallbackKey: "gift.sendFailed")
-            throw error
-        }
+        let response = try await APIService.shared.sendGroupGift(
+            groupID: group.groupID,
+            recipientID: recipientID,
+            giftID: gift.giftID,
+            idempotencyKey: idempotencyKey
+        )
+        giftIdempotencyKeys.removeValue(forKey: idempotencyScope)
+        let msg = normalizedOutgoingMessage(response, expectedType: "gift")
+        store.saveGroupMessage(msg)
+        appendMessageIfNeeded(msg, source: .apiResponse, shouldMergeOutgoingEcho: true)
+        Task { await WalletStore.shared.refreshBalanceFromServer() }
     }
 
     func appendCreatedChatMoneyMessage(_ result: ChatMoneyCreationResult) {
@@ -477,40 +1000,99 @@ class GroupChatViewModel: ObservableObject {
     }
 
     var visiblePendingTexts: [PendingGroupText] {
-        pendingTexts.filter { pending in
-            !messages.contains {
+        visiblePendingTexts(from: pendingTexts)
+    }
+
+    func visiblePendingTexts(
+        from candidates: [PendingGroupText],
+        confirmedBy confirmedMessages: [GroupMessage]? = nil
+    ) -> [PendingGroupText] {
+        let confirmedMessages = confirmedMessages ?? messages
+        let confirmedClientIDs = Set(confirmedMessages.compactMap(\.clientMessageID))
+        let legacyMessages = confirmedMessages.filter { $0.clientMessageID == nil }
+        return candidates.filter { pending in
+            guard !confirmedClientIDs.contains(pending.id) else { return false }
+            return !legacyMessages.contains {
                 isOwnOutgoingMergeable($0) && pendingText(pending, matches: $0)
             }
         }
     }
 
     var visiblePendingStickers: [PendingGroupSticker] {
-        pendingStickers.filter { pending in
-            !messages.contains {
+        visiblePendingStickers(from: pendingStickers)
+    }
+
+    func visiblePendingStickers(
+        from candidates: [PendingGroupSticker],
+        confirmedBy confirmedMessages: [GroupMessage]? = nil
+    ) -> [PendingGroupSticker] {
+        let confirmedMessages = confirmedMessages ?? messages
+        let confirmedClientIDs = Set(confirmedMessages.compactMap(\.clientMessageID))
+        let legacyMessages = confirmedMessages.filter { $0.clientMessageID == nil }
+        return candidates.filter { pending in
+            guard !confirmedClientIDs.contains(pending.id) else { return false }
+            return !legacyMessages.contains {
                 isOwnOutgoingMergeable($0) && pendingSticker(pending, matches: $0)
             }
         }
     }
 
     var visiblePendingMedia: [PendingGroupMedia] {
-        pendingMedia
+        visiblePendingMedia(from: pendingMedia)
     }
 
-    func markConversationAsReadOnServer() {
-        UnreadBadgeStore.shared.setConversationUnreadCount(
-            0,
-            for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
-        )
+    func visiblePendingMedia(
+        from candidates: [PendingGroupMedia],
+        confirmedBy confirmedMessages: [GroupMessage]? = nil
+    ) -> [PendingGroupMedia] {
+        let confirmedClientIDs = Set((confirmedMessages ?? messages).compactMap(\.clientMessageID))
+        return candidates.filter { pending in
+            !confirmedClientIDs.contains(pending.id)
+        }
+    }
+
+    func isLocalMediaAcknowledgement(_ message: GroupMessage) -> Bool {
+        guard ["image", "video"].contains(MessageDeliveryMatcher.normalizedType(message.msgType)),
+              let clientMessageID = nonBlank(message.clientMessageID) else { return false }
+        return locallyEnqueuedMediaClientIDs.contains(clientMessageID)
+    }
+
+    func markConversationAsReadOnServer(throughMessageID: Int? = nil) {
         Task {
-            try? await APIService.shared.markGroupMessagesAsRead(groupID: group.groupID)
+            do {
+                let receipt = try await APIService.shared.markGroupMessagesAsRead(
+                    groupID: group.groupID,
+                    throughMessageID: throughMessageID
+                )
+                if let receipt, receipt.isMeaningful {
+                    await MainActor.run {
+                        UnreadBadgeStore.shared.applyReadReceipt(receipt)
+                    }
+                } else if throughMessageID == nil {
+                    await MainActor.run {
+                        UnreadBadgeStore.shared.setConversationUnreadCount(
+                            0,
+                            for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
+                        )
+                    }
+                }
+                await MainActor.run {
+                    AppMessageSyncCoordinator.shared.requestSync(.notification)
+                }
+            } catch {
+                // Keep the current projection until a later sync succeeds.
+            }
             await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
         }
     }
 
+    func setReadingLatest(_ value: Bool) {
+        isReadingLatest = value
+    }
+
     private func triggerMentionAlertIfNeeded(_ msg: GroupMessage) {
         guard let myID = AuthManager.shared.currentUser?.userID,
-              let mentions = msg.mentions,
-              mentions.contains(myID),
+              msg.mentions?.contains(myID) == true || msg.mentionAll,
               msg.senderID != myID else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.warning)
@@ -531,34 +1113,47 @@ class GroupChatViewModel: ObservableObject {
             .sink { [weak self] msg in
                 guard let self = self else { return }
                 if msg.groupID == self.group.groupID {
-                    self.store.saveGroupMessage(msg)
-                    if msg.senderID == AuthManager.shared.currentUser?.userID {
-                        var resolvedPending = self.removeFirstPendingText {
-                            self.pendingText($0, matches: msg)
-                        }
-                        if !resolvedPending {
-                            resolvedPending = self.removeFirstPendingSticker {
-                                self.pendingSticker($0, matches: msg)
+                    if msg.senderID == AuthManager.shared.currentUser?.userID,
+                       ["image", "video"].contains(MessageDeliveryMatcher.normalizedType(msg.msgType)),
+                       let clientMessageID = msg.clientMessageID,
+                       let pending = self.pendingMedia.first(where: {
+                           $0.id == clientMessageID
+                       }),
+                       let localFileURL = pending.localFileURL {
+                        // Preserve the local image across an early WebSocket
+                        // acknowledgement. The pending row remains visible
+                        // until the confirmed bubble can render synchronously.
+                        Task { [weak self] in
+                            if MessageDeliveryMatcher.normalizedType(msg.msgType) == "image" {
+                                await ImageCacheManager.shared.adoptLocalFile(
+                                    localFileURL,
+                                    for: msg.content,
+                                    previewURL: msg.thumbnailURL
+                                )
+                            } else {
+                                MediaCacheManager.shared.adoptLocalFile(
+                                    mediaID: "chat-video:\(msg.content)",
+                                    remoteURL: msg.content,
+                                    sourceURL: localFileURL
+                                )
+                                await ImageCacheManager.shared.adoptLocalVideoThumbnail(
+                                    localFileURL,
+                                    for: msg.content,
+                                    thumbnailURL: msg.thumbnailURL
+                                )
                             }
+                            guard let self else { return }
+                            self.store.saveGroupMessage(msg)
+                            self.confirmPendingMedia(
+                                pendingID: clientMessageID,
+                                with: msg,
+                                source: .webSocket
+                            )
+                            self.triggerMentionAlertIfNeeded(msg)
                         }
+                        return
                     }
-                    self.appendMessageIfNeeded(
-                        msg,
-                        source: .webSocket,
-                        shouldMergeOutgoingEcho: msg.senderID == AuthManager.shared.currentUser?.userID
-                    )
-                    self.triggerMentionAlertIfNeeded(msg)
-                    if msg.senderID != AuthManager.shared.currentUser?.userID,
-                       WebSocketService.shared.activeGroupID == self.group.groupID {
-                        UnreadBadgeStore.shared.setConversationUnreadCount(
-                            0,
-                            for: ConversationReadTarget.group(groupID: self.group.groupID).listIdentity
-                        )
-                        Task {
-                            try? await APIService.shared.markGroupMessagesAsRead(groupID: self.group.groupID)
-                            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
-                        }
-                    }
+                    self.publishGroupMessageAfterPreviewWarmup(msg)
                 }
             }
             .store(in: &cancellables)
@@ -626,12 +1221,28 @@ class GroupChatViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func setupOutboxRecoveryListener() {
+        NotificationCenter.default.publisher(for: .outgoingUploadNeedsRecovery)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      notification.object as? String == self.ownerID,
+                      let jobID = notification.userInfo?["job_id"] as? String,
+                      self.pendingMedia.contains(where: { $0.id == jobID }) else { return }
+                Task { [weak self] in
+                    await self?.resumeDurableOutboxIfNeeded()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     private func syncLatestMessages() async {
         guard !isSyncingLatest else { return }
         isSyncingLatest = true
         defer { isSyncingLatest = false }
 
         let isActivelyVisible = WebSocketService.shared.activeGroupID == group.groupID
+            && isReadingLatest
         if isActivelyVisible {
             UnreadBadgeStore.shared.setConversationUnreadCount(
                 0,
@@ -639,17 +1250,23 @@ class GroupChatViewModel: ObservableObject {
             )
         }
 
-        let latestID = store.latestGroupMessageID(groupID: group.groupID)
+        let latestID = await store.latestGroupMessageIDAsync(
+            ownerID: ownerID,
+            groupID: group.groupID
+        )
         do {
             var fetched: [GroupMessage] = []
             if let latestID {
                 fetched.append(contentsOf: try await fetchNewerGroupMessages(afterID: latestID))
             }
             fetched.append(contentsOf: try await fetchRecentGroupMessages())
-            mergeFetchedGroupMessages(fetched, triggerMentions: true)
+            await mergeFetchedGroupMessages(fetched, triggerMentions: true)
 
             if isActivelyVisible, WebSocketService.shared.activeGroupID == group.groupID {
-                try? await APIService.shared.markGroupMessagesAsRead(groupID: group.groupID)
+                _ = try? await APIService.shared.markGroupMessagesAsRead(
+                    groupID: group.groupID,
+                    throughMessageID: messages.last?.id
+                )
                 PushService.shared.syncBadgeFromUnreadState()
             }
         } catch {
@@ -684,12 +1301,21 @@ class GroupChatViewModel: ObservableObject {
         return msgs
     }
 
-    private func mergeFetchedGroupMessages(_ fetched: [GroupMessage], triggerMentions: Bool = false) {
-        let scoped = fetched.filter { $0.groupID == group.groupID }
+    private func mergeFetchedGroupMessages(
+        _ fetched: [GroupMessage],
+        triggerMentions: Bool = false
+    ) async {
+        let scoped = store.visibleGroupMessages(
+            fetched.filter { $0.groupID == group.groupID },
+            ownerID: ownerID,
+            groupID: group.groupID
+        )
         guard !scoped.isEmpty else { return }
 
         let existingIDs = Set(messages.map(\.id))
-        store.saveGroupMessages(scoped)
+        let previewRequests = scoped.compactMap(Self.mediaPreviewRequest)
+        ChatMediaPreviewPreloader.schedule(previewRequests, limit: 12)
+        await store.saveGroupMessagesAsync(scoped, ownerID: ownerID)
         appendMessagesIfNeeded(
             scoped,
             source: .history,
@@ -702,6 +1328,62 @@ class GroupChatViewModel: ObservableObject {
             .forEach(triggerMentionAlertIfNeeded)
     }
 
+    private static func mediaPreviewRequest(
+        _ message: GroupMessage
+    ) -> ChatMediaPreviewRequest? {
+        ChatMediaPreviewRequest.resolve(
+            messageType: message.msgType,
+            content: message.content,
+            thumbnailURL: message.thumbnailURL
+        )
+    }
+
+    private func publishGroupMessageAfterPreviewWarmup(_ message: GroupMessage) {
+        // WebSocketService has already persisted the message and started the
+        // same shared-cache request before publishing it to this view model.
+        guard let request = Self.mediaPreviewRequest(message) else {
+            publishGroupMessage(message)
+            return
+        }
+        ChatMediaPreviewPreloader.schedule([request], limit: 1)
+        publishGroupMessage(message)
+    }
+
+    private func publishGroupMessage(_ message: GroupMessage) {
+        let isOwnMessage = message.senderID == AuthManager.shared.currentUser?.userID
+        if isOwnMessage {
+            let resolvedPending = removeFirstPendingText {
+                pendingText($0, matches: message)
+            }
+            if !resolvedPending {
+                _ = removeFirstPendingSticker {
+                    pendingSticker($0, matches: message)
+                }
+            }
+        }
+        appendMessageIfNeeded(
+            message,
+            source: .webSocket,
+            shouldMergeOutgoingEcho: isOwnMessage
+        )
+        triggerMentionAlertIfNeeded(message)
+
+        guard !isOwnMessage,
+              WebSocketService.shared.activeGroupID == group.groupID,
+              isReadingLatest else { return }
+        UnreadBadgeStore.shared.setConversationUnreadCount(
+            0,
+            for: ConversationReadTarget.group(groupID: group.groupID).listIdentity
+        )
+        Task {
+            _ = try? await APIService.shared.markGroupMessagesAsRead(
+                groupID: group.groupID,
+                throughMessageID: message.id
+            )
+            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+        }
+    }
+
     private func appendMessageIfNeeded(
         _ message: GroupMessage,
         source: GroupMessageSource = .history,
@@ -712,6 +1394,73 @@ class GroupChatViewModel: ObservableObject {
             source: source,
             shouldMergeOutgoingEcho: shouldMergeOutgoingEcho
         )
+    }
+
+    private func confirmPendingText(
+        pendingID: String,
+        with message: GroupMessage,
+        source: GroupMessageSource
+    ) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            // Publish the confirmed row first. It has the same client identity,
+            // so the timeline never observes an empty slot between the local
+            // bubble and its server acknowledgement.
+            appendMessageIfNeeded(
+                message,
+                source: source,
+                shouldMergeOutgoingEcho: true
+            )
+            pendingTexts.removeAll { $0.id == pendingID }
+        }
+    }
+
+    private func confirmPendingSticker(
+        pendingID: String,
+        with message: GroupMessage,
+        source: GroupMessageSource
+    ) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            appendMessageIfNeeded(
+                message,
+                source: source,
+                shouldMergeOutgoingEcho: true
+            )
+            pendingStickers.removeAll { $0.id == pendingID }
+        }
+    }
+
+    /// A media acknowledgement must not look like a new animated row. Keep the
+    /// client identity and perform the pending/confirmed replacement in a
+    /// transaction that explicitly disables inherited layout animations.
+    private func confirmPendingMedia(
+        pendingID: String,
+        with message: GroupMessage,
+        source: GroupMessageSource
+    ) {
+        OutgoingRetryScheduler.shared.cancel(ownerID: ownerID, jobID: pendingID)
+        OutgoingStore.shared.updateJob(
+            id: pendingID,
+            ownerID: ownerID,
+            state: .succeeded,
+            serverID: String(message.id)
+        )
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            // Keep the optimistic image projected until the confirmed row is
+            // present. visiblePendingMedia then swaps the two representations
+            // under one stable client identity without an empty render pass.
+            appendMessageIfNeeded(
+                message,
+                source: source,
+                shouldMergeOutgoingEcho: true
+            )
+            pendingMedia.removeAll { $0.id == pendingID }
+        }
     }
 
     private func nextLocalStickerMessageID() -> Int {
@@ -799,12 +1548,22 @@ class GroupChatViewModel: ObservableObject {
         shouldMergeOutgoingEcho: Bool = false
     ) {
         var changed = false
+        var requiresSort = false
         for message in newMessages {
+            guard let ownerID = AuthManager.shared.currentUser?.userID,
+                  !store.isGroupMessageHidden(
+                      ownerID: ownerID,
+                      groupID: group.groupID,
+                      messageID: message.id
+                  ) else { continue }
             markConfirmed(message.id, source: source)
 
             if let existingIndex = messages.firstIndex(where: { $0.id == message.id }) {
-                if messages[existingIndex] != message {
-                    messages[existingIndex] = message
+                let stabilized = message.inheritingClientMessageID(
+                    messages[existingIndex].clientMessageID
+                )
+                if messages[existingIndex] != stabilized {
+                    messages[existingIndex] = stabilized
                     changed = true
                 }
                 continue
@@ -814,14 +1573,25 @@ class GroupChatViewModel: ObservableObject {
                let echoIndex = outgoingEchoIndex(for: message, source: source) {
                 let existing = messages[echoIndex]
                 clearOptimisticStickerTracking(existing.id)
-                let merged = preferredMessage(existing: existing, incoming: message, source: source)
+                let stableClientMessageID = ChatTimelineIdentity.resolvedClientMessageID(
+                    primary: existing.clientMessageID,
+                    fallback: message.clientMessageID
+                )
+                let merged = preferredMessage(
+                    existing: existing,
+                    incoming: message,
+                    source: source
+                ).inheritingClientMessageID(stableClientMessageID)
                 clearDeliveryTracking(for: existing.id, unlessKeeping: merged.id)
                 clearDeliveryTracking(for: message.id, unlessKeeping: merged.id)
                 if merged.id == message.id {
                     markConfirmed(merged.id, source: source)
                 }
                 if existing.id != message.id {
-                    store.deleteGroupMessage(id: merged.id == existing.id ? message.id : existing.id)
+                    store.deleteGroupMessage(
+                        id: merged.id == existing.id ? message.id : existing.id,
+                        ownerID: ownerID
+                    )
                 }
                 messages[echoIndex] = merged
                 changed = true
@@ -830,9 +1600,15 @@ class GroupChatViewModel: ObservableObject {
 
             messages.append(message)
             changed = true
+            requiresSort = true
         }
         guard changed else { return }
-        sortMessagesForDisplay()
+        // HTTP/WebSocket acknowledgement is an in-place state change for one
+        // logical row. Do not emit a second @Published mutation by re-sorting
+        // an already-correct position after upload completion.
+        if requiresSort {
+            sortMessagesForDisplay()
+        }
         if source == .apiResponse {
             newMessages.forEach {
                 NotificationCenter.default.post(name: .conversationPreviewDidChange, object: $0)
@@ -849,6 +1625,7 @@ class GroupChatViewModel: ObservableObject {
             && pendingReplyMatches(pending.replyID, replyTargetID(for: message))
             && (message.mentions == nil
                 || normalizedMentions(pending.mentions) == normalizedMentions(message.mentions))
+            && (!message.mentionAll || pending.mentionAll)
             && MessageDeliveryMatcher.normalizedType(message.msgType) == "text"
             && pendingTimestampMatches(pending.createdAt, messageTimestamp: message.timestamp)
     }
@@ -974,7 +1751,8 @@ class GroupChatViewModel: ObservableObject {
             content: message.content,
             msgType: message.msgType,
             replyID: replyTargetID(for: message),
-            mentions: message.mentions
+            mentions: message.mentions,
+            mentionAll: message.mentionAll
         )
     }
 
@@ -982,12 +1760,14 @@ class GroupChatViewModel: ObservableObject {
         content: String,
         msgType: String,
         replyID: Int?,
-        mentions: [String]?
+        mentions: [String]?,
+        mentionAll: Bool
     ) -> String {
         [
             msgType,
             replyID.map(String.init) ?? "",
             normalizedMentions(mentions).joined(separator: ","),
+            mentionAll ? "all" : "",
             content
         ].joined(separator: "\u{1F}")
     }
@@ -1002,12 +1782,16 @@ class GroupChatViewModel: ObservableObject {
         expectedContent: String? = nil,
         replyID: Int? = nil,
         mentions: [String]? = nil,
+        mentionAll: Bool = false,
         clientMessageID: String? = nil
     ) -> GroupMessage {
         let currentUser = AuthManager.shared.currentUser
-        let content = message.content.isBlank
+        let resolvedContent = message.content.isBlank
             ? (expectedContent ?? message.content)
             : message.content
+        let content = MessageDeliveryMatcher.normalizedType(expectedType) == "text"
+            ? resolvedContent.trimmingTrailingLineBreaks
+            : resolvedContent
         return GroupMessage(
             id: message.id,
             groupID: group.groupID,
@@ -1026,7 +1810,13 @@ class GroupChatViewModel: ObservableObject {
             replyToID: message.replyToID ?? replyID,
             replyTo: message.replyTo,
             mentions: message.mentions ?? mentions,
-            clientMessageID: nonBlank(message.clientMessageID) ?? nonBlank(clientMessageID)
+            mentionAll: message.mentionAll || mentionAll,
+            clientMessageID: nonBlank(message.clientMessageID) ?? nonBlank(clientMessageID),
+            scriptContext: message.scriptContext,
+            historySequence: message.historySequence,
+            version: message.version,
+            updatedAt: message.updatedAt,
+            thumbnailURL: message.thumbnailURL
         )
     }
 
@@ -1120,6 +1910,7 @@ struct PendingGroupText: Identifiable {
     let content: String
     let replyID: Int?
     let mentions: [String]
+    let mentionAll: Bool
     let createdAt: Date
     var status: PendingStatus = .sending
 
@@ -1132,6 +1923,7 @@ struct PendingGroupText: Identifiable {
         content: String,
         replyID: Int? = nil,
         mentions: [String] = [],
+        mentionAll: Bool = false,
         status: PendingStatus = .sending,
         createdAt: Date = Date()
     ) {
@@ -1139,6 +1931,7 @@ struct PendingGroupText: Identifiable {
         self.content = content
         self.replyID = replyID
         self.mentions = mentions
+        self.mentionAll = mentionAll
         self.status = status
         self.createdAt = createdAt
     }
@@ -1187,7 +1980,8 @@ struct PendingGroupSticker: Identifiable {
 struct PendingGroupMedia: Identifiable {
     let id: String
     let msgType: String
-    let data: Data
+    let data: Data?
+    var localFileURL: URL?
     let filename: String
     let createdAt: Date
     var status: PendingStatus
@@ -1199,7 +1993,8 @@ struct PendingGroupMedia: Identifiable {
     init(
         id: String = UUID().uuidString,
         msgType: String,
-        data: Data,
+        data: Data?,
+        localFileURL: URL? = nil,
         filename: String,
         createdAt: Date = Date(),
         status: PendingStatus = .sending
@@ -1207,6 +2002,7 @@ struct PendingGroupMedia: Identifiable {
         self.id = id
         self.msgType = msgType
         self.data = data
+        self.localFileURL = localFileURL
         self.filename = filename
         self.createdAt = createdAt
         self.status = status

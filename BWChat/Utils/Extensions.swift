@@ -270,6 +270,151 @@ struct KeyboardDismissTapInstaller: UIViewRepresentable {
     }
 }
 
+private struct MessageMenuLongPressModifier: ViewModifier {
+    let onLongPress: (CGRect) -> Void
+    let onTouchSequenceEnded: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .background {
+                MessageMenuLongPressBridge(
+                    onLongPress: onLongPress,
+                    onTouchSequenceEnded: onTouchSequenceEnded
+                )
+            }
+    }
+}
+
+private struct MessageMenuLongPressBridge: UIViewRepresentable {
+    let onLongPress: (CGRect) -> Void
+    let onTouchSequenceEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            onLongPress: onLongPress,
+            onTouchSequenceEnded: onTouchSequenceEnded
+        )
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onLongPress = onLongPress
+        context.coordinator.onTouchSequenceEnded = onTouchSequenceEnded
+        DispatchQueue.main.async {
+            context.coordinator.installIfNeeded(sourceView: uiView)
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onLongPress: (CGRect) -> Void
+        var onTouchSequenceEnded: () -> Void
+        private weak var sourceView: UIView?
+        private weak var installedWindow: UIWindow?
+        private weak var recognizer: UILongPressGestureRecognizer?
+
+        init(
+            onLongPress: @escaping (CGRect) -> Void,
+            onTouchSequenceEnded: @escaping () -> Void
+        ) {
+            self.onLongPress = onLongPress
+            self.onTouchSequenceEnded = onTouchSequenceEnded
+        }
+
+        func installIfNeeded(sourceView: UIView) {
+            guard let window = sourceView.window else { return }
+            self.sourceView = sourceView
+            guard installedWindow !== window || recognizer == nil else { return }
+            uninstall()
+            self.sourceView = sourceView
+
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+            recognizer.minimumPressDuration = 0.45
+            recognizer.allowableMovement = 20
+            // A successful long press owns this touch sequence. Cancelling the
+            // underlying touch prevents tappable bubbles (money/media) from
+            // navigating when the finger is lifted after opening the menu.
+            recognizer.cancelsTouchesInView = true
+            recognizer.delaysTouchesBegan = false
+            recognizer.delegate = self
+            window.addGestureRecognizer(recognizer)
+            installedWindow = window
+            self.recognizer = recognizer
+        }
+
+        func uninstall() {
+            if let recognizer, let installedWindow {
+                installedWindow.removeGestureRecognizer(recognizer)
+            }
+            recognizer = nil
+            installedWindow = nil
+            sourceView = nil
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let sourceView, let window = installedWindow else { return false }
+            let bubbleFrame = sourceView.convert(sourceView.bounds, to: window).standardized
+            return bubbleFrame.contains(gestureRecognizer.location(in: window))
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldReceive touch: UITouch
+        ) -> Bool {
+            // The recognizer lives on the window so bubbles can coexist with
+            // scroll gestures. Never let a bubble underneath the composer
+            // claim a long press that belongs to UIKit's text editor.
+            var view = touch.view
+            while let candidate = view {
+                if candidate is UITextInput {
+                    return false
+                }
+                let className = NSStringFromClass(type(of: candidate))
+                if className.contains("UIKeyboard") || className.contains("UITextEffects") {
+                    return false
+                }
+                view = candidate.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            // Money and media bubbles own their own tap recognizers. Both must
+            // observe the sequence so the long press can begin; the row-level
+            // activation gate prevents their tap action from committing.
+            true
+        }
+
+        @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            switch recognizer.state {
+            case .began:
+                guard let sourceView, let window = installedWindow else { return }
+                let visibleFrame = sourceView.convert(sourceView.bounds, to: window).standardized
+                guard !visibleFrame.isEmpty else { return }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                onLongPress(visibleFrame)
+            case .ended, .cancelled:
+                onTouchSequenceEnded()
+            default:
+                break
+            }
+        }
+    }
+}
+
 private struct LongPressSaveMediaModifier: ViewModifier {
     enum Kind { case image, video }
     let url: String
@@ -354,6 +499,16 @@ extension String {
     var isBlank: Bool {
         trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    /// Removes transport/editor line terminators that some message responses
+    /// append, while preserving intentional leading and internal line breaks.
+    var trimmingTrailingLineBreaks: String {
+        var result = self
+        while let last = result.last, last.isNewline {
+            result.removeLast()
+        }
+        return result
+    }
 }
 
 // MARK: - Chat Text Input
@@ -380,6 +535,7 @@ struct ChatInputTextView: UIViewRepresentable {
     @Binding var isFocused: Bool
     @Binding var height: CGFloat
     var selectedRange: Binding<NSRange>? = nil
+    var mentionSpans: Binding<[MentionSpan]>? = nil
 
     var minHeight: CGFloat = 40
     var maxHeight: CGFloat = 112
@@ -389,7 +545,8 @@ struct ChatInputTextView: UIViewRepresentable {
     var textAlignment: NSTextAlignment = .natural
     var preferredPrimaryLanguage: String? = "zh-Hans"
     var onRequestFocus: (() -> Void)? = nil
-    var onSend: (() -> Void)? = nil
+    var onSend: ((String) -> Void)? = nil
+    var onStandaloneAt: ((NSRange) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -472,6 +629,10 @@ struct ChatInputTextView: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) {}
 
         func textViewDidEndEditing(_ textView: UITextView) {
+            // The final UIKit value may not have reached SwiftUI while an IME
+            // still had marked text. Commit it before the chat view flushes its
+            // draft during navigation or backgrounding.
+            commitText(from: textView)
             parent.isFocused = false
         }
 
@@ -510,22 +671,170 @@ struct ChatInputTextView: UIViewRepresentable {
             shouldChangeTextIn range: NSRange,
             replacementText replacement: String
         ) -> Bool {
-            guard replacement == "\n", textView.markedTextRange == nil else {
-                return true
-            }
+            if replacement == "\n", let send = parent.onSend {
+                // A Chinese/Japanese IME can still own marked text when its
+                // Return key is labelled Send. Letting that newline through
+                // first commits the candidate and postpones submission to a
+                // later input event. Commit the visible candidate now and use
+                // the resulting UIKit value as the send snapshot.
+                if textView.markedTextRange != nil {
+                    isApplyingParentUpdate = true
+                    textView.unmarkText()
+                    isApplyingParentUpdate = false
+                }
 
-            guard let send = parent.onSend else {
-                return parent.allowsNewline
-            }
+                let submittedText = textView.text ?? ""
+                guard !submittedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return false
+                }
 
-            let current = textView.text as NSString? ?? ""
-            let next = current.replacingCharacters(in: range, with: "")
-            guard !next.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                // Do not publish the optimistic message while UIKit is still
+                // handling the keyboard event. That can synchronously
+                // invalidate the entire SwiftUI timeline before the remote
+                // keyboard finishes its key-up animation.
+                isApplyingParentUpdate = true
+                textView.text = ""
+                textView.selectedRange = NSRange(location: 0, length: 0)
+                textView.invalidateIntrinsicContentSize()
+                isApplyingParentUpdate = false
+
+                let textBinding = parent.$text
+                let selectionBinding = parent.selectedRange
+                DispatchQueue.main.async {
+                    if textBinding.wrappedValue == submittedText {
+                        textBinding.wrappedValue = ""
+                    }
+                    selectionBinding?.wrappedValue = NSRange(location: 0, length: 0)
+                    send(submittedText)
+                }
                 return false
             }
 
-            DispatchQueue.main.async { send() }
-            return false
+            guard textView.markedTextRange == nil else { return true }
+
+            if replacement != "\n", let mentionSpans = parent.mentionSpans {
+                let document = ComposerDocument(
+                    text: textView.text ?? "",
+                    mentions: mentionSpans.wrappedValue
+                )
+                let result = MentionTextEditing.applyingUserEdit(
+                    range: range,
+                    replacementText: replacement,
+                    to: document
+                )
+                mentionSpans.wrappedValue = result.document.mentions
+
+                if result.handledAtomically {
+                    isApplyingParentUpdate = true
+                    textView.text = result.document.text
+                    textView.selectedRange = result.selectedRange
+                    parent.text = result.document.text
+                    parent.selectedRange?.wrappedValue = result.selectedRange
+                    isApplyingParentUpdate = false
+                    updateHeight(for: textView)
+                    return false
+                }
+
+                if MentionTextEditing.isStandaloneAtInsertion(
+                    text: document.text,
+                    range: range,
+                    replacement: replacement
+                ) {
+                    let insertedRange = NSRange(location: range.location, length: 1)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.parent.onStandaloneAt?(insertedRange)
+                    }
+                }
+            }
+
+            return replacement == "\n" ? parent.allowsNewline : true
+        }
+
+        @available(iOS 16.0, *)
+        func textView(
+            _ textView: UITextView,
+            editMenuForTextIn range: NSRange,
+            suggestedActions: [UIMenuElement]
+        ) -> UIMenu? {
+            let systemActions = suggestedActions.compactMap(removingAutoFillAction)
+            let newlineAction = UIAction(
+                title: L10n.tr("chat.input.newline"),
+                image: UIImage(systemName: "return")
+            ) { [weak self, weak textView] _ in
+                guard let self, let textView else { return }
+                self.insertNewline(in: textView)
+            }
+            return UIMenu(children: systemActions + [newlineAction])
+        }
+
+        @available(iOS 16.0, *)
+        private func removingAutoFillAction(_ element: UIMenuElement) -> UIMenuElement? {
+            if isAutoFillAction(element) {
+                return nil
+            }
+            guard let menu = element as? UIMenu else {
+                return element
+            }
+
+            let children = menu.children.compactMap(removingAutoFillAction)
+            guard !children.isEmpty else { return nil }
+            return UIMenu(
+                title: menu.title,
+                image: menu.image,
+                identifier: menu.identifier,
+                options: menu.options,
+                children: children
+            )
+        }
+
+        @available(iOS 16.0, *)
+        private func isAutoFillAction(_ element: UIMenuElement) -> Bool {
+            if let action = element as? UIAction,
+               action.identifier.rawValue.localizedCaseInsensitiveContains("autofill") {
+                return true
+            }
+
+            let compactTitle = element.title
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "-", with: "")
+            return [
+                "autofill",
+                "自动填充",
+                "自動填充",
+                "自動填寫",
+                "自動入力",
+                "자동완성",
+                "autocompletar",
+                "autorrelleno",
+                "preenchimentoautomático",
+                "remplissageautomatique",
+                "automatischausfüllen",
+                "автозаполнение"
+            ].contains(compactTitle.lowercased())
+        }
+
+        private func insertNewline(in textView: UITextView) {
+            let currentText = textView.text ?? ""
+            let selection = textView.selectedRange
+            let document = ComposerDocument(
+                text: currentText,
+                mentions: parent.mentionSpans?.wrappedValue ?? []
+            )
+            let result = MentionTextEditing.applyingUserEdit(
+                range: selection,
+                replacementText: "\n",
+                to: document
+            )
+
+            isApplyingParentUpdate = true
+            textView.text = result.document.text
+            textView.selectedRange = result.selectedRange
+            parent.text = result.document.text
+            parent.selectedRange?.wrappedValue = result.selectedRange
+            parent.mentionSpans?.wrappedValue = result.document.mentions
+            isApplyingParentUpdate = false
+            updateHeight(for: textView)
         }
 
         func updateHeight(for textView: UITextView) {
@@ -582,6 +891,9 @@ enum TimestampHelper {
         ].map { format in
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
+            // Backend SQL timestamps without an explicit offset are UTC.
+            // Pin the formatter so list ordering does not vary by device timezone.
+            f.timeZone = TimeZone(secondsFromGMT: 0)
             f.dateFormat = format
             return f
         }
@@ -675,6 +987,16 @@ extension Data {
 // MARK: - Tab Bar Hide During Push
 
 extension View {
+    func messageMenuLongPress(
+        onLongPress: @escaping (CGRect) -> Void,
+        onTouchSequenceEnded: @escaping () -> Void = {}
+    ) -> some View {
+        modifier(MessageMenuLongPressModifier(
+            onLongPress: onLongPress,
+            onTouchSequenceEnded: onTouchSequenceEnded
+        ))
+    }
+
     /// Keeps the root tab bar hidden while a detail view is visible.
     /// UIKitNavigator covers the normal push path; this modifier is a
     /// lightweight fallback for SwiftUI NavigationStack destinations and for
@@ -686,7 +1008,11 @@ extension View {
     /// Restores a predictable back button for views pushed by `UIKitNavigator`,
     /// especially when the source tab hides its navigation bar.
     func withUIKitBackButton(tint: Color = AppColors.primaryText) -> some View {
-        modifier(UIKitBackButtonModifier(tint: tint))
+        modifier(UIKitBackButtonModifier(tint: tint, onBack: nil))
+    }
+
+    func withUIKitBackButton(tint: Color = AppColors.primaryText, onBack: @escaping () -> Void) -> some View {
+        modifier(UIKitBackButtonModifier(tint: tint, onBack: onBack))
     }
 }
 
@@ -799,6 +1125,7 @@ private struct UIKitBackButtonModifier: ViewModifier {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var navigator: UIKitNavigator
     let tint: Color
+    let onBack: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -807,7 +1134,9 @@ private struct UIKitBackButtonModifier: ViewModifier {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     AppBackButton(tint: tint) {
-                        if navigator.canPopPushedController {
+                        if let onBack {
+                            onBack()
+                        } else if navigator.canPopPushedController {
                             navigator.pop()
                         } else {
                             dismiss()

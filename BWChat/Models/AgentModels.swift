@@ -3,7 +3,7 @@
 
 import Foundation
 
-struct AgentProfile: Decodable, Equatable {
+struct AgentProfile: Codable, Equatable {
     let name: String
     let tagline: String?
     let description: String?
@@ -14,6 +14,22 @@ struct AgentProfile: Decodable, Equatable {
     enum CodingKeys: String, CodingKey {
         case name, tagline, description, tags, language
         case avatarAssetID = "avatar_asset_id"
+    }
+
+    init(
+        name: String,
+        tagline: String? = nil,
+        description: String? = nil,
+        tags: [String]? = nil,
+        language: String? = nil,
+        avatarAssetID: String? = nil
+    ) {
+        self.name = name
+        self.tagline = tagline
+        self.description = description
+        self.tags = tags
+        self.language = language
+        self.avatarAssetID = avatarAssetID
     }
 
     init(from decoder: Decoder) throws {
@@ -27,7 +43,7 @@ struct AgentProfile: Decodable, Equatable {
     }
 }
 
-struct AgentCapabilities: Decodable, Equatable {
+struct AgentCapabilities: Codable, Equatable {
     let paidImages: Bool
     let paidVideos: Bool
     let stickers: Bool?
@@ -66,7 +82,7 @@ struct AgentCapabilities: Decodable, Equatable {
     }
 }
 
-struct AgentGreeting: Decodable, Identifiable, Equatable {
+struct AgentGreeting: Codable, Identifiable, Equatable {
     let id: String
     let text: String
 
@@ -90,9 +106,15 @@ struct AgentGreeting: Decodable, Identifiable, Equatable {
             ?? container.lossyString(forKey: .content)
             ?? ""
     }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(text, forKey: .text)
+    }
 }
 
-struct AgentSummary: Decodable, Identifiable, Equatable {
+struct AgentSummary: Codable, Identifiable, Equatable {
     let id: String
     let visibility: String?
     let status: String?
@@ -142,6 +164,22 @@ struct AgentSummary: Decodable, Identifiable, Equatable {
         definition = try? container.decodeIfPresent(AgentDefinition.self, forKey: .definition)
     }
 
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encodeIfPresent(visibility, forKey: .visibility)
+        try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(versionNumber, forKey: .versionNumber)
+        try container.encodeIfPresent(revision, forKey: .revision)
+        try container.encodeIfPresent(isOwner, forKey: .isOwner)
+        try container.encodeIfPresent(profile, forKey: .profile)
+        try container.encodeIfPresent(capabilities, forKey: .capabilities)
+        try container.encodeIfPresent(greetings, forKey: .greetings)
+        try container.encodeIfPresent(avatarAssetID, forKey: .avatarAssetID)
+        try container.encodeIfPresent(primaryReferenceAssetID, forKey: .primaryReferenceAssetID)
+        try container.encodeIfPresent(definition, forKey: .definition)
+    }
+
     var displayName: String { profile?.name ?? "智能体" }
     var resolvedAvatarAssetID: String? { avatarAssetID ?? profile?.avatarAssetID }
 }
@@ -176,7 +214,7 @@ struct AgentSummaryPage: Decodable, Equatable {
     }
 }
 
-struct AgentDefinition: Decodable, Equatable {
+struct AgentDefinition: Codable, Equatable {
     let identity: String?
     let personality: [String]?
     let tone: AgentToneDefinition?
@@ -201,7 +239,7 @@ struct AgentDefinition: Decodable, Equatable {
     }
 }
 
-struct AgentToneDefinition: Decodable, Equatable {
+struct AgentToneDefinition: Codable, Equatable {
     let style: String?
     let replyLength: String?
 
@@ -217,7 +255,7 @@ struct AgentToneDefinition: Decodable, Equatable {
     }
 }
 
-struct AgentRelationshipDefinition: Decodable, Equatable {
+struct AgentRelationshipDefinition: Codable, Equatable {
     let type: String?
     let addressStyle: String?
 
@@ -233,7 +271,7 @@ struct AgentRelationshipDefinition: Decodable, Equatable {
     }
 }
 
-struct AgentIntimacyDefinition: Decodable, Equatable {
+struct AgentIntimacyDefinition: Codable, Equatable {
     let adultEnabled: Bool?
     let style: String?
     let initiative: String?
@@ -289,12 +327,12 @@ private extension KeyedDecodingContainer {
     }
 }
 
-struct AgentActor: Decodable, Equatable {
+struct AgentActor: Codable, Equatable {
     let type: String
     let id: String
 }
 
-struct AgentPartMetadata: Decodable, Equatable {
+struct AgentPartMetadata: Codable, Equatable {
     let mediaType: String?
     let generationStatus: String?
     let pricePoints: Int?
@@ -343,7 +381,7 @@ struct AgentPartMetadata: Decodable, Equatable {
     }
 }
 
-struct AgentMessagePart: Decodable, Identifiable, Equatable {
+struct AgentMessagePart: Codable, Identifiable, Equatable {
     let id: String
     let ordinal: Int
     let type: String
@@ -371,7 +409,7 @@ struct AgentMessagePart: Decodable, Identifiable, Equatable {
     }
 }
 
-struct AgentMessage: Decodable, Identifiable, Equatable {
+struct AgentMessage: Codable, Identifiable, Equatable {
     let id: String
     let conversationID: String
     let sequenceNo: Int
@@ -399,7 +437,78 @@ struct AgentMessage: Decodable, Identifiable, Equatable {
     var orderedParts: [AgentMessagePart] { parts.sorted { $0.ordinal < $1.ordinal } }
 }
 
-struct AgentConversation: Decodable, Identifiable, Equatable {
+struct AgentPaidMediaStatePolicy {
+    static func displayStatus(for metadata: AgentPartMetadata) -> String {
+        let status = metadata.generationStatus?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        switch status {
+        case nil, "", "queued", "pending":
+            return "queued"
+        case "processing", "generating":
+            return "generating"
+        case "ready", "completed":
+            if metadata.access == "locked" || metadata.access == "unlocked" {
+                return "ready_locked"
+            }
+            return "generating"
+        default:
+            return status ?? "queued"
+        }
+    }
+
+    static func hasVisibleUnlockedMedia(id: String, messages: [AgentMessage]) -> Bool {
+        messages.lazy
+            .flatMap(\.parts)
+            .contains { part in
+                part.type == "paid_media"
+                    && part.referenceID == id
+                    && part.metadata.access == "unlocked"
+                    && (part.metadata.contentURL != nil || part.metadata.downloadURL != nil)
+            }
+    }
+}
+
+enum AgentConversationPreviewResolver {
+    static func text(for message: AgentMessage?, fallback: String) -> String {
+        guard let message else { return fallback }
+
+        // A completed media part is what the user actually sees as the latest
+        // message, so it must outrank any earlier processing text in that message.
+        if let mediaPreview = message.orderedParts.lazy.compactMap(mediaPreview(for:)).first {
+            return mediaPreview
+        }
+
+        return message.orderedParts
+            .first(where: { $0.type == "text" && !$0.text.isBlank })?.text
+            ?? fallback
+    }
+
+    private static func mediaPreview(for part: AgentMessagePart) -> String? {
+        if part.type == "input_image" {
+            return L10n.tr("message.image")
+        }
+        guard part.type == "paid_media",
+              AgentPaidMediaStatePolicy.displayStatus(for: part.metadata) == "ready_locked" else {
+            return nil
+        }
+        return part.metadata.mediaType?.lowercased() == "video"
+            ? L10n.tr("message.video")
+            : L10n.tr("message.image")
+    }
+}
+
+struct AgentImageReplyTarget: Identifiable, Equatable {
+    let messageID: String
+    let partID: String
+    let imagePath: String
+    let isFromUser: Bool
+
+    var id: String { "\(messageID):\(partID)" }
+    var senderLabel: String { isFromUser ? "你" : "智能体" }
+}
+
+struct AgentConversation: Codable, Identifiable, Equatable {
     let id: String
     let title: String
     let status: String
@@ -421,6 +530,35 @@ struct AgentConversation: Decodable, Identifiable, Equatable {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+
+    init(
+        id: String,
+        title: String,
+        status: String,
+        agentID: String,
+        agentVersionID: String,
+        agentProfile: AgentProfile,
+        agentCapabilities: AgentCapabilities,
+        latestMessage: AgentMessage?,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.agentID = agentID
+        self.agentVersionID = agentVersionID
+        self.agentProfile = agentProfile
+        self.agentCapabilities = agentCapabilities
+        self.latestMessage = latestMessage
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+struct CachedAgentMessagePage: Codable, Equatable {
+    let messages: [AgentMessage]
+    let hasMore: Bool
 }
 
 struct AgentTurn: Decodable, Identifiable, Equatable {
@@ -507,16 +645,26 @@ struct AgentVersion: Decodable, Equatable {
 }
 
 struct AgentMediaUnlock: Decodable, Equatable {
-    let balance: Int
+    let charge: MixedAssetCharge?
     let alreadyUnlocked: Bool
     let contentURL: String
     let downloadURL: String
+    let consumedProp: PropConsumptionResult?
 
     enum CodingKeys: String, CodingKey {
-        case balance
         case alreadyUnlocked = "already_unlocked"
         case contentURL = "content_url"
         case downloadURL = "download_url"
+        case consumedProp = "consumed_prop"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        charge = try MixedAssetCharge.decodeIfPresent(from: decoder)
+        alreadyUnlocked = container.flexBool(for: .alreadyUnlocked) ?? false
+        contentURL = container.flexString(for: .contentURL) ?? ""
+        downloadURL = container.flexString(for: .downloadURL) ?? ""
+        consumedProp = try? container.decodeIfPresent(PropConsumptionResult.self, forKey: .consumedProp)
     }
 }
 
@@ -528,7 +676,7 @@ struct AgentMediaResponse {
     let acceptsRanges: Bool
 }
 
-struct AgentVisionConfig: Decodable, Equatable {
+struct AgentVisionConfig: Codable, Equatable {
     let maxImagesPerTurn: Int
 
     enum CodingKeys: String, CodingKey {
@@ -545,7 +693,7 @@ struct AgentVisionConfig: Decodable, Equatable {
     }
 }
 
-struct AgentRuntimeConfig: Decodable, Equatable {
+struct AgentRuntimeConfig: Codable, Equatable {
     let agentsEnabled: Bool
     let imageInputEnabled: Bool
     let paidImagesEnabled: Bool
@@ -591,6 +739,28 @@ struct AgentRuntimeConfig: Decodable, Equatable {
             imagePricePoints = try image.decodeIfPresent(Int.self, forKey: .pricePoints)
         } else {
             imagePricePoints = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        var features = container.nestedContainer(keyedBy: FeatureKeys.self, forKey: .features)
+        try features.encode(agentsEnabled, forKey: .agentsEnabled)
+        try features.encode(imageInputEnabled, forKey: .imageInputEnabled)
+        try features.encode(paidImagesEnabled, forKey: .paidImagesEnabled)
+        try features.encode(paidVideosEnabled, forKey: .paidVideosEnabled)
+        try container.encode(vision, forKey: .vision)
+
+        if let imagePricePoints {
+            var paidMedia = container.nestedContainer(
+                keyedBy: PaidMediaKeys.self,
+                forKey: .paidMedia
+            )
+            var image = paidMedia.nestedContainer(
+                keyedBy: ImagePricingKeys.self,
+                forKey: .image
+            )
+            try image.encode(imagePricePoints, forKey: .pricePoints)
         }
     }
 }

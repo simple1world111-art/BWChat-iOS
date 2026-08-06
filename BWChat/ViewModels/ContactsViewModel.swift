@@ -59,7 +59,7 @@ class ContactsViewModel: ObservableObject {
         applyLocalRead(contactID: contactID)
         // Tell server + sync app icon badge
         Task {
-            try? await APIService.shared.markMessagesAsRead(contactID: contactID)
+            _ = try? await APIService.shared.markMessagesAsRead(contactID: contactID)
             await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
         }
     }
@@ -142,7 +142,12 @@ class ContactsViewModel: ObservableObject {
 
         // Auto-mark as read on server if viewing this chat
         if isViewingThisChat {
-            Task { try? await APIService.shared.markMessagesAsRead(contactID: contactID) }
+            Task {
+                _ = try? await APIService.shared.markMessagesAsRead(
+                    contactID: contactID,
+                    throughMessageID: message.id
+                )
+            }
         }
 
         if let index = contacts.firstIndex(where: { $0.userID == contactID }) {
@@ -151,7 +156,13 @@ class ContactsViewModel: ObservableObject {
                 return
             }
             let lastMsg: String
-            if message.isImage {
+            if message.isRecalled {
+                lastMsg = ChatMessageRecallState.notice(
+                    senderID: message.senderID,
+                    viewerID: AuthManager.shared.currentUser?.userID,
+                    senderName: existing.nickname
+                )
+            } else if message.isImage {
                 lastMsg = L10n.tr("message.image")
             } else if message.isVideo {
                 lastMsg = L10n.tr("message.video")
@@ -204,8 +215,18 @@ class ContactsViewModel: ObservableObject {
               let lastMessage = data["last_message"] as? String,
               let lastMessageTime = data["last_message_time"] as? String else { return }
         let msgType = data["msg_type"] as? String ?? data["last_message_type"] as? String
+        let myID = AuthManager.shared.currentUser?.userID
+        let contactID = (senderID == myID) ? receiverID : senderID
         let previewMessage: String
-        if let stickerPreview = StickerMessagePayload.previewText(content: lastMessage, msgType: msgType) {
+        if ChatMessageRecallState.isRecalledPreview(messageType: msgType, content: lastMessage) {
+            let senderName = contacts.first(where: { $0.userID == contactID })?.nickname
+                ?? UserCacheManager.shared.getUser(senderID)?.nickname
+            previewMessage = ChatMessageRecallState.notice(
+                senderID: senderID,
+                viewerID: myID,
+                senderName: senderName
+            )
+        } else if let stickerPreview = StickerMessagePayload.previewText(content: lastMessage, msgType: msgType) {
             previewMessage = stickerPreview
         } else if let moneyPreview = ChatMoneyPreview.text(content: lastMessage, msgType: msgType) {
             previewMessage = moneyPreview
@@ -214,9 +235,6 @@ class ContactsViewModel: ObservableObject {
         } else {
             previewMessage = lastMessage
         }
-
-        let myID = AuthManager.shared.currentUser?.userID
-        let contactID = (senderID == myID) ? receiverID : senderID
 
         // Only update preview text and time here.
         // Unread count is handled exclusively by handleNewMessage to avoid double-counting.
