@@ -3,6 +3,70 @@ import XCTest
 
 @MainActor
 final class ShortDramaPlaybackTests: XCTestCase {
+    func testOutgoingStateMachineAcceptsOnlyLegalForwardTransitions() {
+        XCTAssertTrue(OutgoingState.staging.canTransition(to: .queued))
+        XCTAssertTrue(OutgoingState.queued.canTransition(to: .uploading))
+        XCTAssertTrue(OutgoingState.uploading.canTransition(to: .committing))
+        XCTAssertTrue(OutgoingState.committing.canTransition(to: .succeeded))
+        XCTAssertTrue(OutgoingState.retryWaiting.canTransition(to: .queued))
+        XCTAssertTrue(OutgoingState.confirmationUnknown.canTransition(to: .retryWaiting))
+        XCTAssertTrue(OutgoingState.failedPermanent.canTransition(to: .queued))
+
+        XCTAssertFalse(OutgoingState.succeeded.canTransition(to: .uploading))
+        XCTAssertFalse(OutgoingState.cancelled.canTransition(to: .queued))
+        XCTAssertFalse(OutgoingState.queued.canTransition(to: .staging))
+    }
+
+    func testOnlyPermanentFailureIsUserVisible() {
+        XCTAssertFalse(OutgoingState.queued.isUserVisibleFailure)
+        XCTAssertFalse(OutgoingState.uploading.isUserVisibleFailure)
+        XCTAssertFalse(OutgoingState.committing.isUserVisibleFailure)
+        XCTAssertFalse(OutgoingState.retryWaiting.isUserVisibleFailure)
+        XCTAssertFalse(OutgoingState.confirmationUnknown.isUserVisibleFailure)
+        XCTAssertTrue(OutgoingState.failedPermanent.isUserVisibleFailure)
+    }
+
+    func testMediaRetryPolicyIncludesWeakNetworkAndTransientServerFailures() {
+        XCTAssertTrue(UploadEngine.isTransient(URLError(.networkConnectionLost)))
+        XCTAssertTrue(UploadEngine.isTransient(URLError(.badServerResponse)))
+        XCTAssertTrue(UploadEngine.isTransient(APIError.networkError(URLError(.timedOut))))
+        XCTAssertTrue(UploadEngine.isTransient(APIError.serverError(code: 503, message: "unavailable")))
+        XCTAssertFalse(UploadEngine.isTransient(APIError.serverError(code: 400, message: "bad request")))
+    }
+
+    func testConfirmationUnknownEntersBoundedRetryPipeline() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let retryAt = now.addingTimeInterval(12)
+        let job = OutgoingJob(
+            ownerID: "owner",
+            scene: .directMessage,
+            state: .confirmationUnknown,
+            attemptCount: 2,
+            nextAttemptAt: retryAt
+        )
+
+        XCTAssertTrue(
+            OutgoingRetryPolicy.shouldRetry(
+                job: job,
+                error: APIError.decodingError(URLError(.cannotDecodeContentData))
+            )
+        )
+        XCTAssertEqual(OutgoingRetryPolicy.scheduledDate(for: job, now: now), retryAt)
+
+        let exhausted = OutgoingJob(
+            ownerID: "owner",
+            scene: .directMessage,
+            state: .confirmationUnknown,
+            attemptCount: OutgoingRetryPolicy.maximumAutomaticAttempts
+        )
+        XCTAssertFalse(
+            OutgoingRetryPolicy.shouldRetry(
+                job: exhausted,
+                error: URLError(.networkConnectionLost)
+            )
+        )
+    }
+
     func testSeriesCreatorAndMetadataFillEpisodeFields() throws {
         let json = #"""
         {

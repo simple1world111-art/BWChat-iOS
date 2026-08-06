@@ -2,6 +2,7 @@
 // TikTok-style short drama feed playback and optimistic interactions.
 
 import AVFoundation
+import Combine
 import Foundation
 
 enum ShortDramaMediaSecurity {
@@ -75,6 +76,8 @@ final class ShortDramaFeedViewModel: ObservableObject {
     private var loopObservers: [String: PlaybackLoopObserver] = [:]
     private var loopingVideoIDs = Set<String>()
     private var didConfigurePlaybackAudioSession = false
+    private var cancellables = Set<AnyCancellable>()
+    private var unlockIdempotencyKeys: [String: UUID] = [:]
 
     init(seriesID: String? = nil, initialEpisodeID: String? = nil, initialPositionSeconds: Double = 0) {
         self.seriesID = seriesID
@@ -88,6 +91,15 @@ final class ShortDramaFeedViewModel: ObservableObject {
             selectedVideoID = initialEpisodeID.flatMap { id in videos.contains(where: { $0.id == id }) ? id : nil }
                 ?? videos.first?.id
         }
+        FollowRelationshipStore.shared.changes
+            .sink { [weak self] change in
+                self?.updateCreatorFollowState(
+                    userID: change.relationship.userID,
+                    followed: change.relationship.followedByMe
+                )
+                self?.persistFeed()
+            }
+            .store(in: &cancellables)
     }
 
     var visibleVideos: [ShortDramaVideo] {
@@ -328,25 +340,6 @@ final class ShortDramaFeedViewModel: ObservableObject {
         Task {
             do {
                 let result = try await APIService.shared.setShortDramaLiked(videoID: videoID, liked: targetState)
-                applyInteractionResult(result, videoID: videoID)
-            } catch {
-                if let rollbackIndex = videos.firstIndex(where: { $0.id == videoID }) {
-                    videos[rollbackIndex] = previous
-                }
-            }
-        }
-    }
-
-    func toggleFavorite(videoID: String) {
-        guard let index = videos.firstIndex(where: { $0.id == videoID }) else { return }
-        let previous = videos[index]
-        let targetState = !previous.favoritedByMe
-        videos[index].favoritedByMe = targetState
-        videos[index].favoriteCount = max(0, previous.favoriteCount + (targetState ? 1 : -1))
-
-        Task {
-            do {
-                let result = try await APIService.shared.setShortDramaFavorited(videoID: videoID, favorited: targetState)
                 applyInteractionResult(result, videoID: videoID)
             } catch {
                 if let rollbackIndex = videos.firstIndex(where: { $0.id == videoID }) {
@@ -808,14 +801,8 @@ final class ShortDramaFeedViewModel: ObservableObject {
         if let liked = result.liked {
             videos[index].likedByMe = liked
         }
-        if let favorited = result.favorited {
-            videos[index].favoritedByMe = favorited
-        }
         if let likeCount = result.likeCount {
             videos[index].likeCount = max(0, likeCount)
-        }
-        if let favoriteCount = result.favoriteCount {
-            videos[index].favoriteCount = max(0, favoriteCount)
         }
     }
 
@@ -842,10 +829,17 @@ final class ShortDramaFeedViewModel: ObservableObject {
 
     func unlock(videoID: String) async -> Bool {
         guard let index = videos.firstIndex(where: { $0.id == videoID }) else { return false }
+        let idempotencyKey = unlockIdempotencyKeys[videoID] ?? UUID()
+        unlockIdempotencyKeys[videoID] = idempotencyKey
         do {
-            let result = try await APIService.shared.unlockShortDramaEpisode(videoID: videoID)
-            if let balance = result.walletBalance {
-                WalletStore.shared.applyServerBalance(balance)
+            let result = try await APIService.shared.unlockShortDramaEpisode(
+                videoID: videoID,
+                idempotencyKey: idempotencyKey
+            )
+            unlockIdempotencyKeys.removeValue(forKey: videoID)
+            if let charge = result.charge {
+                WalletStore.shared.applyServerBalance(charge.walletBalance)
+                WalletTelemetry.recordMixedCharge(charge, operation: "short_drama_unlock")
             }
             if let unlocked = result.video {
                 videos[index] = unlocked

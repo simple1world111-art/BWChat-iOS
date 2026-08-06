@@ -132,57 +132,110 @@ struct GroupCallView: View {
     // MARK: - Control Bar
 
     private var controlBar: some View {
-        HStack(spacing: callManager.currentCall?.callType == .video ? 16 : 28) {
-            controlButton(
-                icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
-                isActive: callManager.isMuted,
-                identifier: "call.mute"
-            ) { callManager.toggleMute() }
+        let isVideo = callManager.currentCall?.callType == .video
 
-            if callManager.currentCall?.callType == .video {
-                controlButton(
-                    icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
-                    isActive: !callManager.isLocalVideoEnabled,
-                    identifier: "call.camera"
-                ) { callManager.toggleLocalVideo() }
+        return Group {
+            if isVideo {
+                VStack(spacing: 20) {
+                    HStack(spacing: 0) {
+                        controlButton(
+                            icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
+                            isActive: callManager.isMuted,
+                            identifier: "call.mute",
+                            buttonDiameter: 64
+                        ) { callManager.toggleMute() }
 
-                controlButton(
-                    icon: "camera.rotate.fill",
-                    isActive: false,
-                    identifier: "call.flip"
-                ) { callManager.flipCamera() }
+                        Spacer(minLength: 24)
+
+                        controlButton(
+                            icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
+                            isActive: callManager.isSpeakerOn,
+                            identifier: "call.speaker",
+                            buttonDiameter: 64
+                        ) { callManager.toggleSpeaker() }
+
+                        Spacer(minLength: 24)
+
+                        controlButton(
+                            icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
+                            isActive: !callManager.isLocalVideoEnabled,
+                            identifier: "call.camera",
+                            buttonDiameter: 64
+                        ) { callManager.toggleLocalVideo() }
+                    }
+                    .padding(.horizontal, 28)
+
+                    HStack(spacing: 0) {
+                        Color.clear
+                            .frame(width: 64, height: 68)
+                            .accessibilityHidden(true)
+
+                        Spacer(minLength: 24)
+
+                        endCallButton(buttonDiameter: 68)
+
+                        Spacer(minLength: 24)
+
+                        controlButton(
+                            icon: "camera.rotate.fill",
+                            isActive: false,
+                            identifier: "call.flip",
+                            buttonDiameter: 64
+                        ) { callManager.flipCamera() }
+                    }
+                    .padding(.horizontal, 28)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    controlButton(
+                        icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
+                        isActive: callManager.isMuted,
+                        identifier: "call.mute",
+                        buttonDiameter: 68
+                    ) { callManager.toggleMute() }
+
+                    Spacer(minLength: 28)
+
+                    controlButton(
+                        icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
+                        isActive: callManager.isSpeakerOn,
+                        identifier: "call.speaker",
+                        buttonDiameter: 68
+                    ) { callManager.toggleSpeaker() }
+
+                    Spacer(minLength: 28)
+
+                    endCallButton(buttonDiameter: 68)
+                }
+                .padding(.horizontal, 28)
             }
-
-            controlButton(
-                icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
-                isActive: callManager.isSpeakerOn,
-                identifier: "call.speaker"
-            ) { callManager.toggleSpeaker() }
-
-            Button { callManager.endCall() } label: {
-                Image(systemName: "phone.down.fill")
-                    .font(.system(size: 18))
-                    .foregroundColor(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Color.red)
-                    .clipShape(Circle())
-            }
-            .accessibilityIdentifier("call.end")
         }
-        .padding(.horizontal, 12)
+    }
+
+    private func endCallButton(buttonDiameter: CGFloat) -> some View {
+        Button { callManager.endCall() } label: {
+            Image(systemName: "phone.down.fill")
+                .font(.system(size: buttonDiameter * 0.4))
+                .foregroundColor(.white)
+                .frame(width: buttonDiameter, height: buttonDiameter)
+                .background(Color.red)
+                .clipShape(Circle())
+        }
+        .accessibilityIdentifier("call.end")
     }
 
     private func controlButton(
         icon: String,
         isActive: Bool,
         identifier: String,
+        buttonDiameter: CGFloat,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 18))
+                .font(.system(size: buttonDiameter * 0.4))
                 .foregroundColor(isActive ? .black : .white)
-                .frame(width: 44, height: 44)
+                .frame(width: buttonDiameter, height: buttonDiameter)
                 .background(isActive ? Color.white : Color.white.opacity(0.2))
                 .clipShape(Circle())
         }
@@ -217,14 +270,14 @@ private struct GroupVideoParticipantCell: View {
                 Color(hex: "2A2A3E")
                     .aspectRatio(3 / 4, contentMode: .fill)
                     .overlay {
-                        VStack(spacing: 8) {
-                            Text(String(name.prefix(1)))
-                                .font(.system(size: 32, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.5))
-                            Label(L10n.tr("call.cameraDisabled"), systemImage: "video.slash.fill")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.white.opacity(0.65))
-                        }
+                        Circle()
+                            .fill(Color.white.opacity(0.1))
+                            .frame(width: 72, height: 72)
+                            .overlay {
+                                Text(String(name.prefix(1)))
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundStyle(.white.opacity(0.62))
+                            }
                     }
             }
 

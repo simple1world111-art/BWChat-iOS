@@ -22,6 +22,17 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>bwchat</string>
+            </array>
+        </dict>
+    </array>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-1877504503518465~7347579927</string>
     <key>UIApplicationSupportsIndirectInputEvents</key>
@@ -53,6 +64,12 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>BBchat 需要使用麦克风进行语音和视频通话</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>BBchat 需要使用你的位置来发现附近用户，并在你主动开启附近的人时共享模糊位置。</string>
+    <string>BBchat 会在登录成功和每次打开地图时使用你的精确位置，以更新你在地图上的位置点。</string>
+    <key>NSContactsUsageDescription</key>
+    <string>BBchat 只读取联系人电话号码并在本机规范化、加盐哈希，用于发现已注册好友；不会上传姓名或原始号码。</string>
+    <key>NSUserActivityTypes</key>
+    <array>
+        <string>INSendMessageIntent</string>
+    </array>
 </dict>
 </plist>

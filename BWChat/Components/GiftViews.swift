@@ -4,13 +4,34 @@
 import SwiftUI
 import UIKit
 
+/// Enforces the product contract for gift sends: visual feedback is a local UI
+/// event and must be committed before any backend work is scheduled.
+@MainActor
+enum GiftSendInteractionDispatcher {
+    @discardableResult
+    static func dispatch(
+        startVisualFeedback: () -> Void,
+        scheduleTransfer: @escaping @MainActor () -> Void
+    ) -> Task<Void, Never> {
+        startVisualFeedback()
+        return Task { @MainActor in
+            // Give SwiftUI a render opportunity before the transfer task can
+            // perform synchronous request preparation on the main actor.
+            await Task.yield()
+            scheduleTransfer()
+        }
+    }
+}
+
 @MainActor
 final class GiftPanelViewModel: ObservableObject {
     @Published var gifts: [GiftCatalogItem] = GiftCatalogItem.fixedCatalog
     @Published var recipients: [GiftRecipient] = []
     @Published var selectedRecipient: GiftRecipient?
     @Published var selectedGift: GiftCatalogItem = GiftCatalogItem.fixedCatalog[0]
-    @Published var balance: Int? = WalletStore.shared.balance
+    @Published var spendableBalance: Int? = WalletStore.shared.spendableBalance
+    @Published var goldCoinBalance: GoldCoinAmount? = WalletStore.shared.goldCoinBalance
+    @Published var activityCatFoodBalance: ActivityCatFoodAmount? = WalletStore.shared.activityCatFoodBalance
     @Published var isLoading = false
     @Published var errorMessage: String?
 
@@ -28,9 +49,13 @@ final class GiftPanelViewModel: ObservableObject {
         do {
             let serverBalance = try await APIService.shared.getWalletBalance()
             WalletStore.shared.applyServerBalance(serverBalance)
-            balance = serverBalance.balance
+            spendableBalance = serverBalance.spendableBalance
+            goldCoinBalance = serverBalance.goldCoinBalance
+            activityCatFoodBalance = serverBalance.activityCatFoodBalance
         } catch {
-            balance = WalletStore.shared.balance
+            spendableBalance = WalletStore.shared.spendableBalance
+            goldCoinBalance = WalletStore.shared.goldCoinBalance
+            activityCatFoodBalance = WalletStore.shared.activityCatFoodBalance
         }
     }
 
@@ -49,7 +74,7 @@ final class GiftPanelViewModel: ObservableObject {
                 fetched = try await APIService.shared.getGiftCatalog()
             }
             let remoteGifts = fetched
-                .filter(\.isActive)
+                .filter { $0.isActive && $0.isSupportedCatalogItem }
                 .sorted {
                     let lhs = $0.sortOrder ?? Int.max
                     let rhs = $1.sortOrder ?? Int.max
@@ -121,8 +146,6 @@ struct GiftPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = GiftPanelViewModel()
     @State private var isSending = false
-    @State private var sendSucceeded = false
-    @State private var sendError: String?
     @State private var animatingGift: GiftCatalogItem?
 
     private var shouldPickRecipient: Bool {
@@ -259,20 +282,31 @@ struct GiftPickerSheet: View {
         HStack(spacing: 10) {
             ZStack {
                 Circle()
-                    .fill(Color(hex: "FFF4C9"))
+                    .fill(Color(hex: "EEEAFE"))
                     .frame(width: 34, height: 34)
-                Image(systemName: "pawprint.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(Color(hex: "F0A020"))
+                Image("activity_cat_food_icon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 31, height: 31)
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.tr("wallet.balance"))
+                Text(L10n.tr("activityCatFood.spendableBalance"))
                     .font(.system(size: 12))
                     .foregroundColor(AppColors.secondaryText)
-                Text(viewModel.balance.map(String.init) ?? L10n.tr("common.loading"))
-                    .font(.system(size: viewModel.balance == nil ? 16 : 22, weight: .bold))
+                Text(viewModel.spendableBalance.map(String.init) ?? L10n.tr("common.loading"))
+                    .font(.system(size: viewModel.spendableBalance == nil ? 16 : 22, weight: .bold))
                     .foregroundColor(AppColors.primaryText)
+                if let activityCatFoodBalance = viewModel.activityCatFoodBalance,
+                   let goldCoinBalance = viewModel.goldCoinBalance {
+                    Text(L10n.tr(
+                        "activityCatFood.payment.balanceBreakdown",
+                        activityCatFoodBalance.value,
+                        goldCoinBalance.value
+                    ))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(AppColors.secondaryText)
+                }
             }
 
             Spacer()
@@ -325,7 +359,7 @@ struct GiftPickerSheet: View {
 
     private func giftCard(_ gift: GiftCatalogItem) -> some View {
         let selected = gift.id == viewModel.selectedGift.id
-        let affordable = viewModel.balance.map { gift.price <= $0 } ?? true
+        let affordable = viewModel.spendableBalance.map { gift.price <= $0 } ?? true
         let cardCorner: CGFloat = 16
 
         return Button {
@@ -400,23 +434,14 @@ struct GiftPickerSheet: View {
 
     private var sendBar: some View {
         let gift = viewModel.selectedGift
-        let isBalanceLoaded = viewModel.balance != nil
-        let affordable = viewModel.balance.map { gift.price <= $0 } ?? false
-        let buttonIcon = sendSucceeded
-            ? "checkmark"
-            : (!isBalanceLoaded ? "arrow.clockwise" : (affordable ? "paperplane.fill" : "cart.fill"))
-        let buttonTitle = sendSucceeded
-            ? L10n.tr("addFriend.sent")
-            : (!isBalanceLoaded ? L10n.tr("wallet.balance.loading") : (affordable ? L10n.tr("gift.sendGift", gift.localizedName) : L10n.tr("gift.insufficientBalance")))
+        let isBalanceLoaded = viewModel.spendableBalance != nil
+        let affordable = viewModel.spendableBalance.map { gift.price <= $0 } ?? false
+        let buttonIcon = !isBalanceLoaded ? "arrow.clockwise" : (affordable ? "paperplane.fill" : "cart.fill")
+        let buttonTitle = !isBalanceLoaded
+            ? L10n.tr("wallet.balance.loading")
+            : (affordable ? L10n.tr("gift.sendGift", gift.localizedName) : L10n.tr("gift.insufficientBalance"))
 
         return VStack(spacing: 8) {
-            if let sendError {
-                Text(sendError)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(AppColors.errorColor)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             Button {
                 if !isBalanceLoaded {
                     Task { await viewModel.refreshBalance() }
@@ -459,49 +484,35 @@ struct GiftPickerSheet: View {
     private func sendSelectedGift() {
         guard let recipient = viewModel.selectedRecipient, !isSending else { return }
         let gift = viewModel.selectedGift
-        let previousBalance = viewModel.balance
         isSending = true
-        sendSucceeded = true
-        sendError = nil
-        applyOptimisticBalanceSpend(gift.price)
 
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        withAnimation(.easeOut(duration: 0.16)) {
-            animatingGift = gift
+        GiftSendInteractionDispatcher.dispatch {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            withAnimation(.easeOut(duration: 0.16)) {
+                animatingGift = gift
+            }
+        } scheduleTransfer: {
+            let operationID = "gift-send-\(UUID().uuidString)"
+            BackgroundUploadCoordinator.shared.enqueue(id: operationID) {
+                do {
+                    try await onSend(gift, recipient)
+                } catch let error as APIError {
+                    onSendFailure(error.errorDescription ?? L10n.tr("gift.sendFailed"))
+                } catch is CancellationError {
+                    return
+                } catch {
+                    onSendFailure(L10n.tr("gift.sendFailed"))
+                }
+            }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.58) {
+        // Presentation lifetime follows the local animation only. It never
+        // waits for the network request or the subsequent balance refresh.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
             dismiss()
         }
-
-        Task { @MainActor in
-            do {
-                try await onSend(gift, recipient)
-                await viewModel.refreshBalance()
-            } catch let error as APIError {
-                rollbackOptimisticBalance(to: previousBalance)
-                onSendFailure(error.errorDescription ?? L10n.tr("gift.sendFailed"))
-            } catch {
-                rollbackOptimisticBalance(to: previousBalance)
-                onSendFailure(L10n.tr("gift.sendFailed"))
-            }
-
-            isSending = false
-            sendSucceeded = false
-        }
-    }
-
-    private func applyOptimisticBalanceSpend(_ amount: Int) {
-        guard let currentBalance = viewModel.balance else { return }
-        let nextBalance = max(currentBalance - amount, 0)
-        viewModel.balance = nextBalance
-        WalletStore.shared.applyServerBalance(nextBalance)
-    }
-
-    private func rollbackOptimisticBalance(to previousBalance: Int?) {
-        guard let previousBalance else { return }
-        viewModel.balance = previousBalance
-        WalletStore.shared.applyServerBalance(previousBalance)
     }
 }
 
@@ -560,31 +571,26 @@ struct GiftAssetIcon: View {
         GiftCatalogItem.fixedCatalog.first { $0.assetKey == assetKey }?.localizedName ?? L10n.tr("gift.title")
     }
 
-    private var imageAssetName: String? {
-        switch assetKey {
-        case "gift_fish", "gift_wand", "gift_yarn", "gift_can", "gift_tree", "gift_bell":
-            return assetKey
-        default:
-            return nil
-        }
+    private var bundledAssetName: String? {
+        GiftCatalogItem.bundledAssetName(for: assetKey)
     }
 
     @ViewBuilder
     private var artwork: some View {
-        if assetManager.trustedRemoteURL(for: assetKey) != nil {
-            RemoteAssetImage(
-                assetKey: assetKey,
-                fallbackAssetName: imageAssetName,
-                fallbackSystemImage: "gift.fill"
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        } else if let imageAssetName {
-            Image(imageAssetName)
+        if let bundledAssetName {
+            Image(bundledAssetName)
                 .resizable()
                 .interpolation(.high)
                 .antialiased(true)
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else if assetManager.trustedRemoteURL(for: assetKey) != nil {
+            RemoteAssetImage(
+                assetKey: assetKey,
+                fallbackAssetName: nil,
+                fallbackSystemImage: "gift.fill"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         } else {
             Image(systemName: "gift.fill")
                 .resizable()
@@ -619,7 +625,6 @@ struct GiftPlusMenuTile: View {
 
 struct GiftMessageBubble: View {
     let payload: GiftMessagePayload
-    let timeText: String
     let isFromMe: Bool
     var senderName: String?
     var recipientFallback: String?
@@ -687,17 +692,8 @@ struct GiftMessageBubble: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 4) {
-                receiverValue
-                    .frame(width: 80, alignment: .center)
-
-                Spacer(minLength: 6)
-
-                Text(timeText)
-                    .font(.system(size: 12))
-                    .foregroundColor(AppColors.secondaryText)
-                    .lineLimit(1)
-            }
+            receiverValue
+                .frame(width: 80, alignment: .center)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 9)
@@ -751,22 +747,14 @@ struct GiftMessageBubble: View {
 
     private var receiverValue: some View {
         HStack(spacing: 3) {
-            if payload.receiverCurrency == .catHair {
-                Image("wallet_cat_hair")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 13, height: 13)
-            } else {
-                Image(systemName: "pawprint.fill")
-                    .font(.system(size: 9))
-                    .foregroundColor(Color(hex: "F0A020"))
-            }
+            Image("wallet_gold_coin_badge")
+                .resizable()
+                .renderingMode(.original)
+                .scaledToFit()
+                .frame(width: 13, height: 13)
+                .accessibilityHidden(true)
 
-            Text(
-                payload.receiverCurrency == .catHair
-                    ? L10n.tr("gift.receiverValue.catHair", payload.amount)
-                    : L10n.tr("gift.receiverValue.catFood", payload.amount)
-            )
+            Text(L10n.tr("gift.receiverValue.goldCoins", payload.goldCoinAmount))
             .font(.system(size: 11, weight: .semibold))
             .foregroundColor(Color(hex: "A76500"))
             .lineLimit(1)

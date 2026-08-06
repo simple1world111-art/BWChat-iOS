@@ -14,12 +14,7 @@ struct CallView: View {
                 Color.black.ignoresSafeArea()
                 videoLayer
             } else {
-                LinearGradient(
-                    colors: [Color(hex: "1A1A2E"), Color(hex: "16213E"), Color(hex: "0F3460")],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                voiceLayer
             }
 
             VStack(spacing: 0) {
@@ -51,7 +46,10 @@ struct CallView: View {
                             GroupAvatarIcon(size: 100)
                             .shadow(color: .white.opacity(0.2), radius: 20)
                         } else {
-                            AvatarView(url: call.remoteAvatarURL, size: 100)
+                            AvatarView(
+                                url: call.remoteAvatarURL,
+                                size: call.callType == .voice && call.state == .connected ? 156 : 100
+                            )
                                 .shadow(color: .white.opacity(0.2), radius: 20)
                         }
 
@@ -61,9 +59,11 @@ struct CallView: View {
                             .padding(.top, 20)
                     }
 
-                    statusText(call)
-                        .padding(.top, 8)
-                        .allowsHitTesting(false)
+                    if !call.isLivePairCall || call.state != .connected {
+                        statusText(call)
+                            .padding(.top, 8)
+                            .allowsHitTesting(false)
+                    }
 
                     if call.groupID != nil && call.state == .connected {
                         Text(L10n.tr("call.participants.count", callManager.remoteParticipantCount + 1))
@@ -78,6 +78,16 @@ struct CallView: View {
                     .allowsHitTesting(false)
 
                 if let call = callManager.currentCall {
+                    if call.isLivePairCall, call.state == .connected {
+                        VStack(spacing: 8) {
+                            statusText(call)
+                            liveBillingBadge(call)
+                        }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 14)
+                            .allowsHitTesting(false)
+                    }
+
                     if call.state == .incoming {
                         incomingCallButtons
                     } else {
@@ -88,11 +98,110 @@ struct CallView: View {
                 Spacer().frame(height: 50)
                     .allowsHitTesting(false)
             }
+
+            if let call = callManager.currentCall,
+               call.state == .connected,
+               let roleContext = call.liveRoleContext,
+               !call.isLiveRoleIntroductionDismissed {
+                LiveCallRoleIntroductionCard(
+                    introduction: roleContext.introduction(isOutgoing: call.isOutgoing),
+                    onDismiss: callManager.dismissLiveRoleIntroduction
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(20)
+            }
+
+            if let message = callManager.liveEndingMessage {
+                LiveCallGracefulEndingCard(
+                    message: message,
+                    detail: callManager.liveEndingDetail
+                )
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(40)
+            }
         }
+        .animation(.easeInOut(duration: 0.22), value: callManager.liveEndingMessage)
+        .animation(.easeInOut(duration: 0.3), value: callManager.currentCall?.state)
         .statusBarHidden(true)
         .onAppear {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
+    }
+
+    private func liveBillingBadge(_ call: CallSession) -> some View {
+        let policy = call.liveBillingPolicy ?? .fallback
+        let experienceRemaining = call.liveExperience?.displayRemainingSeconds(
+            connectedDuration: callManager.callDuration
+        )
+        let projectedCharge: Int
+        if let experience = call.liveExperience {
+            projectedCharge = LiveExperienceBillingPolicy.accruedOverageAmount(
+                durationSeconds: experience.durationSeconds,
+                connectedDuration: callManager.callDuration,
+                policy: policy
+            )
+        } else {
+            projectedCharge = policy.accruedAmount(for: callManager.callDuration)
+        }
+        let remainingFreeSeconds = policy.freeSecondsRemaining(
+            for: callManager.callDuration
+        )
+        let isExperienceEndingSoon = experienceRemaining.map { $0 > 0 && $0 <= 60 } ?? false
+
+        return HStack(spacing: 6) {
+            Image(systemName: call.liveExperience == nil ? "pawprint.fill" : "ticket.fill")
+            VStack(alignment: .leading, spacing: 2) {
+                if let experienceRemaining, experienceRemaining > 0 {
+                    Text(L10n.tr(
+                        call.isOutgoing
+                            ? "live.experience.remaining.viewer"
+                            : "live.experience.remaining.host",
+                        formatDuration(TimeInterval(experienceRemaining))
+                    ))
+                    .monospacedDigit()
+                } else if call.isOutgoing {
+                    if remainingFreeSeconds > 0 {
+                        if call.liveExperience == nil {
+                            Text(L10n.tr("live.billing.freePayer", remainingFreeSeconds))
+                        } else {
+                            Text(L10n.tr("live.experience.overage.viewer"))
+                        }
+                    } else if let total = call.confirmedLiveTotalCharge {
+                        if let activityCatFood = call.confirmedLiveActivityCatFoodCharge,
+                           activityCatFood > 0 {
+                            Text(L10n.tr("live.billing.chargedActivityCatFood", activityCatFood))
+                        }
+                        if let goldCoins = call.confirmedLiveGoldCoinCharge, goldCoins > 0 {
+                            Text(L10n.tr("live.billing.chargedGoldCoins", goldCoins))
+                        }
+                        Text(L10n.tr("live.billing.totalCharged", total))
+                    } else if projectedCharge > 0 {
+                        Text(L10n.tr("live.billing.estimatedSpendable", projectedCharge))
+                    } else {
+                        Text(L10n.tr("live.experience.overage.viewer"))
+                    }
+                } else if remainingFreeSeconds > 0, call.liveExperience == nil {
+                    Text(L10n.tr("live.billing.freeHost", remainingFreeSeconds))
+                } else if let confirmedEarning = call.confirmedLiveEarningGoldCoins {
+                    Text(L10n.tr("live.billing.earnedGoldCoins", confirmedEarning))
+                } else if projectedCharge > 0 {
+                    Text(L10n.tr("live.billing.estimatedEarning", projectedCharge))
+                } else {
+                    Text(L10n.tr("live.experience.overage.host"))
+                }
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundColor(.white)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 7)
+        .background(
+            isExperienceEndingSoon
+                ? Color.orange.opacity(0.82)
+                : Color.black.opacity(0.48),
+            in: Capsule()
+        )
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
@@ -136,71 +245,126 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Video Layer (tap to swap big/small)
+    // MARK: - Call Stages
+
+    private var localAvatarURL: String {
+        AuthManager.shared.currentUser?.avatarURL ?? ""
+    }
+
+    private var voiceLayer: some View {
+        CallDarkStage()
+    }
+
+    // MARK: - Video Layer (tap to swap big/small after connecting)
 
     @ViewBuilder
     private var videoLayer: some View {
+        if callManager.currentCall?.state == .connected {
+            connectedVideoLayer
+                .transition(.opacity)
+        } else {
+            preConnectedVideoLayer
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var preConnectedVideoLayer: some View {
+        if callManager.currentCall?.isOutgoing == true,
+           let localTrack = callManager.localVideoTrack,
+           callManager.isLocalVideoEnabled {
+            SwiftUIVideoView(
+                localTrack,
+                layoutMode: .fill,
+                mirrorMode: callManager.isFrontCamera ? .mirror : .off
+            )
+            .ignoresSafeArea()
+        } else {
+            CallDarkStage()
+        }
+    }
+
+    private var connectedVideoLayer: some View {
         ZStack(alignment: .topTrailing) {
-            // Primary (full screen)
-            if callManager.isRemotePrimary {
-                if let remoteTrack = callManager.remoteVideoTrack {
-                    SwiftUIVideoView(remoteTrack, layoutMode: .fill)
-                        .ignoresSafeArea()
-                } else {
-                    noVideoPlaceholder(name: callManager.currentCall?.remoteNickname)
-                }
-            } else {
-                if let localTrack = callManager.localVideoTrack {
-                    SwiftUIVideoView(localTrack, layoutMode: .fill, mirrorMode: callManager.isFrontCamera ? .mirror : .off)
-                        .ignoresSafeArea()
-                } else {
-                    noVideoPlaceholder(name: L10n.tr("common.me"))
-                }
-            }
+            primaryVideoContent
 
             if isPrimaryParticipantMuted {
                 CallMuteBadge(name: primaryParticipantName)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(.leading, 16)
-                    .padding(.bottom, 140)
+                    .padding(.bottom, 160)
                     .allowsHitTesting(false)
             }
 
-            // Secondary (small corner) — tap to swap
-            let secondaryTrack: VideoTrack? = callManager.isRemotePrimary ? callManager.localVideoTrack : callManager.remoteVideoTrack
-            let isSecondaryLocal = callManager.isRemotePrimary
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    callManager.isRemotePrimary.toggle()
-                }
-            } label: {
-                ZStack(alignment: .bottomLeading) {
-                    if let track = secondaryTrack {
-                        SwiftUIVideoView(
-                            track,
-                            layoutMode: .fill,
-                            mirrorMode: (isSecondaryLocal && callManager.isFrontCamera) ? .mirror : .off
-                        )
-                    } else {
-                        CompactCallVideoPlaceholder(name: secondaryParticipantName)
-                    }
-
-                    if isSecondaryParticipantMuted {
-                        CallMuteBadge()
-                            .padding(5)
-                    }
-                }
-                .frame(width: 110, height: 150)
-                .compositingGroup()
-                .clipShape(.rect(cornerRadius: 12))
-            }
-            .buttonStyle(.plain)
-            .shadow(color: .black.opacity(0.4), radius: 8)
-            .padding(.top, 60)
-            .padding(.trailing, 16)
-            .accessibilityLabel(L10n.tr("call.video.swap"))
+            secondaryVideoButton
         }
+    }
+
+    @ViewBuilder
+    private var primaryVideoContent: some View {
+        if callManager.isRemotePrimary {
+            if let remoteTrack = callManager.remoteVideoTrack {
+                SwiftUIVideoView(remoteTrack, layoutMode: .fill)
+                    .ignoresSafeArea()
+            } else {
+                CallAvatarStage(
+                    avatarURL: callManager.currentCall?.remoteAvatarURL ?? "",
+                    avatarSize: 190
+                )
+            }
+        } else if let localTrack = callManager.localVideoTrack,
+                  callManager.isLocalVideoEnabled {
+            SwiftUIVideoView(
+                localTrack,
+                layoutMode: .fill,
+                mirrorMode: callManager.isFrontCamera ? .mirror : .off
+            )
+            .ignoresSafeArea()
+        } else {
+            CallAvatarStage(avatarURL: localAvatarURL, avatarSize: 190)
+        }
+    }
+
+    private var secondaryVideoButton: some View {
+        let secondaryTrack: VideoTrack? = callManager.isRemotePrimary
+            ? callManager.localVideoTrack
+            : callManager.remoteVideoTrack
+        let isSecondaryLocal = callManager.isRemotePrimary
+        let secondaryAvatarURL = isSecondaryLocal
+            ? localAvatarURL
+            : (callManager.currentCall?.remoteAvatarURL ?? "")
+
+        return Button {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                callManager.isRemotePrimary.toggle()
+            }
+        } label: {
+            ZStack(alignment: .bottomLeading) {
+                if let track = secondaryTrack,
+                   !isSecondaryLocal || callManager.isLocalVideoEnabled {
+                    SwiftUIVideoView(
+                        track,
+                        layoutMode: .fill,
+                        mirrorMode: (isSecondaryLocal && callManager.isFrontCamera) ? .mirror : .off
+                    )
+                } else {
+                    CallVideoAvatarPlaceholder(avatarURL: secondaryAvatarURL)
+                }
+
+                if isSecondaryParticipantMuted {
+                    CallMuteBadge()
+                        .padding(5)
+                }
+            }
+            .frame(width: 110, height: 150)
+            .compositingGroup()
+            .clipShape(.rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .shadow(color: .black.opacity(0.4), radius: 8)
+        .padding(.top, 60)
+        .padding(.trailing, 16)
+        .accessibilityLabel(L10n.tr("call.video.swap"))
     }
 
     private var remoteParticipant: RemoteParticipant? {
@@ -228,45 +392,16 @@ struct CallView: View {
         return remoteParticipant.map(callManager.isParticipantMuted) ?? false
     }
 
-    private var secondaryParticipantName: String {
-        if callManager.isRemotePrimary {
-            return L10n.tr("common.me")
-        }
-        return callManager.currentCall?.remoteNickname ?? ""
-    }
-
-    @ViewBuilder
-    private func noVideoPlaceholder(name: String?) -> some View {
-        Color.black.ignoresSafeArea()
-        VStack {
-            Spacer()
-            Image(systemName: "video.slash.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.white.opacity(0.3))
-            if let name, !name.isEmpty {
-                Text(name)
-                    .font(.headline)
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.top, 10)
-            }
-            Text(L10n.tr("call.cameraDisabled"))
-                .font(.system(size: 16))
-                .foregroundColor(.white.opacity(0.5))
-                .padding(.top, 8)
-            Spacer()
-        }
-    }
-
     // MARK: - Incoming Call Buttons
 
     private var incomingCallButtons: some View {
-        HStack(spacing: 60) {
+        HStack(spacing: 88) {
             VStack(spacing: 8) {
                 Button { callManager.rejectCall() } label: {
                     Image(systemName: "phone.down.fill")
-                        .font(.system(size: 28))
+                        .font(.system(size: 31))
                         .foregroundColor(.white)
-                        .frame(width: 64, height: 64)
+                        .frame(width: 76, height: 76)
                         .background(Color.red)
                         .clipShape(Circle())
                 }
@@ -279,9 +414,9 @@ struct CallView: View {
             VStack(spacing: 8) {
                 Button { callManager.acceptCall() } label: {
                     Image(systemName: "phone.fill")
-                        .font(.system(size: 28))
+                        .font(.system(size: 31))
                         .foregroundColor(.white)
-                        .frame(width: 64, height: 64)
+                        .frame(width: 76, height: 76)
                         .background(Color.green)
                         .clipShape(Circle())
                 }
@@ -293,56 +428,101 @@ struct CallView: View {
         }
     }
 
-    // MARK: - Active Call Buttons (compact)
+    // MARK: - Active Call Buttons
 
+    @ViewBuilder
     private func activeCallButtons(call: CallSession) -> some View {
-        HStack(spacing: call.callType == .video ? 16 : 32) {
-            controlButton(
-                icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
-                label: callManager.isMuted ? L10n.tr("call.unmute") : L10n.tr("call.mute"),
-                isActive: callManager.isMuted,
-                identifier: "call.mute"
-            ) { callManager.toggleMute() }
+        if call.callType == .video {
+            HStack(spacing: 0) {
+                controlButton(
+                    icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
+                    label: callManager.isMuted ? L10n.tr("call.unmute") : L10n.tr("call.mute"),
+                    isActive: callManager.isMuted,
+                    identifier: "call.mute",
+                    buttonDiameter: 50
+                ) { callManager.toggleMute() }
 
-            if call.callType == .video {
+                Spacer(minLength: 6)
+
+                controlButton(
+                    icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
+                    label: callManager.isSpeakerOn ? L10n.tr("call.speaker") : L10n.tr("call.earpiece"),
+                    isActive: callManager.isSpeakerOn,
+                    identifier: "call.speaker",
+                    buttonDiameter: 50
+                ) { callManager.toggleSpeaker() }
+
+                Spacer(minLength: 6)
+
                 controlButton(
                     icon: callManager.isLocalVideoEnabled ? "video.fill" : "video.slash.fill",
                     label: callManager.isLocalVideoEnabled ? L10n.tr("call.cameraOff") : L10n.tr("call.cameraOn"),
                     isActive: !callManager.isLocalVideoEnabled,
-                    identifier: "call.camera"
+                    identifier: "call.camera",
+                    buttonDiameter: 50
                 ) { callManager.toggleLocalVideo() }
+
+                Spacer(minLength: 6)
+
+                endCallButton(buttonDiameter: 54)
+
+                Spacer(minLength: 6)
 
                 controlButton(
                     icon: "camera.rotate.fill",
                     label: L10n.tr("call.flip"),
                     isActive: false,
-                    identifier: "call.flip"
+                    identifier: "call.flip",
+                    buttonDiameter: 50
                 ) { callManager.flipCamera() }
             }
+            .padding(.horizontal, 12)
+        } else {
+            HStack(spacing: 0) {
+                controlButton(
+                    icon: callManager.isMuted ? "mic.slash.fill" : "mic.fill",
+                    label: callManager.isMuted ? L10n.tr("call.unmute") : L10n.tr("call.mute"),
+                    isActive: callManager.isMuted,
+                    identifier: "call.mute",
+                    buttonDiameter: 68
+                ) { callManager.toggleMute() }
 
-            controlButton(
-                icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
-                label: callManager.isSpeakerOn ? L10n.tr("call.speaker") : L10n.tr("call.earpiece"),
-                isActive: callManager.isSpeakerOn,
-                identifier: "call.speaker"
-            ) { callManager.toggleSpeaker() }
+                Spacer(minLength: 28)
 
-            VStack(spacing: 6) {
-                Button { callManager.endCall() } label: {
-                    Image(systemName: "phone.down.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .frame(width: 46, height: 46)
-                        .background(Color.red)
-                        .clipShape(Circle())
-                }
-                .accessibilityIdentifier("call.end")
-                Text(L10n.tr("call.hangUp"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.white.opacity(0.7))
+                controlButton(
+                    icon: callManager.isSpeakerOn ? "speaker.wave.3.fill" : "speaker.slash.fill",
+                    label: callManager.isSpeakerOn ? L10n.tr("call.speaker") : L10n.tr("call.earpiece"),
+                    isActive: callManager.isSpeakerOn,
+                    identifier: "call.speaker",
+                    buttonDiameter: 68
+                ) { callManager.toggleSpeaker() }
+
+                Spacer(minLength: 28)
+
+                endCallButton(buttonDiameter: 68)
             }
+            .padding(.horizontal, 28)
         }
-        .padding(.horizontal, 12)
+    }
+
+    private func endCallButton(buttonDiameter: CGFloat) -> some View {
+        VStack(spacing: 6) {
+            Button { callManager.endCall() } label: {
+                Image(systemName: "phone.down.fill")
+                    .font(.system(size: buttonDiameter * 0.4))
+                    .foregroundColor(.white)
+                    .frame(width: buttonDiameter, height: buttonDiameter)
+                    .background(Color.red)
+                    .clipShape(Circle())
+            }
+            .accessibilityIdentifier("call.end")
+            Text(L10n.tr("call.hangUp"))
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.7))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+        }
+        .frame(width: buttonDiameter)
     }
 
     private func controlButton(
@@ -350,24 +530,26 @@ struct CallView: View {
         label: String,
         isActive: Bool,
         identifier: String,
+        buttonDiameter: CGFloat,
         action: @escaping () -> Void
     ) -> some View {
         VStack(spacing: 6) {
             Button(action: action) {
                 Image(systemName: icon)
-                    .font(.system(size: 18))
+                    .font(.system(size: buttonDiameter * 0.4))
                     .foregroundColor(isActive ? .black : .white)
-                    .frame(width: 44, height: 44)
+                    .frame(width: buttonDiameter, height: buttonDiameter)
                     .background(isActive ? Color.white : Color.white.opacity(0.2))
                     .clipShape(Circle())
             }
             .accessibilityIdentifier(identifier)
             Text(label)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.7))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.68)
         }
+        .frame(width: buttonDiameter)
     }
 
     private func formatDuration(_ interval: TimeInterval) -> String {
@@ -376,26 +558,172 @@ struct CallView: View {
     }
 }
 
-private struct CompactCallVideoPlaceholder: View {
-    let name: String
+private struct LiveCallGracefulEndingCard: View {
+    let message: String
+    let detail: String?
 
     var body: some View {
-        Color(hex: "2A2A3E")
-            .overlay {
-                VStack(spacing: 7) {
-                    Image(systemName: "video.slash.fill")
-                        .font(.title3)
-                    Text(name)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                    Text(L10n.tr("call.cameraDisabled"))
-                        .font(.caption2)
+        ZStack {
+            Color.black.opacity(0.34)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(AppColors.accent)
+                    .frame(width: 54, height: 54)
+                    .background(AppColors.accent.opacity(0.12))
+                    .clipShape(Circle())
+
+                Text(message)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                    .multilineTextAlignment(.center)
+
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.primaryText.opacity(0.82))
+                        .multilineTextAlignment(.center)
                 }
-                .foregroundStyle(.white.opacity(0.68))
-                .padding(6)
+
+                Text("正在为你结束本次视频")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppColors.secondaryText)
+
+                ProgressView()
+                    .tint(AppColors.accent)
+                    .padding(.top, 2)
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(name), \(L10n.tr("call.cameraDisabled"))")
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+            .frame(maxWidth: 310)
+            .background(.ultraThinMaterial)
+            .background(AppColors.cardBackground.opacity(0.9))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .shadow(color: .black.opacity(0.2), radius: 24, x: 0, y: 12)
+            .padding(.horizontal, 32)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            [message, detail, "正在为你结束本次视频"]
+                .compactMap { $0 }
+                .joined(separator: "，")
+        )
+    }
+}
+
+private struct LiveCallRoleIntroductionCard: View {
+    let introduction: LiveCallRoleIntroduction
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.38)
+                .ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "theatermasks.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("本次直播角色")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(AppColors.secondaryText)
+                        Text(introduction.title)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(AppColors.primaryText)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(AppColors.secondaryText)
+                            .frame(width: 32, height: 32)
+                            .background(AppColors.secondaryBackground)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭角色介绍")
+                }
+
+                ScrollView {
+                    Text(introduction.detail)
+                        .font(.system(size: 16))
+                        .foregroundColor(AppColors.primaryText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineSpacing(4)
+                }
+                .frame(maxHeight: 180)
+
+                Button("我知道了", action: onDismiss)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(AppColors.accentGradient)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .buttonStyle(.plain)
+            }
+            .padding(20)
+            .frame(maxWidth: 340)
+            .background(AppColors.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: .black.opacity(0.24), radius: 24, x: 0, y: 12)
+            .padding(.horizontal, 24)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct CallDarkStage: View {
+    var body: some View {
+        LinearGradient(
+            colors: [Color(hex: "171923"), Color(hex: "101522"), Color.black],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+private struct CallAvatarStage: View {
+    let avatarURL: String
+    let avatarSize: CGFloat
+
+    var body: some View {
+        ZStack {
+            CallDarkStage()
+
+            AvatarView(url: avatarURL, size: avatarSize)
+                .shadow(color: .black.opacity(0.38), radius: 26, y: 12)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+private struct CallVideoAvatarPlaceholder: View {
+    let avatarURL: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = max(44, min(proxy.size.width, proxy.size.height) - 18)
+
+            ZStack {
+                Color(hex: "2A2A3E")
+
+                AvatarView(url: avatarURL, size: size)
+                    .shadow(color: .black.opacity(0.24), radius: 8, y: 4)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .accessibilityHidden(true)
     }
 }
 

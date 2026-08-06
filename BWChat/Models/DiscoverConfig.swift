@@ -67,19 +67,27 @@ struct DiscoverConfigData: Codable, Equatable {
                     route: DiscoverRoute(type: "native", name: "game_center")
                 ),
                 DiscoverItem(
+                    id: "stories",
+                    titleKey: "discover.stories",
+                    systemImage: "book.closed.fill",
+                    colors: ["7F5AF0", "FF7A90"],
+                    order: 20,
+                    route: DiscoverRoute(type: "native", name: "script_center")
+                ),
+                DiscoverItem(
                     id: "short_drama",
                     titleKey: "discover.shortDrama",
                     systemImage: "play.rectangle.fill",
                     colors: ["00C6FF", "0072FF"],
-                    order: 20,
+                    order: 30,
                     route: DiscoverRoute(type: "native", name: "short_drama")
                 ),
                 DiscoverItem(
                     id: "live",
                     titleKey: "discover.live",
-                    systemImage: "dot.radiowaves.left.and.right",
+                    systemImage: "video.fill",
                     colors: ["FF4D8D", "FF8A3D"],
-                    order: 30,
+                    order: 40,
                     route: DiscoverRoute(type: "coming_soon")
                 )
             ]
@@ -89,19 +97,11 @@ struct DiscoverConfigData: Codable, Equatable {
             order: 30,
             items: [
                 DiscoverItem(
-                    id: "stories",
-                    titleKey: "discover.stories",
-                    systemImage: "book.closed.fill",
-                    colors: ["7F5AF0", "FF7A90"],
-                    order: 10,
-                    route: DiscoverRoute(type: "native", name: "script_center")
-                ),
-                DiscoverItem(
                     id: "groups",
                     titleKey: "discover.groups",
                     systemImage: "person.3.fill",
                     colors: ["34C759", "00B894"],
-                    order: 20,
+                    order: 10,
                     route: DiscoverRoute(type: "native", name: "groups")
                 )
             ]
@@ -116,7 +116,7 @@ struct DiscoverConfigData: Codable, Equatable {
                     systemImage: "gift.fill",
                     colors: ["FFB703", "FB8500"],
                     order: 10,
-                    route: DiscoverRoute(type: "coming_soon")
+                    route: DiscoverRoute(type: "native", name: "activity_center")
                 )
             ]
         )
@@ -134,11 +134,21 @@ struct DiscoverConfigData: Codable, Equatable {
     private static let defaultItemSectionIDs: [String: String] = [
         "moments": "social",
         "games": "entertainment",
+        "stories": "entertainment",
         "short_drama": "entertainment",
         "live": "entertainment",
-        "stories": "community",
         "groups": "community",
         "benefits": "benefits"
+    ]
+
+    private static let defaultItemOrders: [String: Int] = [
+        "moments": 10,
+        "games": 10,
+        "stories": 20,
+        "short_drama": 30,
+        "live": 40,
+        "groups": 10,
+        "benefits": 10
     ]
 
     private static let movedOutOfDiscoverItemIDs: Set<String> = [
@@ -158,7 +168,9 @@ struct DiscoverConfigData: Codable, Equatable {
                     continue
                 }
                 if let sectionID = defaultItemSectionIDs[item.id.normalizedDiscoverToken] {
-                    defaultItemsBySectionID[sectionID, default: []].append(item)
+                    var defaultItem = item
+                    defaultItem.order = defaultItemOrders[item.id.normalizedDiscoverToken] ?? item.order
+                    defaultItemsBySectionID[sectionID, default: []].append(defaultItem)
                 } else {
                     customItems.append(item)
                 }
@@ -322,6 +334,9 @@ struct DiscoverItem: Codable, Equatable, Identifiable {
 
     private var preferredLocalTitleKey: String? {
         switch id.normalizedDiscoverToken {
+        case "live":
+            // Keep the legacy backend ID while presenting this as the 1v1 chat entry.
+            return "discover.live"
         case "groups", "group", "group_list":
             return "discover.groups"
         case "benefits":

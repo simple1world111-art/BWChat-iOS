@@ -195,3 +195,124 @@ struct ChatBackgroundSettingsView: View {
     }
 
 }
+
+struct DirectChatSettingsView: View {
+    let contact: Contact
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @State private var showClearHistoryConfirmation = false
+    @State private var isClearingHistory = false
+    @State private var errorMessage: String?
+    @State private var toastMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                VStack(spacing: 10) {
+                    AvatarView(url: contact.avatarURL, size: 66)
+                    Text(contact.nickname)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(AppColors.primaryText)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+                .background(AppColors.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Button {
+                    navigator.push(ChatBackgroundSettingsView(
+                        targetType: .dm,
+                        targetID: contact.userID,
+                        title: L10n.tr("chatBackground.currentChat")
+                    ))
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(AppColors.accent)
+                            .frame(width: 28)
+                        Text(L10n.tr("chatBackground.currentChat"))
+                            .font(.system(size: 16))
+                            .foregroundColor(AppColors.primaryText)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(AppColors.tertiaryText)
+                    }
+                    .padding(16)
+                    .background(AppColors.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(role: .destructive) {
+                    showClearHistoryConfirmation = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(AppColors.errorColor)
+                            .frame(width: 28)
+                        Text(L10n.tr("chat.clear.action"))
+                            .font(.system(size: 16))
+                            .foregroundColor(AppColors.errorColor)
+                        Spacer()
+                    }
+                    .padding(16)
+                    .background(AppColors.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isClearingHistory)
+            }
+            .padding(16)
+        }
+        .background(AppColors.secondaryBackground)
+        .navigationTitle(L10n.tr("chat.info"))
+        .navigationBarTitleDisplayMode(.inline)
+        .hidesTabBarOnPush()
+        .withUIKitBackButton()
+        .alert(L10n.tr("chat.clear.confirmTitle"), isPresented: $showClearHistoryConfirmation) {
+            Button(L10n.tr("common.cancel"), role: .cancel) {}
+            Button(L10n.tr("chat.clear.action"), role: .destructive) {
+                Task { await clearHistory() }
+            }
+        } message: {
+            Text(L10n.tr("chat.clear.message"))
+        }
+        .alert(L10n.tr("common.operationFailed"), isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button(L10n.tr("common.ok"), role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .overlay {
+            if isClearingHistory {
+                ZStack {
+                    Color.black.opacity(0.08).ignoresSafeArea()
+                    ProgressView().tint(AppColors.accent)
+                }
+            }
+        }
+        .toast(message: $toastMessage)
+    }
+
+    private func clearHistory() async {
+        isClearingHistory = true
+        defer { isClearingHistory = false }
+        do {
+            let receipt = try await APIService.shared.clearDirectMessageHistory(
+                contactID: contact.userID
+            )
+            DirectHistoryClearCoordinator.apply(receipt)
+            toastMessage = L10n.tr("chat.clear.success")
+        } catch let error as APIError {
+            errorMessage = error.errorDescription
+        } catch {
+            errorMessage = L10n.tr("common.operationFailed")
+        }
+    }
+}

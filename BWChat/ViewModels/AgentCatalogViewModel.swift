@@ -7,8 +7,10 @@ final class AgentCatalogViewModel: ObservableObject {
     @Published private(set) var runtimeConfig: AgentRuntimeConfig?
     @Published private(set) var installedAgents: [AgentSummary] = []
     @Published private(set) var conversations: [AgentConversation] = []
-    @Published private(set) var walletBalance: Int?
+    @Published private(set) var joinedScriptRooms: [Conversation] = []
+    @Published private(set) var spendableBalance: Int?
     @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedContent = false
     @Published private(set) var removingAgentIDs: Set<String> = []
     @Published private(set) var openingAgentIDs: Set<String> = []
     @Published var errorMessage: String?
@@ -16,20 +18,36 @@ final class AgentCatalogViewModel: ObservableObject {
     private var conversationIdempotencyKeys: [String: UUID] = [:]
     private var lastRuntimeConfigLoadDate: Date?
 
-    func load() async {
+    func load(forceRefresh: Bool = false) async {
         if isLoading { return }
+
+        let cached = AgentCatalogLocalCache.cachedSnapshot()
+        if let cached {
+            apply(cached.value)
+            lastRuntimeConfigLoadDate = cached.updatedAt
+            if !cached.isStale && !forceRefresh { return }
+        }
+
         isLoading = true
-        defer { isLoading = false }
+        errorMessage = nil
+        defer {
+            isLoading = false
+            hasLoadedContent = true
+        }
 
         async let runtimeResult = capture { try await APIService.shared.getAgentRuntimeConfig() }
         async let installedResult = capture { try await APIService.shared.getInstalledAgents() }
         async let conversationsResult = capture { try await APIService.shared.getAgentConversations() }
+        async let joinedScriptsResult = capture {
+            try await APIService.shared.getConversationSyncSnapshot().conversations
+        }
         async let walletResult = capture { try await APIService.shared.getWalletBalance() }
 
-        let (runtime, installed, conversationList, wallet) = await (
+        let (runtime, installed, conversationList, joinedScripts, wallet) = await (
             runtimeResult,
             installedResult,
             conversationsResult,
+            joinedScriptsResult,
             walletResult
         )
 
@@ -39,12 +57,25 @@ final class AgentCatalogViewModel: ObservableObject {
         }
         apply(installed) { installedAgents = $0 }
         apply(conversationList) { conversations = $0.sorted { $0.updatedAt > $1.updatedAt } }
-        apply(wallet) { walletBalance = $0.balance }
+        apply(joinedScripts) { joinedScriptRooms = JoinedScriptRoomResolver.rows(from: $0) }
+        apply(wallet) { spendableBalance = $0.spendableBalance }
 
-        let errors = [runtime.failure, installed.failure, conversationList.failure, wallet.failure]
+        let errors = [
+            runtime.failure,
+            installed.failure,
+            conversationList.failure,
+            joinedScripts.failure,
+            wallet.failure
+        ]
             .compactMap { $0 }
         if let first = errors.first { errorMessage = message(for: first) }
 
+        let receivedRemoteValue = runtime.failure == nil
+            || installed.failure == nil
+            || conversationList.failure == nil
+            || joinedScripts.failure == nil
+            || wallet.failure == nil
+        if receivedRemoteValue { persistSnapshot() }
     }
 
     func refreshRuntimeConfigIfStale() async {
@@ -52,6 +83,7 @@ final class AgentCatalogViewModel: ObservableObject {
         do {
             runtimeConfig = try await APIService.shared.getAgentRuntimeConfig()
             lastRuntimeConfigLoadDate = Date()
+            persistSnapshot()
         } catch {
             errorMessage = message(for: error)
         }
@@ -64,6 +96,7 @@ final class AgentCatalogViewModel: ObservableObject {
         do {
             try await APIService.shared.uninstallAgent(id: agent.id)
             installedAgents.removeAll { $0.id == agent.id }
+            persistSnapshot()
         } catch {
             errorMessage = message(for: error)
         }
@@ -93,6 +126,7 @@ final class AgentCatalogViewModel: ObservableObject {
             conversationIdempotencyKeys.removeValue(forKey: agent.id)
             conversations.removeAll { $0.id == conversation.id }
             conversations.insert(conversation, at: 0)
+            persistSnapshot()
             NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
             return conversation
         } catch {
@@ -102,13 +136,34 @@ final class AgentCatalogViewModel: ObservableObject {
         }
     }
 
-    func updateWalletBalance(_ balance: Int) {
-        walletBalance = balance
+    func updateSpendableBalance(_ balance: Int) {
+        spendableBalance = balance
+        persistSnapshot()
     }
 
     func upsertInstalled(_ agent: AgentSummary) {
         installedAgents.removeAll { $0.id == agent.id }
         installedAgents.append(agent)
+        persistSnapshot()
+    }
+
+    private func apply(_ snapshot: CachedAgentCatalogSnapshot) {
+        runtimeConfig = snapshot.runtimeConfig
+        installedAgents = snapshot.installedAgents
+        conversations = snapshot.conversations.sorted { $0.updatedAt > $1.updatedAt }
+        joinedScriptRooms = JoinedScriptRoomResolver.rows(from: snapshot.joinedScriptRooms)
+        spendableBalance = snapshot.spendableBalance
+        hasLoadedContent = true
+    }
+
+    private func persistSnapshot() {
+        AgentCatalogLocalCache.save(CachedAgentCatalogSnapshot(
+            runtimeConfig: runtimeConfig,
+            installedAgents: installedAgents,
+            conversations: conversations,
+            joinedScriptRooms: joinedScriptRooms,
+            spendableBalance: spendableBalance
+        ))
     }
 
     private func refreshRuntimeConfigAfterCapabilityError(_ error: Error) async {
@@ -129,6 +184,32 @@ final class AgentCatalogViewModel: ObservableObject {
 
     private func message(for error: Error) -> String {
         (error as? APIError)?.errorDescription ?? error.localizedDescription
+    }
+}
+
+enum JoinedScriptRoomResolver {
+    static func rows(from conversations: [Conversation]) -> [Conversation] {
+        var latestByRoomID: [String: Conversation] = [:]
+
+        for conversation in conversations where conversation.isScriptRoom {
+            guard let roomID = conversation.scriptRoomID, !roomID.isBlank else { continue }
+            guard let existing = latestByRoomID[roomID] else {
+                latestByRoomID[roomID] = conversation
+                continue
+            }
+            if Conversation.compareMessageTimes(
+                conversation.lastMessageTime,
+                existing.lastMessageTime
+            ) == .orderedDescending {
+                latestByRoomID[roomID] = conversation
+            }
+        }
+
+        return latestByRoomID.values.sorted { lhs, rhs in
+            let ordering = Conversation.compareMessageTimes(lhs.lastMessageTime, rhs.lastMessageTime)
+            if ordering != .orderedSame { return ordering == .orderedDescending }
+            return lhs.listIdentity < rhs.listIdentity
+        }
     }
 }
 

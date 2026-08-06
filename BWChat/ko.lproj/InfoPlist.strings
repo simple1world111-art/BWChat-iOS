@@ -2,4 +2,5 @@
 "NSPhotoLibraryUsageDescription" = "BBchat은 사진과 동영상을 업로드하고 전송하기 위해 사진 보관함을 사용합니다.";
 "NSCameraUsageDescription" = "BBchat은 영상 통화를 위해 카메라를 사용합니다.";
 "NSMicrophoneUsageDescription" = "BBchat은 음성 및 영상 통화를 위해 마이크를 사용합니다.";
-"NSLocationWhenInUseUsageDescription" = "BBchat은 근처 사용자를 찾기 위해 위치를 사용하며, Nearby를 켰을 때만 대략적인 위치를 공유합니다.";
+"NSLocationWhenInUseUsageDescription" = "BBchat은 로그인 후와 지도를 열 때마다 정확한 위치를 사용하여 지도 위치를 업데이트합니다.";
+"NSContactsUsageDescription" = "BBchat은 가입한 친구를 찾기 위해 연락처 전화번호를 기기에서 정규화하고 솔트 해시로 변환하며, 이름이나 원본 번호는 업로드하지 않습니다.";

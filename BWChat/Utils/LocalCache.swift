@@ -33,10 +33,33 @@ enum LocalCache {
     /// Synchronous load. Returns nil if the file is missing or decode fails.
     static func load<T: Decodable>(_ type: T.Type, key: String) -> T? {
         let url = fileURL(for: key)
-        guard let data = try? Data(contentsOf: url),
-              let value = try? decoder.decode(T.self, from: data)
+        guard let source = try? Data(contentsOf: url) else { return nil }
+        let data = WalletCacheSchemaMigration.migratedJSONData(source) ?? source
+        if data != source {
+            try? data.write(to: url, options: .atomic)
+        }
+        guard let value = try? decoder.decode(T.self, from: data)
         else { return nil }
         return value
+    }
+
+    static func migrateWalletCurrencySchemaIfNeeded(defaults: UserDefaults = .standard) {
+        let versionKey = "bbchat.local-cache.schema-version"
+        guard defaults.integer(forKey: versionKey) < WalletCacheSchemaMigration.currentVersion else { return }
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: cacheDir,
+            includingPropertiesForKeys: nil
+        ) else {
+            defaults.set(WalletCacheSchemaMigration.currentVersion, forKey: versionKey)
+            return
+        }
+
+        for file in files where file.pathExtension == "json" {
+            guard let source = try? Data(contentsOf: file),
+                  let migrated = WalletCacheSchemaMigration.migratedJSONData(source) else { continue }
+            try? migrated.write(to: file, options: .atomic)
+        }
+        defaults.set(WalletCacheSchemaMigration.currentVersion, forKey: versionKey)
     }
 
     /// Fire-and-forget save to disk on a background queue.

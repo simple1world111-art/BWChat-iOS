@@ -21,13 +21,16 @@ class ChatViewModel: ObservableObject {
     let contact: Contact
     private var cancellables = Set<AnyCancellable>()
     private let store = MessageStore.shared
-    private var myID: String { AuthManager.shared.currentUser?.userID ?? "" }
+    private let myID: String
     private var isSyncingLatest = false
     private var nextOptimisticMessageID = Int.max / 4
     private var optimisticStickerMessageIDs = Set<Int>()
     private var optimisticStickerSignatures: [Int: StickerSendSignature] = [:]
     private var apiConfirmedMessageIDs = Set<Int>()
     private var webSocketConfirmedMessageIDs = Set<Int>()
+    private var isReadingLatest = true
+    private var locallyEnqueuedMediaClientIDs = Set<String>()
+    private var giftIdempotencyKeys: [String: UUID] = [:]
 
     private enum MessageSource {
         case apiResponse
@@ -71,12 +74,100 @@ class ChatViewModel: ObservableObject {
     init(contact: Contact) {
         self.contact = contact
         let uid = AuthManager.shared.currentUser?.userID ?? ""
+        self.myID = uid
         let initial = store.loadMessages(userID: uid, contactID: contact.userID)
         _messages = Published(initialValue: initial)
+        let restoredPending = Self.restorePendingMessages(ownerID: uid, contactID: contact.userID)
+        _pendingMessages = Published(initialValue: restoredPending)
+        locallyEnqueuedMediaClientIDs = Set(
+            restoredPending
+                .filter { ["image", "video"].contains(MessageDeliveryMatcher.normalizedType($0.msgType)) }
+                .map { $0.id.uuidString }
+        )
         if !initial.isEmpty {
             _hasMore = Published(initialValue: store.localMessageCount(userID: uid, contactID: contact.userID) >= 30)
         }
+        ChatMediaPreviewPreloader.schedule(
+            initial.compactMap(Self.mediaPreviewRequest),
+            limit: 8
+        )
         setupWebSocketListener()
+        setupOutboxRecoveryListener()
+        Task { [weak self] in await self?.resumeDurableOutboxIfNeeded() }
+    }
+
+    private func resumeDurableOutboxIfNeeded() async {
+        await UploadEngine.shared.recover(
+            ownerID: myID,
+            jobIDs: Set(pendingMessages.map { $0.id.uuidString })
+        )
+        let jobs = OutgoingStore.shared.jobs(ownerID: myID).filter {
+            $0.scene == .directMessage && $0.businessKey == contact.userID
+        }
+        let jobsByID = Dictionary(uniqueKeysWithValues: jobs.map { ($0.id, $0) })
+        for pending in pendingMessages {
+            guard let job = jobsByID[pending.id.uuidString] else { continue }
+            switch job.state {
+            case .staging, .queued, .preparing:
+                await retryPending(pending)
+            case .retryWaiting:
+                if job.attemptCount < OutgoingRetryPolicy.maximumAutomaticAttempts {
+                    scheduleDurableRetry(job: job, pendingID: pending.id)
+                } else {
+                    markPendingMessageFailed(id: pending.id)
+                    OutgoingStore.shared.updateJob(
+                        id: job.id,
+                        ownerID: myID,
+                        state: .failedPermanent,
+                        lastErrorCode: job.lastErrorCode
+                    )
+                }
+            case .confirmationUnknown:
+                _ = await scheduleTransientRetry(
+                    pendingID: pending.id,
+                    error: URLError(.networkConnectionLost)
+                )
+            case .failedPermanent:
+                markPendingMessageFailed(id: pending.id)
+            case .uploading, .committing, .cancelled, .succeeded:
+                break
+            }
+        }
+    }
+
+    private static func restorePendingMessages(ownerID: String, contactID: String) -> [PendingMessage] {
+        guard !ownerID.isEmpty else { return [] }
+        return OutgoingStore.shared.jobs(ownerID: ownerID).compactMap { job -> PendingMessage? in
+            guard job.scene == .directMessage,
+                  job.businessKey == contactID,
+                  job.state != .succeeded,
+                  job.state != .cancelled,
+                  let id = UUID(uuidString: job.clientRequestID),
+                  let payload = try? JSONDecoder().decode(ChatOutgoingPayload.self, from: job.payload) else { return nil }
+            let part = OutgoingStore.shared.parts(jobID: job.id).first
+            return PendingMessage(
+                id: id,
+                createdAt: job.createdAt,
+                receiverID: contactID,
+                msgType: payload.msgType,
+                content: payload.content,
+                localFileURL: part.map { OutgoingFileStore.absoluteURL(for: $0.localRelativePath) },
+                filename: payload.filename,
+                replyToID: payload.replyToID,
+                status: job.state.isUserVisibleFailure ? .failed : .sending
+            )
+        }
+    }
+
+    private func makeOutgoingJob(id: UUID, payload: ChatOutgoingPayload, state: OutgoingState = .queued) -> OutgoingJob {
+        OutgoingJob(
+            clientRequestID: id.uuidString,
+            ownerID: myID,
+            scene: .directMessage,
+            businessKey: contact.userID,
+            payload: (try? JSONEncoder().encode(payload)) ?? Data(),
+            state: state
+        )
     }
 
     func loadMessages() async {
@@ -85,26 +176,38 @@ class ChatViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
 
-        let cached = store.loadMessages(userID: myID, contactID: contact.userID)
+        let cached = await store.loadMessagesAsync(userID: myID, contactID: contact.userID)
         if !cached.isEmpty {
+            ChatMediaPreviewPreloader.schedule(
+                cached.compactMap(Self.mediaPreviewRequest),
+                limit: 6
+            )
             messages = cached
-            hasMore = store.localMessageCount(userID: myID, contactID: contact.userID) >= 30
+            hasMore = await store.localMessageCountAsync(
+                userID: myID,
+                contactID: contact.userID
+            ) >= 30
         }
 
         // Incremental sync: fetch messages newer than local latest
-        let latestID = store.latestMessageID(userID: myID, contactID: contact.userID)
+        let latestID = await store.latestMessageIDAsync(
+            userID: myID,
+            contactID: contact.userID
+        )
         do {
             if let latestID = latestID {
-                mergeFetchedMessages(try await fetchNewerMessages(afterID: latestID))
-                mergeFetchedMessages(try await fetchRecentMessages())
-                hasMore = store.localMessageCount(userID: myID, contactID: contact.userID) >= 30
+                await mergeFetchedMessages(try await fetchNewerMessages(afterID: latestID))
+                await mergeFetchedMessages(try await fetchRecentMessages())
+                hasMore = await store.localMessageCountAsync(
+                    userID: myID,
+                    contactID: contact.userID
+                ) >= 30
             } else {
                 // First visit to this DM on this device (no local cache).
                 let (msgs, _) = try await APIService.shared.getMessages(
                     contactID: contact.userID, limit: 100
                 )
-                store.saveMessages(msgs)
-                messages = msgs
+                await mergeFetchedMessages(msgs)
                 hasMore = false
             }
 
@@ -134,7 +237,7 @@ class ChatViewModel: ObservableObject {
         for _ in 0..<maxPages {
             guard let before = cursor else {
                 markBackfilled()
-                updateHasCachedOlderMessages()
+                await updateHasCachedOlderMessages()
                 return
             }
             do {
@@ -143,40 +246,58 @@ class ChatViewModel: ObservableObject {
                 )
                 if older.isEmpty {
                     markBackfilled()
-                    updateHasCachedOlderMessages()
+                    await updateHasCachedOlderMessages()
                     return
                 }
-                store.saveMessages(older)
+                await store.saveMessagesAsync(older, ownerID: myID)
                 cursor = older.first?.id
                 if !hasOlder {
                     markBackfilled()
-                    updateHasCachedOlderMessages()
+                    await updateHasCachedOlderMessages()
                     return
                 }
             } catch {
-                updateHasCachedOlderMessages(fallback: true)
+                await updateHasCachedOlderMessages(fallback: true)
                 return
             }
         }
-        updateHasCachedOlderMessages(fallback: true)
+        await updateHasCachedOlderMessages(fallback: true)
     }
 
-    private func updateHasCachedOlderMessages(fallback: Bool = false) {
+    private func updateHasCachedOlderMessages(fallback: Bool = false) async {
         guard let firstID = messages.first?.id else {
             hasMore = false
             return
         }
-        let cachedOlder = store.loadMessages(userID: myID, contactID: contact.userID, beforeID: firstID, limit: 1)
+        let cachedOlder = await store.loadMessagesAsync(
+            userID: myID,
+            contactID: contact.userID,
+            beforeID: firstID,
+            limit: 1
+        )
         hasMore = cachedOlder.isEmpty ? fallback : true
     }
 
     func loadMoreMessages() async {
         guard hasMore, let firstMessage = messages.first else { return }
 
-        let cached = store.loadMessages(userID: myID, contactID: contact.userID, beforeID: firstMessage.id)
+        let cached = await store.loadMessagesAsync(
+            userID: myID,
+            contactID: contact.userID,
+            beforeID: firstMessage.id
+        )
         if !cached.isEmpty {
+            ChatMediaPreviewPreloader.schedule(
+                cached.compactMap(Self.mediaPreviewRequest),
+                limit: 6
+            )
             messages.insert(contentsOf: cached, at: 0)
-            hasMore = store.loadMessages(userID: myID, contactID: contact.userID, beforeID: cached.first!.id, limit: 1).count > 0
+            hasMore = await store.loadMessagesAsync(
+                userID: myID,
+                contactID: contact.userID,
+                beforeID: cached.first!.id,
+                limit: 1
+            ).count > 0
             return
         }
 
@@ -184,20 +305,96 @@ class ChatViewModel: ObservableObject {
             let (msgs, more) = try await APIService.shared.getMessages(
                 contactID: contact.userID, beforeID: firstMessage.id
             )
-            store.saveMessages(msgs)
-            messages.insert(contentsOf: msgs, at: 0)
+            await mergeFetchedMessages(msgs)
             hasMore = more
         } catch {
             print("[Chat] Failed to load more: \(error)")
         }
     }
 
-    func submitText() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+    func deleteLocally(messageIDs: Set<Int>) {
+        guard !messageIDs.isEmpty, !myID.isEmpty else { return }
+        store.hideDirectMessages(ownerID: myID, contactID: contact.userID, messageIDs: messageIDs)
+        messages.removeAll { messageIDs.contains($0.id) }
+        if let replyID = replyingTo?.id, messageIDs.contains(replyID) {
+            replyingTo = nil
+        }
+        let latest = messages.last
+        NotificationCenter.default.post(
+            name: .conversationPreviewDidChange,
+            object: LocalConversationPreviewUpdate(
+                target: .direct(userID: contact.userID),
+                lastMessage: latest.map(localPreviewText),
+                lastMessageTime: latest?.timestamp
+            )
+        )
+    }
+
+    func applyHistoryClear(throughMessageID: Int) {
+        messages.removeAll { $0.id <= throughMessageID }
+        replyingTo = nil
+        hasMore = false
+        NotificationCenter.default.post(
+            name: .conversationPreviewDidChange,
+            object: LocalConversationPreviewUpdate(
+                target: .direct(userID: contact.userID),
+                lastMessage: messages.last.map(localPreviewText),
+                lastMessageTime: messages.last?.timestamp
+            )
+        )
+    }
+
+    func recallMessage(messageID: Int) async throws {
+        let recalled = try await APIService.shared.recallMessage(
+            contactID: contact.userID,
+            messageID: messageID
+        )
+        await mergeFetchedMessages([recalled])
+        NotificationCenter.default.post(name: .conversationPreviewDidChange, object: recalled)
+        if replyingTo?.id == messageID {
+            replyingTo = nil
+        }
+    }
+
+    private func localPreviewText(_ message: Message) -> String {
+        if message.isRecalled {
+            return ChatMessageRecallState.notice(
+                senderID: message.senderID,
+                viewerID: myID,
+                senderName: contact.nickname
+            )
+        }
+        if message.isImage { return L10n.tr("message.image") }
+        if message.isVideo { return L10n.tr("message.video") }
+        if message.isVoice { return L10n.tr("message.voice") }
+        if message.isSticker { return L10n.tr("message.sticker") }
+        return message.content
+    }
+
+    func loadContext(around messageID: Int) async -> Bool {
+        if messages.contains(where: { $0.id == messageID }) { return true }
+        do {
+            let context = try await APIService.shared.getMessageContext(
+                contactID: contact.userID,
+                messageID: messageID
+            )
+            await mergeFetchedMessages(context)
+            return messages.contains(where: { $0.id == messageID })
+        } catch {
+            errorMessage = userFacingSendError(error, fallbackKey: "messages.loadFailed")
+            return false
+        }
+    }
+
+    func submitText(_ submittedText: String? = nil) {
+        let sourceText = submittedText ?? inputText
+        let text = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
         let replyID = replyingTo?.id
-        inputText = ""
+        if inputText == sourceText {
+            inputText = ""
+        }
         replyingTo = nil
 
         let pending = PendingMessage(
@@ -210,7 +407,18 @@ class ChatViewModel: ObservableObject {
         )
         pendingMessages.append(pending)
 
+        let payload = ChatOutgoingPayload(
+            conversationID: contact.userID,
+            msgType: "text",
+            content: text,
+            replyToID: replyID
+        )
+        let outgoingJob = makeOutgoingJob(id: pending.id, payload: payload)
+
         Task { [weak self] in
+            // The optimistic row is already published. Persist on the outbox
+            // queue so the main actor can hand SwiftUI an immediate frame.
+            try? await OutgoingStore.shared.createAsync(outgoingJob)
             await self?.finishTextSend(pendingID: pending.id, text: text, replyID: replyID)
         }
     }
@@ -220,25 +428,61 @@ class ChatViewModel: ObservableObject {
             let response = try await APIService.shared.sendTextMessage(
                 receiverID: contact.userID,
                 content: text,
-                replyToID: replyID
+                replyToID: replyID,
+                clientMessageID: pendingID.uuidString
             )
             let message = normalizedOutgoingMessage(
                 response,
                 expectedType: "text",
                 expectedContent: text,
-                replyID: replyID
+                replyID: replyID,
+                clientMessageID: pendingID.uuidString
             )
             store.saveMessage(message)
-            removePendingMessage(id: pendingID)
-            appendMessageIfNeeded(
-                message,
-                source: .apiResponse,
-                shouldMergeOutgoingEcho: true
+            confirmPendingMessage(
+                pendingID: pendingID,
+                with: message,
+                source: .apiResponse
+            )
+            OutgoingStore.shared.updateJob(
+                id: pendingID.uuidString,
+                ownerID: myID,
+                state: .succeeded,
+                serverID: String(message.id)
+            )
+            ChatDraftStore.shared.removeIfMatching(
+                text: text,
+                replyID: replyID,
+                conversationType: "dm",
+                conversationID: contact.userID
             )
         } catch {
+            if scheduleTransientTextRetry(pendingID: pendingID, error: error) { return }
             markPendingMessageFailed(id: pendingID)
+            OutgoingStore.shared.updateJob(
+                id: pendingID.uuidString,
+                ownerID: myID,
+                state: .failedPermanent,
+                lastErrorCode: String(describing: error)
+            )
             errorMessage = userFacingSendError(error, fallbackKey: "messages.sendFailed")
         }
+    }
+
+    private func scheduleTransientTextRetry(pendingID: UUID, error: Error) -> Bool {
+        guard UploadEngine.isTransient(error),
+              let job = OutgoingStore.shared.jobs(ownerID: myID).first(where: { $0.id == pendingID.uuidString }),
+              job.attemptCount < 5 else { return false }
+        Task { await UploadEngine.shared.markRetryWaiting(jobID: job.id, ownerID: myID, error: error, attempt: job.attemptCount) }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(min(pow(2, Double(job.attemptCount)), 30) * 1_000_000_000))
+            guard let self,
+                  let pending = pendingMessages.first(where: { $0.id == pendingID }),
+                  OutgoingStore.shared.jobs(ownerID: myID).contains(where: { $0.id == job.id && $0.state == .retryWaiting }) else { return }
+            OutgoingStore.shared.updateJob(id: job.id, ownerID: myID, state: .queued)
+            await retryPending(pending)
+        }
+        return true
     }
 
     func retryPending(_ pending: PendingMessage) async {
@@ -256,10 +500,29 @@ class ChatViewModel: ObservableObject {
                 stickerID: payload.stickerID,
                 replyID: pending.replyToID
             )
-        } else if pending.msgType == "image", let data = pending.imageData {
-            enqueueImageUpload(pendingID: pending.id, data: data, filename: pending.filename ?? "image_\(pending.id.uuidString).jpg")
-        } else if pending.msgType == "video", let data = pending.videoData {
-            enqueueVideoUpload(pendingID: pending.id, data: data, filename: pending.filename ?? "video_\(pending.id.uuidString).mp4")
+        } else if pending.msgType == "image" {
+            if let url = pending.localFileURL {
+                enqueuePersistedMediaUpload(pendingID: pending.id, fileURL: url, msgType: "image", filename: pending.filename ?? "image.jpg")
+            } else if let data = pending.imageData {
+                enqueueImageUpload(pendingID: pending.id, data: data, filename: pending.filename ?? "image_\(pending.id.uuidString).jpg")
+            }
+        } else if pending.msgType == "video" {
+            if let url = pending.localFileURL {
+                enqueuePersistedMediaUpload(pendingID: pending.id, fileURL: url, msgType: "video", filename: pending.filename ?? "video.mp4")
+            } else if let data = pending.videoData {
+                enqueueVideoUpload(pendingID: pending.id, data: data, filename: pending.filename ?? "video_\(pending.id.uuidString).mp4")
+            }
+        }
+    }
+
+    func deletePending(_ pending: PendingMessage) {
+        OutgoingRetryScheduler.shared.cancel(ownerID: myID, jobID: pending.id.uuidString)
+        removePendingMessage(id: pending.id)
+        Task {
+            await UploadEngine.shared.cancel(
+                jobID: pending.id.uuidString,
+                ownerID: myID
+            )
         }
     }
 
@@ -272,17 +535,16 @@ class ChatViewModel: ObservableObject {
     }
 
     func sendSticker(pack: StickerPack, sticker: StickerItem) async {
-        isSending = true
-        defer { isSending = false }
-
         let replyMessage = replyingTo
         let replyID = replyMessage?.id
+        let clientMessageID = UUID().uuidString
         let payload = StickerMessagePayload(pack: pack, sticker: sticker)
         let signature = stickerSignature(content: payload.encodedContent, replyID: replyID)
 
         replyingTo = nil
         let localMessage = makeOptimisticStickerMessage(
             content: payload.encodedContent,
+            clientMessageID: clientMessageID,
             replyTo: replyMessage
         )
         optimisticStickerMessageIDs.insert(localMessage.id)
@@ -294,13 +556,15 @@ class ChatViewModel: ObservableObject {
                 receiverID: contact.userID,
                 packID: pack.id,
                 stickerID: sticker.id,
-                replyToID: replyID
+                replyToID: replyID,
+                clientMessageID: clientMessageID
             )
             let message = normalizedOutgoingMessage(
                 response,
                 expectedType: "sticker",
                 expectedContent: payload.encodedContent,
-                replyID: replyID
+                replyID: replyID,
+                clientMessageID: clientMessageID
             )
             store.saveMessage(message)
             appendMessageIfNeeded(
@@ -325,20 +589,21 @@ class ChatViewModel: ObservableObject {
                 receiverID: contact.userID,
                 packID: packID,
                 stickerID: stickerID,
-                replyToID: replyID
+                replyToID: replyID,
+                clientMessageID: pendingID.uuidString
             )
             let message = normalizedOutgoingMessage(
                 response,
                 expectedType: "sticker",
                 expectedContent: pendingMessages.first(where: { $0.id == pendingID })?.content,
-                replyID: replyID
+                replyID: replyID,
+                clientMessageID: pendingID.uuidString
             )
             store.saveMessage(message)
-            removePendingMessage(id: pendingID)
-            appendMessageIfNeeded(
-                message,
-                source: .apiResponse,
-                shouldMergeOutgoingEcho: true
+            confirmPendingMessage(
+                pendingID: pendingID,
+                with: message,
+                source: .apiResponse
             )
         } catch {
             markPendingMessageFailed(id: pendingID)
@@ -347,83 +612,341 @@ class ChatViewModel: ObservableObject {
     }
 
     func sendImage(data: Data) async {
-        let filename = "image_\(UUID().uuidString).jpg"
-        let pending = PendingMessage(
-            receiverID: contact.userID,
-            msgType: "image",
-            content: "",
-            imageData: data,
-            videoData: nil,
-            filename: filename
-        )
-        pendingMessages.append(pending)
-        enqueueImageUpload(pendingID: pending.id, data: data, filename: filename)
+        await sendMediaBatch([
+            OutgoingMediaDraft(kind: .image, data: data, filename: "image_\(UUID().uuidString).jpg")
+        ])
     }
 
-    private func enqueueImageUpload(pendingID: UUID, data: Data, filename: String) {
-        BackgroundUploadCoordinator.shared.enqueue(id: "direct-image-\(pendingID.uuidString)") { [self] in
-            await finishImageSend(pendingID: pendingID, data: data, filename: filename)
+    /// Publishes the optimistic rows before doing preview, persistence, file
+    /// staging, or networking. Durable jobs are an implementation detail used
+    /// only for recovery; fresh sends start immediately and independently.
+    func sendMediaBatch(_ drafts: [OutgoingMediaDraft]) async {
+        guard !drafts.isEmpty else { return }
+
+        let pendings = drafts.map { draft in
+            PendingMessage(
+                id: draft.id,
+                receiverID: contact.userID,
+                msgType: draft.kind == .image ? "image" : "video",
+                content: "",
+                imageData: draft.kind == .image ? draft.data : nil,
+                videoData: draft.kind == .video ? draft.data : nil,
+                localFileURL: draft.localFileURL,
+                filename: draft.filename
+            )
+        }
+
+        for pending in pendings {
+            locallyEnqueuedMediaClientIDs.insert(pending.id.uuidString)
+        }
+
+        // Make the bubble visible in the same main-actor turn as the send.
+        pendingMessages.append(contentsOf: pendings)
+
+        // Warm only the lightweight local preview. This is deliberately not
+        // awaited: the row already owns the original local bytes/file URL.
+        for pending in pendings where pending.msgType == "image" {
+            guard let data = pending.imageData else { continue }
+            let cacheKey = "pending-media:\(pending.id.uuidString)"
+            Task(priority: .userInitiated) {
+                await ImageCacheManager.shared.prepareLocalPreview(data: data, for: cacheKey)
+            }
+        }
+
+        for (pending, draft) in zip(pendings, drafts) {
+            if pending.msgType == "image", let data = pending.imageData, let filename = pending.filename {
+                enqueueImageUpload(pendingID: pending.id, data: data, filename: filename)
+            } else if pending.msgType == "video",
+                      let sourceURL = draft.localFileURL,
+                      let filename = pending.filename {
+                enqueueVideoUpload(pendingID: pending.id, sourceURL: sourceURL, filename: filename)
+            } else if pending.msgType == "video", let data = pending.videoData, let filename = pending.filename {
+                enqueueVideoUpload(pendingID: pending.id, data: data, filename: filename)
+            }
         }
     }
 
-    private func finishImageSend(pendingID: UUID, data: Data, filename: String) async {
+    private func enqueueImageUpload(pendingID: UUID, data: Data, filename: String) {
+        enqueueMediaUpload(id: "direct-media-\(pendingID.uuidString)") { [weak self] in
+            guard let self else { return }
+            await persistMediaJob(
+                pendingID: pendingID,
+                msgType: "image",
+                filename: filename
+            )
+            do {
+                let uploadData = await Task.detached(priority: .userInitiated) {
+                    APIService.compressImageForUpload(data)
+                }.value
+                let fileURL = try await OutgoingFileStore.stage(
+                    data: uploadData,
+                    ownerID: myID,
+                    jobID: pendingID.uuidString,
+                    filename: filename
+                )
+                if let index = pendingMessages.firstIndex(where: { $0.id == pendingID }) {
+                    pendingMessages[index].localFileURL = fileURL
+                }
+                await performPersistedMediaUpload(
+                    pendingID: pendingID,
+                    fileURL: fileURL,
+                    msgType: "image",
+                    filename: filename
+                )
+            } catch {
+                await markMediaJobFailed(pendingID: pendingID, error: error, fallbackKey: "messages.imageSendFailed")
+            }
+        }
+    }
+
+    private func finishImageSend(pendingID: UUID, fileURL: URL, filename: String, job: OutgoingJob, part: OutgoingPart) async {
         do {
             let response = try await APIService.shared.sendImageMessage(
                 receiverID: contact.userID,
-                imageData: data,
-                filename: filename
+                imageFileURL: fileURL,
+                filename: filename,
+                job: job,
+                part: part
             )
-            let message = normalizedOutgoingMessage(response, expectedType: "image")
+            let message = normalizedOutgoingMessage(response, expectedType: "image", clientMessageID: pendingID.uuidString)
+            await ImageCacheManager.shared.adoptLocalFile(
+                fileURL,
+                for: message.content,
+                previewURL: message.thumbnailURL
+            )
             store.saveMessage(message)
-            removePendingMessage(id: pendingID)
-            appendMessageIfNeeded(
-                message,
-                source: .apiResponse,
-                shouldMergeOutgoingEcho: true
-            )
+            confirmPendingMessage(pendingID: pendingID, with: message, source: .apiResponse)
+            OutgoingStore.shared.updateJob(id: job.id, ownerID: myID, state: .succeeded, serverID: String(message.id))
         } catch {
-            markPendingMessageFailed(id: pendingID)
-            errorMessage = userFacingSendError(error, fallbackKey: "messages.imageSendFailed")
+            await markMediaJobFailed(pendingID: pendingID, error: error, fallbackKey: "messages.imageSendFailed")
         }
     }
 
     func sendVideo(data: Data, filename: String) async {
-        let pending = PendingMessage(
-            receiverID: contact.userID,
-            msgType: "video",
-            content: "",
-            imageData: nil,
-            videoData: data,
-            filename: filename
-        )
-        pendingMessages.append(pending)
-        enqueueVideoUpload(pendingID: pending.id, data: data, filename: filename)
+        await sendMediaBatch([
+            OutgoingMediaDraft(kind: .video, data: data, filename: filename)
+        ])
     }
 
     private func enqueueVideoUpload(pendingID: UUID, data: Data, filename: String) {
-        BackgroundUploadCoordinator.shared.enqueue(id: "direct-video-\(pendingID.uuidString)") { [self] in
-            await finishVideoSend(pendingID: pendingID, data: data, filename: filename)
+        enqueueMediaUpload(id: "direct-media-\(pendingID.uuidString)") { [weak self] in
+            guard let self else { return }
+            await persistMediaJob(
+                pendingID: pendingID,
+                msgType: "video",
+                filename: filename
+            )
+            do {
+                let fileURL = try await OutgoingFileStore.stage(
+                    data: data,
+                    ownerID: myID,
+                    jobID: pendingID.uuidString,
+                    filename: filename
+                )
+                if let index = pendingMessages.firstIndex(where: { $0.id == pendingID }) {
+                    pendingMessages[index].localFileURL = fileURL
+                }
+                await performPersistedMediaUpload(
+                    pendingID: pendingID,
+                    fileURL: fileURL,
+                    msgType: "video",
+                    filename: filename
+                )
+            } catch {
+                await markMediaJobFailed(pendingID: pendingID, error: error, fallbackKey: "messages.videoSendFailed")
+            }
         }
     }
 
-    private func finishVideoSend(pendingID: UUID, data: Data, filename: String) async {
+    private func enqueueVideoUpload(pendingID: UUID, sourceURL: URL, filename: String) {
+        enqueueMediaUpload(id: "direct-media-\(pendingID.uuidString)") { [weak self] in
+            guard let self else { return }
+            await persistMediaJob(
+                pendingID: pendingID,
+                msgType: "video",
+                filename: filename
+            )
+            do {
+                let fileURL = try await OutgoingFileStore.stage(
+                    file: sourceURL,
+                    ownerID: myID,
+                    jobID: pendingID.uuidString,
+                    filename: filename
+                )
+                await ImageCacheManager.shared.adoptLocalVideoThumbnail(
+                    fileURL,
+                    for: fileURL.absoluteString
+                )
+                if let index = pendingMessages.firstIndex(where: { $0.id == pendingID }) {
+                    pendingMessages[index].localFileURL = fileURL
+                }
+                removeTemporaryMediaSourceIfNeeded(sourceURL)
+                await performPersistedMediaUpload(
+                    pendingID: pendingID,
+                    fileURL: fileURL,
+                    msgType: "video",
+                    filename: filename
+                )
+            } catch {
+                removeTemporaryMediaSourceIfNeeded(sourceURL)
+                await markMediaJobFailed(pendingID: pendingID, error: error, fallbackKey: "messages.videoSendFailed")
+            }
+        }
+    }
+
+    private func removeTemporaryMediaSourceIfNeeded(_ sourceURL: URL) {
+        let temporaryRoot = FileManager.default.temporaryDirectory.standardizedFileURL.path + "/"
+        guard sourceURL.standardizedFileURL.path.hasPrefix(temporaryRoot) else { return }
+        try? FileManager.default.removeItem(at: sourceURL)
+    }
+
+    private func finishVideoSend(pendingID: UUID, fileURL: URL, filename: String, job: OutgoingJob, part: OutgoingPart) async {
         do {
             let response = try await APIService.shared.sendVideoMessage(
                 receiverID: contact.userID,
-                videoData: data,
+                videoFileURL: fileURL,
+                filename: filename,
+                job: job,
+                part: part
+            )
+            let message = normalizedOutgoingMessage(response, expectedType: "video", clientMessageID: pendingID.uuidString)
+            MediaCacheManager.shared.adoptLocalFile(
+                mediaID: "chat-video:\(message.content)",
+                remoteURL: message.content,
+                sourceURL: fileURL
+            )
+            await ImageCacheManager.shared.adoptLocalVideoThumbnail(
+                fileURL,
+                for: message.content,
+                thumbnailURL: message.thumbnailURL
+            )
+            store.saveMessage(message)
+            confirmPendingMessage(pendingID: pendingID, with: message, source: .apiResponse)
+            OutgoingStore.shared.updateJob(id: job.id, ownerID: myID, state: .succeeded, serverID: String(message.id))
+        } catch {
+            await markMediaJobFailed(pendingID: pendingID, error: error, fallbackKey: "messages.videoSendFailed")
+        }
+    }
+
+    private func enqueuePersistedMediaUpload(
+        pendingID: UUID,
+        fileURL: URL,
+        msgType: String,
+        filename: String
+    ) {
+        enqueueMediaUpload(id: "direct-media-\(pendingID.uuidString)") { [weak self] in
+            guard let self else { return }
+            await performPersistedMediaUpload(
+                pendingID: pendingID,
+                fileURL: fileURL,
+                msgType: msgType,
                 filename: filename
             )
-            let message = normalizedOutgoingMessage(response, expectedType: "video")
-            store.saveMessage(message)
-            removePendingMessage(id: pendingID)
-            appendMessageIfNeeded(
-                message,
-                source: .apiResponse,
-                shouldMergeOutgoingEcho: true
-            )
+        }
+    }
+
+    private func enqueueMediaUpload(
+        id: String,
+        _ operation: @escaping @MainActor () async -> Void
+    ) {
+        // URLSession controls host concurrency. Do not serialize unrelated
+        // media messages behind one large video or slow iCloud asset.
+        BackgroundUploadCoordinator.shared.enqueue(id: id, operation: operation)
+    }
+
+    private func persistMediaJob(
+        pendingID: UUID,
+        msgType: String,
+        filename: String
+    ) async {
+        let payload = ChatOutgoingPayload(
+            conversationID: contact.userID,
+            msgType: msgType,
+            filename: filename
+        )
+        try? await OutgoingStore.shared.createAsync(
+            makeOutgoingJob(id: pendingID, payload: payload, state: .staging)
+        )
+    }
+
+    private func performPersistedMediaUpload(
+        pendingID: UUID,
+        fileURL: URL,
+        msgType: String,
+        filename: String
+    ) async {
+        let payload = ChatOutgoingPayload(conversationID: contact.userID, msgType: msgType, filename: filename)
+        let job = makeOutgoingJob(id: pendingID, payload: payload)
+        let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
+        let newPart = OutgoingPart(
+            jobID: job.id,
+            role: msgType,
+            ordinal: 0,
+            localRelativePath: OutgoingFileStore.relativePath(for: fileURL),
+            filename: filename,
+            mimeType: msgType == "image" ? "image/jpeg" : "video/mp4",
+            byteSize: Int64(values?.fileSize ?? 0),
+            state: .queued
+        )
+        let part = OutgoingStore.shared.parts(jobID: job.id).first ?? newPart
+        do {
+            try await UploadEngine.shared.enqueue(job: job, parts: [part])
+            if msgType == "image" {
+                await finishImageSend(pendingID: pendingID, fileURL: fileURL, filename: filename, job: job, part: part)
+            } else {
+                await finishVideoSend(pendingID: pendingID, fileURL: fileURL, filename: filename, job: job, part: part)
+            }
         } catch {
-            markPendingMessageFailed(id: pendingID)
-            errorMessage = userFacingSendError(error, fallbackKey: "messages.videoSendFailed")
+            await markMediaJobFailed(
+                pendingID: pendingID,
+                error: error,
+                fallbackKey: msgType == "image" ? "messages.imageSendFailed" : "messages.videoSendFailed"
+            )
+        }
+    }
+
+    private func markMediaJobFailed(pendingID: UUID, error: Error, fallbackKey: String) async {
+        if await scheduleTransientRetry(pendingID: pendingID, error: error) { return }
+        markPendingMessageFailed(id: pendingID)
+        OutgoingStore.shared.updateJob(
+            id: pendingID.uuidString,
+            ownerID: myID,
+            state: .failedPermanent,
+            lastErrorCode: String(describing: error)
+        )
+        errorMessage = userFacingSendError(error, fallbackKey: fallbackKey)
+    }
+
+    private func scheduleTransientRetry(pendingID: UUID, error: Error) async -> Bool {
+        guard var job = OutgoingStore.shared.jobs(ownerID: myID).first(where: { $0.id == pendingID.uuidString }),
+              OutgoingRetryPolicy.shouldRetry(job: job, error: error) else { return false }
+        if job.state != .retryWaiting {
+            await UploadEngine.shared.markRetryWaiting(
+                jobID: job.id,
+                ownerID: myID,
+                error: error,
+                attempt: job.attemptCount
+            )
+            guard let refreshed = OutgoingStore.shared.jobs(ownerID: myID)
+                .first(where: { $0.id == pendingID.uuidString }) else { return false }
+            job = refreshed
+        }
+        scheduleDurableRetry(job: job, pendingID: pendingID)
+        return true
+    }
+
+    private func scheduleDurableRetry(job: OutgoingJob, pendingID: UUID) {
+        OutgoingRetryScheduler.shared.schedule(
+            ownerID: myID,
+            jobID: job.id,
+            notBefore: OutgoingRetryPolicy.scheduledDate(for: job)
+        ) { [self] in
+            guard AuthManager.shared.currentUser?.userID == myID,
+                  let pending = pendingMessages.first(where: { $0.id == pendingID }),
+                  OutgoingStore.shared.jobs(ownerID: myID).contains(where: {
+                      $0.id == job.id && ($0.state == .retryWaiting || $0.state == .confirmationUnknown)
+                  }) else { return }
+            await retryPending(pending)
         }
     }
 
@@ -446,13 +969,16 @@ class ChatViewModel: ObservableObject {
                 duration: duration,
                 filename: "voice_\(Int(Date().timeIntervalSince1970)).m4a"
             )
-            let message = normalizedOutgoingMessage(response, expectedType: "voice")
+            let message = normalizedOutgoingMessage(
+                response,
+                expectedType: "voice",
+                clientMessageID: pending.id.uuidString
+            )
             store.saveMessage(message)
-            pendingMessages.removeAll { $0.id == pending.id }
-            appendMessageIfNeeded(
-                message,
-                source: .apiResponse,
-                shouldMergeOutgoingEcho: true
+            confirmPendingMessage(
+                pendingID: pending.id,
+                with: message,
+                source: .apiResponse
             )
         } catch {
             if let index = pendingMessages.firstIndex(where: { $0.id == pending.id }) {
@@ -469,26 +995,26 @@ class ChatViewModel: ObservableObject {
             throw APIError.serverError(code: 400, message: L10n.tr("gift.cannotSendToSelf"))
         }
 
-        isSending = true
-        defer { isSending = false }
+        // A failed/ambiguous response keeps the same key so a retry cannot
+        // double-charge a gift the server may already have accepted.
+        let idempotencyScope = "\(contact.userID)|\(gift.giftID)"
+        let idempotencyKey = giftIdempotencyKeys[idempotencyScope] ?? UUID()
+        giftIdempotencyKeys[idempotencyScope] = idempotencyKey
 
-        do {
-            let response = try await APIService.shared.sendGiftMessage(
-                receiverID: contact.userID,
-                giftID: gift.giftID
-            )
-            let message = normalizedOutgoingMessage(response, expectedType: "gift")
-            store.saveMessage(message)
-            appendMessageIfNeeded(
-                message,
-                source: .apiResponse,
-                shouldMergeOutgoingEcho: true
-            )
-            Task { await WalletStore.shared.refreshBalanceFromServer() }
-        } catch {
-            errorMessage = userFacingSendError(error, fallbackKey: "gift.sendFailed")
-            throw error
-        }
+        let response = try await APIService.shared.sendGiftMessage(
+            receiverID: contact.userID,
+            giftID: gift.giftID,
+            idempotencyKey: idempotencyKey
+        )
+        giftIdempotencyKeys.removeValue(forKey: idempotencyScope)
+        let message = normalizedOutgoingMessage(response, expectedType: "gift")
+        store.saveMessage(message)
+        appendMessageIfNeeded(
+            message,
+            source: .apiResponse,
+            shouldMergeOutgoingEcho: true
+        )
+        Task { await WalletStore.shared.refreshBalanceFromServer() }
     }
 
     func appendCreatedChatMoneyMessage(_ result: ChatMoneyCreationResult) {
@@ -510,20 +1036,59 @@ class ChatViewModel: ObservableObject {
     /// they must never be rendered together once either delivery channel has
     /// confirmed the same local send operation.
     var visiblePendingMessages: [PendingMessage] {
-        pendingMessages.filter { pending in
-            !messages.contains { confirmedMessage($0, matches: pending) }
+        visiblePendingMessages(from: pendingMessages)
+    }
+
+    func visiblePendingMessages(
+        from candidates: [PendingMessage],
+        confirmedBy confirmedMessages: [Message]? = nil
+    ) -> [PendingMessage] {
+        let confirmedMessages = confirmedMessages ?? messages
+        let confirmedClientIDs = Set(confirmedMessages.compactMap(\.clientMessageID))
+        let legacyMessages = confirmedMessages.filter { $0.clientMessageID == nil }
+        return candidates.filter { pending in
+            guard !confirmedClientIDs.contains(pending.id.uuidString) else { return false }
+            return !legacyMessages.contains { confirmedMessage($0, matches: pending) }
         }
     }
 
-    func markConversationAsReadOnServer() {
-        UnreadBadgeStore.shared.setConversationUnreadCount(
-            0,
-            for: ConversationReadTarget.direct(userID: contact.userID).listIdentity
-        )
+    func isLocalMediaAcknowledgement(_ message: Message) -> Bool {
+        guard ["image", "video"].contains(normalizedMessageType(message.msgType)),
+              let clientMessageID = message.clientMessageID else { return false }
+        return locallyEnqueuedMediaClientIDs.contains(clientMessageID)
+    }
+
+    func markConversationAsReadOnServer(throughMessageID: Int? = nil) {
         Task {
-            try? await APIService.shared.markMessagesAsRead(contactID: contact.userID)
+            do {
+                let receipt = try await APIService.shared.markMessagesAsRead(
+                    contactID: contact.userID,
+                    throughMessageID: throughMessageID
+                )
+                if let receipt, receipt.isMeaningful {
+                    await MainActor.run {
+                        UnreadBadgeStore.shared.applyReadReceipt(receipt)
+                    }
+                } else if throughMessageID == nil {
+                    await MainActor.run {
+                        UnreadBadgeStore.shared.setConversationUnreadCount(
+                            0,
+                            for: ConversationReadTarget.direct(userID: contact.userID).listIdentity
+                        )
+                    }
+                }
+                await MainActor.run {
+                    AppMessageSyncCoordinator.shared.requestSync(.notification)
+                }
+            } catch {
+                // A failed read request is not interpreted as zero unread.
+            }
             await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
         }
+    }
+
+    func setReadingLatest(_ value: Bool) {
+        isReadingLatest = value
     }
 
     private func setupWebSocketListener() {
@@ -536,28 +1101,56 @@ class ChatViewModel: ObservableObject {
                                  (message.senderID == AuthManager.shared.currentUser?.userID &&
                                   message.receiverID == self.contact.userID)
                 if isRelevant {
-                    self.store.saveMessage(message)
-                    if message.senderID == AuthManager.shared.currentUser?.userID {
-                        _ = self.removeFirstPendingMessage {
-                            self.pendingMessage($0, matches: message)
+                    if message.senderID == AuthManager.shared.currentUser?.userID,
+                       ["image", "video"].contains(self.normalizedMessageType(message.msgType)),
+                       let pending = self.pendingMessages.first(where: {
+                           self.pendingMessage($0, matches: message)
+                       }),
+                       let localFileURL = pending.localFileURL {
+                        // The WebSocket echo can beat the HTTP response. Keep
+                        // rendering the local row until both image cache keys
+                        // have been seeded, then confirm it in place.
+                        Task { [weak self] in
+                            guard let self else { return }
+                            if self.normalizedMessageType(message.msgType) == "image" {
+                                await ImageCacheManager.shared.adoptLocalFile(
+                                    localFileURL,
+                                    for: message.content,
+                                    previewURL: message.thumbnailURL
+                                )
+                            } else {
+                                MediaCacheManager.shared.adoptLocalFile(
+                                    mediaID: "chat-video:\(message.content)",
+                                    remoteURL: message.content,
+                                    sourceURL: localFileURL
+                                )
+                                await ImageCacheManager.shared.adoptLocalVideoThumbnail(
+                                    localFileURL,
+                                    for: message.content,
+                                    thumbnailURL: message.thumbnailURL
+                                )
+                            }
+                            self.store.saveMessage(message)
+                            self.confirmPendingMessage(
+                                pendingID: pending.id,
+                                with: message,
+                                source: .webSocket
+                            )
                         }
+                        return
+                    }
+                    if message.senderID == AuthManager.shared.currentUser?.userID {
+                        self.store.saveMessage(message)
                         self.appendMessageIfNeeded(
                             message,
                             source: .webSocket,
                             shouldMergeOutgoingEcho: true
                         )
-                    } else {
-                        self.appendMessageIfNeeded(message, source: .webSocket)
-                        if WebSocketService.shared.activeChatUserID == self.contact.userID {
-                            UnreadBadgeStore.shared.setConversationUnreadCount(
-                                0,
-                                for: ConversationReadTarget.direct(userID: self.contact.userID).listIdentity
-                            )
-                            Task {
-                                try? await APIService.shared.markMessagesAsRead(contactID: self.contact.userID)
-                                await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
-                            }
+                        _ = self.removeFirstPendingMessage {
+                            self.pendingMessage($0, matches: message)
                         }
+                    } else {
+                        self.publishIncomingMessageAfterPreviewWarmup(message)
                     }
                 }
             }
@@ -630,12 +1223,28 @@ class ChatViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func setupOutboxRecoveryListener() {
+        NotificationCenter.default.publisher(for: .outgoingUploadNeedsRecovery)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      notification.object as? String == self.myID,
+                      let jobID = notification.userInfo?["job_id"] as? String,
+                      self.pendingMessages.contains(where: { $0.id.uuidString == jobID }) else { return }
+                Task { [weak self] in
+                    await self?.resumeDurableOutboxIfNeeded()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     private func syncLatestMessages() async {
         guard !isSyncingLatest else { return }
         isSyncingLatest = true
         defer { isSyncingLatest = false }
 
         let isActivelyVisible = WebSocketService.shared.activeChatUserID == contact.userID
+            && isReadingLatest
         if isActivelyVisible {
             UnreadBadgeStore.shared.setConversationUnreadCount(
                 0,
@@ -643,17 +1252,23 @@ class ChatViewModel: ObservableObject {
             )
         }
 
-        let latestID = store.latestMessageID(userID: myID, contactID: contact.userID)
+        let latestID = await store.latestMessageIDAsync(
+            userID: myID,
+            contactID: contact.userID
+        )
         do {
             var fetched: [Message] = []
             if let latestID {
                 fetched.append(contentsOf: try await fetchNewerMessages(afterID: latestID))
             }
             fetched.append(contentsOf: try await fetchRecentMessages())
-            mergeFetchedMessages(fetched)
+            await mergeFetchedMessages(fetched)
 
             if isActivelyVisible, WebSocketService.shared.activeChatUserID == contact.userID {
-                try? await APIService.shared.markMessagesAsRead(contactID: contact.userID)
+                _ = try? await APIService.shared.markMessagesAsRead(
+                    contactID: contact.userID,
+                    throughMessageID: messages.last?.id
+                )
                 PushService.shared.syncBadgeFromUnreadState()
             }
         } catch {
@@ -688,14 +1303,52 @@ class ChatViewModel: ObservableObject {
         return msgs
     }
 
-    private func mergeFetchedMessages(_ fetched: [Message]) {
+    private func mergeFetchedMessages(_ fetched: [Message]) async {
         guard !fetched.isEmpty else { return }
-        store.saveMessages(fetched)
+        let previewRequests = fetched.compactMap(Self.mediaPreviewRequest)
+        ChatMediaPreviewPreloader.schedule(previewRequests, limit: 12)
+        await store.saveMessagesAsync(fetched, ownerID: myID)
         appendMessagesIfNeeded(
             fetched,
             source: .history,
             shouldMergeOutgoingEcho: true
         )
+    }
+
+    private static func mediaPreviewRequest(_ message: Message) -> ChatMediaPreviewRequest? {
+        ChatMediaPreviewRequest.resolve(
+            messageType: message.msgType,
+            content: message.content,
+            thumbnailURL: message.thumbnailURL
+        )
+    }
+
+    private func publishIncomingMessageAfterPreviewWarmup(_ message: Message) {
+        // WebSocketService has already persisted the message and started the
+        // same shared-cache request before publishing it to this view model.
+        guard let request = Self.mediaPreviewRequest(message) else {
+            publishIncomingMessage(message)
+            return
+        }
+        ChatMediaPreviewPreloader.schedule([request], limit: 1)
+        publishIncomingMessage(message)
+    }
+
+    private func publishIncomingMessage(_ message: Message) {
+        appendMessageIfNeeded(message, source: .webSocket)
+        guard WebSocketService.shared.activeChatUserID == contact.userID,
+              isReadingLatest else { return }
+        UnreadBadgeStore.shared.setConversationUnreadCount(
+            0,
+            for: ConversationReadTarget.direct(userID: contact.userID).listIdentity
+        )
+        Task {
+            _ = try? await APIService.shared.markMessagesAsRead(
+                contactID: contact.userID,
+                throughMessageID: message.id
+            )
+            await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
+        }
     }
 
     private func appendMessageIfNeeded(
@@ -710,13 +1363,44 @@ class ChatViewModel: ObservableObject {
         )
     }
 
+    /// Replace an optimistic projection without an empty render pass or an
+    /// inherited SwiftUI animation. Both rows share the client ID, so this is
+    /// one delivery acknowledgement rather than a second visual insertion.
+    private func confirmPendingMessage(
+        pendingID: UUID,
+        with message: Message,
+        source: MessageSource
+    ) {
+        OutgoingRetryScheduler.shared.cancel(ownerID: myID, jobID: pendingID.uuidString)
+        OutgoingStore.shared.updateJob(
+            id: pendingID.uuidString,
+            ownerID: myID,
+            state: .succeeded,
+            serverID: String(message.id)
+        )
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            appendMessageIfNeeded(
+                message,
+                source: source,
+                shouldMergeOutgoingEcho: true
+            )
+            removePendingMessage(id: pendingID)
+        }
+    }
+
     private func nextLocalStickerMessageID() -> Int {
         let id = nextOptimisticMessageID
         nextOptimisticMessageID += 1
         return id
     }
 
-    private func makeOptimisticStickerMessage(content: String, replyTo: Message?) -> Message {
+    private func makeOptimisticStickerMessage(
+        content: String,
+        clientMessageID: String,
+        replyTo: Message?
+    ) -> Message {
         Message(
             id: nextLocalStickerMessageID(),
             senderID: myID,
@@ -732,7 +1416,8 @@ class ChatViewModel: ObservableObject {
                     msgType: $0.msgType,
                     content: $0.content
                 )
-            }
+            },
+            clientMessageID: clientMessageID
         )
     }
 
@@ -751,6 +1436,16 @@ class ChatViewModel: ObservableObject {
               message.receiverID == contact.userID,
               message.msgType == "sticker" else {
             return nil
+        }
+        if let clientMessageID = ChatTimelineIdentity.resolvedClientMessageID(
+            primary: message.clientMessageID
+        ), let exactIndex = messages.lastIndex(where: { existing in
+            optimisticStickerMessageIDs.contains(existing.id)
+                && ChatTimelineIdentity.resolvedClientMessageID(
+                    primary: existing.clientMessageID
+                ) == clientMessageID
+        }) {
+            return exactIndex
         }
         let incomingSignature = stickerSignature(
             content: message.content,
@@ -811,11 +1506,15 @@ class ChatViewModel: ObservableObject {
         _ message: Message,
         expectedType: String,
         expectedContent: String? = nil,
-        replyID: Int? = nil
+        replyID: Int? = nil,
+        clientMessageID: String? = nil
     ) -> Message {
-        let content = message.content.isBlank
+        let resolvedContent = message.content.isBlank
             ? (expectedContent ?? message.content)
             : message.content
+        let content = normalizedMessageType(expectedType) == "text"
+            ? resolvedContent.trimmingTrailingLineBreaks
+            : resolvedContent
         return Message(
             id: message.id,
             senderID: myID,
@@ -826,7 +1525,11 @@ class ChatViewModel: ObservableObject {
                 ? ISO8601DateFormatter().string(from: Date())
                 : message.timestamp,
             replyToID: message.replyToID ?? replyID,
-            replyTo: message.replyTo
+            replyTo: message.replyTo,
+            clientMessageID: message.clientMessageID ?? clientMessageID,
+            version: message.version,
+            updatedAt: message.updatedAt,
+            thumbnailURL: message.thumbnailURL
         )
     }
 
@@ -840,6 +1543,7 @@ class ChatViewModel: ObservableObject {
     }
 
     private func pendingMessage(_ pending: PendingMessage, matches message: Message) -> Bool {
+        if message.clientMessageID == pending.id.uuidString { return true }
         guard pending.receiverID == contact.userID,
               normalizedMessageType(pending.msgType) == normalizedMessageType(message.msgType),
               pendingReplyMatches(pending.replyToID, replyTargetID(for: message)),
@@ -905,21 +1609,33 @@ class ChatViewModel: ObservableObject {
         shouldMergeOutgoingEcho: Bool = false
     ) {
         var changed = false
+        var requiresSort = false
         for message in newMessages {
+            guard !store.isDirectMessageHidden(
+                ownerID: myID,
+                contactID: contact.userID,
+                messageID: message.id
+            ) else { continue }
             markConfirmed(message.id, source: source)
 
             if let existingIndex = messages.firstIndex(where: { $0.id == message.id }) {
-                if messages[existingIndex] != message {
-                    messages[existingIndex] = message
+                let stabilized = message.inheritingClientMessageID(
+                    messages[existingIndex].clientMessageID
+                )
+                if messages[existingIndex] != stabilized {
+                    messages[existingIndex] = stabilized
                     changed = true
                 }
                 continue
             }
 
             if let optimisticIndex = optimisticStickerIndex(for: message) {
-                let localID = messages[optimisticIndex].id
+                let localMessage = messages[optimisticIndex]
+                let localID = localMessage.id
                 clearOptimisticStickerTracking(localID)
-                messages[optimisticIndex] = message
+                messages[optimisticIndex] = message.inheritingClientMessageID(
+                    localMessage.clientMessageID
+                )
                 changed = true
                 continue
             }
@@ -927,7 +1643,15 @@ class ChatViewModel: ObservableObject {
             if shouldMergeOutgoingEcho,
                let echoIndex = outgoingEchoIndex(for: message, source: source) {
                 let existing = messages[echoIndex]
-                let preferred = preferredMessage(existing: existing, incoming: message, source: source)
+                let stableClientMessageID = ChatTimelineIdentity.resolvedClientMessageID(
+                    primary: existing.clientMessageID,
+                    fallback: message.clientMessageID
+                )
+                let preferred = preferredMessage(
+                    existing: existing,
+                    incoming: message,
+                    source: source
+                ).inheritingClientMessageID(stableClientMessageID)
 
                 clearDeliveryTracking(for: existing.id, unlessKeeping: preferred.id)
                 clearDeliveryTracking(for: message.id, unlessKeeping: preferred.id)
@@ -935,7 +1659,10 @@ class ChatViewModel: ObservableObject {
                     markConfirmed(preferred.id, source: source)
                 }
                 if existing.id != message.id {
-                    store.deleteMessage(id: preferred.id == existing.id ? message.id : existing.id)
+                    store.deleteMessage(
+                        id: preferred.id == existing.id ? message.id : existing.id,
+                        ownerID: myID
+                    )
                 }
                 messages[echoIndex] = preferred
                 changed = true
@@ -944,9 +1671,15 @@ class ChatViewModel: ObservableObject {
 
             messages.append(message)
             changed = true
+            requiresSort = true
         }
         guard changed else { return }
-        sortMessagesForDisplay()
+        // Acknowledgement replaces one row in place. Sorting that unchanged
+        // position would publish a second array mutation and visibly refresh
+        // the sticker bubble after upload succeeds.
+        if requiresSort {
+            sortMessagesForDisplay()
+        }
         if source == .apiResponse {
             newMessages.forEach {
                 NotificationCenter.default.post(name: .conversationPreviewDidChange, object: $0)
@@ -956,6 +1689,18 @@ class ChatViewModel: ObservableObject {
 
     private func outgoingEchoIndex(for message: Message, source: MessageSource) -> Int? {
         guard isOwnOutgoing(message) else { return nil }
+
+        if let clientMessageID = ChatTimelineIdentity.resolvedClientMessageID(
+            primary: message.clientMessageID
+        ), let exactIndex = messages.lastIndex(where: { existing in
+            existing.id != message.id
+                && isOwnOutgoing(existing)
+                && ChatTimelineIdentity.resolvedClientMessageID(
+                    primary: existing.clientMessageID
+                ) == clientMessageID
+        }) {
+            return exactIndex
+        }
 
         return messages.lastIndex { existing in
             guard existing.id != message.id,

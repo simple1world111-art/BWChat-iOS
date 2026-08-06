@@ -221,13 +221,19 @@ struct ChatBackgroundLayer: View {
             }
         }
         .task(id: cacheKey) {
+            let requestedKey = cacheKey
             guard let background else {
                 image = nil
                 return
             }
-            if let loaded = await BackgroundImageCache.shared.loadImage(for: background) {
-                image = loaded
+            if let cached = BackgroundImageCache.shared.image(for: background) {
+                image = cached
+                return
             }
+            image = nil
+            let loaded = await BackgroundImageCache.shared.loadImage(for: background)
+            guard !Task.isCancelled, requestedKey == cacheKey else { return }
+            image = loaded
         }
     }
 }

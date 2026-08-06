@@ -7,7 +7,6 @@ struct ShortDramaActionRail: View {
     let video: ShortDramaVideo
     let onToggleFollow: () -> Void
     let onToggleLike: () -> Void
-    let onToggleFavorite: () -> Void
     let onOpenComments: () -> Void
     let onOpenCreator: () -> Void
 
@@ -43,14 +42,6 @@ struct ShortDramaActionRail: View {
                 count: video.likeCount,
                 action: onToggleLike,
                 label: L10n.tr("shortDrama.like")
-            )
-
-            railButton(
-                systemImage: video.favoritedByMe ? "bookmark.fill" : "bookmark",
-                tint: video.favoritedByMe ? Color(hex: "FFD166") : .white,
-                count: video.favoriteCount,
-                action: onToggleFavorite,
-                label: L10n.tr("shortDrama.favorite")
             )
 
             railButton(

@@ -466,8 +466,15 @@ struct ShortDramaPosterView: View {
         }
         .clipped()
         .task(id: url) {
-            guard image == nil, !url.isBlank else { return }
-            remoteImage = await ImageCacheManager.shared.loadImage(from: url)
+            let requestedURL = url
+            guard image == nil, !requestedURL.isBlank else {
+                remoteImage = nil
+                return
+            }
+            remoteImage = nil
+            let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL)
+            guard !Task.isCancelled, requestedURL == url else { return }
+            remoteImage = loaded
         }
     }
 }

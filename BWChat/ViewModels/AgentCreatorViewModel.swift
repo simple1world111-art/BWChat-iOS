@@ -49,6 +49,7 @@ final class AgentCreatorViewModel: ObservableObject {
     }
 
     var isEditing: Bool { currentAgent != nil }
+    var currentAvatarAssetID: String? { avatarAssetID }
 
     var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

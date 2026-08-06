@@ -28,8 +28,7 @@ struct ChatMoneyDetailView: View {
                         detail: detail,
                         onShowBalance: {
                             navigator.push(WalletView().hidesTabBarOnPush())
-                        },
-                        onReplyToChat: closeDetail
+                        }
                     )
                 } else {
                     TransferDetailContent(
@@ -102,11 +101,19 @@ struct ChatMoneyDetailView: View {
         } message: {
             Text(L10n.tr("chatMoney.transfer.returnConfirmMessage"))
         }
-        .task { await load(force: false) }
+        .task {
+            await load(force: initialPayload.kind == .redPacket)
+        }
         .onChange(of: store.details[initialPayload.assetID]) { updated in
             guard let updated,
-                  updated.version > (detail?.version ?? -1) else { return }
+                  updated.version >= (detail?.version ?? -1),
+                  updated != detail else { return }
             detail = updated
+        }
+        .onChange(of: payload.version) { version in
+            guard initialPayload.kind == .redPacket,
+                  version > (detail?.version ?? -1) else { return }
+            Task { await load(force: true) }
         }
     }
 
@@ -125,6 +132,9 @@ struct ChatMoneyDetailView: View {
     @MainActor
     private func load(force: Bool) async {
         loadError = nil
+        if detail == nil, let cached = store.details[initialPayload.assetID] {
+            detail = cached
+        }
         do {
             let loaded = try await store.loadDetail(
                 assetID: initialPayload.assetID,
@@ -134,7 +144,9 @@ struct ChatMoneyDetailView: View {
         } catch is CancellationError {
             return
         } catch {
-            loadError = ChatMoneyErrorText.message(for: error)
+            if detail == nil {
+                loadError = ChatMoneyErrorText.message(for: error)
+            }
         }
     }
 
@@ -455,9 +467,7 @@ private struct RedPacketOpenEnvelope: View {
 
 private struct RedPacketBackdrop: View {
     var body: some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .overlay(Color.white.opacity(0.38))
+        Color.black.opacity(0.52)
             .ignoresSafeArea()
     }
 }
@@ -480,7 +490,6 @@ private struct RedPacketEnvelopeFold: Shape {
 private struct RedPacketDetailContent: View {
     let detail: ChatMoneyDetail
     let onShowBalance: () -> Void
-    let onReplyToChat: () -> Void
 
     private var senderHeading: String {
         return L10n.tr(
@@ -552,7 +561,7 @@ private struct RedPacketDetailContent: View {
                 Text(verbatim: "\(amount)")
                     .font(.system(size: 58, weight: .medium))
                     .monospacedDigit()
-                Text(L10n.tr("wallet.currency.catFood"))
+                Text(L10n.tr("wallet.currency.goldCoins"))
                     .font(.system(size: 17))
             }
             .foregroundColor(ChatMoneyTheme.gold)
@@ -569,21 +578,6 @@ private struct RedPacketDetailContent: View {
             }
             .buttonStyle(.plain)
             .padding(.top, 14)
-
-            Button(action: onReplyToChat) {
-                Label(
-                    L10n.tr("chatMoney.redPacket.replyToChat"),
-                    systemImage: "face.smiling"
-                )
-                .font(.system(size: 15))
-                .foregroundColor(ChatMoneyTheme.gold)
-                .padding(.horizontal, 18)
-                .frame(height: 48)
-                .background(Color(hex: "F7F7F7"))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 34)
         }
     }
 
@@ -776,7 +770,7 @@ private struct TransferDetailContent: View {
                 Text(verbatim: "\(detail.totalAmount ?? 0)")
                     .font(.system(size: 48, weight: .medium))
                     .monospacedDigit()
-                Text(L10n.tr("wallet.currency.catFood"))
+                Text(L10n.tr("wallet.currency.goldCoins"))
                     .font(.system(size: 15))
             }
             .foregroundColor(AppColors.primaryText)
@@ -1095,7 +1089,7 @@ struct ChatMoneyTransferFeedbackPreviewView: View {
         packetCount: nil,
         claimedCount: nil,
         greeting: nil,
-        note: "晚饭猫粮",
+        note: "晚饭金币",
         status: .pending,
         expiresAt: nil,
         canClaim: false,
@@ -1143,8 +1137,7 @@ private struct ChatMoneyRedPacketClaimedPreviewView: View {
     var body: some View {
         RedPacketDetailContent(
             detail: .redPacketPreview(viewerClaimAmount: 100),
-            onShowBalance: {},
-            onReplyToChat: {}
+            onShowBalance: {}
         )
     }
 }

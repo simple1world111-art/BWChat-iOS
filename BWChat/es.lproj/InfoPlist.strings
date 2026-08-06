@@ -2,4 +2,5 @@
 "NSPhotoLibraryUsageDescription" = "BBchat necesita acceso a la fototeca para subir y enviar fotos y vídeos.";
 "NSCameraUsageDescription" = "BBchat necesita usar la cámara para videollamadas.";
 "NSMicrophoneUsageDescription" = "BBchat necesita usar el micrófono para llamadas de voz y video.";
-"NSLocationWhenInUseUsageDescription" = "BBchat usa tu ubicación para descubrir usuarios cercanos y comparte una ubicación aproximada solo cuando activas Nearby.";
+"NSLocationWhenInUseUsageDescription" = "BBchat usa tu ubicación precisa después de iniciar sesión y cada vez que abres el mapa para actualizar tu punto.";
+"NSContactsUsageDescription" = "BBchat normaliza y cifra localmente con sal los teléfonos de tus contactos para encontrar amigos registrados; no sube nombres ni números originales.";

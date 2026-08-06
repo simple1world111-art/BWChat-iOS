@@ -9,6 +9,8 @@ struct MapDatingView: View {
     var isRootTab = false
 
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var navigator: UIKitNavigator
+    @ObservedObject private var authManager = AuthManager.shared
     @ObservedObject private var languageStore = AppLanguageStore.shared
     @StateObject private var viewModel = MapDatingViewModel()
     @State private var flightAircraft: [MapFlightAircraft] = []
@@ -19,6 +21,7 @@ struct MapDatingView: View {
     @State private var isFetchingFlightLayer = false
     @State private var isUsingMockFlightLayer = false
     @State private var flightLayerTTL: TimeInterval = FlightLayerExperiment.defaultRefreshInterval
+    @State private var lastAutoFitKey = ""
     @State private var region = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 35.681236, longitude: 139.767125),
         span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
@@ -111,35 +114,12 @@ struct MapDatingView: View {
                     .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 4)
             }
 
-            if !viewModel.isLoading, let message = viewModel.usersLoadErrorMessage {
-                HStack(spacing: 12) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(AppColors.warningColor)
-                    Text(message)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(AppColors.primaryText)
-                        .lineLimit(3)
-                    Spacer(minLength: 0)
-                    Button(L10n.tr("common.retry")) {
-                        Task { await viewModel.retryLoadingUsers() }
-                    }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(AppColors.accent)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(AppColors.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-            }
         }
         .background(AppColors.secondaryBackground)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(MapDatingNavigationChrome(isRootTab: isRootTab))
-        .task {
+        .task(id: authManager.currentUser?.userID) {
             await viewModel.loadInitial()
             startFlightLayerPolling()
         }
@@ -149,31 +129,55 @@ struct MapDatingView: View {
         }
         .onReceive(viewModel.$mapCenter) { coordinate in
             guard let coordinate else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                region.center = coordinate
-            }
-            scheduleFlightLayerRefresh(for: region, debounce: 0)
+            centerMapOnViewer(coordinate)
+        }
+        .onReceive(viewModel.$nearbyUsers) { _ in
+            guard viewModel.currentCoordinate == nil else { return }
+            fitMapToResults()
         }
         .onReceive(flightAnimationTimer) { _ in
             advanceMockFlightLayer()
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
-                viewModel.resumeForegroundUpdates()
                 startFlightLayerPolling()
+                Task { await viewModel.refreshAfterBecomingActive() }
             } else {
                 viewModel.pauseForegroundUpdates()
                 stopFlightLayerPolling()
             }
         }
-        .sheet(item: $viewModel.selectedUser) { user in
-            MapUserDetailSheet(fallbackUser: user, viewModel: viewModel)
-                .id(languageIdentifier)
-                .environment(\.locale, languageStore.locale)
-                .presentationDetents([.medium, .large])
-        }
         .toast(message: $viewModel.successMessage)
         .toast(message: $viewModel.errorMessage)
+    }
+
+    private func fitMapToResults(force: Bool = false) {
+        guard let targetRegion = MapDatingViewportPolicy.region(
+            viewerCoordinate: viewModel.currentCoordinate,
+            users: viewModel.mappableDisplayedUsers
+        ) else { return }
+
+        let key = MapDatingViewportPolicy.signature(
+            viewerCoordinate: viewModel.currentCoordinate,
+            users: viewModel.mappableDisplayedUsers
+        )
+        guard force || key != lastAutoFitKey else { return }
+        lastAutoFitKey = key
+        withAnimation(.easeInOut(duration: 0.3)) {
+            region = targetRegion
+        }
+        scheduleFlightLayerRefresh(for: targetRegion, debounce: 0)
+    }
+
+    private func centerMapOnViewer(_ coordinate: CLLocationCoordinate2D) {
+        guard let targetRegion = MapDatingViewportPolicy.viewerRegion(
+            centeredAt: coordinate
+        ) else { return }
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            region = targetRegion
+        }
+        scheduleFlightLayerRefresh(for: targetRegion, debounce: 0)
     }
 
     private var mapLayer: some View {
@@ -196,7 +200,7 @@ struct MapDatingView: View {
                     .zIndex(selectedFlightID == flight.id ? 1 : 0)
                 } else if let user = item.user {
                     Button {
-                        Task { await viewModel.selectUser(user) }
+                        navigator.push(UserProfileView(userID: user.userID))
                     } label: {
                         MapAvatarMarker(
                             avatarURL: item.avatarURL,
@@ -304,6 +308,84 @@ struct MapDatingView: View {
         withAnimation(.linear(duration: 3)) {
             flightAircraft = flightAircraft.map { $0.advanced(by: 3) }
         }
+    }
+}
+
+enum MapDatingViewportPolicy {
+    static let viewerRadiusMeters: CLLocationDistance = 50
+    private static let minimumSpanDegrees = 0.02
+
+    static func viewerRegion(
+        centeredAt coordinate: CLLocationCoordinate2D
+    ) -> MKCoordinateRegion? {
+        guard isValid(coordinate) else { return nil }
+        let diameter = viewerRadiusMeters * 2
+        return MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: diameter,
+            longitudinalMeters: diameter
+        )
+    }
+
+    static func region(
+        viewerCoordinate: CLLocationCoordinate2D?,
+        users: [MapUser]
+    ) -> MKCoordinateRegion? {
+        let userCoordinates = users.compactMap { user -> CLLocationCoordinate2D? in
+            guard user.hasMappableCoordinate,
+                  let latitude = user.displayLat,
+                  let longitude = user.displayLng else { return nil }
+            return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        }
+
+        var coordinates = userCoordinates
+        if let viewerCoordinate, isValid(viewerCoordinate) {
+            coordinates.append(viewerCoordinate)
+        }
+        guard !coordinates.isEmpty else { return nil }
+
+        let latitudes = coordinates.map(\.latitude)
+        let longitudes = coordinates.map(\.longitude)
+        guard let minimumLatitude = latitudes.min(),
+              let maximumLatitude = latitudes.max(),
+              let minimumLongitude = longitudes.min(),
+              let maximumLongitude = longitudes.max() else { return nil }
+
+        let longitudeSpread = maximumLongitude - minimumLongitude
+        return MKCoordinateRegion(
+            center: CLLocationCoordinate2D(
+                latitude: (minimumLatitude + maximumLatitude) / 2,
+                longitude: longitudeSpread > 180 ? 0 : (minimumLongitude + maximumLongitude) / 2
+            ),
+            span: MKCoordinateSpan(
+                latitudeDelta: min(180, max(minimumSpanDegrees, (maximumLatitude - minimumLatitude) * 1.35)),
+                longitudeDelta: longitudeSpread > 180
+                    ? 360
+                    : min(360, max(minimumSpanDegrees, longitudeSpread * 1.35))
+            )
+        )
+    }
+
+    static func signature(
+        viewerCoordinate: CLLocationCoordinate2D?,
+        users: [MapUser]
+    ) -> String {
+        let viewer = viewerCoordinate.map {
+            String(format: "%.4f,%.4f", $0.latitude, $0.longitude)
+        } ?? "none"
+        let people = users
+            .filter(\.hasMappableCoordinate)
+            .map {
+                "\($0.userID):\(String(format: "%.4f", $0.displayLat ?? 0)),\(String(format: "%.4f", $0.displayLng ?? 0))"
+            }
+            .sorted()
+            .joined(separator: "|")
+        return "\(viewer);\(people)"
+    }
+
+    private static func isValid(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        CLLocationCoordinate2DIsValid(coordinate)
+            && (abs(coordinate.latitude) > 0.000001 || abs(coordinate.longitude) > 0.000001)
     }
 }
 

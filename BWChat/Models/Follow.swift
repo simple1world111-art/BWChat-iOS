@@ -200,6 +200,18 @@ struct PublicProfile: Codable, Identifiable, Equatable {
 
     var id: String { userID }
 
+    /// Opening a DM is a local navigation decision. `canMessage` is a
+    /// server-side sending hint and must not strand a valid profile outside
+    /// the chat screen when that hint is stale or overly restrictive.
+    var directConversationUserID: String? {
+        let normalized = userID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    var canOpenDirectConversation: Bool {
+        directConversationUserID != nil
+    }
+
     var followUser: FollowUser {
         FollowUser(
             userID: userID,

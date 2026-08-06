@@ -4,19 +4,365 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Debug logging (remove after diagnosing open/close jitter + lag)
+// MARK: - Location-aware pinch support (iOS 16 compatible)
 
-enum GalleryDbg {
-    /// Monotonic clock seconds since the first call — easier to read than
-    /// wall-clock times when diagnosing animation frame timing.
-    private static let origin = Date()
-    static func log(_ tag: String, _ fields: String = "") {
-        let t = Date().timeIntervalSince(origin)
-        print(String(format: "[GalleryDbg %8.3f] %@ %@", t, tag, fields))
+/// SwiftUI's iOS 16 MagnificationGesture reports only a scale value, so it
+/// cannot preserve the content beneath the midpoint of the user's fingers.
+/// This bridge observes a UIKit pinch at the window level, without blocking
+/// the gallery's paging, tapping, or AVPlayer controls.
+struct LocationAwarePinchEvent {
+    let state: UIGestureRecognizer.State
+    let magnification: CGFloat
+    /// Location and size in the media preview's local coordinate space.
+    let location: CGPoint
+    let viewportSize: CGSize
+}
+
+enum LocationAwareZoomMath {
+    /// The media-space point currently displayed beneath a viewport-space
+    /// location. Both points are expressed relative to the media center.
+    static func contentPoint(
+        under location: CGPoint,
+        scale: CGFloat,
+        offset: CGSize
+    ) -> CGPoint {
+        let safeScale = max(scale, 0.001)
+        return CGPoint(
+            x: (location.x - offset.width) / safeScale,
+            y: (location.y - offset.height) / safeScale
+        )
+    }
+
+    /// Offset needed to keep `contentPoint` beneath `location` at `scale`.
+    static func offset(
+        keeping contentPoint: CGPoint,
+        under location: CGPoint,
+        scale: CGFloat
+    ) -> CGSize {
+        CGSize(
+            width: location.x - contentPoint.x * scale,
+            height: location.y - contentPoint.y * scale
+        )
     }
 }
 
+struct LocationAwarePinchGesture: UIViewRepresentable {
+    let isEnabled: Bool
+    let onEvent: (LocationAwarePinchEvent) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isEnabled: isEnabled, onEvent: onEvent)
+    }
+
+    func makeUIView(context: Context) -> AttachmentView {
+        let view = AttachmentView()
+        view.isUserInteractionEnabled = false
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: AttachmentView, context: Context) {
+        context.coordinator.update(isEnabled: isEnabled, onEvent: onEvent)
+        context.coordinator.attach(to: uiView.window, coordinateView: uiView)
+    }
+
+    static func dismantleUIView(_ uiView: AttachmentView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class AttachmentView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            coordinator?.attach(to: window, coordinateView: self)
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var attachedWindow: UIWindow?
+        private weak var coordinateView: UIView?
+        private var eventHandler: (LocationAwarePinchEvent) -> Void
+        private lazy var recognizer: UIPinchGestureRecognizer = {
+            let recognizer = PreviewPinchGestureRecognizer(
+                target: self,
+                action: #selector(handlePinch(_:))
+            )
+            recognizer.delegate = self
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesBegan = false
+            recognizer.delaysTouchesEnded = false
+            return recognizer
+        }()
+
+        init(
+            isEnabled: Bool,
+            onEvent: @escaping (LocationAwarePinchEvent) -> Void
+        ) {
+            self.eventHandler = onEvent
+            super.init()
+            recognizer.isEnabled = isEnabled
+        }
+
+        func update(
+            isEnabled: Bool,
+            onEvent: @escaping (LocationAwarePinchEvent) -> Void
+        ) {
+            eventHandler = onEvent
+            if recognizer.isEnabled != isEnabled {
+                recognizer.isEnabled = isEnabled
+            }
+        }
+
+        func attach(to window: UIWindow?, coordinateView: UIView) {
+            guard attachedWindow !== window || self.coordinateView !== coordinateView else {
+                return
+            }
+            detach()
+            attachedWindow = window
+            self.coordinateView = coordinateView
+            window?.addGestureRecognizer(recognizer)
+        }
+
+        func detach() {
+            attachedWindow?.removeGestureRecognizer(recognizer)
+            attachedWindow = nil
+            coordinateView = nil
+        }
+
+        @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            guard recognizer.isEnabled, let coordinateView else { return }
+            eventHandler(
+                LocationAwarePinchEvent(
+                    state: recognizer.state,
+                    magnification: recognizer.scale,
+                    location: recognizer.location(in: coordinateView),
+                    viewportSize: coordinateView.bounds.size
+                )
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            // A two-finger zoom owns the touch sequence. In particular it must
+            // not run alongside UIPageViewController's pan recognizer or the
+            // vertical-dismiss drag; doing so lets a pinch move to another page
+            // and leaves a stale verticalDrag behind.
+            !(otherGestureRecognizer is UIPinchGestureRecognizer)
+                && !(otherGestureRecognizer is UIPanGestureRecognizer)
+        }
+    }
+
+    /// When AVKit installs its own pinch recognizer, make the preview's
+    /// location-aware recognizer authoritative instead of applying both zooms.
+    private final class PreviewPinchGestureRecognizer: UIPinchGestureRecognizer {
+        override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if preventedGestureRecognizer is UIPinchGestureRecognizer
+                || preventedGestureRecognizer is UIPanGestureRecognizer {
+                return true
+            }
+            return super.canPrevent(preventedGestureRecognizer)
+        }
+
+        override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if preventingGestureRecognizer is UIPinchGestureRecognizer
+                || preventingGestureRecognizer is UIPanGestureRecognizer {
+                return false
+            }
+            return super.canBePrevented(by: preventingGestureRecognizer)
+        }
+    }
+}
+
+// MARK: - Direction-locked pull-to-dismiss support
+
+struct DirectionLockedDismissEvent {
+    let state: UIGestureRecognizer.State
+    let translation: CGPoint
+    let velocity: CGPoint
+}
+
+enum GalleryVerticalDismissMath {
+    /// Do not move the image for tiny finger tremors. This also gives the
+    /// direction arbiter enough travel to distinguish a page swipe from a
+    /// pull-to-dismiss before anything visible changes.
+    static let visualDeadZone: CGFloat = 18
+    static let distanceThreshold: CGFloat = 72
+    static let minimumFlickDistance: CGFloat = 28
+    static let flickVelocityThreshold: CGFloat = 900
+
+    static func visualTranslation(for rawTranslation: CGFloat) -> CGFloat {
+        let magnitude = abs(rawTranslation)
+        guard magnitude > visualDeadZone else { return 0 }
+        let visibleMagnitude = magnitude - visualDeadZone
+        return rawTranslation >= 0 ? visibleMagnitude : -visibleMagnitude
+    }
+
+    static func shouldDismiss(translation: CGFloat, velocity: CGFloat) -> Bool {
+        let distance = abs(translation)
+        return distance >= distanceThreshold
+            || (distance >= minimumFlickDistance && abs(velocity) >= flickVelocityThreshold)
+    }
+}
+
+/// A window-level one-finger pan that arbitrates direction before either the
+/// gallery or UIPageViewController moves. Vertical intent owns the sequence;
+/// horizontal intent fails immediately and leaves paging untouched.
+struct DirectionLockedDismissGesture: UIViewRepresentable {
+    let isEnabled: Bool
+    let onEvent: (DirectionLockedDismissEvent) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isEnabled: isEnabled, onEvent: onEvent)
+    }
+
+    func makeUIView(context: Context) -> AttachmentView {
+        let view = AttachmentView()
+        view.isUserInteractionEnabled = false
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: AttachmentView, context: Context) {
+        context.coordinator.update(isEnabled: isEnabled, onEvent: onEvent)
+        context.coordinator.attach(to: uiView.window, coordinateView: uiView)
+    }
+
+    static func dismantleUIView(_ uiView: AttachmentView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class AttachmentView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            coordinator?.attach(to: window, coordinateView: self)
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var attachedWindow: UIWindow?
+        private weak var coordinateView: UIView?
+        private var eventHandler: (DirectionLockedDismissEvent) -> Void
+        private lazy var recognizer: UIPanGestureRecognizer = {
+            let recognizer = PreviewVerticalPanGestureRecognizer(
+                target: self,
+                action: #selector(handlePan(_:))
+            )
+            recognizer.delegate = self
+            recognizer.minimumNumberOfTouches = 1
+            recognizer.maximumNumberOfTouches = 1
+            recognizer.cancelsTouchesInView = true
+            recognizer.delaysTouchesBegan = false
+            recognizer.delaysTouchesEnded = false
+            return recognizer
+        }()
+
+        init(
+            isEnabled: Bool,
+            onEvent: @escaping (DirectionLockedDismissEvent) -> Void
+        ) {
+            self.eventHandler = onEvent
+            super.init()
+            recognizer.isEnabled = isEnabled
+        }
+
+        func update(
+            isEnabled: Bool,
+            onEvent: @escaping (DirectionLockedDismissEvent) -> Void
+        ) {
+            eventHandler = onEvent
+            if recognizer.isEnabled != isEnabled {
+                recognizer.isEnabled = isEnabled
+            }
+        }
+
+        func attach(to window: UIWindow?, coordinateView: UIView) {
+            guard attachedWindow !== window || self.coordinateView !== coordinateView else { return }
+            detach()
+            attachedWindow = window
+            self.coordinateView = coordinateView
+            window?.addGestureRecognizer(recognizer)
+        }
+
+        func detach() {
+            recognizer.isEnabled = false
+            attachedWindow?.removeGestureRecognizer(recognizer)
+            attachedWindow = nil
+            coordinateView = nil
+        }
+
+        @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            guard recognizer.isEnabled, let coordinateView else { return }
+            eventHandler(
+                DirectionLockedDismissEvent(
+                    state: recognizer.state,
+                    translation: recognizer.translation(in: coordinateView),
+                    velocity: recognizer.velocity(in: coordinateView)
+                )
+            )
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer,
+                  let coordinateView else { return false }
+            let velocity = pan.velocity(in: coordinateView)
+            // A modest vertical bias prevents diagonal pulls from nudging the
+            // adjacent page. Near-45-degree input intentionally remains a page
+            // swipe because the user's direction is ambiguous.
+            return abs(velocity.y) > abs(velocity.x) * 1.12
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            false
+        }
+
+    }
+
+    private final class PreviewVerticalPanGestureRecognizer: UIPanGestureRecognizer {
+        override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if preventedGestureRecognizer is UIPinchGestureRecognizer {
+                return false
+            }
+            if preventedGestureRecognizer is UIPanGestureRecognizer {
+                return true
+            }
+            return super.canPrevent(preventedGestureRecognizer)
+        }
+
+        override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+            if preventingGestureRecognizer is UIPinchGestureRecognizer {
+                return true
+            }
+            if preventingGestureRecognizer is UIPanGestureRecognizer {
+                return false
+            }
+            return super.canBePrevented(by: preventingGestureRecognizer)
+        }
+    }
+}
+
+// MARK: - Debug logging (remove after diagnosing open/close jitter + lag)
+
+enum GalleryDbg {
+    /// Keep call sites lightweight in case gallery diagnostics are needed
+    /// again, but never print during interactive transitions. Console I/O in a
+    /// Debug build can otherwise block frames while opening, paging or closing.
+    static func log(_ tag: String, _ fields: String = "") {}
+}
+
 // MARK: - Shared state so overlay can live at root level (above tab bar)
+
+enum ImageGallerySourceContentMode: Equatable {
+    case fit
+    case fill
+}
 
 @MainActor
 class ImageGalleryState: ObservableObject {
@@ -33,6 +379,13 @@ class ImageGalleryState: ObservableObject {
     /// hero animation. `.zero` means callers didn't provide a frame —
     /// GalleryContent then falls back to a center scale-in.
     @Published var sourceFrame: CGRect = .zero
+    /// Stable identity of the tapped thumbnail. Unlike view-local state this
+    /// survives LazyVGrid cell reconstruction while the gallery is presented.
+    @Published var activeSourceID: String?
+    /// Chat bubbles use aspect-fit thumbnails, while Moments uses square
+    /// aspect-fill crops. The hero needs to know which endpoint to reproduce.
+    @Published var sourceContentMode: ImageGallerySourceContentMode = .fit
+    @Published var sourceCornerRadius: CGFloat = 14
 
     /// Optional loader invoked when the gallery's current index approaches
     /// the leftmost image (oldest). The loader should fetch more older
@@ -47,15 +400,32 @@ class ImageGalleryState: ObservableObject {
         urls: [String],
         index: Int,
         sourceFrame: CGRect = .zero,
+        sourceContentMode: ImageGallerySourceContentMode = .fit,
+        sourceCornerRadius: CGFloat = 14,
         loadMoreOlder: (() async -> Int)? = nil
     ) {
         GalleryDbg.log("show()", "src=\(sourceFrame)")
-        imageURLs = urls
-        initialIndex = index
+        let requestedURL = urls.indices.contains(index) ? urls[index] : urls.first
+        var seen = Set<String>()
+        imageURLs = urls.filter { seen.insert($0).inserted }
+        initialIndex = requestedURL.flatMap(imageURLs.firstIndex(of:)) ?? 0
         self.sourceFrame = sourceFrame
+        self.sourceContentMode = sourceContentMode
+        self.sourceCornerRadius = sourceCornerRadius
         self.loadMoreOlder = loadMoreOlder
         openToken &+= 1
         isPresented = true
+    }
+
+    /// Prepending by stable URL keeps existing pages alive and avoids decoding
+    /// them again when older history is loaded in the gallery.
+    @discardableResult
+    func prependUnique(_ urls: some Sequence<String>) -> Int {
+        var seen = Set(imageURLs)
+        let additions = urls.filter { seen.insert($0).inserted }
+        guard !additions.isEmpty else { return 0 }
+        imageURLs.insert(contentsOf: additions, at: 0)
+        return additions.count
     }
 
     /// Call instead of setting isPresented = false directly so the
@@ -64,6 +434,7 @@ class ImageGalleryState: ObservableObject {
     func dismiss() {
         GalleryDbg.log("state.dismiss()")
         isPresented = false
+        activeSourceID = nil
         loadMoreOlder = nil
     }
 }
@@ -75,17 +446,37 @@ class ImageGalleryState: ObservableObject {
 // so the full-screen gallery animates from that exact position.
 
 extension View {
-    func onTapCaptureFrame(perform action: @escaping (CGRect) -> Void) -> some View {
-        modifier(OnTapCaptureFrameModifier(action: action))
+    func onTapCaptureFrame(
+        sourceID: String? = nil,
+        perform action: @escaping (CGRect) -> Void
+    ) -> some View {
+        modifier(OnTapCaptureFrameModifier(sourceID: sourceID, action: action))
     }
 }
 
 private struct OnTapCaptureFrameModifier: ViewModifier {
+    let sourceID: String?
     let action: (CGRect) -> Void
+    @ObservedObject private var galleryState = ImageGalleryState.shared
     @State private var frame: CGRect = .zero
+    @State private var ownsActiveSource = false
+
+    private var shouldHideSource: Bool {
+        guard galleryState.isPresented else { return false }
+        if let sourceID {
+            return galleryState.activeSourceID == sourceID
+        }
+        return ownsActiveSource
+    }
 
     func body(content: Content) -> some View {
         content
+            // A shared-element transition must not draw the source thumbnail
+            // and the flying hero at the same time. Keeping the tapped source
+            // hidden until the overlay is removed eliminates the duplicate
+            // image/ghosting that was visible while the black backdrop faded.
+            // Opacity preserves layout and GeometryReader updates while hidden.
+            .opacity(shouldHideSource ? 0 : 1)
             .background(
                 GeometryReader { geo in
                     Color.clear
@@ -95,7 +486,30 @@ private struct OnTapCaptureFrameModifier: ViewModifier {
                         }
                 }
             )
-            .onTapGesture { action(frame) }
+            .onTapGesture {
+                ownsActiveSource = true
+                if let sourceID {
+                    galleryState.activeSourceID = sourceID
+                }
+                action(frame)
+
+                // Some callers may reject the tap (for example while a
+                // context menu owns the touch). Do not leave that view marked
+                // as the source of a future, unrelated gallery presentation.
+                DispatchQueue.main.async {
+                    if !galleryState.isPresented {
+                        ownsActiveSource = false
+                        if galleryState.activeSourceID == sourceID {
+                            galleryState.activeSourceID = nil
+                        }
+                    }
+                }
+            }
+            .onChange(of: galleryState.isPresented) { isPresented in
+                if !isPresented {
+                    ownsActiveSource = false
+                }
+            }
     }
 }
 
@@ -148,7 +562,15 @@ private struct GalleryContent: View {
     @State private var lastScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
+    @State private var isPinching: Bool = false
+    @State private var pinchStartScale: CGFloat = 1.0
+    @State private var pinchContentPoint: CGPoint = .zero
+    /// Selection captured when a pinch starts. It remains locked for the
+    /// entire zoom session so an in-flight UIPageViewController pan cannot
+    /// commit a page and reset the zoom underneath the user's fingers.
+    @State private var pinchLockedIndex: Int?
     @State private var verticalDrag: CGFloat = 0
+    @State private var isDismissing: Bool = false
     @State private var isLoadingMore: Bool = false
     /// Once the loader returns 0 added, stop retrying so we don't
     /// hammer the backend while the user sits at the first image.
@@ -212,7 +634,13 @@ private struct GalleryContent: View {
         // UIScreen gives a synchronous, stable size with no first-frame race.
         let screen = UIScreen.main.bounds.size
         let src = state.sourceFrame
-        let hasSrc = src.width > 1 && src.height > 1
+        // The captured frame belongs to the image that opened the gallery.
+        // After a normal page change we no longer know the on-screen frame of
+        // the new thumbnail, so a center fade is safer than flying it into the
+        // wrong grid cell.
+        let hasSrc = src.width > 1
+            && src.height > 1
+            && currentIndex == state.initialIndex
         let currentURL = currentIndex >= 0 && currentIndex < state.imageURLs.count
             ? state.imageURLs[currentIndex]
             : (state.imageURLs.first ?? "")
@@ -234,17 +662,9 @@ private struct GalleryContent: View {
         }
         let targetRect = Self.fitRect(aspect: imgAspect, in: screen)
 
-        // Hero's REST rect is the image's actual displayed rect inside the
-        // source bubble — NOT the bubble container's rect. The captured
-        // sourceFrame is the bubble (aspect ~0.77), but the image inside is
-        // aspect-fitted with its own aspect; if the two differ, the bubble
-        // has transparent letterbox around the image. Starting the hero at
-        // the bubble's rect means the hero's interior letterbox (40pt on
-        // each side for a tall portrait in a square-ish bubble) would
-        // animate away at the same time the rect is translating — users
-        // read that as "enlarges, then shrinks to target". Instead, start
-        // at the image's real rect inside the bubble: hero and chat image
-        // overlap exactly at t=0, no letterbox at any frame.
+        // Aspect-fit sources (chat bubbles) end at the actual letterboxed image
+        // rect. Aspect-fill sources (Moments cells) keep the captured square as
+        // their mask and scale the image far enough to cover it.
         let srcRect: CGRect
         if hasSrc {
             let fit = Self.fitRect(aspect: imgAspect, in: CGSize(width: src.width, height: src.height))
@@ -275,21 +695,26 @@ private struct GalleryContent: View {
         // - At appeared=true: scale = the user's pinch zoom (default 1),
         //   offset = the user's pan (default 0). At rest this is identity,
         //   matching targetRect on screen.
-        // - At appeared=false: scale = srcRect.width / targetRect.width
-        //   (uniform — both rects share imgAspect, so width and height
-        //   ratios match), offset translates the centered targetRect to
-        //   srcRect's center.
+        // - At appeared=false: aspect-fit uses the fitted source rect; aspect-
+        //   fill scales until it covers the source frame and an animated mask
+        //   reproduces the square crop used by Moments.
         //
         // Because both endpoints reduce to scale + translate, ONE
         // withAnimation can interpolate them. dismissByTap can change
         // scale/offset/appeared all together and the hero glides from
         // "zoomed visual" straight to "thumbnail rect" in one continuous
         // GPU-driven motion.
-        let restScale: CGFloat = targetRect.width > 0
-            ? srcRect.width / targetRect.width
-            : 1
-        let restOffsetX: CGFloat = srcRect.midX - targetRect.midX
-        let restOffsetY: CGFloat = srcRect.midY - targetRect.midY
+        let restScale: CGFloat
+        let sourceMaskRect: CGRect
+        if state.sourceContentMode == .fill, targetRect.width > 0, targetRect.height > 0 {
+            restScale = max(src.width / targetRect.width, src.height / targetRect.height)
+            sourceMaskRect = src
+        } else {
+            restScale = targetRect.width > 0 ? srcRect.width / targetRect.width : 1
+            sourceMaskRect = srcRect
+        }
+        let restOffsetX: CGFloat = sourceMaskRect.midX - targetRect.midX
+        let restOffsetY: CGFloat = sourceMaskRect.midY - targetRect.midY
 
         let baseScale: CGFloat = appeared ? scale : restScale
         let baseOffsetX: CGFloat = appeared ? offset.width : restOffsetX
@@ -298,6 +723,10 @@ private struct GalleryContent: View {
         let heroScale = baseScale * dragDismissScale
         let heroOffsetX = baseOffsetX
         let heroOffsetY = baseOffsetY + verticalDrag
+        let heroMaskRect = appeared
+            ? CGRect(origin: .zero, size: screen)
+            : sourceMaskRect
+        let heroMaskCornerRadius = appeared ? 0 : state.sourceCornerRadius
 
         return ZStack {
                 Color.black
@@ -313,15 +742,18 @@ private struct GalleryContent: View {
                 // and its image renders at a fixed imageRect, so its internal
                 // layout is stable even while hidden behind the hero.
                 TabView(selection: $currentIndex) {
-                    ForEach(Array(state.imageURLs.enumerated()), id: \.offset) { index, url in
+                    ForEach(Array(state.imageURLs.enumerated()), id: \.element) { index, url in
                         ZoomableImagePage(
                             imageURL: url,
                             imageRect: targetRect,
                             screenSize: screen,
                             scale: index == currentIndex ? $scale : .constant(1),
-                            lastScale: index == currentIndex ? $lastScale : .constant(1),
                             offset: index == currentIndex ? $offset : .constant(.zero),
                             lastOffset: index == currentIndex ? $lastOffset : .constant(.zero),
+                            isPinching: index == currentIndex && isPinching,
+                            dismissTranslation: index == currentIndex ? verticalDrag : 0,
+                            dismissScale: index == currentIndex ? dragDismissScale : 1,
+                            shouldLoadFullResolution: abs(index - currentIndex) <= 1,
                             onSingleTap: { dismissByTap() },
                             onDoubleTap: { centerDelta in doubleTap(at: centerDelta) }
                         )
@@ -347,18 +779,36 @@ private struct GalleryContent: View {
                 // .ignoresSafeArea() on the TabView itself eliminates the
                 // inset so both views share one coord system.
                 .ignoresSafeArea()
-                .offset(y: verticalDrag)
-                .scaleEffect(dragDismissScale)
-                .scrollDisabled(verticalDrag != 0)
-                .simultaneousGesture(verticalDismissGesture)
+                .frame(width: screen.width, height: screen.height)
+                // Page scrolling and zoomed-image panning are mutually
+                // exclusive. Without the scale condition, both the image drag
+                // and UIPageViewController pan consume the same movement.
+                .scrollDisabled(
+                    isPinching
+                        || pinchLockedIndex != nil
+                        || scale > 1.05
+                )
                 .onChange(of: currentIndex) { newIndex in
+                    if let lockedIndex = pinchLockedIndex {
+                        if newIndex != lockedIndex {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                currentIndex = lockedIndex
+                            }
+                        }
+                        return
+                    }
                     resetZoom()
                     if newIndex <= 1, !isLoadingMore, !reachedEnd, state.loadMoreOlder != nil {
                         Task { await loadMoreIfNeeded() }
                     }
                 }
-                .opacity(inHeroPhase ? 0 : 1)
-                .allowsHitTesting(!inHeroPhase)
+                .opacity(inHeroPhase || (!hasSrc && !appeared) ? 0 : 1)
+                // The window-level pinch recognizer remains active. Removing
+                // hit testing here immediately cancels any page pan that began
+                // on the first finger before the second finger touched down.
+                .allowsHitTesting(!inHeroPhase && !isPinching)
 
                 // Hero image — rendered at heroRect (src→targetRect animated).
                 // Since targetRect is a screen-aspect-fit of src's aspect, the
@@ -380,13 +830,24 @@ private struct GalleryContent: View {
                     // transform is a single CGAffineTransform interpolation
                     // and there's nothing for the layers to drift relative
                     // to each other.
-                    HeroImageView(url: currentURL)
-                        .frame(width: targetRect.width, height: targetRect.height)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .compositingGroup()
-                        .scaleEffect(heroScale, anchor: .center)
-                        .offset(x: heroOffsetX, y: heroOffsetY)
-                        .position(x: targetRect.midX, y: targetRect.midY)
+                    ZStack {
+                        HeroImageView(url: currentURL)
+                            .frame(width: targetRect.width, height: targetRect.height)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .compositingGroup()
+                            .scaleEffect(heroScale, anchor: .center)
+                            .offset(x: heroOffsetX, y: heroOffsetY)
+                            .position(x: targetRect.midX, y: targetRect.midY)
+                    }
+                        .frame(width: screen.width, height: screen.height)
+                        .mask {
+                            RoundedRectangle(
+                                cornerRadius: heroMaskCornerRadius,
+                                style: .continuous
+                            )
+                            .frame(width: heroMaskRect.width, height: heroMaskRect.height)
+                            .position(x: heroMaskRect.midX, y: heroMaskRect.midY)
+                        }
                         .opacity(inHeroPhase ? 1 : 0)
                         .allowsHitTesting(false)
                         .onAppear {
@@ -410,6 +871,26 @@ private struct GalleryContent: View {
             }
         }
         .ignoresSafeArea()
+        .background {
+            ZStack {
+                LocationAwarePinchGesture(
+                    isEnabled: appeared && !inHeroPhase,
+                    onEvent: { event in
+                        handlePinch(event)
+                    }
+                )
+                DirectionLockedDismissGesture(
+                    isEnabled: appeared
+                        && !inHeroPhase
+                        && !isDismissing
+                        && !isPinching
+                        && scale <= 1.05,
+                    onEvent: { event in
+                        handleVerticalDismiss(event)
+                    }
+                )
+            }
+        }
         .onAppear {
             GalleryDbg.log("onAppear", "inHeroPhase=\(inHeroPhase)")
             // Defer the animation start until AFTER SwiftUI has rendered
@@ -466,55 +947,67 @@ private struct GalleryContent: View {
         return max(1.0 - drag / 900, 0.55)
     }
 
-    // MARK: - Dismiss gesture (on the TabView, simultaneous with paging)
+    // MARK: - Direction-locked dismiss gesture
 
-    private var verticalDismissGesture: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                // Gate inside the callback. If we're zoomed in, the pan
-                // gesture on the Image is the one that should track the
-                // finger — do not drive dismiss state.
-                guard scale <= 1.05 else { return }
-                let h = value.translation.height
-                let w = value.translation.width
-                // Require a clearly-vertical drag (≥45° off horizontal)
-                // before we shift the image. A looser angle check made
-                // the gallery jitter up-and-down when the user was
-                // actually trying to swipe left/right between images —
-                // even a tiny vertical wobble in a horizontal swipe kept
-                // updating verticalDrag. If the drag is horizontal-
-                // dominant, do not update — UIPageViewController's page
-                // recognizer handles the paging.
-                if abs(h) > abs(w) {
-                    verticalDrag = h
-                }
+    private func handleVerticalDismiss(_ event: DirectionLockedDismissEvent) {
+        guard scale <= 1.05, !isPinching, !isDismissing else { return }
+
+        switch event.state {
+        case .began:
+            // Start from a deterministic resting point. The dead zone below
+            // keeps this state change visually inert.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                verticalDrag = 0
             }
-            .onEnded { value in
-                guard scale <= 1.05 else { return }
-                let h = abs(value.translation.height)
-                let w = abs(value.translation.width)
-                let predictedH = abs(value.predictedEndTranslation.height)
-                // Lower thresholds to match WeChat's touch: ~60pt drag or a
-                // confident flick commits dismiss. Previous 110/450 made
-                // users drag the photo nearly halfway down the screen.
-                if h > w && (h > 60 || predictedH > 250) {
-                    dismissBySwipe(direction: value.translation.height)
-                } else if verticalDrag != 0 {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        verticalDrag = 0
-                    }
-                }
+
+        case .changed:
+            verticalDrag = GalleryVerticalDismissMath.visualTranslation(
+                for: event.translation.y
+            )
+
+        case .ended:
+            if GalleryVerticalDismissMath.shouldDismiss(
+                translation: event.translation.y,
+                velocity: event.velocity.y
+            ) {
+                let direction = event.translation.y != 0
+                    ? event.translation.y
+                    : event.velocity.y
+                dismissBySwipe(direction: direction)
+            } else {
+                settleVerticalDrag()
             }
+
+        case .cancelled, .failed:
+            settleVerticalDrag()
+
+        default:
+            break
+        }
     }
 
-    /// Tap-to-dismiss. Hero image is already mounted at full-screen
-    /// (underneath the opaque TabView), so we just toggle `inHeroPhase`
-    /// to reveal it AND start the shrink animation in the same frame.
-    /// No async dispatch — removes the one-tick lag that users felt as
-    /// a slow response.
+    private func settleVerticalDrag() {
+        guard verticalDrag != 0 else { return }
+        // A monotonic curve cannot overshoot above/below the resting point;
+        // the previous spring was the visible "up/down jump" after a small
+        // pull that did not meet the dismiss threshold.
+        withAnimation(.easeOut(duration: 0.16)) {
+            verticalDrag = 0
+        }
+    }
+
+    /// Tap-to-dismiss. Hero image is already mounted at full-screen beneath
+    /// the opaque TabView. Reveal it without animation, commit that handoff,
+    /// then animate the hero back to the source thumbnail.
     private func dismissByTap() {
         GalleryDbg.log("dismissByTap()")
-        let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
+        guard !isDismissing else { return }
+        isDismissing = true
+        let hasSrc = state.sourceFrame.width > 1
+            && state.sourceFrame.height > 1
+            && currentIndex == state.initialIndex
         if hasSrc {
             // Single-phase dismiss. The hero's transform (scaleEffect +
             // offset) now uses the user's current scale/offset directly
@@ -525,24 +1018,28 @@ private struct GalleryContent: View {
             // → false together: the hero glides from "zoomed visual"
             // straight to "thumbnail rect" via a pure CALayer transform
             // animation. No layout passes, no two-phase stutter.
-            inHeroPhase = true
-            GalleryDbg.log("  inHeroPhase=true, single-phase easeOut")
-            // No DispatchQueue.main.async defer here — the original reason
-            // for it (avoid SwiftUI batching mount + animation in one
-            // transaction → visible overshoot) was about .frame/.position
-            // animations. With pure CALayer transform animations there's
-            // no layout commit to fight, so we can fire the withAnimation
-            // immediately and shave one frame (~16ms) off the perceived
-            // latency. Combined with the shorter 0.16s curve, dismiss now
-            // starts moving inside one frame of the tap.
-            withAnimation(.easeOut(duration: 0.16)) {
-                scale = 1; lastScale = 1
-                offset = .zero; lastOffset = .zero
-                appeared = false
+            var handoffTransaction = Transaction()
+            handoffTransaction.disablesAnimations = true
+            withTransaction(handoffTransaction) {
+                inHeroPhase = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
-                GalleryDbg.log("  onDismiss() (post-animation)")
-                onDismiss()
+            GalleryDbg.log("  inHeroPhase=true, arm hero before dismiss")
+
+            // Commit one stable full-screen hero frame before changing its
+            // transform. Without this handoff frame SwiftUI can coalesce the
+            // visibility swap and the shrink transaction, producing the small
+            // jump seen at the beginning of every cancellation in the video.
+            DispatchQueue.main.async {
+                let duration = 0.24
+                withAnimation(.easeInOut(duration: duration)) {
+                    scale = 1; lastScale = 1
+                    offset = .zero; lastOffset = .zero
+                    appeared = false
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.01) {
+                    GalleryDbg.log("  onDismiss() (post-animation)")
+                    onDismiss()
+                }
             }
         } else {
             // No source frame — old behavior: fade + shrink in place.
@@ -563,7 +1060,11 @@ private struct GalleryContent: View {
     /// animate the hero back to the source thumbnail frame. If no source
     /// frame was supplied, fall back to the old slide-off-bottom style.
     private func dismissBySwipe(direction: CGFloat) {
-        let hasSrc = state.sourceFrame.width > 1 && state.sourceFrame.height > 1
+        guard !isDismissing else { return }
+        isDismissing = true
+        let hasSrc = state.sourceFrame.width > 1
+            && state.sourceFrame.height > 1
+            && currentIndex == state.initialIndex
         if hasSrc {
             scale = 1; lastScale = 1
             offset = .zero; lastOffset = .zero
@@ -606,8 +1107,78 @@ private struct GalleryContent: View {
     }
 
     private func resetZoom() {
+        isPinching = false
+        pinchLockedIndex = nil
         scale = 1; lastScale = 1
         offset = .zero; lastOffset = .zero
+    }
+
+    /// UIKit's pinch recognizer supplies the two-finger midpoint that the
+    /// iOS 16 SwiftUI MagnificationGesture omits. Convert that midpoint into
+    /// a stable point in the unscaled media, then continuously adjust offset
+    /// so the same image pixel remains beneath the moving midpoint.
+    private func handlePinch(_ event: LocationAwarePinchEvent) {
+        let viewportCenter = CGPoint(
+            x: event.viewportSize.width / 2,
+            y: event.viewportSize.height / 2
+        )
+        let locationFromCenter = CGPoint(
+            x: event.location.x - viewportCenter.x,
+            y: event.location.y - viewportCenter.y
+        )
+
+        switch event.state {
+        case .began:
+            isPinching = true
+            pinchLockedIndex = currentIndex
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                verticalDrag = 0
+            }
+            pinchStartScale = max(scale, 0.001)
+            pinchContentPoint = LocationAwareZoomMath.contentPoint(
+                under: locationFromCenter,
+                scale: pinchStartScale,
+                offset: offset
+            )
+
+        case .changed:
+            guard isPinching else { return }
+            let newScale = min(max(pinchStartScale * event.magnification, 0.5), 5)
+            scale = newScale
+            offset = LocationAwareZoomMath.offset(
+                keeping: pinchContentPoint,
+                under: locationFromCenter,
+                scale: newScale
+            )
+
+        case .ended, .cancelled, .failed:
+            guard isPinching else { return }
+            isPinching = false
+            if scale <= 1.05 {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    scale = 1
+                    offset = .zero
+                    lastScale = 1
+                    lastOffset = .zero
+                }
+                let lockedIndex = pinchLockedIndex
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    if !isPinching, pinchLockedIndex == lockedIndex {
+                        pinchLockedIndex = nil
+                    }
+                }
+            } else {
+                // Keep paging locked until zoom returns to 1 (usually by a
+                // double tap or a subsequent pinch-out).
+                lastScale = scale
+                lastOffset = offset
+            }
+
+        default:
+            break
+        }
     }
 
     /// Double-tap zoom. `centerDelta` is the tap point expressed as an
@@ -643,9 +1214,18 @@ private struct ZoomableImagePage: View {
     /// doesn't fall back to GeometryReader's size report.
     let screenSize: CGSize
     @Binding var scale: CGFloat
-    @Binding var lastScale: CGFloat
     @Binding var offset: CGSize
     @Binding var lastOffset: CGSize
+    let isPinching: Bool
+    /// Dismiss motion is rendered inside the page. The TabView itself must
+    /// remain completely stationary, otherwise its UICollectionView is
+    /// re-laid out on every animation frame and visibly jumps during rebound.
+    let dismissTranslation: CGFloat
+    let dismissScale: CGFloat
+    /// Only the visible page and its immediate neighbors decode the original.
+    /// The previous implementation started full-resolution work for the whole
+    /// chat history as soon as the gallery opened.
+    let shouldLoadFullResolution: Bool
     var onSingleTap: () -> Void
     /// Receives the double-tap location as a delta from the image view's
     /// center. GalleryContent uses it for zoom-from-tap-point.
@@ -664,9 +1244,12 @@ private struct ZoomableImagePage: View {
         imageRect: CGRect,
         screenSize: CGSize,
         scale: Binding<CGFloat>,
-        lastScale: Binding<CGFloat>,
         offset: Binding<CGSize>,
         lastOffset: Binding<CGSize>,
+        isPinching: Bool,
+        dismissTranslation: CGFloat,
+        dismissScale: CGFloat,
+        shouldLoadFullResolution: Bool,
         onSingleTap: @escaping () -> Void,
         onDoubleTap: @escaping (CGPoint) -> Void
     ) {
@@ -674,9 +1257,12 @@ private struct ZoomableImagePage: View {
         self.imageRect = imageRect
         self.screenSize = screenSize
         self._scale = scale
-        self._lastScale = lastScale
         self._offset = offset
         self._lastOffset = lastOffset
+        self.isPinching = isPinching
+        self.dismissTranslation = dismissTranslation
+        self.dismissScale = dismissScale
+        self.shouldLoadFullResolution = shouldLoadFullResolution
         self.onSingleTap = onSingleTap
         self.onDoubleTap = onDoubleTap
 
@@ -689,15 +1275,30 @@ private struct ZoomableImagePage: View {
     }
 
     var body: some View {
-        // Use a GeometryReader to log the ACTUAL frame TabView gives us, in
-        // global screen coords. If TabView (.page) is still applying a safe-
-        // area inset to its child despite our .ignoresSafeArea(), the global
-        // origin will be (0, top_inset) instead of (0, 0) — that's the
-        // signature of the bug.
+        // Keep this GeometryReader inside the page's valid layout bounds.
+        // Expanding a TabView child with ignoresSafeArea makes the item taller
+        // than its UICollectionView after adjustedContentInset; UIKit then
+        // reports an undefined flow layout and the page bounces between
+        // competing heights during the dismiss animation.
         GeometryReader { geo in
             let globalFrame = geo.frame(in: .global)
+            // Keep the horizontal position in PAGE-local coordinates. During
+            // an interactive page swipe `globalFrame.minX` continuously moves;
+            // subtracting it here cancels the pager's movement and pins every
+            // page image to the screen centre, so the content appears to switch
+            // instantly instead of sliding. Only the vertical coordinate needs
+            // global-to-local conversion for the pager's safe-area inset.
+            let mediaCenterInPage = CGPoint(
+                x: geo.size.width / 2,
+                y: screenSize.height / 2 - globalFrame.minY
+            )
             ZStack {
                 Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        GalleryDbg.log("background single-tap")
+                        onSingleTap()
+                    }
                     .onAppear {
                         GalleryDbg.log(
                             "ZoomableImagePage geom",
@@ -718,23 +1319,13 @@ private struct ZoomableImagePage: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .scaleEffect(scale, anchor: .center)
                     .offset(x: offset.width, y: offset.height)
-                    // Don't use .position(imageRect.midX, .midY) — those are
-                    // SCREEN coords, but .position is interpreted in this
-                    // view's parent coords. If the parent (TabView page) is
-                    // inset by the top safe area, the image lands top_inset
-                    // pixels too low, and the image is also clipped at the
-                    // page's bottom. Hand-off from the hero (which DOES use
-                    // screen coords) shows the visible image jumping down
-                    // and shrinking. ZStack auto-centering plus the outer
-                    // .ignoresSafeArea() below puts the image at the
-                    // GeometryReader's local center, which after ignoring
-                    // the inset coincides with the screen center where the
-                    // hero ends.
-                    .gesture(pinchGesture)
+                    .scaleEffect(dismissScale, anchor: .center)
+                    .offset(y: dismissTranslation)
+                    .position(mediaCenterInPage)
                     // Pan is attached ONLY while zoomed. At rest scale, no
                     // drag gesture on the image — UIPageViewController sees
                     // the touches and left/right paging works.
-                    .simultaneousGesture(scale > 1.05 ? panGesture : nil)
+                    .simultaneousGesture(scale > 1.05 && !isPinching ? panGesture : nil)
                     .simultaneousGesture(
                         SpatialTapGesture(count: 2)
                             .onEnded { event in
@@ -779,33 +1370,24 @@ private struct ZoomableImagePage: View {
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
         }  // GeometryReader
-        // Critical: extend BEYOND the safe area from inside the TabView page.
-        // .ignoresSafeArea() on the TabView itself didn't propagate to its
-        // UIPageViewController-managed children (the pages still got an
-        // inset frame). Adding it here, on the page content, expands the
-        // GeometryReader to the full screen and erases the inset that had
-        // been shifting the image down ~top_inset pixels relative to the
-        // hero's screen-coord rect.
-        .ignoresSafeArea()
-        .task(id: imageURL) {
-            if let loaded = await ImageCacheManager.shared.loadImage(from: imageURL) {
+        .task(id: shouldLoadFullResolution) {
+            let requestedURL = imageURL
+            if let cached = ImageCacheManager.shared.image(for: requestedURL) {
+                image = cached
+                isLoading = false
+                return
+            }
+            let thumbnail = ImageCacheManager.shared.image(for: requestedURL + "?thumb=1")
+            image = thumbnail
+            isLoading = thumbnail == nil && shouldLoadFullResolution
+            guard shouldLoadFullResolution else { return }
+            if let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL) {
+                guard !Task.isCancelled, requestedURL == imageURL else { return }
                 image = loaded
             }
+            guard requestedURL == imageURL else { return }
             isLoading = false
         }
-    }
-
-    private var pinchGesture: some Gesture {
-        MagnificationGesture()
-            .onChanged { value in
-                scale = max(lastScale * value, 0.5)
-            }
-            .onEnded { _ in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    if scale < 1 { scale = 1; offset = .zero; lastOffset = .zero }
-                }
-                lastScale = scale
-            }
     }
 
     /// Pan the zoomed image. Only attached while `scale > 1.05` so at
@@ -863,19 +1445,13 @@ private struct HeroImageView: View {
             }
         }
         .task(id: url) {
-            // Always load the full-resolution version, even when a low-res
-            // thumbnail was preLoaded synchronously. Otherwise the hero
-            // shows the chat-thumbnail (~160px wide) scaled up to fill the
-            // screen — visibly soft — and then at the hero→TabView swap
-            // the user sees a sudden "sharpen" because the TabView's
-            // ZoomableImagePage has been loading the full resolution in
-            // the background. With this load, the sharpen happens DURING
-            // the open animation (masked by the motion) and the hero→
-            // TabView swap is invisible — both views render the full
-            // resolution by then.
-            if let loaded = await ImageCacheManager.shared.loadImage(from: url) {
-                image = loaded
-            }
+            let requestedURL = url
+            image = ImageCacheManager.shared.image(for: requestedURL)
+                ?? ImageCacheManager.shared.image(for: requestedURL + "?thumb=1")
+            // Keep the visible transition texture stable. The page underneath
+            // loads the original concurrently; swapping a 2048px texture into
+            // this hero mid-transform forces a GPU upload during the animation
+            // and is more noticeable than sharpening after the handoff.
         }
     }
 }

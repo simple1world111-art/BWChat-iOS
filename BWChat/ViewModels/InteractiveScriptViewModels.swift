@@ -15,7 +15,9 @@ private enum ScriptCacheKeys {
     static func page(scope: ScriptScope, categoryID: String?) -> CacheKey? {
         CacheKey.current(
             namespace: "scripts",
-            key: "list-v2:\(scope.rawValue):\(categoryID ?? "all")"
+            // v3 intentionally drops legacy public snapshots that could contain
+            // placeholder covers while enabling cache reads for public scripts.
+            key: "list-v3:\(scope.rawValue):\(categoryID ?? "all")"
         )
     }
 }
@@ -39,8 +41,7 @@ final class ScriptCenterViewModel: ObservableObject {
            let cached: CachedSnapshot<[ScriptCategory]> = AppCacheRepository.shared.cachedValue(for: key) {
             categories = cached.value
         }
-        // Public scripts start from the current server response so a legacy
-        // cached placeholder cover can never flash before the first request.
+        restoreCachedPage(scope: scope, categoryID: selectedCategoryID, clearWhenMissing: false)
     }
 
     func loadInitial(force: Bool = false) async {
@@ -115,18 +116,11 @@ final class ScriptCenterViewModel: ObservableObject {
 
         do {
             let page: ScriptPage
-            if reset, requestedScope == .public {
-                page = try await APIService.shared.getScripts(
-                    scope: requestedScope,
-                    categoryID: requestedCategoryID,
-                    cursor: nil,
-                    limit: 20
-                )
-            } else if reset,
+            if reset,
                let key = ScriptCacheKeys.page(scope: requestedScope, categoryID: requestedCategoryID) {
                 page = try await AppCacheRepository.shared.loadValue(
                     key: key,
-                    policy: .list,
+                    policy: .scriptCatalog,
                     forceRefresh: forceRefresh
                 ) {
                     try await APIService.shared.getScripts(
@@ -207,7 +201,8 @@ final class ScriptCenterViewModel: ObservableObject {
         clearWhenMissing: Bool
     ) {
         guard let key = ScriptCacheKeys.page(scope: scope, categoryID: categoryID),
-              let cached: CachedSnapshot<ScriptPage> = AppCacheRepository.shared.cachedValue(for: key) else {
+              let cached: CachedSnapshot<ScriptPage> = AppCacheRepository.shared.cachedValue(for: key),
+              Date().timeIntervalSince(cached.expiresAt) <= CachePolicy.scriptCatalog.staleRetention else {
             if clearWhenMissing {
                 scripts = []
                 hasMore = false
@@ -225,7 +220,7 @@ final class ScriptCenterViewModel: ObservableObject {
         AppCacheRepository.shared.save(
             ScriptPage(scripts: scripts, hasMore: hasMore, nextCursor: nextCursor),
             for: key,
-            policy: .list
+            policy: .scriptCatalog
         )
     }
 }
@@ -283,6 +278,8 @@ final class ScriptDetailViewModel: ObservableObject {
                 playerRoleID: playerRoleID,
                 idempotencyKey: UUID().uuidString
             )
+            ScriptRoomLocalCache.saveRoom(result.room)
+            AgentCatalogLocalCache.invalidate()
             NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
             return result.room
         } catch {
@@ -408,6 +405,7 @@ final class ScriptRoomViewModel: ObservableObject {
     @Published private(set) var turnState: ScriptTurnState?
     @Published private(set) var isLoading = false
     @Published private(set) var isSending = false
+    @Published private(set) var hasAuthoritativeRoom = false
     @Published var inputText = ""
     @Published var errorMessage: String?
 
@@ -419,8 +417,10 @@ final class ScriptRoomViewModel: ObservableObject {
 
     init(roomID: String, initialRoom: ScriptRoom? = nil) {
         self.roomID = roomID
-        room = initialRoom
-        if let groupID = initialRoom?.groupID {
+        let cachedRoom = ScriptRoomLocalCache.cachedRoom(roomID: roomID)
+        room = initialRoom ?? cachedRoom
+        hasAuthoritativeRoom = cachedRoom != nil || initialRoom.map(Self.isCompleteRoom) == true
+        if let groupID = room?.groupID {
             messages = store.loadGroupMessages(groupID: groupID, limit: 100)
         }
         observeWebSocket()
@@ -431,7 +431,8 @@ final class ScriptRoomViewModel: ObservableObject {
     }
 
     var canSend: Bool {
-        room?.status == .active
+        hasAuthoritativeRoom
+            && room?.status == .active
             && !isGenerating
             && !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -441,27 +442,79 @@ final class ScriptRoomViewModel: ObservableObject {
     }
 
     func load() async {
-        let showLoader = room == nil && messages.isEmpty
-        if showLoader { isLoading = true }
+        guard !isLoading else { return }
+        if room == nil, let cached = ScriptRoomLocalCache.cachedRoom(roomID: roomID) {
+            room = cached
+            merge(store.loadGroupMessages(groupID: cached.groupID, limit: 100))
+        }
+
+        isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-        do {
-            let loadedRoom = try await APIService.shared.getScriptRoom(roomID: roomID)
-            room = loadedRoom
-            markRoomReadIfVisible()
 
-            let cached = store.loadGroupMessages(groupID: loadedRoom.groupID, limit: 100)
-            merge(cached)
-            let (remote, _) = try await APIService.shared.getGroupMessages(
-                groupID: loadedRoom.groupID,
-                limit: 100
-            )
-            store.saveGroupMessages(remote)
-            merge(remote)
+        let roomSnapshot = ScriptRoomLocalCache.cachedSnapshot(roomID: roomID)
+        if roomSnapshot == nil || roomSnapshot?.isStale == true {
+            do {
+                let loadedRoom = try await APIService.shared.getScriptRoom(roomID: roomID)
+                try Task.checkCancellation()
+                hasAuthoritativeRoom = true
+                room = loadedRoom
+                ScriptRoomLocalCache.saveRoom(loadedRoom)
+            } catch is CancellationError {
+                return
+            } catch {
+                if room == nil {
+                    errorMessage = error.localizedDescription
+                    return
+                }
+            }
+        }
+
+        guard let room else { return }
+        markRoomReadIfVisible()
+        await syncMessages(groupID: room.groupID)
+    }
+
+    private func syncMessages(groupID: Int) async {
+        let cached = await store.loadGroupMessagesAsync(groupID: groupID, limit: 100)
+        merge(cached)
+
+        do {
+            if var latestID = cached.last?.id ?? messages.last?.id {
+                var shouldContinue = true
+                while shouldContinue {
+                    let (remote, hasMore) = try await APIService.shared.getGroupMessages(
+                        groupID: groupID,
+                        afterID: latestID,
+                        limit: 100
+                    )
+                    try Task.checkCancellation()
+                    let scoped = remote.filter { $0.groupID == groupID }
+                    if !scoped.isEmpty {
+                        await store.saveGroupMessagesAsync(scoped)
+                        merge(scoped)
+                    }
+                    guard let nextID = scoped.map(\.id).max(), nextID > latestID else {
+                        shouldContinue = false
+                        continue
+                    }
+                    latestID = nextID
+                    shouldContinue = hasMore
+                }
+            } else {
+                let (remote, _) = try await APIService.shared.getGroupMessages(
+                    groupID: groupID,
+                    limit: 100
+                )
+                try Task.checkCancellation()
+                let scoped = remote.filter { $0.groupID == groupID }
+                await store.saveGroupMessagesAsync(scoped)
+                merge(scoped)
+            }
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = error.localizedDescription
+            if messages.isEmpty { errorMessage = error.localizedDescription }
         }
     }
 
@@ -539,6 +592,9 @@ final class ScriptRoomViewModel: ObservableObject {
                     assignments: room.assignments,
                     scriptSnapshot: room.scriptSnapshot
                 )
+                if let endedRoom = self.room {
+                    ScriptRoomLocalCache.saveRoom(endedRoom)
+                }
             }
             return true
         } catch {
@@ -567,7 +623,7 @@ final class ScriptRoomViewModel: ObservableObject {
         UnreadBadgeStore.shared.setConversationUnreadCount(0, for: target.listIdentity)
         NotificationCenter.default.post(name: .conversationDidMarkRead, object: target)
         Task {
-            try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
+            _ = try? await APIService.shared.markGroupMessagesAsRead(groupID: groupID)
             await MainActor.run { PushService.shared.syncBadgeFromUnreadState() }
         }
     }
@@ -583,7 +639,12 @@ final class ScriptRoomViewModel: ObservableObject {
                         0,
                         for: ConversationReadTarget.group(groupID: message.groupID).listIdentity
                     )
-                    Task { try? await APIService.shared.markGroupMessagesAsRead(groupID: message.groupID) }
+                    Task {
+                        _ = try? await APIService.shared.markGroupMessagesAsRead(
+                            groupID: message.groupID,
+                            throughMessageID: message.id
+                        )
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -609,6 +670,12 @@ final class ScriptRoomViewModel: ObservableObject {
             if lhs.id != rhs.id { return lhs.id < rhs.id }
             return lhs.timestamp < rhs.timestamp
         }
+    }
+
+    private static func isCompleteRoom(_ room: ScriptRoom) -> Bool {
+        !room.playerRoleID.isBlank
+            || !room.assignments.isEmpty
+            || !room.scriptSnapshot.roles.isEmpty
     }
 }
 

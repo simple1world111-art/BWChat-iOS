@@ -1,5 +1,5 @@
 // BWChat/Models/ChatMoney.swift
-// Public chat snapshots and role-filtered details for cat-food red packets/transfers.
+// Public chat snapshots and role-filtered details for gold-coin red packets/transfers.
 
 import Foundation
 
@@ -208,6 +208,48 @@ struct ChatMoneyClaimRecord: Codable, Identifiable, Equatable {
         case claimedAt = "claimed_at"
         case isLuckiest = "is_luckiest"
     }
+
+    init(
+        userID: String,
+        nickname: String,
+        avatarURL: String?,
+        amount: Int,
+        claimedAt: String,
+        isLuckiest: Bool
+    ) {
+        self.userID = userID
+        self.nickname = nickname
+        self.avatarURL = avatarURL
+        self.amount = amount
+        self.claimedAt = claimedAt
+        self.isLuckiest = isLuckiest
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard let decodedUserID = container.chatMoneyString(forKey: .userID),
+              !decodedUserID.isBlank else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .userID,
+                in: container,
+                debugDescription: "A red-packet claim requires a non-empty user_id."
+            )
+        }
+        guard let decodedAmount = container.chatMoneyInt(forKey: .amount) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .amount,
+                in: container,
+                debugDescription: "A red-packet claim requires an integer amount."
+            )
+        }
+
+        userID = decodedUserID
+        nickname = container.chatMoneyString(forKey: .nickname) ?? decodedUserID
+        avatarURL = container.chatMoneyString(forKey: .avatarURL)
+        amount = decodedAmount
+        claimedAt = container.chatMoneyString(forKey: .claimedAt) ?? ""
+        isLuckiest = container.chatMoneyBool(forKey: .isLuckiest) ?? false
+    }
 }
 
 struct ChatMoneyDetail: Codable, Identifiable, Equatable {
@@ -268,6 +310,252 @@ struct ChatMoneyDetail: Codable, Identifiable, Equatable {
         case unavailableReason = "unavailable_reason"
         case remainingAmount = "remaining_amount"
         case remainingCount = "remaining_count"
+    }
+
+    init(
+        assetID: String,
+        kind: ChatMoneyKind,
+        scope: ChatMoneyScope,
+        mode: RedPacketMode?,
+        senderID: String,
+        senderName: String?,
+        senderAvatarURL: String?,
+        recipientID: String?,
+        recipientName: String?,
+        totalAmount: Int?,
+        claimedAmount: Int?,
+        packetCount: Int?,
+        claimedCount: Int?,
+        greeting: String?,
+        note: String?,
+        status: ChatMoneyStatus,
+        expiresAt: String?,
+        canClaim: Bool,
+        canAccept: Bool,
+        canReturn: Bool,
+        viewerClaimAmount: Int?,
+        claims: [ChatMoneyClaimRecord],
+        version: Int,
+        createdAt: String? = nil,
+        finalizedAt: String? = nil,
+        viewerState: ChatMoneyViewerState? = nil,
+        unavailableReason: ChatMoneyUnavailableReason? = nil,
+        remainingAmount: Int? = nil,
+        remainingCount: Int? = nil
+    ) {
+        self.assetID = assetID
+        self.kind = kind
+        self.scope = scope
+        self.mode = mode
+        self.senderID = senderID
+        self.senderName = senderName
+        self.senderAvatarURL = senderAvatarURL
+        self.recipientID = recipientID
+        self.recipientName = recipientName
+        self.totalAmount = totalAmount
+        self.claimedAmount = claimedAmount
+        self.packetCount = packetCount
+        self.claimedCount = claimedCount
+        self.greeting = greeting
+        self.note = note
+        self.status = status
+        self.expiresAt = expiresAt
+        self.canClaim = canClaim
+        self.canAccept = canAccept
+        self.canReturn = canReturn
+        self.viewerClaimAmount = viewerClaimAmount
+        self.claims = claims
+        self.version = version
+        self.createdAt = createdAt
+        self.finalizedAt = finalizedAt
+        self.viewerState = viewerState
+        self.unavailableReason = unavailableReason
+        self.remainingAmount = remainingAmount
+        self.remainingCount = remainingCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        assetID = try container.decode(String.self, forKey: .assetID)
+        kind = try container.chatMoneyKind(forKey: .kind)
+        scope = try container.chatMoneyScope(forKey: .scope)
+        mode = container.chatMoneyEnum(RedPacketMode.self, forKey: .mode)
+        senderID = try container.decode(String.self, forKey: .senderID)
+        senderName = container.chatMoneyString(forKey: .senderName)
+        senderAvatarURL = container.chatMoneyString(forKey: .senderAvatarURL)
+        recipientID = container.chatMoneyString(forKey: .recipientID)
+        recipientName = container.chatMoneyString(forKey: .recipientName)
+        totalAmount = container.chatMoneyInt(forKey: .totalAmount)
+        claimedAmount = container.chatMoneyInt(forKey: .claimedAmount)
+        packetCount = container.chatMoneyInt(forKey: .packetCount)
+        claimedCount = container.chatMoneyInt(forKey: .claimedCount)
+        greeting = container.chatMoneyString(forKey: .greeting)
+        note = container.chatMoneyString(forKey: .note)
+        status = try container.chatMoneyStatus(forKey: .status)
+        expiresAt = container.chatMoneyString(forKey: .expiresAt)
+
+        viewerClaimAmount = container.chatMoneyInt(forKey: .viewerClaimAmount)
+        claims = (try? container.decodeIfPresent([ChatMoneyClaimRecord].self, forKey: .claims))
+            ?? []
+        version = max(container.chatMoneyInt(forKey: .version) ?? 1, 1)
+        createdAt = container.chatMoneyString(forKey: .createdAt)
+        finalizedAt = container.chatMoneyString(forKey: .finalizedAt)
+        viewerState = container.chatMoneyEnum(ChatMoneyViewerState.self, forKey: .viewerState)
+        unavailableReason = container.chatMoneyEnum(
+            ChatMoneyUnavailableReason.self,
+            forKey: .unavailableReason
+        )
+        remainingAmount = container.chatMoneyInt(forKey: .remainingAmount)
+        remainingCount = container.chatMoneyInt(forKey: .remainingCount)
+
+        // Permission values fail closed when a role-filtered or older response omits them.
+        // Known viewer states may safely restore only the action explicitly granted by the server.
+        canClaim = kind == .redPacket
+            && !status.isTerminal
+            && (container.chatMoneyBool(forKey: .canClaim) ?? (viewerState == .claimable))
+        canAccept = kind == .transfer
+            && !status.isTerminal
+            && (container.chatMoneyBool(forKey: .canAccept) ?? (viewerState == .transferReceivable))
+        canReturn = kind == .transfer
+            && !status.isTerminal
+            && (container.chatMoneyBool(forKey: .canReturn) ?? (viewerState == .transferReceivable))
+    }
+}
+
+/// `GET /wallet/chat-money/{asset_id}` has existed with both a direct `data`
+/// object and an action-style `data.detail` object. Accept both shapes while
+/// keeping `ChatMoneyDetail` as the single contract used by the feature.
+struct ChatMoneyDetailResponseData: Decodable {
+    let detail: ChatMoneyDetail
+
+    private enum CodingKeys: String, CodingKey {
+        case detail
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.detail) {
+            detail = try container.decode(ChatMoneyDetail.self, forKey: .detail)
+        } else {
+            detail = try ChatMoneyDetail(from: decoder)
+        }
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func chatMoneyString(forKey key: Key) -> String? {
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            return value
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return String(value)
+        }
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
+            return String(value)
+        }
+        return nil
+    }
+
+    func chatMoneyInt(forKey key: Key) -> Int? {
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? decodeIfPresent(Double.self, forKey: key),
+           value.isFinite,
+           value.rounded(.towardZero) == value {
+            return Int(exactly: value)
+        }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            let normalized = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: ",", with: "")
+            if let integer = Int(normalized) {
+                return integer
+            }
+            if let decimal = Double(normalized),
+               decimal.isFinite,
+               decimal.rounded(.towardZero) == decimal {
+                return Int(exactly: decimal)
+            }
+        }
+        return nil
+    }
+
+    func chatMoneyBool(forKey key: Key) -> Bool? {
+        if let value = try? decodeIfPresent(Bool.self, forKey: key) {
+            return value
+        }
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            switch value {
+            case 0: return false
+            case 1: return true
+            default: return nil
+            }
+        }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "1", "yes": return true
+            case "false", "0", "no": return false
+            default: return nil
+            }
+        }
+        return nil
+    }
+
+    func chatMoneyEnum<Value>(
+        _ type: Value.Type,
+        forKey key: Key
+    ) -> Value? where Value: RawRepresentable, Value.RawValue == String {
+        guard let rawValue = chatMoneyString(forKey: key) else { return nil }
+        return Value(rawValue: rawValue)
+    }
+
+    func chatMoneyKind(forKey key: Key) throws -> ChatMoneyKind {
+        let rawValue = try decode(String.self, forKey: key)
+        switch rawValue {
+        case ChatMoneyKind.redPacket.rawValue, "redPacket", "redpacket":
+            return .redPacket
+        case ChatMoneyKind.transfer.rawValue:
+            return .transfer
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: self,
+                debugDescription: "Unsupported chat-money kind: \(rawValue)"
+            )
+        }
+    }
+
+    func chatMoneyScope(forKey key: Key) throws -> ChatMoneyScope {
+        let rawValue = try decode(String.self, forKey: key)
+        switch rawValue {
+        case ChatMoneyScope.direct.rawValue, "direct", "private":
+            return .direct
+        case ChatMoneyScope.group.rawValue:
+            return .group
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: self,
+                debugDescription: "Unsupported chat-money scope: \(rawValue)"
+            )
+        }
+    }
+
+    func chatMoneyStatus(forKey key: Key) throws -> ChatMoneyStatus {
+        let rawValue = try decode(String.self, forKey: key)
+        if let status = ChatMoneyStatus(rawValue: rawValue) {
+            return status
+        }
+        if rawValue == "expired" || rawValue == "refunded" {
+            return .expiredRefunded
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: key,
+            in: self,
+            debugDescription: "Unsupported chat-money status: \(rawValue)"
+        )
     }
 }
 

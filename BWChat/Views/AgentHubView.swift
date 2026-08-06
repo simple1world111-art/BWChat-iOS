@@ -31,17 +31,20 @@ struct AgentHubView: View {
             }
         }
         .task { await viewModel.load() }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationListNeedsReload)) { _ in
+            Task { await viewModel.load(forceRefresh: true) }
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             Task { await viewModel.refreshRuntimeConfigIfStale() }
         }
-        .refreshable { await viewModel.load() }
+        .refreshable { await viewModel.load(forceRefresh: true) }
         .overlay(alignment: .bottom) { errorBanner }
     }
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isLoading && viewModel.installedAgents.isEmpty {
+        if viewModel.isLoading && !viewModel.hasLoadedContent {
             ProgressView("正在加载智能体…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -62,6 +65,17 @@ struct AgentHubView: View {
                     }
                 }
 
+                if !viewModel.joinedScriptRooms.isEmpty {
+                    sectionTitle("我加入的剧本")
+                    ForEach(viewModel.joinedScriptRooms) { conversation in
+                        Button { openScriptRoom(conversation) } label: {
+                            JoinedScriptRoomRow(conversation: conversation)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                sectionTitle("我的智能体")
                 if viewModel.installedAgents.isEmpty {
                     VStack(spacing: 16) {
                         AgentHubEmptyState(
@@ -155,9 +169,16 @@ struct AgentHubView: View {
         navigator.push(AgentChatView(
             conversation: conversation,
             runtimeConfig: viewModel.runtimeConfig,
-            walletBalance: viewModel.walletBalance,
-            onWalletBalanceChange: viewModel.updateWalletBalance
+            spendableBalance: viewModel.spendableBalance,
+            onSpendableBalanceChange: viewModel.updateSpendableBalance
         ))
+    }
+
+    private func openScriptRoom(_ conversation: Conversation) {
+        guard let roomID = conversation.scriptRoomID, !roomID.isBlank else { return }
+        let initialRoom = ScriptRoomLocalCache.cachedRoom(roomID: roomID)
+            ?? ScriptRoom(provisionalConversationRow: conversation)
+        navigator.push(ScriptRoomChatView(roomID: roomID, initialRoom: initialRoom))
     }
 }
 
@@ -228,9 +249,62 @@ private struct AgentConversationRow: View {
     }
 
     private var previewText: String {
-        conversation.latestMessage?.orderedParts
-            .first(where: { $0.type == "text" && !$0.text.isBlank })?.text
-            ?? conversation.title
+        AgentConversationPreviewResolver.text(
+            for: conversation.latestMessage,
+            fallback: conversation.title
+        )
+    }
+}
+
+private struct JoinedScriptRoomRow: View {
+    let conversation: Conversation
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ScriptRemoteImage(
+                urlString: conversation.avatarURL,
+                cornerRadius: 11,
+                fallbackSystemImage: "book.closed.fill"
+            )
+            .frame(width: 54, height: 54)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text(conversation.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppColors.primaryText)
+                        .lineLimit(1)
+                    AgentTag(text: "剧本")
+                }
+                Text(previewText)
+                    .font(.system(size: 13))
+                    .foregroundColor(AppColors.secondaryText)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 7) {
+                if !conversation.formattedTime.isBlank {
+                    Text(conversation.formattedTime)
+                        .font(.system(size: 11))
+                        .foregroundColor(AppColors.tertiaryText)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppColors.tertiaryText)
+            }
+        }
+        .padding(14)
+        .background(AppColors.cardBackground)
+        .cornerRadius(14)
+        .contentShape(Rectangle())
+    }
+
+    private var previewText: String {
+        guard let value = conversation.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return "继续你的剧情" }
+        return value
     }
 }
 
@@ -269,28 +343,36 @@ struct AgentAvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: resolvedCornerRadius, style: .continuous))
-        .transaction { transaction in
-            transaction.animation = nil
-        }
         .onAppear {
             guard let resolvedPath else { return }
             if let cached = ImageCacheManager.shared.image(for: resolvedPath) {
-                image = cached
+                setImageWithoutAnimation(cached)
             }
         }
         .task(id: assetID) {
-            guard let resolvedPath else {
-                image = nil
+            let requestedPath = resolvedPath
+            guard let requestedPath else {
+                setImageWithoutAnimation(nil)
                 return
             }
 
-            if let cached = ImageCacheManager.shared.image(for: resolvedPath) {
-                image = cached
+            if let cached = ImageCacheManager.shared.image(for: requestedPath) {
+                setImageWithoutAnimation(cached)
                 return
             }
 
-            image = nil
-            image = await ImageCacheManager.shared.loadImage(from: resolvedPath)
+            setImageWithoutAnimation(nil)
+            let loaded = await ImageCacheManager.shared.loadImage(from: requestedPath)
+            guard !Task.isCancelled, requestedPath == resolvedPath else { return }
+            setImageWithoutAnimation(loaded)
+        }
+    }
+
+    private func setImageWithoutAnimation(_ newImage: UIImage?) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            image = newImage
         }
     }
 

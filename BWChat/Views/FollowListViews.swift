@@ -2,6 +2,7 @@
 // Following and follower lists.
 
 import SwiftUI
+import Combine
 
 struct FollowingListView: View {
     @StateObject private var viewModel: FollowListViewModel
@@ -53,10 +54,16 @@ private final class RecommendedUsersListViewModel: ObservableObject {
 
     private let excludeUserID: String?
     private var hasLoaded = false
+    private var cancellables = Set<AnyCancellable>()
 
     init(excludeUserID: String?, initialUsers: [FollowUser]) {
         self.excludeUserID = excludeUserID
         users = Self.filtered(initialUsers, excludeUserID: excludeUserID)
+        FollowRelationshipStore.shared.changes
+            .sink { [weak self] change in
+                self?.apply(change.relationship)
+            }
+            .store(in: &cancellables)
     }
 
     func load(force: Bool = false) async {
@@ -130,6 +137,19 @@ private final class RecommendedUsersListViewModel: ObservableObject {
             !$0.userID.isBlank
                 && !excludedIDs.contains($0.userID)
                 && seenIDs.insert($0.userID).inserted
+        }
+    }
+
+    private func apply(_ relationship: FollowRelationship) {
+        guard let index = users.firstIndex(where: { $0.userID == relationship.userID }) else { return }
+        users[index].followedByMe = relationship.followedByMe
+        users[index].followsMe = relationship.followsMe
+        users[index].isFriend = relationship.isFriend
+        if let followerCount = relationship.followerCount {
+            users[index].followerCount = followerCount
+        }
+        if let followingCount = relationship.followingCount {
+            users[index].followingCount = followingCount
         }
     }
 }

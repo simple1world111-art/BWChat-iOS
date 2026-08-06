@@ -409,7 +409,6 @@ struct StickerPanel: View {
 
 struct StickerMessageBubble: View {
     let payload: StickerMessagePayload
-    let timeText: String
     let isFromMe: Bool
     var senderName: String?
 
@@ -422,27 +421,15 @@ struct StickerMessageBubble: View {
                     .lineLimit(1)
             }
 
-            ZStack(alignment: .bottomTrailing) {
-                StickerArtworkView(
-                    assetKey: payload.assetKey,
-                    accessibilityLabel: payload.localizedName
-                )
-                .frame(width: stickerSize.width, height: stickerSize.height)
-                .padding(8)
-                .background(Color.white.opacity(isFromMe ? 0.18 : 0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-
-                Text(timeText)
-                    .font(.system(size: 11))
-                    .foregroundColor(AppColors.secondaryText)
-                    .monospacedDigit()
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.82))
-                    .clipShape(Capsule())
-                    .padding(4)
-            }
+            StickerArtworkView(
+                assetKey: payload.assetKey,
+                accessibilityLabel: payload.localizedName
+            )
+            .frame(width: stickerSize.width, height: stickerSize.height)
+            .padding(8)
+            .background(Color.white.opacity(isFromMe ? 0.18 : 0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
         }
         .accessibilityLabel(payload.localizedName)
     }

@@ -66,7 +66,7 @@ struct ShortDramaFeedView: View {
         .alert(item: $unlockTarget) { video in
             Alert(
                 title: Text(L10n.tr("shortDrama.unlock.confirmTitle")),
-                message: Text(L10n.tr("shortDrama.unlock.confirmMessage", video.unlockPriceCatFood ?? 0)),
+                message: Text(L10n.tr("shortDrama.unlock.confirmMessage", video.unlockPriceGoldCoins ?? 0)),
                 primaryButton: .default(Text(L10n.tr("shortDrama.unlock.pay"))) {
                     confirmUnlock(video)
                 },
@@ -86,7 +86,6 @@ struct ShortDramaFeedView: View {
                 isPlaybackTarget: { viewModel.isPlaybackTarget(videoID: $0.id) },
                 onTogglePlayback: { viewModel.togglePlayback(videoID: $0.id) },
                 onToggleLike: { viewModel.toggleLike(videoID: $0.id) },
-                onToggleFavorite: { viewModel.toggleFavorite(videoID: $0.id) },
                 onToggleFollow: { viewModel.toggleFollowCreator(userID: $0.creator.userID) },
                 onOpenComments: { commentTarget = $0 },
                 onOpenCreator: { navigator.push(UserProfileView(userID: $0.creator.userID)) },
@@ -152,14 +151,14 @@ struct ShortDramaFeedView: View {
     }
 
     private func confirmUnlock(_ video: ShortDramaVideo) {
-        let price = video.unlockPriceCatFood ?? 0
+        let price = video.unlockPriceGoldCoins ?? 0
         guard !isUnlocking else { return }
         isUnlocking = true
         Task {
-            if WalletStore.shared.balance == nil {
+            if WalletStore.shared.spendableBalance == nil {
                 await WalletStore.shared.refreshBalanceFromServer()
             }
-            if let balance = WalletStore.shared.balance, balance < price {
+            if let balance = WalletStore.shared.spendableBalance, balance < price {
                 isUnlocking = false
                 navigator.push(WalletView())
                 return
@@ -178,7 +177,6 @@ private struct ShortDramaVerticalPager: UIViewControllerRepresentable {
     let isPlaybackTarget: (ShortDramaVideo) -> Bool
     let onTogglePlayback: (ShortDramaVideo) -> Void
     let onToggleLike: (ShortDramaVideo) -> Void
-    let onToggleFavorite: (ShortDramaVideo) -> Void
     let onToggleFollow: (ShortDramaVideo) -> Void
     let onOpenComments: (ShortDramaVideo) -> Void
     let onOpenCreator: (ShortDramaVideo) -> Void
@@ -340,7 +338,6 @@ private struct ShortDramaVerticalPager: UIViewControllerRepresentable {
                 isPlaybackTarget: parent.isPlaybackTarget(video),
                 onTogglePlayback: { self.parent.onTogglePlayback(video) },
                 onToggleLike: { self.parent.onToggleLike(video) },
-                onToggleFavorite: { self.parent.onToggleFavorite(video) },
                 onToggleFollow: { self.parent.onToggleFollow(video) },
                 onOpenComments: { self.parent.onOpenComments(video) },
                 onOpenCreator: { self.parent.onOpenCreator(video) }
@@ -445,7 +442,16 @@ struct ShortDramaStudioView: View {
     }
 
     private func openEditor(_ series: ShortDramaSeries) {
-        navigator.push(ShortDramaUnifiedEditorView(mode: .edit(series)) { updated in
+        let mode: ShortDramaUnifiedEditorMode
+        if series.id.hasPrefix("local:"),
+           let job = OutgoingStore.shared.jobs(ownerID: AuthManager.shared.currentUser?.userID ?? "")
+            .first(where: { "local:\($0.id)" == series.id }),
+           let payload = try? JSONDecoder().decode(ShortDramaOutgoingPayload.self, from: job.payload) {
+            mode = .resume(job, payload)
+        } else {
+            mode = .edit(series)
+        }
+        navigator.push(ShortDramaUnifiedEditorView(mode: mode) { updated in
             viewModel.upsert(updated)
         })
     }
@@ -479,6 +485,12 @@ final class ShortDramaStudioViewModel: ObservableObject {
     }
 
     func upsert(_ item: ShortDramaSeries) {
+        if !item.id.hasPrefix("local:"),
+           let clientID = OutgoingStore.shared.jobs(
+                ownerID: AuthManager.shared.currentUser?.userID ?? ""
+           ).first(where: { $0.scene == .shortDrama && $0.serverID == item.id })?.clientRequestID {
+            series.removeAll { $0.id == "local:\(clientID)" }
+        }
         if let index = series.firstIndex(where: { $0.id == item.id }) {
             series[index] = item
         } else {
@@ -504,7 +516,15 @@ final class ShortDramaStudioViewModel: ObservableObject {
         do {
             let page = try await APIService.shared.getMyShortDramaSeries(cursor: reset ? nil : nextCursor)
             if reset {
-                series = page.series
+                let local = localDraftSeries()
+                let remoteIDs = Set(page.series.map(\.id))
+                series = local.filter { draft in
+                    let serverID = draft.id.hasPrefix("local:")
+                        ? OutgoingStore.shared.jobs(ownerID: AuthManager.shared.currentUser?.userID ?? "")
+                            .first(where: { "local:\($0.id)" == draft.id })?.serverID
+                        : nil
+                    return serverID.map { !remoteIDs.contains($0) } ?? true
+                } + page.series
             } else {
                 let existing = Set(series.map(\.id))
                 series.append(contentsOf: page.series.filter { !existing.contains($0.id) })
@@ -513,6 +533,36 @@ final class ShortDramaStudioViewModel: ObservableObject {
             nextCursor = page.nextCursor
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func localDraftSeries() -> [ShortDramaSeries] {
+        guard let user = AuthManager.shared.currentUser else { return [] }
+        return OutgoingStore.shared.jobs(ownerID: user.userID).compactMap { job -> ShortDramaSeries? in
+            guard job.scene == .shortDrama,
+                  job.state != .succeeded,
+                  job.state != .cancelled,
+                  let payload = try? JSONDecoder().decode(ShortDramaOutgoingPayload.self, from: job.payload) else { return nil }
+            let coverURL = payload.coverRelativePath
+                .map { OutgoingFileStore.absoluteURL(for: $0).absoluteString }
+                ?? ""
+            return ShortDramaSeries(
+                seriesID: "local:\(job.id)",
+                title: payload.title,
+                intro: payload.intro,
+                coverURL: coverURL,
+                episodeCount: payload.episodes.count,
+                status: .draft,
+                statusMessage: job.state.isUserVisibleFailure ? L10n.tr("common.retry") : nil,
+                updatedAt: ISO8601DateFormatter().string(from: job.updatedAt),
+                episodes: [],
+                creator: ShortDramaCreator(
+                    userID: user.userID,
+                    username: user.username,
+                    nickname: user.nickname,
+                    avatarURL: user.avatarURL
+                )
+            )
         }
     }
 }
@@ -677,14 +727,14 @@ private struct ShortDramaSeriesDetailView: View {
     }
 
     private func openEditSeries() {
-        navigator.push(ShortDramaSeriesEditorView(mode: .edit(viewModel.series)) { updated in
+        navigator.push(ShortDramaUnifiedEditorView(mode: .edit(viewModel.series)) { updated in
             viewModel.updateSeries(updated)
         })
     }
 
     private func openUploadEpisode() {
-        navigator.push(ShortDramaEpisodeUploadView(series: viewModel.series) { result in
-            viewModel.applyUpload(result)
+        navigator.push(ShortDramaUnifiedEditorView(mode: .edit(viewModel.series)) { updated in
+            viewModel.updateSeries(updated)
         })
     }
 }
@@ -1373,7 +1423,16 @@ private struct ShortDramaCoverImage: View {
     let url: String
     let image: UIImage?
     @State private var remoteImage: UIImage?
-    @State private var didLoad = false
+
+    init(url: String, image: UIImage?) {
+        self.url = url
+        self.image = image
+        _remoteImage = State(
+            initialValue: image == nil && !url.isBlank
+                ? ImageCacheManager.shared.image(for: url)
+                : nil
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -1398,9 +1457,19 @@ private struct ShortDramaCoverImage: View {
         }
         .clipped()
         .task(id: url) {
-            guard image == nil, !url.isBlank, !didLoad else { return }
-            didLoad = true
-            remoteImage = await ImageCacheManager.shared.loadImage(from: url)
+            let requestedURL = url
+            guard image == nil, !requestedURL.isBlank else {
+                remoteImage = nil
+                return
+            }
+            if let cached = ImageCacheManager.shared.image(for: requestedURL) {
+                remoteImage = cached
+            } else {
+                remoteImage = nil
+                let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL)
+                guard !Task.isCancelled, requestedURL == url else { return }
+                remoteImage = loaded
+            }
         }
     }
 }

@@ -31,6 +31,8 @@ enum DynamicRouteHandler {
         "my_groups",
         "nearby",
         "wallet",
+        "prop_bag",
+        "activity_center",
         "settings",
         "edit_profile",
         "friend_requests",
@@ -120,6 +122,10 @@ enum DynamicRouteHandler {
             navigator.push(MapDatingView())
         case "wallet":
             navigator.push(WalletView())
+        case "prop_bag":
+            navigator.push(PropBagView())
+        case "activity_center":
+            navigator.push(ActivityCenterView())
         case "settings":
             navigator.push(ProfileSettingsView(viewModel: ProfileViewModel()))
         case "edit_profile":

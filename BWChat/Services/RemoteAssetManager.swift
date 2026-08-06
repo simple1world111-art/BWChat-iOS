@@ -163,7 +163,6 @@ struct RemoteAssetImage: View {
 
     @ObservedObject private var assetManager = RemoteAssetManager.shared
     @State private var cachedURL: URL?
-    @State private var didFail = false
 
     var body: some View {
         Group {
@@ -179,23 +178,21 @@ struct RemoteAssetImage: View {
                         fallback
                     }
                 }
-            } else if assetManager.trustedRemoteURL(for: assetKey) != nil && !didFail {
-                ProgressView().tint(AppColors.accent)
             } else {
                 fallback
             }
         }
         .task(id: assetKey) {
             cachedURL = nil
-            didFail = false
             guard let assetKey, !assetKey.isBlank else {
-                didFail = true
                 return
             }
             do {
                 cachedURL = try await assetManager.verifiedCachedURL(for: assetKey)
+            } catch is CancellationError {
+                return
             } catch {
-                didFail = true
+                cachedURL = nil
             }
         }
     }

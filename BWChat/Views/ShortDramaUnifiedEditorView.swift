@@ -6,6 +6,7 @@ import UIKit
 enum ShortDramaUnifiedEditorMode {
     case create
     case edit(ShortDramaSeries)
+    case resume(OutgoingJob, ShortDramaOutgoingPayload)
 
     var series: ShortDramaSeries? {
         if case .edit(let series) = self { return series }
@@ -26,6 +27,8 @@ struct ShortDramaUnifiedEditorView: View {
     @State private var coverSelection: PhotosPickerItem?
     @State private var coverImage: UIImage?
     @State private var coverData: Data?
+    @State private var coverFileURL: URL?
+    @State private var draftID: String
     @State private var episodeSelections: [PhotosPickerItem] = []
     @State private var episodes: [ShortDramaEpisodeDraft]
     @State private var editingEpisode: ShortDramaEpisodeDraft?
@@ -45,13 +48,39 @@ struct ShortDramaUnifiedEditorView: View {
             && episodes.allSatisfy { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             && numbers.allSatisfy { $0 > 0 }
             && Set(numbers).count == numbers.count
-            && (workingSeries != nil || coverData != nil)
-            && !isPublishing
+            && (workingSeries != nil || coverFileURL != nil)
     }
 
     init(mode: ShortDramaUnifiedEditorMode, onSaved: @escaping (ShortDramaSeries) -> Void = { _ in }) {
-        let series = mode.series
-        let normalizedEpisodes = (series?.episodes ?? [])
+        let resumed: (OutgoingJob, ShortDramaOutgoingPayload)?
+        if case .resume(let job, let payload) = mode {
+            resumed = (job, payload)
+        } else {
+            resumed = nil
+        }
+        let resumedSeries: ShortDramaSeries? = resumed?.0.serverID.map { serverID in
+            let payload = resumed!.1
+            let user = AuthManager.shared.currentUser
+            return ShortDramaSeries(
+                seriesID: serverID,
+                title: payload.title,
+                intro: payload.intro,
+                coverURL: payload.coverRelativePath.map { OutgoingFileStore.absoluteURL(for: $0).absoluteString } ?? "",
+                episodeCount: payload.episodes.count,
+                status: .draft,
+                statusMessage: nil,
+                updatedAt: ISO8601DateFormatter().string(from: resumed!.0.updatedAt),
+                episodes: [],
+                creator: ShortDramaCreator(
+                    userID: user?.userID ?? "",
+                    username: user?.username ?? "",
+                    nickname: user?.nickname ?? "",
+                    avatarURL: user?.avatarURL ?? ""
+                )
+            )
+        }
+        let series = mode.series ?? resumedSeries
+        var normalizedEpisodes = (series?.episodes ?? [])
             .sorted {
                 let lhs = $0.episodeNumber ?? Int.max
                 let rhs = $1.episodeNumber ?? Int.max
@@ -67,9 +96,25 @@ struct ShortDramaUnifiedEditorView: View {
                 }
                 return draft
             }
+        if let payload = resumed?.1 {
+            normalizedEpisodes = payload.episodes.map { episode in
+                ShortDramaEpisodeDraft(
+                    id: UUID(uuidString: episode.clientEpisodeID) ?? UUID(),
+                    episodeNumber: episode.episodeNumber,
+                    title: episode.title,
+                    intro: episode.intro,
+                    unlockPriceGoldCoins: episode.unlockPriceGoldCoins,
+                    localVideoURL: episode.videoRelativePath.map(OutgoingFileStore.absoluteURL(for:)),
+                    previewImage: nil,
+                    previewFileURL: episode.coverRelativePath.map(OutgoingFileStore.absoluteURL(for:))
+                )
+            }
+        }
         _workingSeries = State(initialValue: series)
-        _title = State(initialValue: series?.title ?? "")
-        _intro = State(initialValue: series?.intro ?? "")
+        _draftID = State(initialValue: resumed?.0.id ?? UUID().uuidString)
+        _title = State(initialValue: resumed?.1.title ?? series?.title ?? "")
+        _intro = State(initialValue: resumed?.1.intro ?? series?.intro ?? "")
+        _coverFileURL = State(initialValue: resumed?.1.coverRelativePath.map(OutgoingFileStore.absoluteURL(for:)))
         _episodes = State(initialValue: normalizedEpisodes)
         self.onSaved = onSaved
     }
@@ -78,7 +123,7 @@ struct ShortDramaUnifiedEditorView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
                 ShortDramaEditorSeriesCard(
-                    coverURL: workingSeries?.coverURL ?? "",
+                    coverURL: coverFileURL?.absoluteString ?? workingSeries?.coverURL ?? "",
                     coverImage: coverImage,
                     coverSelection: $coverSelection,
                     title: $title,
@@ -149,8 +194,16 @@ struct ShortDramaUnifiedEditorView: View {
               let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else { return }
         let compressed = APIService.compressImageForUpload(data, maxDimension: 1280, quality: 0.78, maxBytes: 900_000)
+        let filename = Self.coverFilename()
+        let stagedURL = try? await OutgoingFileStore.stage(
+            data: compressed,
+            ownerID: AuthManager.shared.currentUser?.userID ?? "anonymous",
+            jobID: draftID,
+            filename: filename
+        )
         await MainActor.run {
             coverData = compressed
+            coverFileURL = stagedURL
             coverImage = UIImage(data: compressed) ?? image
         }
     }
@@ -163,10 +216,17 @@ struct ShortDramaUnifiedEditorView: View {
         }
 
         let selectedItems = Array(items.prefix(available))
+        let ownerID = AuthManager.shared.currentUser?.userID ?? "anonymous"
+        let currentDraftID = draftID
         let prepared = await withTaskGroup(of: ShortDramaPreparedEpisode?.self) { group in
             for (index, item) in selectedItems.enumerated() {
                 group.addTask {
-                    await Self.prepareEpisode(item, selectionIndex: index)
+                    await Self.prepareEpisode(
+                        item,
+                        selectionIndex: index,
+                        ownerID: ownerID,
+                        draftID: currentDraftID
+                    )
                 }
             }
 
@@ -189,9 +249,10 @@ struct ShortDramaUnifiedEditorView: View {
                 episodeNumber: episodeNumber,
                 title: L10n.tr("shortDrama.episode", episodeNumber),
                 intro: "",
-                unlockPriceCatFood: 0,
+                unlockPriceGoldCoins: 0,
                 localVideoURL: item.localURL,
-                previewImage: item.previewImage
+                previewImage: item.previewImage,
+                previewFileURL: item.previewURL
             )
         }
         episodes.append(contentsOf: drafts)
@@ -199,22 +260,39 @@ struct ShortDramaUnifiedEditorView: View {
 
     private static func prepareEpisode(
         _ item: PhotosPickerItem,
-        selectionIndex: Int
+        selectionIndex: Int,
+        ownerID: String,
+        draftID: String
     ) async -> ShortDramaPreparedEpisode? {
         guard let transfer = try? await item.loadTransferable(type: VideoTransferable.self) else { return nil }
-        let targetURL = persistedDraftURL(source: transfer.url)
-        do {
-            try FileManager.default.copyItem(at: transfer.url, to: targetURL)
-        } catch {
+        let filename = "episode-\(selectionIndex)-\(UUID().uuidString).\(transfer.url.pathExtension.isBlank ? "mp4" : transfer.url.pathExtension)"
+        guard let targetURL = try? await OutgoingFileStore.stage(
+            file: transfer.url,
+            ownerID: ownerID,
+            jobID: draftID,
+            filename: filename
+        ) else {
             try? FileManager.default.removeItem(at: transfer.url)
             return nil
         }
         let preview = await previewImage(for: targetURL)
+        let previewURL: URL?
+        if let previewData = preview?.jpegData(compressionQuality: 0.82) {
+            previewURL = try? await OutgoingFileStore.stage(
+                data: previewData,
+                ownerID: ownerID,
+                jobID: draftID,
+                filename: "episode-cover-\(selectionIndex)-\(UUID().uuidString).jpg"
+            )
+        } else {
+            previewURL = nil
+        }
         try? FileManager.default.removeItem(at: transfer.url)
         return ShortDramaPreparedEpisode(
             selectionIndex: selectionIndex,
             localURL: targetURL,
-            previewImage: preview
+            previewImage: preview,
+            previewURL: previewURL
         )
     }
 
@@ -265,38 +343,204 @@ struct ShortDramaUnifiedEditorView: View {
     }
 
     private func publish() {
-        guard canPublish else { return }
+        guard canPublish, !isPublishing else { return }
         isPublishing = true
-        let uploadID = "short-drama-\(workingSeries?.id ?? UUID().uuidString)"
-        BackgroundUploadCoordinator.shared.enqueue(id: uploadID) {
-            await publishAsync()
+        guard let outgoing = persistOutgoingDraft() else {
+            isPublishing = false
+            toastMessage = L10n.tr("messages.sendFailed")
+            return
         }
+        BackgroundUploadCoordinator.shared.enqueue(id: "short-drama-\(draftID)") {
+            await publishAsync(job: outgoing.job, parts: outgoing.parts)
+        }
+        onSaved(localSeriesProjection())
         // Publishing belongs to the app-wide upload coordinator. Returning now keeps
         // navigation responsive while metadata and episode media continue uploading.
         navigator.pop()
     }
 
-    private func publishAsync() async {
+    private func localSeriesProjection() -> ShortDramaSeries {
+        let user = AuthManager.shared.currentUser
+        return ShortDramaSeries(
+            seriesID: "local:\(draftID)",
+            title: trimmedTitle,
+            intro: trimmedIntro,
+            coverURL: coverFileURL?.absoluteString ?? workingSeries?.coverURL ?? "",
+            episodeCount: episodes.count,
+            status: .draft,
+            statusMessage: nil,
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            episodes: [],
+            creator: ShortDramaCreator(
+                userID: user?.userID ?? "",
+                username: user?.username ?? "",
+                nickname: user?.nickname ?? "",
+                avatarURL: user?.avatarURL ?? ""
+            )
+        )
+    }
+
+    private func publishAsync(job: OutgoingJob, parts: [OutgoingPart]) async {
         defer { isPublishing = false }
         do {
             let series = try await saveSeriesMetadata()
+            if let localCoverURL = coverFileURL, !series.coverURL.isBlank {
+                await ImageCacheManager.shared.adoptLocalFile(
+                    localCoverURL,
+                    for: series.coverURL
+                )
+            }
             workingSeries = series
+            OutgoingStore.shared.updateJob(
+                id: job.id,
+                ownerID: job.ownerID,
+                state: .queued,
+                serverID: series.id
+            )
             onSaved(series)
 
+            var allEpisodesSucceeded = true
             for index in episodes.indices {
                 if episodes[index].serverVideo != nil {
-                    try await updateExistingEpisode(at: index)
-                } else {
-                    try await uploadDraftEpisode(at: index, seriesID: series.id)
+                    do {
+                        try await updateExistingEpisode(at: index)
+                    } catch {
+                        allEpisodesSucceeded = false
+                    }
                 }
             }
 
-            let submitted = try await APIService.shared.submitShortDramaSeries(seriesID: series.id)
+            let draftIndices = episodes.indices.filter { episodes[$0].serverVideo == nil }
+            for start in stride(from: 0, to: draftIndices.count, by: 2) {
+                let chunk = Array(draftIndices[start..<min(start + 2, draftIndices.count)])
+                let results = await withTaskGroup(of: Bool.self) { group in
+                    for index in chunk {
+                        group.addTask {
+                            await uploadDraftEpisodeResult(
+                                at: index,
+                                seriesID: series.id,
+                                job: job,
+                                parts: parts
+                            )
+                        }
+                    }
+                    var values: [Bool] = []
+                    for await value in group { values.append(value) }
+                    return values
+                }
+                allEpisodesSucceeded = allEpisodesSucceeded && results.allSatisfy { $0 }
+            }
+
+            guard allEpisodesSucceeded else {
+                OutgoingStore.shared.updateJob(
+                    id: job.id,
+                    ownerID: job.ownerID,
+                    state: .failedPermanent,
+                    lastErrorCode: "one-or-more-episodes-failed"
+                )
+                return
+            }
+
+            let submitted = try await APIService.shared.submitShortDramaSeries(
+                seriesID: series.id,
+                clientRequestID: job.clientRequestID
+            )
             workingSeries = submitted
             onSaved(submitted)
             toastMessage = L10n.tr("shortDrama.publish.submitted")
+            OutgoingStore.shared.updateJob(id: job.id, ownerID: job.ownerID, state: .succeeded, serverID: series.id)
         } catch {
+            if OutgoingStore.shared.jobs(ownerID: job.ownerID)
+                .contains(where: { $0.id == job.id && $0.state == .confirmationUnknown }) {
+                return
+            }
             toastMessage = error.localizedDescription
+            OutgoingStore.shared.updateJob(
+                id: job.id,
+                ownerID: job.ownerID,
+                state: .failedPermanent,
+                lastErrorCode: String(describing: error)
+            )
+        }
+    }
+
+    private func persistOutgoingDraft() -> (job: OutgoingJob, parts: [OutgoingPart])? {
+        let ownerID = AuthManager.shared.currentUser?.userID ?? ""
+        guard !ownerID.isEmpty else { return nil }
+        let episodePayloads = episodes.map { episode in
+            ShortDramaOutgoingEpisode(
+                clientEpisodeID: episode.id.uuidString,
+                serverVideoID: episode.serverVideo?.id,
+                episodeNumber: episode.episodeNumber,
+                title: episode.title,
+                intro: episode.intro,
+                unlockPriceGoldCoins: episode.unlockPriceGoldCoins,
+                videoRelativePath: episode.localVideoURL.map { OutgoingFileStore.relativePath(for: $0) },
+                coverRelativePath: episode.previewFileURL.map { OutgoingFileStore.relativePath(for: $0) }
+            )
+        }
+        let payload = ShortDramaOutgoingPayload(
+            clientSeriesID: draftID,
+            serverSeriesID: workingSeries?.id,
+            title: trimmedTitle,
+            intro: trimmedIntro,
+            coverRelativePath: coverFileURL.map { OutgoingFileStore.relativePath(for: $0) },
+            episodes: episodePayloads
+        )
+        let job = OutgoingJob(
+            clientRequestID: draftID,
+            ownerID: ownerID,
+            scene: .shortDrama,
+            businessKey: workingSeries?.id ?? draftID,
+            payload: (try? JSONEncoder().encode(payload)) ?? Data(),
+            state: .queued
+        )
+        var parts: [OutgoingPart] = []
+        if let coverFileURL {
+            let size = (try? coverFileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            parts.append(OutgoingPart(
+                jobID: job.id,
+                role: "series-cover",
+                ordinal: 0,
+                localRelativePath: OutgoingFileStore.relativePath(for: coverFileURL),
+                filename: coverFileURL.lastPathComponent,
+                mimeType: "image/jpeg",
+                byteSize: Int64(size),
+                state: .queued
+            ))
+        }
+        for (index, episode) in episodes.enumerated() {
+            guard let videoURL = episode.localVideoURL else { continue }
+            let size = (try? videoURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            parts.append(OutgoingPart(
+                jobID: job.id,
+                role: "episode:\(episode.id.uuidString)",
+                ordinal: index + 1,
+                localRelativePath: OutgoingFileStore.relativePath(for: videoURL),
+                thumbnailRelativePath: episode.previewFileURL.map { OutgoingFileStore.relativePath(for: $0) },
+                filename: videoURL.lastPathComponent,
+                mimeType: "video/mp4",
+                byteSize: Int64(size),
+                state: .queued
+            ))
+        }
+        if parts.isEmpty {
+            parts.append(OutgoingPart(
+                jobID: job.id,
+                role: "metadata",
+                ordinal: 0,
+                localRelativePath: "",
+                filename: "metadata.json",
+                mimeType: "application/json",
+                byteSize: 0,
+                state: .queued
+            ))
+        }
+        do {
+            try OutgoingStore.shared.create(job, parts: parts)
+            return (job, parts)
+        } catch {
+            return nil
         }
     }
 
@@ -332,7 +576,7 @@ struct ShortDramaUnifiedEditorView: View {
                 title: episodes[index].title,
                 intro: episodes[index].intro,
                 episodeNumber: episodes[index].episodeNumber,
-                unlockPriceCatFood: episodes[index].unlockPriceCatFood
+                unlockPriceGoldCoins: episodes[index].unlockPriceGoldCoins
             )
             episodes[index].serverVideo = video
             episodes[index].uploadState = .uploaded
@@ -343,11 +587,29 @@ struct ShortDramaUnifiedEditorView: View {
         }
     }
 
-    private func uploadDraftEpisode(at index: Int, seriesID: String) async throws {
+    private func uploadDraftEpisodeResult(
+        at index: Int,
+        seriesID: String,
+        job: OutgoingJob,
+        parts: [OutgoingPart]
+    ) async -> Bool {
+        do {
+            try await uploadDraftEpisode(at: index, seriesID: seriesID, job: job, parts: parts)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func uploadDraftEpisode(
+        at index: Int,
+        seriesID: String,
+        job: OutgoingJob,
+        parts: [OutgoingPart]
+    ) async throws {
         guard episodes.indices.contains(index), let url = episodes[index].localVideoURL else { return }
         episodes[index].uploadState = .uploading
         do {
-            let videoData = try await Task.detached(priority: .utility) { try Data(contentsOf: url) }.value
             let preview: UIImage?
             if let existingPreview = episodes[index].previewImage {
                 preview = existingPreview
@@ -357,17 +619,46 @@ struct ShortDramaUnifiedEditorView: View {
             guard let coverData = preview?.jpegData(compressionQuality: 0.82) else {
                 throw ShortDramaEditorError.previewGenerationFailed
             }
+            let coverURL: URL
+            if let existing = episodes[index].previewFileURL {
+                coverURL = existing
+            } else {
+                coverURL = try await OutgoingFileStore.stage(
+                    data: coverData,
+                    ownerID: job.ownerID,
+                    jobID: job.id,
+                    filename: Self.episodeCoverFilename()
+                )
+                episodes[index].previewFileURL = coverURL
+            }
+            guard let part = parts.first(where: { $0.role == "episode:\(episodes[index].id.uuidString)" }) else {
+                throw ShortDramaEditorError.previewGenerationFailed
+            }
             let result = try await APIService.shared.uploadShortDramaEpisode(
                 seriesID: seriesID,
+                clientEpisodeID: episodes[index].id.uuidString,
                 title: episodes[index].title,
                 intro: episodes[index].intro,
                 episodeNumber: episodes[index].episodeNumber,
-                videoData: videoData,
+                videoFileURL: url,
                 videoFilename: Self.videoFilename(for: url),
-                coverData: coverData,
+                coverFileURL: coverURL,
                 coverFilename: Self.episodeCoverFilename(),
-                unlockPriceCatFood: episodes[index].unlockPriceCatFood
+                unlockPriceGoldCoins: episodes[index].unlockPriceGoldCoins,
+                job: job,
+                part: part
             )
+            if let confirmedVideo = result.video {
+                await ImageCacheManager.shared.adoptLocalFile(
+                    coverURL,
+                    for: confirmedVideo.coverURL
+                )
+                MediaCacheManager.shared.adoptLocalFile(
+                    mediaID: "short-drama:\(confirmedVideo.id)",
+                    remoteURL: confirmedVideo.streamingURLString,
+                    sourceURL: url
+                )
+            }
             episodes[index].serverVideo = result.video
             episodes[index].uploadState = .uploaded
             episodes[index].isDirty = false
@@ -586,10 +877,10 @@ private struct ShortDramaDraftEpisodeSquare: View {
             }
             VStack {
                 HStack {
-                    if episode.unlockPriceCatFood > 0 {
+                    if episode.unlockPriceGoldCoins > 0 {
                         HStack(spacing: 2) {
                             Image(systemName: "pawprint.fill")
-                            Text("\(episode.unlockPriceCatFood)")
+                            Text("\(episode.unlockPriceGoldCoins)")
                         }
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.white)
@@ -620,7 +911,7 @@ private struct ShortDramaUploadStateMark: View {
         Group {
             switch state {
             case .pending: EmptyView()
-            case .uploading: ProgressView().tint(.white).scaleEffect(0.6)
+            case .uploading: EmptyView()
             case .uploaded: Image(systemName: "checkmark.circle.fill").foregroundColor(AppColors.online)
             case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundColor(AppColors.errorColor)
             }
@@ -643,7 +934,7 @@ private struct ShortDramaEpisodeEditorSheet: View {
         onDelete: @escaping (ShortDramaEpisodeDraft) -> Void
     ) {
         _draft = State(initialValue: episode)
-        _priceText = State(initialValue: "\(episode.unlockPriceCatFood)")
+        _priceText = State(initialValue: "\(episode.unlockPriceGoldCoins)")
         self.onSave = onSave
         self.onDelete = onDelete
     }
@@ -653,13 +944,13 @@ private struct ShortDramaEpisodeEditorSheet: View {
             Form {
                 Section {
                     HStack {
-                        Text(L10n.tr("shortDrama.episode.catFoodSetting"))
+                        Text(L10n.tr("shortDrama.episode.goldCoinSetting"))
                         Spacer()
                         TextField("0", text: $priceText)
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 70)
-                        Text(L10n.tr("wallet.currency.catFood"))
+                        Text(L10n.tr("wallet.currency.goldCoins"))
                             .foregroundColor(AppColors.secondaryText)
                     }
                 } footer: {
@@ -704,7 +995,7 @@ private struct ShortDramaEpisodeEditorSheet: View {
     }
 
     private func save() {
-        draft.unlockPriceCatFood = min(max(Int(priceText) ?? 0, 0), 100)
+        draft.unlockPriceGoldCoins = min(max(Int(priceText) ?? 0, 0), 100)
         draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         draft.intro = draft.intro.trimmingCharacters(in: .whitespacesAndNewlines)
         onSave(draft)
@@ -720,13 +1011,7 @@ private struct ShortDramaPublishBar: View {
     var body: some View {
         VStack(spacing: 6) {
             Button(action: action) {
-                Group {
-                    if isPublishing {
-                        ProgressView().tint(.white)
-                    } else {
-                        Text(L10n.tr("common.publish")).font(.headline.weight(.bold))
-                    }
-                }
+                Text(L10n.tr("common.publish")).font(.headline.weight(.bold))
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(isEnabled ? AppColors.accent : AppColors.tertiaryText)
@@ -750,9 +1035,10 @@ struct ShortDramaEpisodeDraft: Identifiable, Equatable {
     var episodeNumber: Int
     var title: String
     var intro: String
-    var unlockPriceCatFood: Int
+    var unlockPriceGoldCoins: Int
     var localVideoURL: URL?
     var previewImage: UIImage?
+    var previewFileURL: URL?
     var serverVideo: ShortDramaVideo?
     var uploadState: ShortDramaEpisodeUploadState
     var isDirty: Bool
@@ -762,9 +1048,10 @@ struct ShortDramaEpisodeDraft: Identifiable, Equatable {
         episodeNumber: Int,
         title: String,
         intro: String,
-        unlockPriceCatFood: Int,
+        unlockPriceGoldCoins: Int,
         localVideoURL: URL?,
         previewImage: UIImage?,
+        previewFileURL: URL? = nil,
         serverVideo: ShortDramaVideo? = nil,
         uploadState: ShortDramaEpisodeUploadState = .pending,
         isDirty: Bool = false
@@ -773,9 +1060,10 @@ struct ShortDramaEpisodeDraft: Identifiable, Equatable {
         self.episodeNumber = episodeNumber
         self.title = title
         self.intro = intro
-        self.unlockPriceCatFood = unlockPriceCatFood
+        self.unlockPriceGoldCoins = unlockPriceGoldCoins
         self.localVideoURL = localVideoURL
         self.previewImage = previewImage
+        self.previewFileURL = previewFileURL
         self.serverVideo = serverVideo
         self.uploadState = uploadState
         self.isDirty = isDirty
@@ -786,7 +1074,7 @@ struct ShortDramaEpisodeDraft: Identifiable, Equatable {
             episodeNumber: video.episodeNumber ?? 1,
             title: video.displayTitle,
             intro: video.intro,
-            unlockPriceCatFood: video.unlockPriceCatFood ?? 0,
+            unlockPriceGoldCoins: video.unlockPriceGoldCoins ?? 0,
             localVideoURL: nil,
             previewImage: nil,
             serverVideo: video,
@@ -798,7 +1086,7 @@ struct ShortDramaEpisodeDraft: Identifiable, Equatable {
         episodeNumber != other.episodeNumber
             || title != other.title
             || intro != other.intro
-            || unlockPriceCatFood != other.unlockPriceCatFood
+            || unlockPriceGoldCoins != other.unlockPriceGoldCoins
     }
 }
 
@@ -806,6 +1094,7 @@ private struct ShortDramaPreparedEpisode: @unchecked Sendable {
     let selectionIndex: Int
     let localURL: URL
     let previewImage: UIImage?
+    let previewURL: URL?
 }
 
 enum ShortDramaEpisodeUploadState: Equatable {

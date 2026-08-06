@@ -7,13 +7,23 @@ final class InteractiveScriptContractTests: XCTestCase {
 
         XCTAssertEqual(
             items.map(\.id),
-            ["moments", "games", "short_drama", "live", "stories", "groups", "benefits"]
+            ["moments", "games", "stories", "short_drama", "live", "groups", "benefits"]
         )
         XCTAssertFalse(items.contains { $0.id == "script_center" })
 
         let stories = try XCTUnwrap(items.first { $0.id == "stories" })
         XCTAssertEqual(stories.route?.normalizedType, "native")
         XCTAssertEqual(stories.route?.name, "script_center")
+    }
+
+    func testDiscoverGroupsScriptsWithGamesAndKeepsGroupsSeparate() throws {
+        let sections = DiscoverConfigData.defaultSections
+
+        let entertainment = try XCTUnwrap(sections.first { $0.id == "entertainment" })
+        XCTAssertEqual(entertainment.items.map(\.id), ["games", "stories", "short_drama", "live"])
+
+        let community = try XCTUnwrap(sections.first { $0.id == "community" })
+        XCTAssertEqual(community.items.map(\.id), ["groups"])
     }
 
     func testEmptyRemoteDiscoverConfigDoesNotSynthesizeScriptOnlySection() {
@@ -40,6 +50,112 @@ final class InteractiveScriptContractTests: XCTestCase {
         XCTAssertTrue(conversation.isScriptRoom)
         XCTAssertEqual(conversation.scriptRoomID, "room_1")
         XCTAssertEqual(conversation.scriptID, "sc_123")
+    }
+
+    func testJoinedScriptRoomResolverFiltersDeduplicatesAndSortsRooms() {
+        let olderRoom = Conversation(
+            type: "group",
+            id: "901",
+            name: "失落星港",
+            avatarURL: "https://cdn.example/older.webp",
+            lastMessage: "旧进度",
+            lastMessageTime: "2026-07-26T10:00:00Z",
+            unreadCount: 0,
+            subtitle: nil,
+            groupID: 901,
+            memberCount: nil,
+            conversationKind: "script_room",
+            scriptRoomID: "room_1",
+            scriptID: "script_1"
+        )
+        let newerRoom = Conversation(
+            type: "group",
+            id: "901",
+            name: "失落星港",
+            avatarURL: "https://cdn.example/newer.webp",
+            lastMessage: "新进度",
+            lastMessageTime: "2026-07-27T10:00:00Z",
+            unreadCount: 0,
+            subtitle: nil,
+            groupID: 901,
+            memberCount: nil,
+            conversationKind: "script_room",
+            scriptRoomID: "room_1",
+            scriptID: "script_1"
+        )
+        let secondRoom = Conversation(
+            type: "group",
+            id: "902",
+            name: "零点地铁",
+            avatarURL: "https://cdn.example/metro.webp",
+            lastMessage: nil,
+            lastMessageTime: "2026-07-27T09:00:00Z",
+            unreadCount: 0,
+            subtitle: nil,
+            groupID: 902,
+            memberCount: nil,
+            conversationKind: "script_room",
+            scriptRoomID: "room_2",
+            scriptID: "script_2"
+        )
+        let ordinaryGroup = Conversation(
+            type: "group",
+            id: "42",
+            name: "普通群聊",
+            avatarURL: "",
+            lastMessage: nil,
+            lastMessageTime: "2026-07-27T11:00:00Z",
+            unreadCount: 0,
+            subtitle: nil,
+            groupID: 42,
+            memberCount: nil
+        )
+
+        let rows = JoinedScriptRoomResolver.rows(
+            from: [olderRoom, ordinaryGroup, secondRoom, newerRoom]
+        )
+
+        XCTAssertEqual(rows.map(\.scriptRoomID), ["room_1", "room_2"])
+        XCTAssertEqual(rows.first?.lastMessage, "新进度")
+        XCTAssertEqual(rows.first?.avatarURL, "https://cdn.example/newer.webp")
+    }
+
+    func testLegacyAgentCatalogSnapshotDefaultsJoinedScriptsToEmpty() throws {
+        let legacyJSON = #"{"installedAgents":[],"conversations":[]}"#.data(using: .utf8)!
+
+        let snapshot = try JSONDecoder().decode(CachedAgentCatalogSnapshot.self, from: legacyJSON)
+
+        XCTAssertTrue(snapshot.joinedScriptRooms.isEmpty)
+    }
+
+    func testAgentCatalogSnapshotRoundTripsJoinedScriptRooms() throws {
+        let joinedRoom = Conversation(
+            type: "group",
+            id: "901",
+            name: "失落星港",
+            avatarURL: "https://cdn.example/cover.webp",
+            lastMessage: "继续剧情",
+            lastMessageTime: "2026-07-27T10:00:00Z",
+            unreadCount: 0,
+            subtitle: nil,
+            groupID: 901,
+            memberCount: nil,
+            conversationKind: "script_room",
+            scriptRoomID: "room_1",
+            scriptID: "script_1"
+        )
+        let snapshot = CachedAgentCatalogSnapshot(
+            runtimeConfig: nil,
+            installedAgents: [],
+            conversations: [],
+            joinedScriptRooms: [joinedRoom],
+            spendableBalance: nil
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(CachedAgentCatalogSnapshot.self, from: encoded)
+
+        XCTAssertEqual(decoded.joinedScriptRooms, [joinedRoom])
     }
 
     func testScriptConversationCanReplaceGroupAvatarWithSnapshotCover() throws {
@@ -155,6 +271,27 @@ final class InteractiveScriptContractTests: XCTestCase {
         XCTAssertEqual(room.scriptSnapshot.roles.first?.avatarURL, "https://cdn.example/snapshot-role.webp")
         XCTAssertEqual(message.senderAvatar, "https://cdn.example/message-role.webp")
         XCTAssertEqual(message.scriptContext?.roleID, "sr_ai")
+    }
+
+    func testScriptRoomRoundTripsThroughCacheEncoding() throws {
+        let roomJSON = #"{"room_id":"room_cache","script_id":"script_cache","group_id":902,"status":"ended","player_role_id":"role_player","assignments":[{"role_id":"role_player","actor_type":"user","user_id":"user_1"}],"script_snapshot":{"title":"缓存房间","synopsis":"缓存后立即打开。","cover_url":"https://cdn.example/cover.webp","roles":[{"role_id":"role_player","name":"林夏","gender":"female","avatar_url":"https://cdn.example/role.webp","description":"工程师"}]}}"#.data(using: .utf8)!
+        let room = try JSONDecoder().decode(ScriptRoom.self, from: roomJSON)
+
+        let encoded = try JSONEncoder().encode(room)
+        let decoded = try JSONDecoder().decode(ScriptRoom.self, from: encoded)
+
+        XCTAssertEqual(decoded, room)
+    }
+
+    func testScriptRoomCanOpenProvisionallyFromConversationCache() throws {
+        let json = #"{"type":"group","id":"902","name":"缓存房间","avatar_url":"https://cdn.example/cover.webp","group_id":902,"conversation_kind":"script_room","script_room_id":"room_cache","script_id":"script_cache"}"#.data(using: .utf8)!
+        let conversation = try JSONDecoder().decode(Conversation.self, from: json)
+
+        let room = try XCTUnwrap(ScriptRoom(provisionalConversationRow: conversation))
+
+        XCTAssertEqual(room.roomID, "room_cache")
+        XCTAssertEqual(room.groupID, 902)
+        XCTAssertEqual(room.scriptSnapshot.title, "缓存房间")
     }
 
     func testScriptPageRoundTripsThroughPersistentCacheEncoding() throws {

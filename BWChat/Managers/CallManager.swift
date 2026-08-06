@@ -222,6 +222,8 @@ class CallManager: ObservableObject {
     @Published var isFrontCamera = true
     @Published var isRemotePrimary = true
     @Published var errorMessage: String?
+    @Published private(set) var liveEndingMessage: String?
+    @Published private(set) var liveEndingDetail: String?
     @Published private(set) var mediaConnectionState: ConnectionState = .disconnected
     @Published private(set) var localConnectionQuality: ConnectionQuality = .unknown
     @Published private(set) var activeSpeakerIDs: Set<String> = []
@@ -239,6 +241,8 @@ class CallManager: ObservableObject {
     private var ringtoneTimer: Task<Void, Never>?
     private var connectionTimeoutTask: Task<Void, Never>?
     private var ringTimeoutTask: Task<Void, Never>?
+    private var gracefulLiveEndingTask: Task<Void, Never>?
+    private var liveTerminationReconciliationTask: Task<Void, Never>?
     /// A full LiveKit reconnect briefly replaces a remote participant with the
     /// same identity. Keep the call alive while that replacement joins.
     private var remoteDepartureGraceTask: Task<Void, Never>?
@@ -282,6 +286,12 @@ class CallManager: ObservableObject {
 
     func minimizeCall() {
         isMinimized = true
+    }
+
+    func dismissLiveRoleIntroduction() {
+        guard var call = currentCall, call.liveRoleContext != nil else { return }
+        call.isLiveRoleIntroductionDismissed = true
+        currentCall = call
     }
 
     func restoreCall() {
@@ -414,6 +424,66 @@ class CallManager: ObservableObject {
             } catch {
                 print("[CallManager] Failed to start call: \(error)")
                 failCall(L10n.tr("call.error.start", error.localizedDescription))
+            }
+        }
+    }
+
+    /// Starts media only after a lightweight live invitation was accepted.
+    /// This additive path deliberately skips the normal incoming/outgoing
+    /// ringtone states; existing friend and group call behavior is unchanged.
+    func connectAcceptedLiveCall(
+        remoteUserID: String,
+        remoteNickname: String,
+        remoteAvatarURL: String,
+        isOutgoing: Bool,
+        response: CallJoinResponse,
+        callType: CallType,
+        billingPolicy: LiveBillingPolicy,
+        liveRoleContext: LiveCallRoleContext?,
+        liveExperience: LiveExperienceSnapshot?
+    ) {
+        guard currentCall == nil else { return }
+        dismissKeyboard()
+
+        currentCall = CallSession(
+            remoteUserID: remoteUserID,
+            remoteNickname: remoteNickname,
+            remoteAvatarURL: remoteAvatarURL,
+            callType: callType,
+            isOutgoing: isOutgoing,
+            state: .connecting,
+            startedAt: Date(),
+            serverCallID: response.callID,
+            roomName: response.roomName,
+            livekitToken: response.token,
+            livekitURL: response.livekitUrl
+        )
+        currentCall?.isLivePairCall = true
+        currentCall?.liveRoleContext = liveRoleContext
+        currentCall?.liveBillingPolicy = billingPolicy
+        currentCall?.liveExperience = liveExperience
+        let localSessionID = currentCall?.id
+
+        Task {
+            guard await ensureMediaPermissions(for: callType),
+                  currentCall?.id == localSessionID else {
+                if currentCall?.id == localSessionID {
+                    endCall()
+                }
+                return
+            }
+
+            do {
+                let livekitURL = try normalizedLiveKitURL(response.livekitUrl)
+                guard currentCall?.id == localSessionID else { return }
+                await connectToRoom(
+                    url: livekitURL,
+                    token: response.token,
+                    isVideo: callType == .video
+                )
+            } catch {
+                guard currentCall?.id == localSessionID else { return }
+                failCall(L10n.tr("call.error.join", error.localizedDescription))
             }
         }
     }
@@ -1143,25 +1213,27 @@ class CallManager: ObservableObject {
         remoteVideoTrack = remoteParticipants.lazy.compactMap(activeVideoTrack).first
 
         // First remote joined on an outgoing call: now we're truly "connected".
-        // Only transition from .outgoing (not .connecting or other states) to avoid
-        // premature timer start. For 1v1 calls also verify at least one remote has
-        // published an audio track, ensuring the callee actually joined media.
-        if currentCall?.isOutgoing == true,
-           currentCall?.state == .outgoing,
-           !remoteParticipants.isEmpty {
+        // Ordinary 1v1 calls still wait for remote audio so ringing does not end
+        // prematurely. Live-pair calls were already accepted before media starts,
+        // so the remote participant joining is enough to leave `.connecting`.
+        if let call = currentCall {
             let hasRemoteAudio = remoteParticipants.contains { p in
                 !p.audioTracks.isEmpty
             }
-            // For group calls, any participant joining is enough;
-            // for 1v1, wait until the remote publishes audio
-            let isGroup = currentCall?.groupID != nil
-            if isGroup || hasRemoteAudio {
+            if CallConnectionTransitionPolicy.shouldMarkConnected(
+                isOutgoing: call.isOutgoing,
+                isGroupCall: call.groupID != nil,
+                isLivePairCall: call.isLivePairCall,
+                state: call.state,
+                remoteParticipantCount: remoteParticipants.count,
+                hasRemoteAudio: hasRemoteAudio
+            ) {
                 stopRingtone()
                 ringTimeoutTask?.cancel()
                 ringTimeoutTask = nil
-                if var call = currentCall {
-                    call.state = .connected
-                    currentCall = call
+                if var connectedCall = currentCall {
+                    connectedCall.state = .connected
+                    currentCall = connectedCall
                 }
                 startDurationTimer()
                 dismissKeyboard()
@@ -1308,6 +1380,7 @@ class CallManager: ObservableObject {
         guard room === disconnectedRoom else { return }
         updateRemoteParticipants()
         guard let call = currentCall,
+              liveEndingMessage == nil,
               CallParticipantDeparturePolicy.shouldScheduleAutoExit(
                 isGroupCall: call.groupID != nil,
                 hasObservedRemoteParticipant: hasObservedRemoteParticipant,
@@ -1349,7 +1422,21 @@ class CallManager: ObservableObject {
     }
 
     func handleRoomDisconnect(_ disconnectedRoom: Room, error: LiveKitError?) {
-        guard room === disconnectedRoom, currentCall != nil else { return }
+        guard room === disconnectedRoom, let call = currentCall else { return }
+        if call.isLivePairCall {
+            guard liveEndingMessage == nil else { return }
+            if let error {
+                print("[CallManager] LiveKit live room disconnected; waiting for termination reason: \(error)")
+            } else {
+                print("[CallManager] LiveKit live room closed; waiting for termination reason")
+            }
+            scheduleLiveTerminationReconciliation(
+                sessionID: call.id,
+                showConnectionError: error != nil,
+                notifyRemoteOnExpiry: true
+            )
+            return
+        }
         if let error {
             print("[CallManager] LiveKit disconnected unexpectedly: \(error)")
             errorMessage = L10n.tr("call.error.connection")
@@ -1419,6 +1506,10 @@ class CallManager: ObservableObject {
         connectionTimeoutTask = nil
         ringTimeoutTask?.cancel()
         ringTimeoutTask = nil
+        gracefulLiveEndingTask?.cancel()
+        gracefulLiveEndingTask = nil
+        liveTerminationReconciliationTask?.cancel()
+        liveTerminationReconciliationTask = nil
         remoteDepartureGraceTask?.cancel()
         remoteDepartureGraceTask = nil
         qualitySamplingTask?.cancel()
@@ -1431,6 +1522,8 @@ class CallManager: ObservableObject {
         debugReconnectScheduled = false
         #endif
         callDuration = 0
+        liveEndingMessage = nil
+        liveEndingDetail = nil
         isMuted = false
         isSpeakerOn = true
         isLocalVideoEnabled = true
@@ -1450,6 +1543,14 @@ class CallManager: ObservableObject {
         room = nil
         roomDelegate = nil
         currentCall = nil
+
+        if endedCall?.isLivePairCall == true {
+            Task {
+                async let wallet: Void = WalletStore.shared.refreshBalanceFromServer(forceRefresh: true)
+                async let props: Void = PropInventoryStore.shared.load(forceRefresh: true)
+                _ = await (wallet, props)
+            }
+        }
 
         Task {
             // Explicitly stop camera and mic before disconnecting to release hardware
@@ -1472,6 +1573,17 @@ class CallManager: ObservableObject {
                     print("[CallQuality] Failed to upload call_id=\(callID): \(error)")
                 }
             }
+        }
+
+        if endedCall?.isLivePairCall == true {
+            NotificationCenter.default.post(name: .conversationListNeedsReload, object: nil)
+        }
+        if let endedCall,
+           LiveHostCallEndPolicy.shouldReturnToLobby(
+               isLivePairCall: endedCall.isLivePairCall,
+               isOutgoing: endedCall.isOutgoing
+           ) {
+            NotificationCenter.default.post(name: .liveHostCallDidEnd, object: nil)
         }
     }
 
@@ -1504,6 +1616,23 @@ class CallManager: ObservableObject {
             Task {
                 do {
                     try await APIService.shared.endCall(callID: callID)
+                    if call.isLivePairCall {
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .conversationListNeedsReload,
+                                object: nil
+                            )
+                            if LiveHostCallEndPolicy.shouldReturnToLobby(
+                                isLivePairCall: call.isLivePairCall,
+                                isOutgoing: call.isOutgoing
+                            ) {
+                                NotificationCenter.default.post(
+                                    name: .liveHostCallDidEnd,
+                                    object: nil
+                                )
+                            }
+                        }
+                    }
                 } catch {
                     print("[CallManager] HTTP end fallback failed call_id=\(callID): \(error)")
                 }
@@ -1607,7 +1736,19 @@ class CallManager: ObservableObject {
             .sink { [weak self] data in
                 guard let self,
                       self.isCurrentOneToOneCall(matching: data) else { return }
-                self.endCallLocally()
+                if let call = self.currentCall, call.isLivePairCall {
+                    if LiveCallTerminationPolicy.isInsufficientBalance(data) {
+                        self.beginGracefulLiveEnding(data: data)
+                    } else {
+                        self.scheduleLiveTerminationReconciliation(
+                            sessionID: call.id,
+                            showConnectionError: false,
+                            notifyRemoteOnExpiry: false
+                        )
+                    }
+                } else {
+                    self.endCallLocally()
+                }
             }
             .store(in: &cancellables)
 
@@ -1626,6 +1767,30 @@ class CallManager: ObservableObject {
                 guard let self,
                       self.isCurrentOneToOneCall(matching: data) else { return }
                 self.endCallLocally()
+            }
+            .store(in: &cancellables)
+
+        WebSocketService.shared.liveCallBillingPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] data in
+                self?.handleLiveCallBillingUpdate(data)
+            }
+            .store(in: &cancellables)
+
+        WebSocketService.shared.$isConnected
+            .removeDuplicates()
+            .dropFirst()
+            .filter { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.requestLiveTerminationStateRecovery()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.requestLiveTerminationStateRecovery()
             }
             .store(in: &cancellables)
 
@@ -1679,6 +1844,263 @@ class CallManager: ObservableObject {
         keys.lazy.compactMap { stringValue(data[$0]) }.first
     }
 
+    private func handleLiveCallBillingUpdate(_ data: [String: Any]) {
+        guard var call = currentCall,
+              call.isLivePairCall,
+              let eventCallID = Self.firstString(data, keys: ["call_id"]),
+              call.serverCallID == eventCallID,
+              Self.isValidLiveBillingUpdate(data) else { return }
+
+        if let experience = Self.liveExperienceSnapshot(from: data) {
+            call.liveExperience = experience
+        }
+
+        if call.isOutgoing {
+            call.confirmedLiveActivityCatFoodCharge = Self.intValue(
+                data["charged_activity_cat_food"]
+            ).map { max($0, 0) }
+            call.confirmedLiveGoldCoinCharge = Self.intValue(
+                data["charged_gold_coins"]
+            ).map { max($0, 0) }
+            call.confirmedLiveTotalCharge = Self.intValue(
+                data["total_charged"]
+            ).map { max($0, 0) }
+        } else if let earned = Self.intValue(data["earned_gold_coins"]) {
+            call.confirmedLiveEarningGoldCoins = max(earned, 0)
+        }
+        currentCall = call
+        if call.isOutgoing {
+            if let goldCoins = Self.intValue(data["gold_coin_balance_after"]),
+               let activityCatFood = Self.intValue(data["activity_cat_food_balance_after"]),
+               let spendable = Self.intValue(data["spendable_balance_after"]) {
+                WalletStore.shared.applySpendableBalances(
+                    goldCoinBalance: goldCoins,
+                    activityCatFoodBalance: activityCatFood,
+                    spendableBalance: spendable
+                )
+                if let chargedActivityCatFood = Self.intValue(data["charged_activity_cat_food"]),
+                   let chargedGoldCoins = Self.intValue(data["charged_gold_coins"]),
+                   let totalCharged = Self.intValue(data["total_charged"]) {
+                    WalletTelemetry.recordLiveBilling(
+                        operation: "one_to_one_live",
+                        chargedActivityCatFood: chargedActivityCatFood,
+                        chargedGoldCoins: chargedGoldCoins,
+                        totalCharged: totalCharged,
+                        goldCoinBalanceAfter: goldCoins,
+                        activityCatFoodBalanceAfter: activityCatFood,
+                        spendableBalanceAfter: spendable
+                    )
+                }
+            }
+        }
+        if LiveCallTerminationPolicy.isInsufficientBalance(data) {
+            beginGracefulLiveEnding(data: data)
+        }
+    }
+
+    private func beginGracefulLiveEnding(data: [String: Any]) {
+        guard let call = currentCall, call.isLivePairCall else { return }
+
+        errorMessage = nil
+        isMinimized = false
+        liveEndingMessage = LiveCallTerminationPolicy.message(
+            isPayer: call.isOutgoing,
+            callType: call.callType
+        )
+        liveEndingDetail = liveEndingBillingDetail(call: call, data: data)
+        durationTimer?.cancel()
+        durationTimer = nil
+        connectionTimeoutTask?.cancel()
+        connectionTimeoutTask = nil
+        remoteDepartureGraceTask?.cancel()
+        remoteDepartureGraceTask = nil
+        liveTerminationReconciliationTask?.cancel()
+        liveTerminationReconciliationTask = nil
+
+        // A second reason event (for example call_end after billing_insufficient)
+        // may refine the message, but must not restart the visible grace period.
+        guard gracefulLiveEndingTask == nil else { return }
+        let sessionID = call.id
+        let grace = LiveCallTerminationPolicy.graceNanoseconds(data)
+        gracefulLiveEndingTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: grace)
+            guard !Task.isCancelled,
+                  let self,
+                  self.currentCall?.id == sessionID else { return }
+            self.endCallLocally()
+        }
+    }
+
+    private func liveEndingBillingDetail(
+        call: CallSession,
+        data: [String: Any]
+    ) -> String? {
+        LiveCallTerminationPresentationPolicy.billingDetail(
+            isPayer: call.isOutgoing,
+            chargedActivityCatFood: Self.intValue(data["charged_activity_cat_food"])
+                ?? call.confirmedLiveActivityCatFoodCharge,
+            chargedGoldCoins: Self.intValue(data["charged_gold_coins"])
+                ?? call.confirmedLiveGoldCoinCharge,
+            totalCharged: Self.intValue(data["total_charged"])
+                ?? call.confirmedLiveTotalCharge,
+            earnedGoldCoins: Self.intValue(data["earned_gold_coins"])
+                ?? call.confirmedLiveEarningGoldCoins,
+            goldCoinBalanceAfter: Self.intValue(data["gold_coin_balance_after"]),
+            activityCatFoodBalanceAfter: Self.intValue(data["activity_cat_food_balance_after"]),
+            spendableBalanceAfter: Self.intValue(data["spendable_balance_after"])
+        )
+    }
+
+    private func scheduleLiveTerminationReconciliation(
+        sessionID: UUID,
+        showConnectionError: Bool,
+        notifyRemoteOnExpiry: Bool
+    ) {
+        guard liveEndingMessage == nil,
+              liveTerminationReconciliationTask == nil else { return }
+        let delay = UInt64(LiveCallTerminationPolicy.reconciliationMilliseconds) * 1_000_000
+        let callID = currentCall?.serverCallID
+        liveTerminationReconciliationTask = Task { [weak self] in
+            let startedAt = Date()
+            if let callID, !callID.isEmpty,
+               let state = await Self.fetchLiveCallState(
+                   callID: callID,
+                   timeoutNanoseconds: delay
+               ),
+               let self,
+               self.currentCall?.id == sessionID,
+               self.applyRecoveredLiveTerminationState(state) {
+                self.liveTerminationReconciliationTask = nil
+                return
+            }
+            let elapsed = Date().timeIntervalSince(startedAt)
+            let remaining = max(
+                Double(delay) - elapsed * 1_000_000_000,
+                0
+            )
+            if remaining > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(remaining))
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.currentCall?.id == sessionID,
+                  self.liveEndingMessage == nil else { return }
+            self.liveTerminationReconciliationTask = nil
+            if showConnectionError {
+                self.errorMessage = L10n.tr("call.error.connection")
+            }
+            if notifyRemoteOnExpiry {
+                self.endCall()
+            } else {
+                self.endCallLocally()
+            }
+        }
+    }
+
+    private func requestLiveTerminationStateRecovery() {
+        guard let call = currentCall,
+              call.isLivePairCall,
+              let callID = call.serverCallID,
+              !callID.isEmpty else { return }
+        let sessionID = call.id
+        Task { [weak self] in
+            guard let state = try? await APIService.shared.getOneToOneLiveCallState(
+                callID: callID
+            ), let self,
+               self.currentCall?.id == sessionID else { return }
+            _ = self.applyRecoveredLiveTerminationState(state)
+        }
+    }
+
+    @discardableResult
+    private func applyRecoveredLiveTerminationState(
+        _ state: OneToOneLiveCallState
+    ) -> Bool {
+        guard let call = currentCall,
+              call.isLivePairCall,
+              call.serverCallID == state.callID else { return false }
+        if let billingPolicy = state.billingPolicy {
+            currentCall?.liveBillingPolicy = billingPolicy
+        }
+        if let liveExperience = state.liveExperience {
+            currentCall?.liveExperience = liveExperience
+        }
+        let data = Self.liveTerminationData(from: state)
+        guard LiveCallTerminationPolicy.isInsufficientBalance(data) else {
+            return false
+        }
+        handleLiveCallBillingUpdate(data)
+        return true
+    }
+
+    private static func liveTerminationData(
+        from state: OneToOneLiveCallState
+    ) -> [String: Any] {
+        var data: [String: Any] = [
+            "call_id": state.callID,
+            "status": state.status
+        ]
+        if let endReason = state.endReason {
+            data["end_reason"] = endReason
+            data["reason"] = endReason
+        }
+        if let grace = state.terminationGraceMilliseconds {
+            data["termination_grace_ms"] = grace
+        }
+        if let finalBilling = state.finalBilling {
+            data["charged_units"] = finalBilling.chargedUnits
+            data["charged_activity_cat_food"] = finalBilling.chargedActivityCatFood
+            data["charged_gold_coins"] = finalBilling.chargedGoldCoins
+            data["total_charged"] = finalBilling.totalCharged
+            data["earned_gold_coins"] = finalBilling.earnedGoldCoins
+            data["gold_coin_balance_after"] = finalBilling.goldCoinBalanceAfter
+            data["activity_cat_food_balance_after"] = finalBilling.activityCatFoodBalanceAfter
+            data["spendable_balance_after"] = finalBilling.spendableBalanceAfter
+            data["billing_status"] = finalBilling.billingStatus
+            if state.endReason == nil, let billingStatus = finalBilling.billingStatus {
+                data["reason"] = billingStatus
+            }
+        }
+        return data.compactMapValues { $0 }
+    }
+
+    private static func fetchLiveCallState(
+        callID: String,
+        timeoutNanoseconds: UInt64
+    ) async -> OneToOneLiveCallState? {
+        await withTaskGroup(of: OneToOneLiveCallState?.self) { group in
+            group.addTask {
+                try? await APIService.shared.getOneToOneLiveCallState(callID: callID)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private static func liveExperienceSnapshot(from data: [String: Any]) -> LiveExperienceSnapshot? {
+        let object: [String: Any]?
+        if let nested = data["live_experience"] as? [String: Any] {
+            object = nested
+        } else if let nested = data["experience"] as? [String: Any] {
+            object = nested
+        } else if data["definition_id"] != nil || data["prop_definition_id"] != nil {
+            object = data
+        } else {
+            object = nil
+        }
+        guard let object,
+              JSONSerialization.isValidJSONObject(object),
+              let encoded = try? JSONSerialization.data(withJSONObject: object)
+        else { return nil }
+        return (try? JSONDecoder().decode(LiveExperienceSnapshot.self, from: encoded))?
+            .anchored(serverTime: firstString(data, keys: ["server_time"]))
+    }
+
     static func callTypeValue(_ value: Any?) -> CallType? {
         guard let value = stringValue(value)?.lowercased() else { return nil }
         switch value {
@@ -1715,6 +2137,26 @@ class CallManager: ObservableObject {
         if let number = value as? NSNumber { return number.intValue }
         if let string = value as? String { return Int(string) }
         return nil
+    }
+
+    private static func isValidLiveBillingUpdate(_ data: [String: Any]) -> Bool {
+        let chargedActivityCatFood = intValue(data["charged_activity_cat_food"])
+        let chargedGoldCoins = intValue(data["charged_gold_coins"])
+        let totalCharged = intValue(data["total_charged"])
+        let values = [
+            chargedActivityCatFood,
+            chargedGoldCoins,
+            totalCharged,
+            intValue(data["earned_gold_coins"]),
+            intValue(data["gold_coin_balance_after"]),
+            intValue(data["activity_cat_food_balance_after"]),
+            intValue(data["spendable_balance_after"])
+        ].compactMap { $0 }
+        guard values.allSatisfy({ $0 >= 0 }) else { return false }
+        if let chargedActivityCatFood, let chargedGoldCoins, let totalCharged {
+            return totalCharged == chargedActivityCatFood + chargedGoldCoins
+        }
+        return true
     }
     // MARK: - Ringtone
 

@@ -118,21 +118,33 @@ struct AgentCreatorView: View {
 
     @ViewBuilder
     private var referencePreview: some View {
-        if let data = viewModel.selectedReferenceData, let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-        } else {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(AppColors.accentLight)
-                Image(systemName: "photo.badge.plus")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(AppColors.accent)
+        Group {
+            if let data = viewModel.selectedReferenceData, let image = UIImage(data: data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else if let avatarAssetID = viewModel.currentAvatarAssetID {
+                AgentAvatarView(
+                    assetID: avatarAssetID,
+                    size: 64,
+                    cornerRadius: 12
+                )
+            } else {
+                ZStack {
+                    AppColors.accentLight
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(AppColors.accent)
+                }
             }
-            .frame(width: 64, height: 64)
         }
+        .frame(width: 64, height: 64)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AppColors.accent.opacity(0.16), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 
     private var nameSection: some View {

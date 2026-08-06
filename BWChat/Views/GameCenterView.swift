@@ -5,7 +5,15 @@ import WebKit
 protocol GameCenterAPIClient: AnyObject {
     func getRecommendedGames(limit: Int, cursor: String?) async throws -> GameCatalogPage
     func getPlayedGames(limit: Int, cursor: String?) async throws -> GameCatalogPage
-    func createGameSession(gameID: String) async throws -> GameSession
+    func createGameLobbySession(
+        gameID: String,
+        idempotencyKey: UUID
+    ) async throws -> GameSession
+    func startGameRound(
+        gameID: String,
+        sessionID: String,
+        idempotencyKey: UUID
+    ) async throws -> GameRoundStart
 }
 
 extension APIService: GameCenterAPIClient {}
@@ -14,13 +22,19 @@ extension APIService: GameCenterAPIClient {}
 struct GameCenterView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var store: GameCenterStore
+    @ObservedObject private var walletStore: WalletStore
+    @ObservedObject private var remoteConfig = AppRemoteConfigStore.shared
     @State private var selectedTab: GameCenterTab = .recommended
     @State private var alertMessage: String?
     @State private var refreshPlayedAfterReturn = false
 
-    init(api: GameCenterAPIClient? = nil) {
+    init(
+        api: GameCenterAPIClient? = nil,
+        walletStore: WalletStore? = nil
+    ) {
         let resolvedAPI = api ?? APIService.shared
         _store = StateObject(wrappedValue: GameCenterStore(api: resolvedAPI))
+        _walletStore = ObservedObject(wrappedValue: walletStore ?? .shared)
     }
 
     var body: some View {
@@ -36,12 +50,7 @@ struct GameCenterView: View {
             .padding(.vertical, 18)
         }
         .refreshable {
-            switch selectedTab {
-            case .recommended:
-                await store.loadRecommended(reset: true)
-            case .played:
-                await store.loadPlayed(force: true)
-            }
+            await refreshSelectedTab()
         }
         .background(AppColors.secondaryBackground)
         .navigationTitle("")
@@ -57,6 +66,7 @@ struct GameCenterView: View {
             }
         }
         .task {
+            GameWebViewPool.shared.prewarm()
             await store.loadInitial()
         }
         .onAppear {
@@ -158,31 +168,59 @@ struct GameCenterView: View {
     }
 
     private func openGame(_ game: GameCatalogItem) {
+        guard !store.isLaunching else { return }
         guard store.beginLaunching(gameID: game.id) else { return }
+        let idempotencyKey = UUID()
 
         Task {
             defer { store.finishLaunching(gameID: game.id) }
             do {
-                let session = try await store.createSession(for: game.id)
+                let session = try await store.createLobbySession(
+                    for: game.id,
+                    idempotencyKey: idempotencyKey
+                )
                 try Task.checkCancellation()
+                let gamePolicy = remoteConfig.config.webViewPolicy.gameLaunchPolicy
                 guard let url = URL(string: session.launchURL),
-                      GameWebSecurity.allowsInitialGameURL(url) else {
+                      GameWebSecurity.allowsInitialGameURL(url, policy: gamePolicy) else {
                     alertMessage = L10n.tr("gameCenter.invalidURL")
                     return
                 }
 
-                store.recordPlayed(game)
-                refreshPlayedAfterReturn = true
                 navigator.push(InAppWebView(
                     url: url,
                     title: game.name,
-                    restrictToInitialOrigin: true
-                ))
+                    restrictToInitialOrigin: true,
+                    gameEntryContext: GameEntryContext(
+                        gameID: game.id,
+                        sessionID: session.sessionID,
+                        walletStore: walletStore,
+                        startRound: { request in
+                            let round = try await store.startRound(
+                                gameID: game.id,
+                                sessionID: session.sessionID,
+                                idempotencyKey: request.idempotencyKey
+                            )
+                            store.recordPlayed(game)
+                            refreshPlayedAfterReturn = true
+                            return round
+                        }
+                    )
+                ), allowsSwipeBack: false)
             } catch is CancellationError {
                 return
             } catch {
-                alertMessage = L10n.tr("gameCenter.sessionFailed")
+                alertMessage = GameRoundStartErrorText.message(for: error)
             }
+        }
+    }
+
+    private func refreshSelectedTab() async {
+        switch selectedTab {
+        case .recommended:
+            await store.loadRecommended(reset: true)
+        case .played:
+            await store.loadPlayed(force: true)
         }
     }
 }
@@ -198,6 +236,45 @@ enum GameCenterTab: String, CaseIterable, Identifiable {
         case .recommended: return "gameCenter.tab.recommended"
         case .played: return "gameCenter.tab.played"
         }
+    }
+}
+
+enum GameRoundStartErrorText {
+    static func message(for error: Error) -> String {
+        guard let apiError = error as? APIError else {
+            return L10n.tr("gameCenter.sessionFailed")
+        }
+
+        let candidates: [String]
+        switch apiError {
+        case .businessError(let code, let message, _):
+            candidates = [code, message]
+        case .serverError(_, let message):
+            candidates = [message]
+        default:
+            return L10n.tr("gameCenter.sessionFailed")
+        }
+
+        let normalized = candidates.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if normalized.contains("insufficient_gold_coins")
+            || normalized.contains("insufficient_balance")
+            || normalized.contains("金币余额不足") {
+            return L10n.tr("gameRound.error.insufficientCoins")
+        }
+        if normalized.contains("idempotency_conflict") {
+            return L10n.tr("gameRound.error.requestConflict")
+        }
+        if normalized.contains("game_session_rate_limited") {
+            return L10n.tr("gameRound.error.rateLimited")
+        }
+        if normalized.contains("game_not_found")
+            || normalized.contains("game_unavailable") {
+            return L10n.tr("gameRound.error.gameUnavailable")
+        }
+        return L10n.tr("gameCenter.sessionFailed")
     }
 }
 
@@ -226,14 +303,19 @@ final class GameCenterStore: ObservableObject {
     @Published private(set) var playedLoadFailed = false
     @Published private(set) var launchingGameID: String?
 
+    var isLaunching: Bool { launchingGameID != nil }
+
     private let api: GameCenterAPIClient
+    private let usesCache: Bool
     private var recommendedNextCursor: String?
     private var requestedRecommendedCursors = Set<String>()
     private var hasLoadedRecommended = false
     private var hasLoadedPlayed = false
 
-    init(api: GameCenterAPIClient) {
+    init(api: GameCenterAPIClient, usesCache: Bool = true) {
         self.api = api
+        self.usesCache = usesCache
+        guard usesCache else { return }
         if let key = CacheKey.current(namespace: "games", key: "recommended"),
            let cached: CachedSnapshot<GameCatalogPage> = AppCacheRepository.shared.cachedValue(for: key) {
             recommendedGames = cached.value.items
@@ -267,7 +349,8 @@ final class GameCenterStore: ObservableObject {
 
         do {
             let page: GameCatalogPage
-            if let key = CacheKey.current(namespace: "games", key: "recommended") {
+            if usesCache,
+               let key = CacheKey.current(namespace: "games", key: "recommended") {
                 page = try await AppCacheRepository.shared.loadValue(
                     key: key,
                     policy: .profile,
@@ -310,7 +393,8 @@ final class GameCenterStore: ObservableObject {
             try Task.checkCancellation()
             recommendedGames = Self.deduplicated(recommendedGames + page.items)
             recommendedNextCursor = page.nextCursor
-            if let key = CacheKey.current(namespace: "games", key: "recommended") {
+            if usesCache,
+               let key = CacheKey.current(namespace: "games", key: "recommended") {
                 AppCacheRepository.shared.save(
                     GameCatalogPage(items: Array(recommendedGames.prefix(200)), nextCursor: recommendedNextCursor),
                     for: key,
@@ -333,7 +417,8 @@ final class GameCenterStore: ObservableObject {
 
         do {
             let page: GameCatalogPage
-            if let key = CacheKey.current(namespace: "games", key: "played") {
+            if usesCache,
+               let key = CacheKey.current(namespace: "games", key: "played") {
                 page = try await AppCacheRepository.shared.loadValue(
                     key: key,
                     policy: .profile,
@@ -354,8 +439,30 @@ final class GameCenterStore: ObservableObject {
         }
     }
 
-    func createSession(for gameID: String) async throws -> GameSession {
-        try await api.createGameSession(gameID: gameID)
+    func createLobbySession(
+        for gameID: String,
+        idempotencyKey: UUID
+    ) async throws -> GameSession {
+        let session = try await api.createGameLobbySession(
+            gameID: gameID,
+            idempotencyKey: idempotencyKey
+        )
+        try GameLobbySessionResponseValidator.validate(session)
+        return session
+    }
+
+    func startRound(
+        gameID: String,
+        sessionID: String,
+        idempotencyKey: UUID
+    ) async throws -> GameRoundStart {
+        let round = try await api.startGameRound(
+            gameID: gameID,
+            sessionID: sessionID,
+            idempotencyKey: idempotencyKey
+        )
+        try GameRoundStartResponseValidator.validate(round)
+        return round
     }
 
     func beginLaunching(gameID: String) -> Bool {
@@ -377,6 +484,7 @@ final class GameCenterStore: ObservableObject {
             iconURL: game.iconURL,
             summary: game.summary,
             gameType: game.gameType,
+            entryPriceGoldCoins: game.entryPriceGoldCoins,
             sortOrder: game.sortOrder,
             lastPlayedAt: ISO8601DateFormatter().string(from: Date())
         )
@@ -397,9 +505,9 @@ private struct GameListCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .center, spacing: 10) {
-                GamePosterImage(url: game.displayIconURL, name: game.name)
-                    .frame(width: 64, height: 64)
+            HStack(alignment: .center, spacing: 12) {
+                GamePosterImage(url: game.displayIconURL)
+                    .frame(width: 50, height: 50)
                     .overlay {
                         if isLaunching {
                             ZStack {
@@ -408,7 +516,7 @@ private struct GameListCard: View {
                             }
                         }
                     }
-                    .clipShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 7) {
                     Text(game.name)
@@ -422,13 +530,15 @@ private struct GameListCard: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
-                    Text(normalized(game.gameType) ?? L10n.tr("gameCenter.type.other"))
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppColors.accent)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(AppColors.accent.opacity(0.12))
-                        .clipShape(Capsule())
+                    HStack(spacing: 8) {
+                        Text(normalized(game.gameType) ?? L10n.tr("gameCenter.type.other"))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(AppColors.accent)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(AppColors.accent.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
                 }
                 .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             }
@@ -453,10 +563,8 @@ private struct GameListCard: View {
 
 private struct GamePosterImage: View {
     let url: String
-    let name: String
     @State private var image: UIImage?
     @State private var finishedLoading = false
-    @State private var svgFailed = false
 
     private var isSVG: Bool {
         URL(string: url)?.pathExtension.lowercased() == "svg"
@@ -464,144 +572,239 @@ private struct GamePosterImage: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [AppColors.accent.opacity(0.16), Color.orange.opacity(0.18)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            AppColors.accentGradient
 
-            if isSVG, let svgURL = URL(string: url), !svgFailed {
-                GameSVGPosterView(url: svgURL, failed: $svgFailed)
-            } else if let image {
+            if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-            } else if !isSVG && !finishedLoading && !url.isBlank {
-                ProgressView().tint(AppColors.accent)
+            } else if !finishedLoading && !url.isBlank {
+                ProgressView().tint(.white)
             } else {
                 posterPlaceholder
             }
         }
         .clipped()
         .task(id: url) {
-            svgFailed = false
+            let requestedURL = url
             image = nil
             finishedLoading = false
-            guard !isSVG, !url.isBlank else {
+            guard !requestedURL.isBlank else {
                 finishedLoading = true
                 return
             }
-            image = await ImageCacheManager.shared.loadImage(from: url)
+            let loaded: UIImage?
+            if isSVG, let svgURL = URL(string: requestedURL) {
+                loaded = await GameSVGPosterRenderer.shared.image(for: svgURL)
+            } else {
+                loaded = await ImageCacheManager.shared.loadImage(from: requestedURL)
+            }
+            guard !Task.isCancelled, requestedURL == url else { return }
+            image = loaded
             finishedLoading = true
         }
     }
 
     private var posterPlaceholder: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "gamecontroller.fill")
-                .font(.system(size: 30, weight: .semibold))
-            Text(name)
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 8)
-        }
-        .foregroundColor(AppColors.secondaryText)
+        Image(systemName: "gamecontroller.fill")
+            .font(.system(size: 19, weight: .medium))
+            .foregroundColor(.white.opacity(0.8))
     }
 }
 
-private struct GameSVGPosterView: UIViewRepresentable {
-    let url: URL
-    @Binding var failed: Bool
+/// Rasterizes all SVG game posters through one off-screen WKWebView instead of
+/// allocating a separate WebContent-backed view for every visible list cell.
+@MainActor
+private final class GameSVGPosterRenderer: NSObject, WKNavigationDelegate {
+    static let shared = GameSVGPosterRenderer()
 
-    func makeCoordinator() -> Coordinator { Coordinator(failed: $failed) }
+    private final class PendingRequest {
+        let url: URL
+        var continuations: [CheckedContinuation<UIImage?, Never>]
 
-    func makeUIView(context: Context) -> WKWebView {
+        init(url: URL, continuations: [CheckedContinuation<UIImage?, Never>]) {
+            self.url = url
+            self.continuations = continuations
+        }
+    }
+
+    private let imageCache = NSCache<NSURL, UIImage>()
+    private let webView: WKWebView
+    private var queuedURLs: [URL] = []
+    private var waiters: [URL: [CheckedContinuation<UIImage?, Never>]] = [:]
+    private var activeRequest: PendingRequest?
+
+    private override init() {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = WKWebView(
+            frame: CGRect(origin: .zero, size: CGSize(width: 160, height: 160)),
+            configuration: configuration
+        )
+        super.init()
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
         webView.isUserInteractionEnabled = false
-        webView.navigationDelegate = context.coordinator
-        context.coordinator.load(url: url, in: webView)
-        return webView
+        webView.navigationDelegate = self
+        imageCache.countLimit = 100
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {
-        context.coordinator.load(url: url, in: uiView)
-    }
-
-    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
-        coordinator.cancel()
-        uiView.stopLoading()
-        uiView.navigationDelegate = nil
-        uiView.loadHTMLString("", baseURL: nil)
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate {
-        @Binding private var failed: Bool
-        private var currentURL: URL?
-        private var loadTask: Task<Void, Never>?
-
-        init(failed: Binding<Bool>) {
-            _failed = failed
+    func image(for url: URL) async -> UIImage? {
+        if let cached = imageCache.object(forKey: url as NSURL) {
+            return cached
         }
 
-        func load(url: URL, in webView: WKWebView) {
-            guard currentURL != url else { return }
-            currentURL = url
-            loadTask?.cancel()
-            failed = false
+        return await withCheckedContinuation { continuation in
+            if activeRequest?.url == url {
+                activeRequest?.continuations.append(continuation)
+                return
+            }
+            if waiters[url] != nil {
+                waiters[url, default: []].append(continuation)
+                return
+            }
+            waiters[url] = [continuation]
+            queuedURLs.append(url)
+            processNextIfNeeded()
+        }
+    }
 
-            loadTask = Task { @MainActor [weak self, weak webView] in
-                guard let self, let webView,
-                      GameWebSecurity.allowsInitialGameURL(url) else {
-                    self?.failed = true
+    private func processNextIfNeeded() {
+        guard activeRequest == nil, !queuedURLs.isEmpty else { return }
+        let url = queuedURLs.removeFirst()
+        let continuations = waiters.removeValue(forKey: url) ?? []
+        activeRequest = PendingRequest(url: url, continuations: continuations)
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            var request = URLRequest(url: url)
+            AuthRequestAuthorizer.addAuthHeader(&request, token: AuthManager.shared.token)
+            AuthRequestAuthorizer.logFinalRequest(request, expectsAuthorization: true)
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                try Task.checkCancellation()
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode),
+                      let finalURL = httpResponse.url,
+                      GameWebSecurity.allowsInitialGameURL(
+                          finalURL,
+                          policy: AppRemoteConfigStore.shared.config.webViewPolicy.gameLaunchPolicy
+                      ),
+                      !data.isEmpty,
+                      data.count <= GameSVGPosterHTML.maximumByteCount else {
+                    finishActiveRequest(with: nil)
                     return
                 }
-
-                var request = URLRequest(url: url)
-                AuthRequestAuthorizer.addAuthHeader(&request, token: AuthManager.shared.token)
-                AuthRequestAuthorizer.logFinalRequest(request, expectsAuthorization: true)
-
-                do {
-                    let (data, response) = try await URLSession.shared.data(for: request)
-                    try Task.checkCancellation()
-                    guard let httpResponse = response as? HTTPURLResponse,
-                          (200...299).contains(httpResponse.statusCode),
-                          let finalURL = httpResponse.url,
-                          GameWebSecurity.allowsInitialGameURL(finalURL),
-                          !data.isEmpty,
-                          data.count <= GameSVGPosterHTML.maximumByteCount else {
-                        failed = true
-                        return
-                    }
-                    webView.loadHTMLString(GameSVGPosterHTML.document(for: data), baseURL: nil)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    failed = true
-                }
+                webView.loadHTMLString(GameSVGPosterHTML.document(for: data), baseURL: nil)
+            } catch {
+                finishActiveRequest(with: nil)
             }
         }
+    }
 
-        func cancel() {
-            loadTask?.cancel()
-            loadTask = nil
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let snapshot = WKSnapshotConfiguration()
+        snapshot.rect = webView.bounds
+        snapshot.afterScreenUpdates = true
+        webView.takeSnapshot(with: snapshot) { [weak self] image, _ in
+            Task { @MainActor [weak self] in
+                self?.finishActiveRequest(with: image.flatMap(Self.croppingTransparentPadding))
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        finishActiveRequest(with: nil)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        finishActiveRequest(with: nil)
+    }
+
+    private func finishActiveRequest(with image: UIImage?) {
+        guard let activeRequest else { return }
+        self.activeRequest = nil
+
+        if let image {
+            imageCache.setObject(image, forKey: activeRequest.url as NSURL)
+        }
+        activeRequest.continuations.forEach { $0.resume(returning: image) }
+        processNextIfNeeded()
+    }
+
+    /// SVG favicon files often include transparent canvas padding. `scaledToFill`
+    /// cannot remove that internal padding, so the icon appears too small inside
+    /// the avatar frame. Crop only transparent pixels and keep a small
+    /// anti-aliasing margin before SwiftUI applies its final rounded-rectangle clip.
+    private static func croppingTransparentPadding(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage else { return image }
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return image }
+
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue
+            | CGImageAlphaInfo.premultipliedLast.rawValue
+
+        let visibleBounds: CGRect? = pixels.withUnsafeMutableBytes { buffer in
+            let bytes = buffer.bindMemory(to: UInt8.self)
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                return nil
+            }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+            var minX = width
+            var minY = height
+            var maxX = -1
+            var maxY = -1
+            let alphaThreshold: UInt8 = 8
+
+            for y in 0..<height {
+                let rowOffset = y * bytesPerRow
+                for x in 0..<width where bytes[rowOffset + x * 4 + 3] > alphaThreshold {
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                }
+            }
+
+            guard maxX >= minX, maxY >= minY else { return nil }
+            let margin = max(2, min(width, height) / 50)
+            let cropMinX = max(0, minX - margin)
+            let cropMinY = max(0, minY - margin)
+            let cropMaxX = min(width - 1, maxX + margin)
+            let cropMaxY = min(height - 1, maxY + margin)
+            return CGRect(
+                x: cropMinX,
+                y: cropMinY,
+                width: cropMaxX - cropMinX + 1,
+                height: cropMaxY - cropMinY + 1
+            )
         }
 
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            failed = true
+        guard let visibleBounds,
+              visibleBounds.width < CGFloat(width) || visibleBounds.height < CGFloat(height),
+              let cropped = cgImage.cropping(to: visibleBounds) else {
+            return image
         }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            failed = true
-        }
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 }
 

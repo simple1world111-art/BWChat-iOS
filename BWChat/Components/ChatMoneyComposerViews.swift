@@ -96,11 +96,6 @@ struct ChatMoneyComposerSheet: View {
         case message
     }
 
-    private struct PaymentConfirmation: Identifiable {
-        let id = UUID()
-        let amount: Int
-    }
-
     @EnvironmentObject private var navigator: UIKitNavigator
 
     @ObservedObject var store: ChatMoneyStore
@@ -114,8 +109,8 @@ struct ChatMoneyComposerSheet: View {
     @State private var packetCountText = ""
     @State private var messageText: String
     @State private var selectedRecipient: ChatMoneyRecipient?
-    @State private var paymentConfirmation: PaymentConfirmation?
     @State private var submissionError: String?
+    @State private var isSubmitting = false
     @State private var clientMessageID = UUID().uuidString
     @FocusState private var focusedField: FocusField?
 
@@ -134,7 +129,7 @@ struct ChatMoneyComposerSheet: View {
         return context.members.filter { $0.id != me }
     }
     private var displayedBalance: Int {
-        WalletStore.shared.rechargeClaimBalance ?? WalletStore.shared.balance ?? 0
+        WalletStore.shared.goldCoinBalanceValue ?? 0
     }
     private var totalAmount: Int? {
         guard let amount, amount > 0 else { return nil }
@@ -279,8 +274,13 @@ struct ChatMoneyComposerSheet: View {
                         buttonTitle: kind == .redPacket
                             ? L10n.tr("chatMoney.redPacket.submit")
                             : L10n.tr("chatMoney.transfer.submit"),
-                        canSubmit: canSubmit,
-                        onSubmit: showPaymentConfirmation
+                        canSubmit: canSubmit && !isSubmitting,
+                        isProcessing: isSubmitting,
+                        errorMessage: submissionError,
+                        onSubmit: {
+                            dismissInput()
+                            Task { await submit() }
+                        }
                     )
 
                     Text(L10n.tr("chatMoney.expiryNotice"))
@@ -313,23 +313,6 @@ struct ChatMoneyComposerSheet: View {
             focusAmount()
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .sheet(item: $paymentConfirmation) { confirmation in
-            ChatMoneyPaymentConfirmationSheet(
-                amount: confirmation.amount,
-                purpose: paymentPurpose,
-                recipient: paymentRecipient,
-                balance: displayedBalance,
-                isProcessing: store.activeOperationAssetID != nil,
-                errorMessage: submissionError,
-                onCancel: { paymentConfirmation = nil },
-                onConfirm: submit
-            )
-            .presentationDetents([
-                .height(submissionError == nil ? 326 : 360)
-            ])
-            .presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled(store.activeOperationAssetID != nil)
-        }
         .onChange(of: amountText) { newValue in
             amountText = sanitizeDigits(newValue)
         }
@@ -344,16 +327,6 @@ struct ChatMoneyComposerSheet: View {
                 messageText = String(next.prefix(maximum))
             }
         }
-    }
-
-    private var paymentPurpose: String {
-        kind == .redPacket
-            ? L10n.tr("chatMoney.payment.redPacketPurpose")
-            : L10n.tr("chatMoney.payment.transferPurpose")
-    }
-
-    private var paymentRecipient: String {
-        selectedRecipient?.name ?? context.title
     }
 
     private func focusAmount() {
@@ -398,13 +371,6 @@ struct ChatMoneyComposerSheet: View {
         onOpenWallet()
     }
 
-    private func showPaymentConfirmation() {
-        dismissInput()
-        guard canSubmit, let totalAmount else { return }
-        submissionError = nil
-        paymentConfirmation = PaymentConfirmation(amount: totalAmount)
-    }
-
     private func dismissInput() {
         focusedField = nil
         hideKeyboard()
@@ -412,7 +378,10 @@ struct ChatMoneyComposerSheet: View {
 
     @MainActor
     private func submit() async {
-        guard canSubmit, let totalAmount else { return }
+        guard canSubmit, !isSubmitting, let totalAmount else { return }
+        submissionError = nil
+        isSubmitting = true
+        defer { isSubmitting = false }
         do {
             let result: ChatMoneyCreationResult
             if kind == .redPacket {
@@ -448,7 +417,6 @@ struct ChatMoneyComposerSheet: View {
                 ))
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            paymentConfirmation = nil
             onCreated(result)
         } catch {
             submissionError = ChatMoneyErrorText.message(
@@ -535,7 +503,7 @@ private struct RedPacketComposerContent: View {
             ChatMoneyInputRow(
                 title: amountTitle,
                 text: $amountText,
-                trailing: L10n.tr("wallet.currency.catFood"),
+                trailing: L10n.tr("wallet.currency.goldCoins"),
                 placeholder: "0",
                 fontSize: 28,
                 focus: amountFocus,
@@ -588,7 +556,7 @@ private struct TransferComposerContent: View {
             ChatMoneyInputRow(
                 title: L10n.tr("chatMoney.amount"),
                 text: $amountText,
-                trailing: L10n.tr("wallet.currency.catFood"),
+                trailing: L10n.tr("wallet.currency.goldCoins"),
                 placeholder: "0",
                 fontSize: 30,
                 focus: amountFocus,
@@ -746,6 +714,8 @@ private struct ChatMoneyTotalSection: View {
     let totalAmount: Int
     let buttonTitle: String
     let canSubmit: Bool
+    let isProcessing: Bool
+    let errorMessage: String?
     let onSubmit: () -> Void
 
     var body: some View {
@@ -754,142 +724,36 @@ private struct ChatMoneyTotalSection: View {
                 Text("\(totalAmount)")
                     .font(.system(size: 46, weight: .medium))
                     .monospacedDigit()
-                Text(L10n.tr("wallet.currency.catFood"))
+                Text(L10n.tr("wallet.currency.goldCoins"))
                     .font(.system(size: 15))
             }
 
-            Button(action: onSubmit) {
-                Text(buttonTitle)
-                    .font(.system(size: 17, weight: .medium))
+            VStack(spacing: 10) {
+                Button(action: onSubmit) {
+                    HStack(spacing: 8) {
+                        if isProcessing {
+                            ProgressView().tint(.white)
+                        }
+                        Text(buttonTitle)
+                            .font(.system(size: 17, weight: .medium))
+                    }
                     .foregroundColor(.white)
                     .frame(width: 188, height: 48)
                     .background(canSubmit ? ChatMoneyTheme.actionRed : ChatMoneyTheme.disabledRed)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSubmit)
-            .accessibilityIdentifier("chatMoney.submit")
-        }
-    }
-}
-
-private struct ChatMoneyPaymentConfirmationSheet: View {
-    let amount: Int
-    let purpose: String
-    let recipient: String
-    let balance: Int
-    let isProcessing: Bool
-    let errorMessage: String?
-    let onCancel: () -> Void
-    let onConfirm: () async -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                ChatMoneyGlassCloseButton(action: onCancel)
-                .disabled(isProcessing)
-
-                Spacer()
-
-                Text(L10n.tr("chatMoney.payment.title"))
-                    .font(.system(size: 17, weight: .semibold))
-
-                Spacer()
-
-                Color.clear.frame(width: 34, height: 34)
-            }
-            .frame(height: 50)
-            .padding(.horizontal, 12)
-
-            Divider()
-
-            VStack(spacing: 8) {
-                Text(purpose)
-                    .font(.system(size: 14))
-                    .foregroundColor(ChatMoneyTheme.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text("\(amount)")
-                        .font(.system(size: 42, weight: .medium))
-                        .monospacedDigit()
-                    Text(L10n.tr("wallet.currency.catFood"))
-                        .font(.system(size: 14))
                 }
-                Text(recipient)
-                    .font(.system(size: 13))
-                    .foregroundColor(ChatMoneyTheme.secondary)
-            }
-            .padding(.vertical, 14)
+                .buttonStyle(.plain)
+                .disabled(!canSubmit)
+                .accessibilityIdentifier("chatMoney.submit")
 
-            HStack {
-                Text(L10n.tr("chatMoney.payment.method"))
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(L10n.tr("chatMoney.payment.balance"))
-                    Text(L10n.tr("chatMoney.amountValue", balance))
+                if let errorMessage {
+                    Text(errorMessage)
                         .font(.system(size: 12))
-                        .foregroundColor(ChatMoneyTheme.secondary)
+                        .foregroundColor(ChatMoneyTheme.actionRed)
+                        .multilineTextAlignment(.center)
                 }
             }
-            .font(.system(size: 15))
-            .padding(.horizontal, 20)
-            .frame(height: 64)
-            .overlay(alignment: .top) { Divider() }
-
-            Spacer(minLength: 0)
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 12))
-                    .foregroundColor(ChatMoneyTheme.actionRed)
-                    .padding(.top, 8)
-            }
-
-            Button {
-                Task { await onConfirm() }
-            } label: {
-                HStack(spacing: 8) {
-                    if isProcessing {
-                        ProgressView().tint(.white)
-                    }
-                    Text(L10n.tr("chatMoney.payment.confirm"))
-                        .font(.system(size: 17, weight: .medium))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 50)
-                .background(ChatMoneyTheme.actionGreen)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .disabled(isProcessing)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .accessibilityIdentifier("chatMoney.payment.confirm")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.white.ignoresSafeArea())
-    }
-}
-
-private struct ChatMoneyGlassCloseButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(AppColors.primaryText)
-                .frame(width: 34, height: 34)
-                .background(.ultraThinMaterial, in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(Color.black.opacity(0.06), lineWidth: 0.7)
-                }
-                .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(L10n.tr("common.close"))
     }
 }
 

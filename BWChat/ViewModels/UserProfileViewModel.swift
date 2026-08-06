@@ -2,6 +2,7 @@
 // Public user profile state and follow relationship updates.
 
 import Foundation
+import Combine
 
 @MainActor
 final class UserProfileViewModel: ObservableObject {
@@ -38,11 +39,7 @@ final class UserProfileViewModel: ObservableObject {
     private var shortDramasCursor: String?
     private var hasMoreShortDramas = true
     private var agentConversationKeys: [String: UUID] = [:]
-
-    private struct CachedMoments: Codable {
-        let items: [Moment]
-        let hasMore: Bool
-    }
+    private var cancellables = Set<AnyCancellable>()
 
     init(userID: String) {
         self.userID = userID
@@ -51,9 +48,16 @@ final class UserProfileViewModel: ObservableObject {
             profile = cached.value
         }
         if let key = Self.momentsKey(userID: userID),
-           let cached: CachedSnapshot<CachedMoments> = AppCacheRepository.shared.cachedValue(for: key) {
+           let cached: CachedSnapshot<CachedMomentFeedSnapshot> = AppCacheRepository.shared.cachedValue(for: key) {
             moments = cached.value.items
             hasMoreMoments = cached.value.hasMore
+        } else if let legacyKey = Self.legacyMomentsKey(userID: userID),
+                  let cached: CachedSnapshot<CachedMomentFeedSnapshot> = AppCacheRepository.shared.cachedValue(for: legacyKey) {
+            moments = cached.value.items
+            hasMoreMoments = cached.value.hasMore
+            if let canonicalKey = Self.momentsKey(userID: userID) {
+                AppCacheRepository.shared.save(cached.value, for: canonicalKey, policy: .feed)
+            }
         }
         if let key = Self.shortDramasKey(userID: userID),
            let cached: CachedSnapshot<ShortDramaSeriesPage> = AppCacheRepository.shared.cachedValue(for: key) {
@@ -61,6 +65,11 @@ final class UserProfileViewModel: ObservableObject {
             shortDramasCursor = cached.value.nextCursor
             hasMoreShortDramas = cached.value.hasMore
         }
+        FollowRelationshipStore.shared.changes
+            .sink { [weak self] change in
+                self?.apply(change)
+            }
+            .store(in: &cancellables)
     }
 
     var isMe: Bool {
@@ -103,6 +112,7 @@ final class UserProfileViewModel: ObservableObject {
             hasMoreMoments = true
         }
         await loadMoments(refresh: refresh)
+        if Task.isCancelled { didLoadInitialMoments = false }
     }
 
     func loadMoreMomentsIfNeeded(currentMomentID: Int) {
@@ -210,7 +220,7 @@ final class UserProfileViewModel: ObservableObject {
                 comments: moment.comments,
                 likedByMe: liked,
                 media: moment.media,
-                unlockPriceCatFood: moment.unlockPriceCatFood,
+                unlockPriceGoldCoins: moment.unlockPriceGoldCoins,
                 isUnlocked: moment.isUnlocked,
                 locationName: moment.locationName
             )
@@ -356,7 +366,27 @@ final class UserProfileViewModel: ObservableObject {
         profile = current
     }
 
+    private func apply(_ change: FollowRelationshipChange) {
+        let relationship = change.relationship
+        if relationship.userID == userID {
+            applyRelationship(relationship)
+        }
+        guard let index = suggestedUsers.firstIndex(where: { $0.userID == relationship.userID }) else {
+            return
+        }
+        suggestedUsers[index].followedByMe = relationship.followedByMe
+        suggestedUsers[index].followsMe = relationship.followsMe
+        suggestedUsers[index].isFriend = relationship.isFriend
+        if let followerCount = relationship.followerCount {
+            suggestedUsers[index].followerCount = followerCount
+        }
+        if let followingCount = relationship.followingCount {
+            suggestedUsers[index].followingCount = followingCount
+        }
+    }
+
     private func loadMoments(refresh: Bool = false, isLoadMore: Bool = false) async {
+        let ownerID = AuthManager.shared.currentUser?.userID
         guard !isLoadingMoments, !isLoadingMoreMoments else { return }
         if isLoadMore {
             isLoadingMoreMoments = true
@@ -373,7 +403,7 @@ final class UserProfileViewModel: ObservableObject {
             let items: [Moment]
             let hasMore: Bool
             if !isLoadMore, let key = Self.momentsKey(userID: userID) {
-                let cached: CachedMoments = try await AppCacheRepository.shared.loadValue(
+                let cached: CachedMomentFeedSnapshot = try await AppCacheRepository.shared.loadValue(
                     key: key,
                     policy: .feed,
                     forceRefresh: refresh
@@ -383,7 +413,19 @@ final class UserProfileViewModel: ObservableObject {
                         limit: self.momentsPageSize,
                         beforeID: nil
                     )
-                    return CachedMoments(items: result.0, hasMore: result.1)
+                    guard MomentFirstPageReplacementPolicy.shouldAccept(
+                        itemCount: result.0.count,
+                        replacingLocalCount: self.moments.count,
+                        snapshotComplete: result.2
+                    ) else {
+                        throw APIError.invalidResponse
+                    }
+                    return CachedMomentFeedSnapshot(
+                        items: result.0,
+                        hasMore: result.1,
+                        nextBeforeID: result.0.last?.id,
+                        snapshotComplete: result.2
+                    )
                 }
                 items = cached.items
                 hasMore = cached.hasMore
@@ -397,6 +439,9 @@ final class UserProfileViewModel: ObservableObject {
                 hasMore = result.1
             }
 
+            guard !Task.isCancelled,
+                  ownerID == AuthManager.shared.currentUser?.userID else { return }
+
             if refresh || !isLoadMore {
                 moments = items
             } else {
@@ -406,12 +451,18 @@ final class UserProfileViewModel: ObservableObject {
             hasMoreMoments = hasMore
             if let key = Self.momentsKey(userID: userID) {
                 AppCacheRepository.shared.save(
-                    CachedMoments(items: Array(moments.prefix(200)), hasMore: hasMoreMoments),
+                    CachedMomentFeedSnapshot(
+                        items: Array(moments.prefix(200)),
+                        hasMore: hasMoreMoments,
+                        nextBeforeID: moments.last?.id,
+                        snapshotComplete: nil
+                    ),
                     for: key,
                     policy: .feed
                 )
             }
         } catch {
+            guard !Self.isCancellation(error) else { return }
             if moments.isEmpty {
                 errorMessage = error.localizedDescription
             }
@@ -531,7 +582,11 @@ final class UserProfileViewModel: ObservableObject {
     }
 
     private static func momentsKey(userID: String) -> CacheKey? {
-        CacheKey.current(namespace: "user-moments", key: userID)
+        CacheKey.current(namespace: MomentCacheNamespace.userFeed, key: userID)
+    }
+
+    private static func legacyMomentsKey(userID: String) -> CacheKey? {
+        CacheKey.current(namespace: MomentCacheNamespace.legacyProfileUserFeed, key: userID)
     }
 
     private static func shortDramasKey(userID: String) -> CacheKey? {

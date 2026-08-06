@@ -69,7 +69,6 @@ struct ScriptRemoteImage: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .transaction { $0.animation = nil }
         .task(id: urlString) { await load() }
     }
 
@@ -101,25 +100,31 @@ struct ScriptRemoteImage: View {
 
     private func load() async {
         guard let url = MediaURLResolver.resolve(urlString) else {
-            image = nil
-            didFail = false
+            setStateWithoutAnimation(image: nil, didFail: false)
             return
         }
         let cacheKey = url.absoluteString
         if let cached = ImageCacheManager.shared.image(for: cacheKey) {
-            image = cached
-            didFail = false
+            setStateWithoutAnimation(image: cached, didFail: false)
             return
         }
 
-        image = nil
-        didFail = false
+        setStateWithoutAnimation(image: nil, didFail: false)
         if let loaded = await ImageCacheManager.shared.loadImage(from: cacheKey) {
             guard MediaURLResolver.resolve(urlString)?.absoluteString == cacheKey else { return }
-            image = loaded
+            setStateWithoutAnimation(image: loaded, didFail: false)
         } else {
             guard MediaURLResolver.resolve(urlString)?.absoluteString == cacheKey else { return }
-            didFail = true
+            setStateWithoutAnimation(image: nil, didFail: true)
+        }
+    }
+
+    private func setStateWithoutAnimation(image: UIImage?, didFail: Bool) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            self.image = image
+            self.didFail = didFail
         }
     }
 }

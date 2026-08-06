@@ -732,11 +732,11 @@ cat_food_products 字段：
 - product_id 必须是 App Store Connect 已配置商品。
 - iOS 真实价格以 StoreKit 返回为准。
 - 后端 `/wallet/ios-iap/confirm` 继续验证 Apple transaction，并以服务器侧 product mapping 决定发放数量。
-- 不允许 H5 或外部支付购买猫粮/数字内容。
+- 不允许 H5 或外部支付购买猫币/数字内容。
 
 验收：
 - 能调整 IAP 商品展示顺序和推荐角标。
-- Apple transaction 校验失败不会发放猫粮。
+- Apple transaction 校验失败不会发放猫币。
 
 目标九：礼物 catalog 动态化
 扩展：
@@ -886,8 +886,8 @@ Gift 字段：
         "type": "banner",
         "props": {
           "title": {
-            "zh-Hans": "今天也来领猫粮",
-            "en": "Claim today's cat food"
+            "zh-Hans": "今天也来领猫币",
+            "en": "Claim today's cat coins"
           },
           "subtitle": {
             "zh-Hans": "完成聊天、发动态、送礼物获得奖励",

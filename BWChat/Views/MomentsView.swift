@@ -2,11 +2,14 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-private struct MomentUnlockConfirmation: Identifiable {
+private struct MomentUnlockRequest: Identifiable {
     let moment: Moment
+    let idempotencyKey = UUID()
 
     var id: Int { moment.id }
-    var price: Int { moment.unlockPriceCatFood ?? 0 }
+    var kind: MediaUnlockKind {
+        moment.media.first?.type == .video ? .video : .image
+    }
 }
 
 private struct MomentsCoverFramePreferenceKey: PreferenceKey {
@@ -27,7 +30,7 @@ private func isMomentAuthorCurrentUser(_ moment: Moment) -> Bool {
 
 @MainActor
 private func isMomentLockedForCurrentUser(_ moment: Moment) -> Bool {
-    (moment.unlockPriceCatFood ?? 0) > 0
+    (moment.unlockPriceGoldCoins ?? 0) > 0
         && !moment.isUnlocked
         && !isMomentAuthorCurrentUser(moment)
         && (!moment.media.isEmpty || !moment.images.isEmpty)
@@ -36,7 +39,7 @@ private func isMomentLockedForCurrentUser(_ moment: Moment) -> Bool {
 @MainActor
 private func isMediaLockedForCurrentUser(_ media: MomentMedia, in moment: Moment) -> Bool {
     isMomentLockedForCurrentUser(moment) || (
-        (moment.unlockPriceCatFood ?? 0) > 0
+        (moment.unlockPriceGoldCoins ?? 0) > 0
             && !moment.isUnlocked
             && !isMomentAuthorCurrentUser(moment)
             && media.isLocked
@@ -50,6 +53,7 @@ struct MomentsView: View {
     @EnvironmentObject private var navigator: UIKitNavigator
     @StateObject private var viewModel = MomentsViewModel()
     @StateObject private var momentsNotif = MomentsNotificationManager.shared
+    @ObservedObject private var authManager = AuthManager.shared
     @State private var showCreateMoment = false
     @State private var showNotificationList = false
     @State private var commentText = ""
@@ -58,7 +62,6 @@ struct MomentsView: View {
     @State private var commentImageItem: PhotosPickerItem?
     @State private var commentImageData: Data?
     @State private var videoPreviewItem: VideoPreviewItem?
-    @State private var unlockConfirmation: MomentUnlockConfirmation?
     @State private var toastMessage: String?
     @State private var useCoverChrome = true
     @FocusState private var commentFieldFocused: Bool
@@ -109,12 +112,16 @@ struct MomentsView: View {
                         .padding(.top, 60)
                     }
 
-                    ForEach(viewModel.moments) { moment in
+                    ForEach(viewModel.moments, id: \.presentationIdentity) { moment in
                         VStack(spacing: 0) {
                             MomentRow(
                                 moment: moment,
-                                onLike: { Task { await viewModel.toggleLike(momentID: moment.id) } },
+                                onLike: {
+                                    guard moment.clientRequestID == nil else { return }
+                                    Task { await viewModel.toggleLike(momentID: moment.id) }
+                                },
                                 onComment: { replyUserID, replyName, replyContent in
+                                    guard moment.clientRequestID == nil else { return }
                                     commentTarget = (moment.id, replyUserID, replyName, replyContent)
                                     commentTriggerID = UUID()
                                 },
@@ -123,21 +130,12 @@ struct MomentsView: View {
                                     handleMediaTap(media, in: moment, frame: frame)
                                 },
                                 onUnlock: {
-                                    unlockConfirmation = MomentUnlockConfirmation(moment: moment)
+                                    guard moment.clientRequestID == nil else { return }
+                                    unlockMoment(MomentUnlockRequest(moment: moment))
                                 }
                             )
 
-                            if viewModel.uploadingMomentIDs.contains(moment.id) {
-                                HStack(spacing: 8) {
-                                    ProgressView().controlSize(.small)
-                                    Text(L10n.tr("common.uploading"))
-                                }
-                                .font(.system(size: 12))
-                                .foregroundColor(AppColors.secondaryText)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 68)
-                                .padding(.bottom, 10)
-                            } else if viewModel.failedMomentIDs.contains(moment.id) {
+                            if viewModel.failedMomentIDs.contains(moment.id) {
                                 Button {
                                     viewModel.retryMomentUpload(momentID: moment.id)
                                 } label: {
@@ -204,26 +202,12 @@ struct MomentsView: View {
                 }
             }
             .sheet(isPresented: $showCreateMoment) {
-                CreateMomentView { content, media, unlockPriceCatFood in
-                    viewModel.publishMomentOptimistically(
-                        content: content,
-                        media: media,
-                        unlockPriceCatFood: unlockPriceCatFood
-                    )
+                CreateMomentView { draft in
+                    viewModel.publishMomentOptimistically(draft: draft)
                 }
             }
             .fullScreenCover(item: $videoPreviewItem) { item in
                 VideoPlayerView(videoURL: item.url)
-            }
-            .alert(item: $unlockConfirmation) { item in
-                Alert(
-                    title: Text(L10n.tr("moment.unlock.confirmTitle")),
-                    message: Text(L10n.tr("moment.unlock.confirmMessage", item.price)),
-                    primaryButton: .default(Text(L10n.tr("moment.unlock.pay"))) {
-                        unlockMoment(item.moment)
-                    },
-                    secondaryButton: .cancel(Text(L10n.tr("common.cancel")))
-                )
             }
             .toast(message: $toastMessage)
             .overlay(alignment: .bottom) {
@@ -256,7 +240,7 @@ struct MomentsView: View {
     private func handleMediaTap(_ media: MomentMedia, in moment: Moment, frame: CGRect) {
         hideKeyboard()
         if isMomentLockedForCurrentUser(moment) || isMediaLockedForCurrentUser(media, in: moment) {
-            unlockConfirmation = MomentUnlockConfirmation(moment: moment)
+            unlockMoment(MomentUnlockRequest(moment: moment))
             return
         }
 
@@ -271,17 +255,23 @@ struct MomentsView: View {
         ImageGalleryState.shared.show(
             urls: urls,
             index: urls.firstIndex(of: media.url) ?? 0,
-            sourceFrame: frame
+            sourceFrame: frame,
+            sourceContentMode: .fill,
+            sourceCornerRadius: moment.media.count == 1 ? 6 : 8
         )
     }
 
-    private func unlockMoment(_ moment: Moment) {
+    private func unlockMoment(_ request: MomentUnlockRequest) {
         Task {
-            let success = await viewModel.unlockMoment(momentID: moment.id)
-            await MainActor.run {
-                toastMessage = success
-                    ? L10n.tr("moment.unlock.success")
-                    : (viewModel.errorMessage ?? L10n.tr("moment.unlock.failed"))
+            let success = await viewModel.unlockMoment(
+                momentID: request.moment.id,
+                paymentMethod: .automatic(request.kind),
+                idempotencyKey: request.idempotencyKey
+            )
+            if !success {
+                await MainActor.run {
+                    toastMessage = viewModel.errorMessage ?? L10n.tr("moment.unlock.failed")
+                }
             }
         }
     }
@@ -605,9 +595,14 @@ struct MomentsCoverBackdrop: View {
                 image = nil
                 return
             }
-            if let loaded = await ImageCacheManager.shared.loadImage(from: path) {
-                image = loaded
+            if let cached = ImageCacheManager.shared.image(for: path) {
+                image = cached
+                return
             }
+            image = nil
+            let loaded = await ImageCacheManager.shared.loadImage(from: path)
+            guard !Task.isCancelled, path == resolvedPath else { return }
+            image = loaded
         }
     }
 }
@@ -620,6 +615,21 @@ struct MomentAvatarView: View {
     @State private var image: UIImage?
 
     private var resolvedPath: String {
+        Self.resolvedPath(for: url)
+    }
+
+    init(url: String, size: CGFloat, cornerRadius: CGFloat) {
+        self.url = url
+        self.size = size
+        self.cornerRadius = cornerRadius
+
+        let path = Self.resolvedPath(for: url)
+        _image = State(
+            initialValue: path.isEmpty ? nil : ImageCacheManager.shared.image(for: path)
+        )
+    }
+
+    private static func resolvedPath(for url: String) -> String {
         if url.isEmpty { return "" }
         if url.hasPrefix("/") || url.hasPrefix("http") { return url }
         return "/api/v1/" + url
@@ -657,12 +667,14 @@ struct MomentAvatarView: View {
                 image = nil
                 return
             }
-            if image != nil, ImageCacheManager.shared.image(for: path) == nil {
-                image = nil
+            if let cached = ImageCacheManager.shared.image(for: path) {
+                image = cached
+                return
             }
-            if let loaded = await ImageCacheManager.shared.loadImage(from: path) {
-                image = loaded
-            }
+            image = nil
+            let loaded = await ImageCacheManager.shared.loadImage(from: path)
+            guard !Task.isCancelled, path == resolvedPath else { return }
+            image = loaded
         }
     }
 }
@@ -845,7 +857,7 @@ struct MomentRow: View {
     }
 
     private var shouldShowUnlockedMarker: Bool {
-        let hasPaidMedia = (moment.unlockPriceCatFood ?? 0) > 0
+        let hasPaidMedia = (moment.unlockPriceGoldCoins ?? 0) > 0
             && (!moment.media.isEmpty || !moment.images.isEmpty)
         return hasPaidMedia && (moment.isUnlocked || isMomentAuthorCurrentUser(moment))
     }
@@ -917,9 +929,15 @@ struct MomentRow: View {
             if let imageURL = comment.imageURL, !imageURL.isEmpty {
                 HStack(spacing: 0) {
                     CommentImageView(url: imageURL)
-                        .onTapCaptureFrame { frame in
+                        .onTapCaptureFrame(sourceID: imageURL) { frame in
                             hideKeyboard()
-                            ImageGalleryState.shared.show(urls: [imageURL], index: 0, sourceFrame: frame)
+                            ImageGalleryState.shared.show(
+                                urls: [imageURL],
+                                index: 0,
+                                sourceFrame: frame,
+                                sourceContentMode: .fill,
+                                sourceCornerRadius: 4
+                            )
                         }
                     Spacer()
                 }
@@ -953,52 +971,87 @@ struct MomentRow: View {
     @ViewBuilder
     private func momentMediaContent(_ media: [MomentMedia]) -> some View {
         let count = media.count
+        let availableWidth = max(UIScreen.main.bounds.width - MomentMediaLayout.feedHorizontalInsets, 1)
         if count == 1 {
+            let side = MomentMediaLayout.singleMediaSide(availableWidth: availableWidth)
             MomentSingleMediaView(
                 media: media[0],
+                size: side,
                 isLockedForViewer: isMediaLockedForCurrentUser(media[0], in: moment),
-                unlockPriceCatFood: moment.unlockPriceCatFood,
+                unlockPriceGoldCoins: moment.unlockPriceGoldCoins,
                 mediaCount: count
             )
                 .padding(.top, 1)
-                .onTapCaptureFrame { frame in
+                .onTapCaptureFrame(sourceID: media[0].url) { frame in
                     onMediaTap(media[0], frame)
                 }
         } else {
-            let cols = count <= 4 ? 2 : 3
-            let spacing: CGFloat = 6
-            let contentWidth = max(UIScreen.main.bounds.width - 104, 220)
-            let rawCellSize = floor((contentWidth - spacing * CGFloat(cols - 1)) / CGFloat(cols))
-            let cellSize = min(max(rawCellSize, 76), 98)
-            let maxGridWidth: CGFloat = CGFloat(cols) * cellSize + spacing * CGFloat(cols - 1)
+            let metrics = MomentMediaLayout.gridMetrics(
+                mediaCount: count,
+                availableWidth: availableWidth
+            )
+            let columns = Array(
+                repeating: GridItem(.fixed(metrics.cellSide), spacing: MomentMediaLayout.spacing),
+                count: metrics.columnCount
+            )
 
-            VStack(alignment: .leading, spacing: spacing) {
-                ForEach(0..<((count + cols - 1) / cols), id: \.self) { row in
-                    HStack(spacing: spacing) {
-                        ForEach(0..<cols, id: \.self) { col in
-                            let idx = row * cols + col
-                            if idx < count {
-                                MomentMediaCell(
-                                    media: media[idx],
-                                    size: cellSize,
-                                    isLockedForViewer: isMediaLockedForCurrentUser(media[idx], in: moment),
-                                    unlockPriceCatFood: moment.unlockPriceCatFood,
-                                    mediaCount: count
-                                )
-                                    .onTapCaptureFrame { frame in
-                                        onMediaTap(media[idx], frame)
-                                    }
-                            }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: MomentMediaLayout.spacing) {
+                ForEach(Array(media.enumerated()), id: \.offset) { index, item in
+                    MomentMediaCell(
+                        media: item,
+                        size: metrics.cellSide,
+                        isLockedForViewer: isMediaLockedForCurrentUser(item, in: moment),
+                        unlockPriceGoldCoins: moment.unlockPriceGoldCoins,
+                        mediaCount: count
+                    )
+                        .onTapCaptureFrame(sourceID: item.url) { frame in
+                            onMediaTap(media[index], frame)
                         }
-                    }
                 }
             }
-            .frame(maxWidth: maxGridWidth, alignment: .leading)
+            .frame(width: metrics.gridWidth, alignment: .leading)
         }
     }
 }
 
 // MARK: - Moment Media
+
+enum MomentMediaLayout {
+    struct GridMetrics: Equatable {
+        let columnCount: Int
+        let cellSide: CGFloat
+        let gridWidth: CGFloat
+    }
+
+    static let feedHorizontalInsets: CGFloat = 16 + 44 + 12 + 16
+    static let spacing: CGFloat = 4
+    static let maximumGridWidth: CGFloat = 284
+    static let maximumSingleMediaSide: CGFloat = 208
+
+    static func columnCount(for mediaCount: Int) -> Int {
+        switch mediaCount {
+        case ...1:
+            return 1
+        case 2, 4:
+            return 2
+        default:
+            return 3
+        }
+    }
+
+    static func singleMediaSide(availableWidth: CGFloat) -> CGFloat {
+        min(max(availableWidth, 1), maximumSingleMediaSide)
+    }
+
+    static func gridMetrics(mediaCount: Int, availableWidth: CGFloat) -> GridMetrics {
+        let columns = columnCount(for: mediaCount)
+        let usableWidth = min(max(availableWidth, 1), maximumGridWidth)
+        let totalSpacing = spacing * CGFloat(columns - 1)
+        let cellSide = floor(max((usableWidth - totalSpacing) / CGFloat(columns), 1))
+        let gridWidth = cellSide * CGFloat(columns) + totalSpacing
+        return GridMetrics(columnCount: columns, cellSide: cellSide, gridWidth: gridWidth)
+    }
+}
 
 private enum MomentMediaTransition {
     static let duration: TimeInterval = 0.28
@@ -1008,8 +1061,9 @@ private enum MomentMediaTransition {
 
 struct MomentSingleMediaView: View {
     let media: MomentMedia
+    let size: CGFloat
     let isLockedForViewer: Bool
-    let unlockPriceCatFood: Int?
+    let unlockPriceGoldCoins: Int?
     let mediaCount: Int
 
     var body: some View {
@@ -1018,17 +1072,20 @@ struct MomentSingleMediaView: View {
                 MomentVideoThumbnailView(
                     media: media,
                     isLockedForViewer: isLockedForViewer,
-                    width: min(UIScreen.main.bounds.width - 120, 244),
-                    height: 168,
-                    cornerRadius: 10
+                    width: size,
+                    height: size,
+                    cornerRadius: 6
                 )
             } else {
-                MomentSingleImage(url: media.imageDisplayURL(isLockedForViewer: isLockedForViewer))
+                MomentSingleImage(
+                    url: media.imageDisplayURL(isLockedForViewer: isLockedForViewer),
+                    size: size
+                )
             }
         }
         .lockedMomentMediaChrome(
             isLocked: isLockedForViewer,
-            price: unlockPriceCatFood ?? 0,
+            price: unlockPriceGoldCoins ?? 0,
             mediaCount: mediaCount
         )
     }
@@ -1038,7 +1095,7 @@ struct MomentMediaCell: View {
     let media: MomentMedia
     let size: CGFloat
     let isLockedForViewer: Bool
-    let unlockPriceCatFood: Int?
+    let unlockPriceGoldCoins: Int?
     let mediaCount: Int
 
     var body: some View {
@@ -1057,7 +1114,7 @@ struct MomentMediaCell: View {
         }
         .lockedMomentMediaChrome(
             isLocked: isLockedForViewer,
-            price: unlockPriceCatFood ?? 0,
+            price: unlockPriceGoldCoins ?? 0,
             mediaCount: mediaCount
         )
     }
@@ -1201,6 +1258,38 @@ struct MomentVideoThumbnailView: View {
     @State private var previousImageOpacity = 0.0
 
     private var explicitThumbnailURL: String? {
+        Self.thumbnailURL(for: media, isLockedForViewer: isLockedForViewer)
+    }
+
+    init(
+        media: MomentMedia,
+        isLockedForViewer: Bool,
+        width: CGFloat,
+        height: CGFloat,
+        cornerRadius: CGFloat
+    ) {
+        self.media = media
+        self.isLockedForViewer = isLockedForViewer
+        self.width = width
+        self.height = height
+        self.cornerRadius = cornerRadius
+
+        let thumbnailURL = Self.thumbnailURL(
+            for: media,
+            isLockedForViewer: isLockedForViewer
+        )
+        let cachedImage = thumbnailURL.flatMap {
+            ImageCacheManager.shared.image(for: $0)
+        }
+        _image = State(initialValue: cachedImage)
+        _isLoading = State(initialValue: thumbnailURL != nil && cachedImage == nil)
+        _loadedThumbnailURL = State(initialValue: cachedImage == nil ? nil : thumbnailURL)
+    }
+
+    private static func thumbnailURL(
+        for media: MomentMedia,
+        isLockedForViewer: Bool
+    ) -> String? {
         media.thumbnailDisplayURL(isLockedForViewer: isLockedForViewer)
     }
 
@@ -1209,8 +1298,7 @@ struct MomentVideoThumbnailView: View {
             if let explicitThumbnailURL {
                 thumbnailImage(url: explicitThumbnailURL)
             } else {
-                VideoThumbnailView(videoURL: media.url)
-                    .frame(width: width, height: height)
+                VideoThumbnailView(videoURL: media.url, width: width, height: height)
                     .clipped()
             }
         }
@@ -1239,10 +1327,6 @@ struct MomentVideoThumbnailView: View {
                         .allowsHitTesting(false)
                 }
             }
-        } else if isLoading {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(AppColors.separator)
-                .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.7))
         } else {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(AppColors.separator)
@@ -1264,9 +1348,6 @@ struct MomentVideoThumbnailView: View {
 
     private func loadThumbnail() async {
         let targetURL = explicitThumbnailURL
-        if loadedThumbnailURL != targetURL, image == nil {
-            isLoading = true
-        }
 
         guard let targetURL else {
             loadedThumbnailURL = nil
@@ -1275,36 +1356,34 @@ struct MomentVideoThumbnailView: View {
             return
         }
 
+        if let cached = ImageCacheManager.shared.image(for: targetURL) {
+            applyLoadedThumbnail(cached, for: targetURL, animated: false)
+            return
+        }
+
+        image = nil
+        loadedThumbnailURL = nil
+        isLoading = true
         if let loaded = await ImageCacheManager.shared.loadImage(from: targetURL) {
-            guard !Task.isCancelled else { return }
-            applyLoadedThumbnail(loaded, for: targetURL)
+            guard !Task.isCancelled, targetURL == explicitThumbnailURL else { return }
+            applyLoadedThumbnail(loaded, for: targetURL, animated: true)
         } else {
+            guard targetURL == explicitThumbnailURL else { return }
             loadedThumbnailURL = targetURL
             isLoading = false
         }
     }
 
-    private func applyLoadedThumbnail(_ loaded: UIImage, for targetURL: String) {
-        let shouldCrossfade = image != nil && loadedThumbnailURL != nil && loadedThumbnailURL != targetURL
-
-        if shouldCrossfade {
-            previousImage = image
-            previousImageOpacity = 1
-            image = loaded
-            loadedThumbnailURL = targetURL
-            isLoading = false
-
-            withAnimation(MomentMediaTransition.animation) {
-                previousImageOpacity = 0
-            }
-            clearPreviousThumbnail(after: targetURL)
-        } else {
-            withAnimation(MomentMediaTransition.animation) {
-                image = loaded
-                loadedThumbnailURL = targetURL
-                isLoading = false
-            }
-        }
+    private func applyLoadedThumbnail(
+        _ loaded: UIImage,
+        for targetURL: String,
+        animated: Bool
+    ) {
+        image = loaded
+        loadedThumbnailURL = targetURL
+        isLoading = false
+        previousImage = nil
+        previousImageOpacity = 0
     }
 
     private func clearPreviousThumbnail(after targetURL: String) {
@@ -1317,10 +1396,11 @@ struct MomentVideoThumbnailView: View {
     }
 }
 
-// MARK: - Single image (keeps original aspect ratio)
+// MARK: - Single image (uniform square crop)
 
 struct MomentSingleImage: View {
     let url: String
+    let size: CGFloat
     @State private var image: UIImage?
     @State private var isLoading = true
     @State private var loadedURL: String?
@@ -1328,32 +1408,35 @@ struct MomentSingleImage: View {
     @State private var previousImageOpacity = 0.0
 
     private var thumbCacheKey: String { url + "?thumb=1" }
-    private var maxImageWidth: CGFloat { min(UIScreen.main.bounds.width - 120, 244) }
-    private var maxImageHeight: CGFloat { 294 }
+
+    init(url: String, size: CGFloat) {
+        self.url = url
+        self.size = size
+
+        let cacheKey = url + "?thumb=1"
+        let cachedImage = url.isEmpty ? nil : ImageCacheManager.shared.image(for: cacheKey)
+        _image = State(initialValue: cachedImage)
+        _isLoading = State(initialValue: !url.isEmpty && cachedImage == nil)
+        _loadedURL = State(initialValue: cachedImage == nil ? nil : url)
+    }
 
     var body: some View {
         Group {
             if let image = image {
-                let size = displaySize(for: image)
                 ZStack {
-                    renderedImage(image, size: size)
+                    renderedImage(image)
 
                     if let previousImage {
-                        renderedImage(previousImage, size: size)
+                        renderedImage(previousImage)
                             .opacity(previousImageOpacity)
                             .allowsHitTesting(false)
                     }
                 }
                     .longPressToSaveImage(url: url)
-            } else if isLoading {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(AppColors.separator)
-                    .frame(width: 150, height: 150)
-                    .overlay(ProgressView().tint(AppColors.accent))
             } else {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(AppColors.separator)
-                    .frame(width: 150, height: 150)
+                    .frame(width: size, height: size)
                     .overlay(
                         Image(systemName: "photo")
                             .foregroundColor(AppColors.secondaryText)
@@ -1365,63 +1448,50 @@ struct MomentSingleImage: View {
         }
     }
 
-    private func renderedImage(_ image: UIImage, size: CGSize) -> some View {
+    private func renderedImage(_ image: UIImage) -> some View {
         Image(uiImage: image)
             .resizable()
             .scaledToFill()
-            .frame(width: size.width, height: size.height)
+            .frame(width: size, height: size)
             .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
     private func loadImage() async {
-        if loadedURL != url, image == nil {
-            isLoading = true
-        }
+        let requestedURL = url
+        let requestedCacheKey = thumbCacheKey
 
-        guard !url.isEmpty else {
-            loadedURL = url
+        guard !requestedURL.isEmpty else {
+            loadedURL = requestedURL
             image = nil
             isLoading = false
             return
         }
 
-        if let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
-            applyLoadedImage(cached, for: url)
+        if let cached = ImageCacheManager.shared.image(for: requestedCacheKey) {
+            applyLoadedImage(cached, for: requestedURL, animated: false)
             return
         }
 
-        let loaded = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
-        guard !Task.isCancelled else { return }
+        image = nil
+        loadedURL = nil
+        isLoading = true
+        let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL, thumbnail: true)
+        guard !Task.isCancelled, requestedURL == url else { return }
         if let loaded {
-            applyLoadedImage(loaded, for: url)
+            applyLoadedImage(loaded, for: requestedURL, animated: true)
         } else {
-            loadedURL = url
+            loadedURL = requestedURL
             isLoading = false
         }
     }
 
-    private func applyLoadedImage(_ loaded: UIImage, for url: String) {
-        let shouldCrossfade = image != nil && loadedURL != nil && loadedURL != url
-
-        if shouldCrossfade {
-            previousImage = image
-            previousImageOpacity = 1
-            image = loaded
-            loadedURL = url
-            isLoading = false
-
-            withAnimation(MomentMediaTransition.animation) {
-                previousImageOpacity = 0
-            }
-            clearPreviousImage(after: url)
-        } else {
-            withAnimation(MomentMediaTransition.animation) {
-                image = loaded
-                loadedURL = url
-                isLoading = false
-            }
-        }
+    private func applyLoadedImage(_ loaded: UIImage, for url: String, animated: Bool) {
+        image = loaded
+        loadedURL = url
+        isLoading = false
+        previousImage = nil
+        previousImageOpacity = 0
     }
 
     private func clearPreviousImage(after url: String) {
@@ -1433,22 +1503,6 @@ struct MomentSingleImage: View {
         }
     }
 
-    private func displaySize(for image: UIImage) -> CGSize {
-        let sourceWidth = max(image.size.width, 1)
-        let sourceHeight = max(image.size.height, 1)
-        let aspectRatio = sourceWidth / sourceHeight
-        var width = min(maxImageWidth, maxImageHeight * aspectRatio)
-        var height = width / aspectRatio
-
-        if height > maxImageHeight {
-            height = maxImageHeight
-            width = height * aspectRatio
-        }
-
-        width = max(width, 132)
-        height = max(height, 132)
-        return CGSize(width: width, height: height)
-    }
 }
 
 // MARK: - Square-cropped Moment Image Cell
@@ -1464,6 +1518,17 @@ struct MomentImageCell: View {
 
     private var thumbCacheKey: String { url + "?thumb=1" }
 
+    init(url: String, size: CGFloat) {
+        self.url = url
+        self.size = size
+
+        let cacheKey = url + "?thumb=1"
+        let cachedImage = url.isEmpty ? nil : ImageCacheManager.shared.image(for: cacheKey)
+        _image = State(initialValue: cachedImage)
+        _isLoading = State(initialValue: !url.isEmpty && cachedImage == nil)
+        _loadedURL = State(initialValue: cachedImage == nil ? nil : url)
+    }
+
     var body: some View {
         Group {
             if let image = image {
@@ -1477,11 +1542,6 @@ struct MomentImageCell: View {
                     }
                 }
                     .longPressToSaveImage(url: url)
-            } else if isLoading {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(AppColors.separator)
-                    .frame(width: size, height: size)
-                    .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.6))
             } else {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(AppColors.separator)
@@ -1507,53 +1567,40 @@ struct MomentImageCell: View {
     }
 
     private func loadImage() async {
-        if loadedURL != url, image == nil {
-            isLoading = true
-        }
+        let requestedURL = url
+        let requestedCacheKey = thumbCacheKey
 
-        guard !url.isEmpty else {
-            loadedURL = url
+        guard !requestedURL.isEmpty else {
+            loadedURL = requestedURL
             image = nil
             isLoading = false
             return
         }
 
-        if let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
-            applyLoadedImage(cached, for: url)
+        if let cached = ImageCacheManager.shared.image(for: requestedCacheKey) {
+            applyLoadedImage(cached, for: requestedURL, animated: false)
             return
         }
 
-        let loaded = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
-        guard !Task.isCancelled else { return }
+        image = nil
+        loadedURL = nil
+        isLoading = true
+        let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL, thumbnail: true)
+        guard !Task.isCancelled, requestedURL == url else { return }
         if let loaded {
-            applyLoadedImage(loaded, for: url)
+            applyLoadedImage(loaded, for: requestedURL, animated: true)
         } else {
-            loadedURL = url
+            loadedURL = requestedURL
             isLoading = false
         }
     }
 
-    private func applyLoadedImage(_ loaded: UIImage, for url: String) {
-        let shouldCrossfade = image != nil && loadedURL != nil && loadedURL != url
-
-        if shouldCrossfade {
-            previousImage = image
-            previousImageOpacity = 1
-            image = loaded
-            loadedURL = url
-            isLoading = false
-
-            withAnimation(MomentMediaTransition.animation) {
-                previousImageOpacity = 0
-            }
-            clearPreviousImage(after: url)
-        } else {
-            withAnimation(MomentMediaTransition.animation) {
-                image = loaded
-                loadedURL = url
-                isLoading = false
-            }
-        }
+    private func applyLoadedImage(_ loaded: UIImage, for url: String, animated: Bool) {
+        image = loaded
+        loadedURL = url
+        isLoading = false
+        previousImage = nil
+        previousImageOpacity = 0
     }
 
     private func clearPreviousImage(after url: String) {
@@ -1703,8 +1750,8 @@ struct MomentDetailView: View {
     @State private var commentImageItem: PhotosPickerItem?
     @State private var commentImageData: Data?
     @State private var videoPreviewItem: VideoPreviewItem?
-    @State private var unlockConfirmation: MomentUnlockConfirmation?
     @State private var toastMessage: String?
+    @State private var unlockIdempotencyKeys: [String: UUID] = [:]
     @FocusState private var commentFieldFocused: Bool
 
     var body: some View {
@@ -1727,7 +1774,7 @@ struct MomentDetailView: View {
                                 handleMediaTap(media, in: moment, frame: frame)
                             },
                             onUnlock: {
-                                unlockConfirmation = MomentUnlockConfirmation(moment: moment)
+                                unlockMoment(MomentUnlockRequest(moment: moment))
                             }
                         )
                     }
@@ -1764,16 +1811,6 @@ struct MomentDetailView: View {
         }
         .fullScreenCover(item: $videoPreviewItem) { item in
             VideoPlayerView(videoURL: item.url)
-        }
-        .alert(item: $unlockConfirmation) { item in
-            Alert(
-                title: Text(L10n.tr("moment.unlock.confirmTitle")),
-                message: Text(L10n.tr("moment.unlock.confirmMessage", item.price)),
-                primaryButton: .default(Text(L10n.tr("moment.unlock.pay"))) {
-                    unlockMoment(item.moment)
-                },
-                secondaryButton: .cancel(Text(L10n.tr("common.cancel")))
-            )
         }
         .toast(message: $toastMessage)
         .task { await loadMoment() }
@@ -1818,7 +1855,7 @@ struct MomentDetailView: View {
                     images: m.images, createdAt: m.createdAt,
                     likes: newLikes, comments: m.comments, likedByMe: liked,
                     media: m.media,
-                    unlockPriceCatFood: m.unlockPriceCatFood,
+                    unlockPriceGoldCoins: m.unlockPriceGoldCoins,
                     isUnlocked: m.isUnlocked,
                     locationName: m.locationName
                 )
@@ -1829,7 +1866,7 @@ struct MomentDetailView: View {
     private func handleMediaTap(_ media: MomentMedia, in moment: Moment, frame: CGRect) {
         hideKeyboard()
         if isMomentLockedForCurrentUser(moment) || isMediaLockedForCurrentUser(media, in: moment) {
-            unlockConfirmation = MomentUnlockConfirmation(moment: moment)
+            unlockMoment(MomentUnlockRequest(moment: moment))
             return
         }
 
@@ -1844,25 +1881,44 @@ struct MomentDetailView: View {
         ImageGalleryState.shared.show(
             urls: urls,
             index: urls.firstIndex(of: media.url) ?? 0,
-            sourceFrame: frame
+            sourceFrame: frame,
+            sourceContentMode: .fill,
+            sourceCornerRadius: moment.media.count == 1 ? 6 : 8
         )
     }
 
-    private func unlockMoment(_ target: Moment) {
+    private func unlockMoment(_ request: MomentUnlockRequest) {
+        let paymentMethod = MediaUnlockPaymentMethod.automatic(request.kind)
+        let idempotencyScope = "\(request.moment.id)|\(paymentMethod.idempotencyScope)"
+        let stableIdempotencyKey = unlockIdempotencyKeys[idempotencyScope] ?? request.idempotencyKey
+        unlockIdempotencyKeys[idempotencyScope] = stableIdempotencyKey
         Task {
             do {
-                let result = try await APIService.shared.unlockMoment(momentID: target.id)
+                let result = try await APIService.shared.unlockMoment(
+                    momentID: request.moment.id,
+                    paymentMethod: paymentMethod,
+                    idempotencyKey: stableIdempotencyKey
+                )
+                unlockIdempotencyKeys.removeValue(forKey: idempotencyScope)
                 if let updatedMoment = result.moment {
                     moment = updatedMoment
                 } else {
                     await loadMoment()
                 }
-                if let walletBalance = result.walletBalance {
-                    WalletStore.shared.applyServerBalance(walletBalance)
-                } else {
+                if let charge = result.charge {
+                    WalletStore.shared.applyServerBalance(charge.walletBalance)
+                    WalletTelemetry.recordMixedCharge(charge, operation: "moment_unlock_detail")
+                } else if !result.alreadyUnlocked, result.consumedProp == nil {
                     await WalletStore.shared.refreshBalanceFromServer()
                 }
-                toastMessage = L10n.tr("moment.unlock.success")
+                if !result.alreadyUnlocked,
+                   let consumedProp = result.consumedProp,
+                   let cardKind = paymentMethod.cardKind {
+                    PropInventoryStore.shared.applyConsumption(
+                        consumedProp,
+                        fallbackKind: cardKind
+                    )
+                }
             } catch {
                 toastMessage = error.localizedDescription
             }
@@ -1895,7 +1951,7 @@ struct MomentDetailView: View {
                     images: m.images, createdAt: m.createdAt,
                     likes: m.likes, comments: newComments, likedByMe: m.likedByMe,
                     media: m.media,
-                    unlockPriceCatFood: m.unlockPriceCatFood,
+                    unlockPriceGoldCoins: m.unlockPriceGoldCoins,
                     isUnlocked: m.isUnlocked,
                     locationName: m.locationName
                 )
@@ -2043,24 +2099,31 @@ struct CommentImageView: View {
                     .clipped()
                     .cornerRadius(4)
                     .longPressToSaveImage(url: url)
-            } else if isLoading {
+            } else {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(AppColors.separator)
                     .frame(width: 50, height: 50)
-                    .overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.5))
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppColors.secondaryText)
+                    )
             }
         }
         .padding(.top, 2)
-        .onAppear {
-            if image == nil, let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
+        .task(id: url) {
+            let requestedURL = url
+            let requestedCacheKey = thumbCacheKey
+            if let cached = ImageCacheManager.shared.image(for: requestedCacheKey) {
                 image = cached
                 isLoading = false
+                return
             }
-        }
-        .task(id: url) {
-            if image == nil {
-                image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
-            }
+            image = nil
+            isLoading = true
+            let loaded = await ImageCacheManager.shared.loadImage(from: requestedURL, thumbnail: true)
+            guard !Task.isCancelled, requestedURL == url else { return }
+            image = loaded
             isLoading = false
         }
     }

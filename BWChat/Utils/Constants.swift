@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-struct CatFoodProductConfig: Identifiable, Equatable {
+struct GoldCoinProductConfig: Identifiable, Equatable {
     let productID: String
     let coins: Int
     let fallbackPriceUSD: String
@@ -26,13 +26,15 @@ enum AppConfig {
     static let appName = "BBchat"
     static let messagePageSize = 30
     static let wsHeartbeatInterval: TimeInterval = 15
-    static let catFoodProducts: [CatFoodProductConfig] = [
-        CatFoodProductConfig(productID: "com.bwchat.app.catfood.100", coins: 100, fallbackPriceUSD: "$0.99"),
-        CatFoodProductConfig(productID: "com.bwchat.app.catfood.800", coins: 800, fallbackPriceUSD: "$7.99"),
-        CatFoodProductConfig(productID: "com.bwchat.app.catfood.1800", coins: 1800, fallbackPriceUSD: "$17.99"),
-        CatFoodProductConfig(productID: "com.bwchat.app.catfood.3000", coins: 3000, fallbackPriceUSD: "$29.99"),
-        CatFoodProductConfig(productID: "com.bwchat.app.catfood.9800", coins: 9800, fallbackPriceUSD: "$99.99"),
-        CatFoodProductConfig(productID: "com.bwchat.app.catfood.19800", coins: 19800, fallbackPriceUSD: "$199.99")
+    // These published StoreKit IDs are immutable. Every product still
+    // purchases Gold Coins despite the legacy spelling inside the identifier.
+    static let goldCoinProducts: [GoldCoinProductConfig] = [
+        GoldCoinProductConfig(productID: "com.bwchat.app.catfood.100", coins: 100, fallbackPriceUSD: "$0.99"),
+        GoldCoinProductConfig(productID: "com.bwchat.app.catfood.800", coins: 800, fallbackPriceUSD: "$7.99"),
+        GoldCoinProductConfig(productID: "com.bwchat.app.catfood.1800", coins: 1800, fallbackPriceUSD: "$17.99"),
+        GoldCoinProductConfig(productID: "com.bwchat.app.catfood.3000", coins: 3000, fallbackPriceUSD: "$29.99"),
+        GoldCoinProductConfig(productID: "com.bwchat.app.catfood.9800", coins: 9800, fallbackPriceUSD: "$99.99"),
+        GoldCoinProductConfig(productID: "com.bwchat.app.catfood.19800", coins: 19800, fallbackPriceUSD: "$199.99")
     ]
 
 }
@@ -119,7 +121,9 @@ enum AppColors {
     )
     static let sentBubble = Color(hex: "667EEA")
     static let sentBubbleText = Color.white
-    static let receivedBubble = Color(hex: "F4F4F8")
+    // Match agent chat: a system-primary bubble on the system-secondary
+    // conversation background keeps the two surfaces visibly separated.
+    static let receivedBubble = cardBackground
     static let receivedBubbleText = Color(hex: "1A1A2E")
 
     // Status
@@ -127,6 +131,7 @@ enum AppColors {
     static let errorColor = Color(hex: "FF3B30")
     static let warningColor = Color(hex: "FF9500")
     static let unreadBadge = Color(hex: "FF3B30")
+    static let mutedUnreadBadge = Color(hex: "B2B2B2")
     static let unreadDot = Color(hex: "667EEA")
 
     // Yellow / black / white identity palette

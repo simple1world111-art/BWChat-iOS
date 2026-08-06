@@ -8,22 +8,28 @@ import UIKit
 struct MessageBubble: View {
     let message: Message
     let isFromMe: Bool
+    let resolvedReply: ReplyPreview?
     var avatarURL: String = ""
     /// Second arg is the thumbnail's global-coordinate frame at tap time,
     /// so the caller can pass it to the full-screen gallery for a
     /// WeChat-style grow-from-thumbnail animation.
     var onImageTap: ((String, CGRect) -> Void)?
     var onVideoTap: ((String) -> Void)?
-    var onReply: ((Message) -> Void)?
     var onQuoteTap: ((Int) -> Void)?
+    var onMenuRequested: ((CGRect) -> Void)?
+    var onMenuTouchSequenceEnded: (() -> Void)?
+    var recalledEditableText: String?
+    var onReeditRecalledText: ((String) -> Void)?
     var peerName: String?
     var peerUserID: String?
     var recipientAvatarURL: String?
+    var hasViewerClaimedRedPacket = false
     /// Pass the enclosing message direction with the payload. The row direction
     /// remains reliable while HTTP, history and WebSocket snapshots are merging.
     var onChatMoneyTap: ((ChatMoneyPayload, Bool) -> Void)?
-
-    @State private var swipeOffset: CGFloat = 0
+    var onForwardBundleTap: ((String) -> Void)?
+    @ObservedObject private var appConfig = AppRemoteConfigStore.shared
+    @State private var menuOwnsTouchSequence = false
 
     private var avatarUserID: String {
         if isFromMe {
@@ -37,7 +43,17 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        if let receipt = message.chatMoneyReceiptPayload {
+        if message.isRecalled {
+            RecalledMessageTip(
+                senderName: peerName ?? message.senderID,
+                isFromMe: isFromMe,
+                canReedit: isFromMe && recalledEditableText != nil,
+                onReedit: {
+                    guard let recalledEditableText else { return }
+                    onReeditRecalledText?(recalledEditableText)
+                }
+            )
+        } else if let receipt = message.chatMoneyReceiptPayload {
             ChatMoneyReceiptTip(payload: receipt)
         } else if message.isSystem {
             HStack {
@@ -53,7 +69,7 @@ struct MessageBubble: View {
             }
             .padding(.vertical, 4)
         } else {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             if isFromMe { Spacer(minLength: 40) }
 
             if !isFromMe {
@@ -66,7 +82,7 @@ struct MessageBubble: View {
             }
 
             VStack(alignment: isFromMe ? .trailing : .leading, spacing: 2) {
-                if let reply = message.replyTo {
+                if let reply = resolvedReply {
                     let senderName = reply.senderID == AuthManager.shared.currentUser?.userID ? L10n.tr("common.me") : UserCacheManager.shared.getUser(reply.senderID)?.nickname ?? reply.senderID
                     QuotedMessageView(
                         senderName: senderName,
@@ -77,57 +93,14 @@ struct MessageBubble: View {
                     )
                 }
 
-                if message.isImage {
-                    imageBubble
-                } else if message.isVideo {
-                    videoBubble
-                } else if message.isVoice {
-                    VoiceBubbleView(
-                        url: message.voiceURL ?? "",
-                        duration: message.voiceDuration,
-                        isFromMe: isFromMe
+                messageContent
+                    .messageMenuLongPress(
+                        onLongPress: { frame in
+                            menuOwnsTouchSequence = true
+                            onMenuRequested?(frame)
+                        },
+                        onTouchSequenceEnded: releaseMenuTouchOwnership
                     )
-                } else if let moneyPayload = message.chatMoneyPayload {
-                    ChatMoneyBubble(
-                        payload: moneyPayload,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe,
-                        onTap: { onChatMoneyTap?(moneyPayload, isFromMe) }
-                    )
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        showMenu = true
-                    }
-                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                        Button(L10n.tr("common.reply")) { onReply?(message) }
-                        Button(L10n.tr("common.cancel"), role: .cancel) {}
-                    }
-                } else if let stickerPayload = message.stickerPayload {
-                    StickerMessageBubble(
-                        payload: stickerPayload,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe
-                    )
-                    .onLongPressGesture(minimumDuration: 0.5) {
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        showMenu = true
-                    }
-                    .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                        Button(L10n.tr("common.reply")) { onReply?(message) }
-                        Button(L10n.tr("common.cancel"), role: .cancel) {}
-                    }
-                } else if let giftPayload = message.giftPayload {
-                    giftBubble(giftPayload)
-                } else if let callRecord = message.callRecord {
-                    CallRecordBubble(
-                        record: callRecord,
-                        timeText: message.formattedTime,
-                        isFromMe: isFromMe
-                    )
-                } else {
-                    textBubble
-                }
             }
 
             if isFromMe {
@@ -142,92 +115,102 @@ struct MessageBubble: View {
             if !isFromMe { Spacer(minLength: 40) }
         }
         .padding(.vertical, 2)
-        .offset(x: swipeOffset)
-        .gesture(
-            DragGesture(minimumDistance: 30)
-                .onChanged { value in
-                    let horizontal = value.translation.width
-                    if (isFromMe && horizontal < 0) || (!isFromMe && horizontal > 0) {
-                        swipeOffset = horizontal * 0.4
-                    }
-                }
-                .onEnded { value in
-                    let threshold: CGFloat = 50
-                    if abs(value.translation.width) > threshold {
-                        onReply?(message)
-                    }
-                    withAnimation(.spring(response: 0.3)) { swipeOffset = 0 }
-                }
-        )
-        .overlay(alignment: isFromMe ? .leading : .trailing) {
-            if abs(swipeOffset) > 20 {
-                Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(AppColors.accent)
-                    .opacity(min(abs(swipeOffset) / 50, 1))
-            }
         }
+    }
+
+    @ViewBuilder
+    private var messageContent: some View {
+        if appConfig.featureFlags.isEnabled("message_forward_merged_render_v1", default: true),
+           let bundle = ForwardBundleMessagePayload.parse(message.content, messageType: message.msgType) {
+            ForwardBundleMessageCard(payload: bundle, isFromMe: isFromMe) {
+                guard !menuOwnsTouchSequence else { return }
+                onForwardBundleTap?(bundle.bundleID)
+            }
+        } else if message.isImage {
+            imageBubble
+        } else if message.isVideo {
+            videoBubble
+        } else if message.isVoice {
+            VoiceBubbleView(
+                url: message.voiceURL ?? "",
+                duration: message.voiceDuration,
+                isFromMe: isFromMe
+            )
+        } else if let moneyPayload = message.chatMoneyPayload {
+            ChatMoneyBubble(
+                payload: moneyPayload,
+                isFromMe: isFromMe,
+                hasViewerClaimedRedPacket: hasViewerClaimedRedPacket,
+                onTap: {
+                    guard !menuOwnsTouchSequence else { return }
+                    onChatMoneyTap?(moneyPayload, isFromMe)
+                }
+            )
+        } else if let stickerPayload = message.stickerPayload {
+            StickerMessageBubble(
+                payload: stickerPayload,
+                isFromMe: isFromMe
+            )
+        } else if let giftPayload = message.giftPayload {
+            giftBubble(giftPayload)
+        } else if let callRecord = message.callRecord {
+            CallRecordBubble(
+                record: callRecord,
+                isFromMe: isFromMe
+            )
+        } else {
+            textBubble
+        }
+    }
+
+    private func releaseMenuTouchOwnership() {
+        onMenuTouchSequenceEnded?()
+        // Keep the gate through the touch-up delivery pass. SwiftUI Button can
+        // otherwise commit its action after UILongPressGestureRecognizer ended.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            menuOwnsTouchSequence = false
         }
     }
 
     // MARK: - Gradient Text Bubble
 
-    @State private var showMenu = false
-
     private var textBubble: some View {
         TimestampedTextBubble(
             content: message.content,
-            timeText: message.formattedTime,
             isFromMe: isFromMe
         )
-            .onLongPressGesture(minimumDuration: 0.5) {
-                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                impactFeedback.impactOccurred()
-                showMenu = true
-            }
-            .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-                Button(L10n.tr("common.copy")) { UIPasteboard.general.string = message.content }
-                Button(L10n.tr("common.reply")) { onReply?(message) }
-                Button(L10n.tr("common.cancel"), role: .cancel) {}
-            }
     }
 
     // MARK: - Image Bubble
 
     private var imageBubble: some View {
-        CachedAsyncImage(url: message.content)
-            .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
-            .onTapCaptureFrame { frame in
+        CachedAsyncImage(
+            url: message.content,
+            previewURL: message.thumbnailURL
+        )
+            .onTapCaptureFrame(sourceID: message.content) { frame in
+                guard !menuOwnsTouchSequence else { return }
                 onImageTap?(message.content, frame)
             }
-            .longPressToSaveImage(url: message.content)
     }
 
     // MARK: - Video Bubble
 
     private var videoBubble: some View {
-        ZStack {
-            VideoThumbnailView(videoURL: message.content)
-                .frame(maxWidth: 200, maxHeight: 250)
-                .cornerRadius(14)
-
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 44))
-                .foregroundColor(.white)
-                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-        }
-        .cornerRadius(14)
-        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+        VideoThumbnailView(
+            videoURL: message.content,
+            thumbnailURL: message.thumbnailURL,
+            showsPlayIndicator: true
+        )
         .onTapGesture {
+            guard !menuOwnsTouchSequence else { return }
             onVideoTap?(message.content)
         }
-        .longPressToSaveVideo(url: message.content)
     }
 
     private func giftBubble(_ payload: GiftMessagePayload) -> some View {
         GiftMessageBubble(
             payload: payload,
-            timeText: message.formattedTime,
             isFromMe: isFromMe,
             recipientFallback: isFromMe ? peerName : L10n.tr("common.me"),
             recipientIDFallback: isFromMe
@@ -235,44 +218,49 @@ struct MessageBubble: View {
                 : AuthManager.shared.currentUser?.userID,
             recipientAvatarFallback: recipientAvatarURL
         )
-        .onLongPressGesture(minimumDuration: 0.5) {
-            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-            impactFeedback.impactOccurred()
-            showMenu = true
+    }
+}
+
+struct RecalledMessageTip: View {
+    let senderName: String
+    let isFromMe: Bool
+    let canReedit: Bool
+    let onReedit: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(isFromMe
+                ? L10n.tr("chat.recall.selfNotice")
+                : L10n.tr("chat.recall.otherNotice", senderName))
+                .foregroundColor(AppColors.secondaryText)
+
+            if canReedit {
+                Button(L10n.tr("chat.recall.reedit"), action: onReedit)
+                    .buttonStyle(.plain)
+                    .foregroundColor(AppColors.accent)
+            }
         }
-        .confirmationDialog("", isPresented: $showMenu, titleVisibility: .hidden) {
-            Button(L10n.tr("common.reply")) { onReply?(message) }
-            Button(L10n.tr("common.cancel"), role: .cancel) {}
-        }
+        .font(.system(size: 12))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 7)
+        .accessibilityElement(children: .combine)
     }
 }
 
 struct CallRecordBubble: View {
     let record: CallRecordContent
-    let timeText: String
     let isFromMe: Bool
 
     private var foregroundColor: Color {
         isFromMe ? .white : AppColors.primaryText
     }
 
-    private var secondaryColor: Color {
-        isFromMe ? .white.opacity(0.72) : AppColors.secondaryText
-    }
-
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(record.localizedDetail(isFromMe: isFromMe))
-                    .font(.system(size: 16))
-                    .foregroundStyle(foregroundColor)
-                    .lineLimit(2)
-
-                Text(timeText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(secondaryColor)
-                    .monospacedDigit()
-            }
+            Text(record.localizedDetail(isFromMe: isFromMe))
+                .font(.system(size: 16))
+                .foregroundStyle(foregroundColor)
+                .lineLimit(2)
 
             Image(systemName: record.systemImage)
                 .font(.system(size: 20, weight: .medium))
@@ -301,7 +289,6 @@ struct CallRecordBubble: View {
 
 struct TimestampedTextBubble: View {
     let content: String
-    let timeText: String
     let isFromMe: Bool
     var senderName: String?
 
@@ -309,35 +296,20 @@ struct TimestampedTextBubble: View {
         isFromMe ? .white : AppColors.primaryText
     }
 
-    private var timeColor: Color {
-        isFromMe ? .white.opacity(0.72) : AppColors.secondaryText
-    }
-
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            VStack(alignment: .leading, spacing: senderName == nil ? 0 : 4) {
-                if let senderName, !senderName.isEmpty {
-                    Text(senderName)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AppColors.secondaryText)
-                        .lineLimit(1)
-                }
-
-                Text(content)
-                    .font(.system(size: 16))
-                    .foregroundColor(textColor)
-                + Text("  \(timeText)")
-                    .font(.system(size: 13))
-                    .foregroundColor(.clear)
+        VStack(alignment: .leading, spacing: senderName == nil ? 0 : 4) {
+            if let senderName, !senderName.isEmpty {
+                Text(senderName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppColors.secondaryText)
+                    .lineLimit(1)
             }
-            .fixedSize(horizontal: false, vertical: true)
 
-            Text(timeText)
-                .font(.system(size: 13))
-                .foregroundColor(timeColor)
-                .monospacedDigit()
-                .padding(.leading, 8)
+            Text(content.trimmingTrailingLineBreaks)
+                .font(.system(size: 16))
+                .foregroundColor(textColor)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(
@@ -405,10 +377,14 @@ struct VoiceBubbleView: View {
     let url: String
     let duration: Double
     let isFromMe: Bool
-    @StateObject private var player = VoicePlayerManager()
+    @ObservedObject private var player = VoicePlayerManager.shared
+
+    private var isPlaying: Bool {
+        player.isPlaying(urlString: url)
+    }
 
     var displayDuration: String {
-        let d = player.isPlaying ? player.currentTime : duration
+        let d = isPlaying ? player.currentTime : duration
         let secs = Int(d)
         return "\(secs)\""
     }
@@ -454,7 +430,7 @@ struct VoiceBubbleView: View {
         .cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])
         .contentShape(Rectangle())
         .onTapGesture {
-            if player.isPlaying {
+            if isPlaying {
                 player.stop()
             } else {
                 player.play(urlString: url)
@@ -467,9 +443,9 @@ struct VoiceBubbleView: View {
             ForEach(0..<3, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 1)
                     .fill(isFromMe ? Color.white : AppColors.primaryText)
-                    .frame(width: 2, height: player.isPlaying ? CGFloat([8, 14, 10][i]) : CGFloat([6, 10, 6][i]))
+                    .frame(width: 2, height: isPlaying ? CGFloat([8, 14, 10][i]) : CGFloat([6, 10, 6][i]))
                     .animation(
-                        player.isPlaying
+                        isPlaying
                             ? .easeInOut(duration: 0.4).repeatForever(autoreverses: true).delay(Double(i) * 0.15)
                             : .default,
                         value: player.isPlaying
@@ -481,8 +457,11 @@ struct VoiceBubbleView: View {
 
 @MainActor
 class VoicePlayerManager: ObservableObject {
+    static let shared = VoicePlayerManager()
+
     @Published var isPlaying = false
     @Published var currentTime: Double = 0
+    @Published private(set) var currentURL: String?
     private var player: AVAudioPlayer?
     private var timer: Timer?
     private var downloadTask: URLSessionDataTask?
@@ -490,6 +469,7 @@ class VoicePlayerManager: ObservableObject {
 
     func play(urlString: String) {
         stop()
+        currentURL = urlString
 
         let fullURLString: String
         if urlString.hasPrefix("http") {
@@ -544,6 +524,11 @@ class VoicePlayerManager: ObservableObject {
         downloadTask = nil
         isPlaying = false
         currentTime = 0
+        currentURL = nil
+    }
+
+    func isPlaying(urlString: String) -> Bool {
+        isPlaying && currentURL == urlString
     }
 }
 
@@ -559,49 +544,75 @@ class VoicePlayerDelegateHandler: NSObject, AVAudioPlayerDelegate {
 
 struct CachedAsyncImage: View {
     let url: String
-    var maxWidth: CGFloat = 160
+    let previewURL: String?
+    var fixedSize: CGSize?
     @State private var image: UIImage?
-    @State private var isLoading = true
 
-    private var thumbCacheKey: String { url + "?thumb=1" }
+    private var thumbCacheKey: String {
+        previewURL?.chatMediaNonEmpty ?? url + "?thumb=1"
+    }
+
+    init(url: String, previewURL: String? = nil, size: CGSize? = nil) {
+        self.url = url
+        self.previewURL = previewURL
+        self.fixedSize = size
+        let key = previewURL?.chatMediaNonEmpty ?? url + "?thumb=1"
+        _image = State(initialValue: ImageCacheManager.shared.image(for: key))
+    }
+
+    private var displaySize: CGSize {
+        fixedSize ?? ChatMediaLayout.imageThumbnailSize(for: image?.size)
+    }
 
     var body: some View {
-        Group {
+        ZStack {
+            RoundedRectangle(cornerRadius: ChatMediaLayout.mediaCornerRadius)
+                .fill(AppColors.separator)
+
             if let image = image {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: maxWidth)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            } else if isLoading {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(AppColors.separator)
-                    .frame(width: 120, height: 90)
-                    .overlay(
-                        ProgressView()
-                            .tint(AppColors.accent)
-                    )
+                    .scaledToFill()
             } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(AppColors.separator)
-                    .frame(width: 120, height: 90)
-                    .overlay(
-                        Image(systemName: "photo")
-                            .foregroundColor(AppColors.secondaryText)
-                    )
+                Image(systemName: "photo")
+                    .foregroundColor(AppColors.secondaryText)
             }
         }
-        .onAppear {
-            if image == nil, let cached = ImageCacheManager.shared.image(for: thumbCacheKey) {
+        .frame(width: displaySize.width, height: displaySize.height)
+        .clipped()
+        .clipShape(RoundedRectangle(
+            cornerRadius: ChatMediaLayout.mediaCornerRadius,
+            style: .continuous
+        ))
+        .overlay {
+            RoundedRectangle(
+                cornerRadius: ChatMediaLayout.mediaCornerRadius,
+                style: .continuous
+            )
+            .stroke(Color.black.opacity(0.08), lineWidth: 0.5)
+        }
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+        .task(id: thumbCacheKey) {
+            let requestedKey = thumbCacheKey
+            if let cached = ImageCacheManager.shared.image(for: requestedKey) {
                 image = cached
-                isLoading = false
+                return
             }
-        }
-        .task(id: url) {
-            if image == nil {
-                image = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
+
+            // SwiftUI can reuse this view for another message while preserving
+            // @State. Never let the previous message's pixels stand in for the
+            // new URL while its thumbnail is loading.
+            image = nil
+            let loaded: UIImage?
+            if let previewURL = previewURL?.chatMediaNonEmpty {
+                loaded = await ImageCacheManager.shared.loadImage(from: previewURL)
+            } else {
+                loaded = await ImageCacheManager.shared.loadImage(from: url, thumbnail: true)
             }
-            isLoading = false
+            guard !Task.isCancelled, requestedKey == thumbCacheKey else { return }
+            image = loaded
         }
     }
 }

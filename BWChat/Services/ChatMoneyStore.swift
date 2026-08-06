@@ -124,7 +124,11 @@ final class ChatMoneyStore: ObservableObject {
     }
 
     func loadDetail(assetID: String, force: Bool = false) async throws -> ChatMoneyDetail {
-        if !force, let cached = details[assetID] { return cached }
+        if !force,
+           let cached = details[assetID],
+           cached.version >= (payloads[assetID]?.version ?? cached.version) {
+            return cached
+        }
         let serverDetail = try await perform(assetID: assetID) {
             try await service.detail(assetID: assetID)
         }
@@ -227,9 +231,89 @@ final class ChatMoneyStore: ObservableObject {
     }
 
     private func merge(_ detail: ChatMoneyDetail) {
-        let normalized = normalizedForLocalReceipts(detail)
-        guard normalized.version > (details[normalized.assetID]?.version ?? 0) else { return }
+        synchronizeViewerClaimReceipt(from: detail)
+        var normalized = normalizedForLocalReceipts(detail)
+        if let existing = details[normalized.assetID],
+           normalized.kind == .redPacket {
+            let claims = mergedClaimRecords(
+                existing: existing.claims,
+                incoming: normalized.claims
+            )
+            normalized = replacingClaims(in: normalized, with: claims)
+        }
+
+        guard let existing = details[normalized.assetID] else {
+            details[normalized.assetID] = normalized
+            return
+        }
+        guard normalized.version >= existing.version else { return }
+        guard normalized.version > existing.version || normalized != existing else { return }
         details[normalized.assetID] = normalized
+    }
+
+    private func synchronizeViewerClaimReceipt(from detail: ChatMoneyDetail) {
+        guard detail.kind == .redPacket else { return }
+        let viewerID = AuthManager.shared.currentUser?.userID
+        let serverConfirmsClaim = detail.viewerState == .claimed
+            || detail.viewerClaimAmount != nil
+            || (viewerID != nil && detail.claims.contains { $0.userID == viewerID })
+        guard serverConfirmsClaim else { return }
+        recordViewerClaim(assetID: detail.assetID, detail: detail)
+    }
+
+    /// Claim history is append-only. Some action responses are viewer-filtered,
+    /// so replacing a cached full list with the latest response can make prior
+    /// recipients disappear even though `claimed_count` keeps increasing.
+    private func mergedClaimRecords(
+        existing: [ChatMoneyClaimRecord],
+        incoming: [ChatMoneyClaimRecord]
+    ) -> [ChatMoneyClaimRecord] {
+        var incomingByUserID = Dictionary(
+            incoming.map { ($0.userID, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        var merged = existing.map { claim in
+            incomingByUserID.removeValue(forKey: claim.userID) ?? claim
+        }
+        merged.append(contentsOf: incoming.filter { incomingByUserID[$0.userID] != nil })
+        return merged
+    }
+
+    private func replacingClaims(
+        in detail: ChatMoneyDetail,
+        with claims: [ChatMoneyClaimRecord]
+    ) -> ChatMoneyDetail {
+        ChatMoneyDetail(
+            assetID: detail.assetID,
+            kind: detail.kind,
+            scope: detail.scope,
+            mode: detail.mode,
+            senderID: detail.senderID,
+            senderName: detail.senderName,
+            senderAvatarURL: detail.senderAvatarURL,
+            recipientID: detail.recipientID,
+            recipientName: detail.recipientName,
+            totalAmount: detail.totalAmount,
+            claimedAmount: detail.claimedAmount,
+            packetCount: detail.packetCount,
+            claimedCount: detail.claimedCount,
+            greeting: detail.greeting,
+            note: detail.note,
+            status: detail.status,
+            expiresAt: detail.expiresAt,
+            canClaim: detail.canClaim,
+            canAccept: detail.canAccept,
+            canReturn: detail.canReturn,
+            viewerClaimAmount: detail.viewerClaimAmount,
+            claims: claims,
+            version: detail.version,
+            createdAt: detail.createdAt,
+            finalizedAt: detail.finalizedAt,
+            viewerState: detail.viewerState,
+            unavailableReason: detail.unavailableReason,
+            remainingAmount: detail.remainingAmount,
+            remainingCount: detail.remainingCount
+        )
     }
 
     private func apply(_ result: ChatMoneyActionResult) {

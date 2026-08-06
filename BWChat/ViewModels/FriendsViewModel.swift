@@ -14,8 +14,10 @@ class FriendsViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var successMessage: String?
+    @Published private(set) var updatingFollowUserIDs: Set<String> = []
 
     private var searchTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     init() {
         // Seed from local cache so the contacts tab renders instantly on
@@ -43,6 +45,12 @@ class FriendsViewModel: ObservableObject {
                 LocalCache.clear(key: FriendCacheKeys.requests(for: userID))
             }
         }
+
+        FollowRelationshipStore.shared.changes
+            .sink { [weak self] change in
+                self?.applyFollowRelationship(change.relationship)
+            }
+            .store(in: &cancellables)
     }
 
     func searchUsers() async {
@@ -139,6 +147,46 @@ class FriendsViewModel: ObservableObject {
         } catch {
             errorMessage = L10n.tr("messages.sendFailed")
         }
+    }
+
+    func toggleFollow(userID: String) {
+        guard !updatingFollowUserIDs.contains(userID),
+              let index = searchResults.firstIndex(where: { $0.userID == userID })
+        else { return }
+
+        let previous = searchResults[index]
+        let shouldFollow = !previous.followedByMe && !previous.followRequested
+        searchResults[index].followedByMe = shouldFollow
+        searchResults[index].followRequested = false
+        updatingFollowUserIDs.insert(userID)
+
+        Task {
+            defer { updatingFollowUserIDs.remove(userID) }
+            do {
+                let relationship = shouldFollow
+                    ? try await APIService.shared.followUser(userID: userID)
+                    : try await APIService.shared.unfollowUser(userID: userID)
+                applyFollowRelationship(relationship)
+            } catch let error as APIError {
+                if let rollbackIndex = searchResults.firstIndex(where: { $0.userID == userID }) {
+                    searchResults[rollbackIndex] = previous
+                }
+                errorMessage = error.errorDescription
+            } catch {
+                if let rollbackIndex = searchResults.firstIndex(where: { $0.userID == userID }) {
+                    searchResults[rollbackIndex] = previous
+                }
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func applyFollowRelationship(_ relationship: FollowRelationship) {
+        guard let index = searchResults.firstIndex(where: { $0.userID == relationship.userID }) else {
+            return
+        }
+        searchResults[index].followedByMe = relationship.followedByMe
+        searchResults[index].followRequested = relationship.followRequested ?? false
     }
 
     func acceptRequest(_ request: FriendRequest) async {

@@ -105,6 +105,16 @@ struct ChatMoneyConversationContext: Equatable {
     }
 }
 
+enum ChatMoneyBubblePresentationPolicy {
+    static func isMuted(
+        payload: ChatMoneyPayload,
+        hasViewerClaimedRedPacket: Bool
+    ) -> Bool {
+        payload.status.isTerminal
+            || (payload.kind == .redPacket && hasViewerClaimedRedPacket)
+    }
+}
+
 struct ChatMoneyPlusMenuTile: View {
     let kind: ChatMoneyKind
     let action: () -> Void
@@ -177,9 +187,9 @@ private struct RedPacketMenuFlap: Shape {
 
 struct ChatMoneyBubble: View {
     let payload: ChatMoneyPayload
-    let timeText: String
     let isFromMe: Bool
     var senderName: String?
+    var hasViewerClaimedRedPacket = false
     let onTap: () -> Void
 
     var body: some View {
@@ -221,7 +231,7 @@ struct ChatMoneyBubble: View {
                 .padding(.horizontal, 10)
 
             HStack {
-                Text(L10n.tr("chatMoney.redPacket"))
+                Text(L10n.tr("chatMoney.redPacket.brand"))
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.88))
                 Spacer(minLength: 0)
@@ -325,7 +335,10 @@ struct ChatMoneyBubble: View {
     }
 
     private var cardBackground: Color {
-        return payload.status.isTerminal
+        return ChatMoneyBubblePresentationPolicy.isMuted(
+            payload: payload,
+            hasViewerClaimedRedPacket: hasViewerClaimedRedPacket
+        )
             ? ChatMoneyTheme.mutedOrange
             : ChatMoneyTheme.cardOrange
     }
@@ -463,25 +476,35 @@ private struct ChatMoneyViewsPreview: View {
                     senderID: "me",
                     greeting: "恭喜发财，大吉大利"
                 ),
-                timeText: "12:00",
                 isFromMe: true,
                 onTap: {}
             )
             ChatMoneyBubble(
+                payload: ChatMoneyPayload(
+                    assetID: "preview-red-claimed",
+                    kind: .redPacket,
+                    scope: .group,
+                    mode: .lucky,
+                    senderID: "friend",
+                    greeting: "已领取的红包",
+                    status: .partial
+                ),
+                isFromMe: false,
+                hasViewerClaimedRedPacket: true,
+                onTap: {}
+            )
+            ChatMoneyBubble(
                 payload: transferPayload(status: .pending),
-                timeText: "12:01",
                 isFromMe: true,
                 onTap: {}
             )
             ChatMoneyBubble(
                 payload: transferPayload(status: .accepted),
-                timeText: "12:02",
                 isFromMe: true,
                 onTap: {}
             )
             ChatMoneyBubble(
                 payload: transferPayload(status: .returned),
-                timeText: "12:03",
                 isFromMe: true,
                 onTap: {}
             )
@@ -502,7 +525,7 @@ private struct ChatMoneyViewsPreview: View {
             senderID: "me",
             recipientID: "friend",
             recipientName: "朋友",
-            note: "猫粮转账",
+            note: "金币转账",
             amount: 100,
             status: status
         )

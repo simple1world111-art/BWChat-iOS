@@ -2,4 +2,5 @@
 "NSPhotoLibraryUsageDescription" = "BBchat использует медиатеку для загрузки и отправки фото и видео.";
 "NSCameraUsageDescription" = "BBchat требуется камера для видеозвонков.";
 "NSMicrophoneUsageDescription" = "BBchat требуется микрофон для голосовых и видеозвонков.";
-"NSLocationWhenInUseUsageDescription" = "BBchat использует ваше местоположение, чтобы находить пользователей рядом, и передает приблизительное местоположение только при включенной функции Nearby.";
+"NSLocationWhenInUseUsageDescription" = "BBchat использует ваше точное местоположение после входа и при каждом открытии карты, чтобы обновлять вашу точку.";
+"NSContactsUsageDescription" = "BBchat локально нормализует и хеширует с солью номера контактов, чтобы найти зарегистрированных друзей; имена и исходные номера не загружаются.";

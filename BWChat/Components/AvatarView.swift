@@ -45,36 +45,38 @@ struct AvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
-        .transaction { transaction in
-            transaction.animation = nil
-        }
         .onAppear {
             // Try synchronous memory cache first for instant display
             let path = resolvedPath
             guard !path.isEmpty else { return }
             if let cached = ImageCacheManager.shared.image(for: path) {
-                image = cached
+                setImageWithoutAnimation(cached)
             }
         }
         .task(id: url) {
             let path = resolvedPath
             guard !path.isEmpty else {
-                image = nil
+                setImageWithoutAnimation(nil)
                 return
             }
 
             if let cached = ImageCacheManager.shared.image(for: path) {
-                image = cached
+                setImageWithoutAnimation(cached)
                 return
             }
 
-            // Only clear image if we had one but sync cache no longer has this path
-            if image != nil {
-                image = nil
-            }
-            if let loaded = await ImageCacheManager.shared.loadImage(from: path) {
-                image = loaded
-            }
+            setImageWithoutAnimation(nil)
+            let loaded = await ImageCacheManager.shared.loadImage(from: path)
+            guard !Task.isCancelled, path == resolvedPath else { return }
+            setImageWithoutAnimation(loaded)
+        }
+    }
+
+    private func setImageWithoutAnimation(_ newImage: UIImage?) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            image = newImage
         }
     }
 }
@@ -107,7 +109,7 @@ struct GroupAvatarIcon: View {
     }
 }
 
-/// Group-chat avatar composed from three to nine member avatars.
+/// Group-chat avatar composed from one to nine actual group members.
 struct GroupMemberAvatarView: View {
     let groupID: Int
     let size: CGFloat
@@ -124,21 +126,27 @@ struct GroupMemberAvatarView: View {
     }
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.18, style: .continuous)
-                .fill(Color(hex: "E5E5EA"))
+        Group {
+            if displayURLs.isEmpty {
+                GroupAvatarIcon(size: size)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: size * 0.18, style: .continuous)
+                        .fill(Color(hex: "E5E5EA"))
 
-            VStack(spacing: spacing) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: spacing) {
-                        ForEach(Array(row.enumerated()), id: \.offset) { _, url in
-                            AvatarView(url: url, size: memberSize)
+                    VStack(spacing: spacing) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                            HStack(spacing: spacing) {
+                                ForEach(Array(row.enumerated()), id: \.offset) { _, url in
+                                    AvatarView(url: url, size: memberSize)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
                         }
                     }
-                    .frame(maxWidth: .infinity)
+                    .padding(inset)
                 }
             }
-            .padding(inset)
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.18, style: .continuous))
@@ -148,15 +156,18 @@ struct GroupMemberAvatarView: View {
     }
 
     private var displayURLs: [String] {
-        var urls = Array(avatarURLs.prefix(9))
-        if urls.count < 3 {
-            urls.append(contentsOf: Array(repeating: "", count: 3 - urls.count))
-        }
-        return urls
+        Array(avatarURLs.prefix(9))
     }
 
     private var columnCount: Int {
-        displayURLs.count <= 4 ? 2 : 3
+        switch displayURLs.count {
+        case 0, 1:
+            return 1
+        case 2...4:
+            return 2
+        default:
+            return 3
+        }
     }
 
     private var memberSize: CGFloat {

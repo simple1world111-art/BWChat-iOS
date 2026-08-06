@@ -167,6 +167,171 @@ final class AuthSessionTests: XCTestCase {
         XCTAssertTrue(headers.allSatisfy { $0 == "Bearer \(accessToken)" })
     }
 
+    func testCachedSessionSurvivesTransientValidationFailures() {
+        XCTAssertFalse(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: APIError.networkError(URLError(.notConnectedToInternet))
+        ))
+        XCTAssertFalse(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: APIError.serverError(code: 503, message: "unavailable")
+        ))
+        XCTAssertFalse(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: APIError.decodingError(DecodingError.dataCorrupted(.init(
+                codingPath: [],
+                debugDescription: "bad gateway body"
+            )))
+        ))
+        XCTAssertFalse(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: CancellationError()
+        ))
+    }
+
+    func testCachedSessionIsInvalidatedOnlyByExplicitCredentialRejection() {
+        XCTAssertTrue(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: APIError.unauthorized
+        ))
+        XCTAssertTrue(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: APIError.serverError(code: 403, message: "revoked")
+        ))
+        XCTAssertTrue(CachedSessionValidationFailurePolicy.shouldInvalidateSession(
+            for: APIError.businessError(
+                code: "refresh_token_expired",
+                message: "expired",
+                context: nil
+            )
+        ))
+    }
+
+    func testAdRewardCounterIsSeparatedByAccountLimitedToTenAndResetsAtMidnight() throws {
+        let suiteName = "bbchat.ad-reward-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 8 * 60 * 60))
+        var currentDate = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 7, day: 21, hour: 23, minute: 59))
+        )
+        let counter = AdRewardDailyCounter(
+            defaults: defaults,
+            calendar: calendar,
+            dailyLimit: 10,
+            now: { currentDate }
+        )
+
+        XCTAssertEqual(counter.remainingViews(for: "account-a"), 10)
+        XCTAssertEqual(counter.remainingViews(for: "account-b"), 10)
+
+        for expectedRemaining in stride(from: 9, through: 0, by: -1) {
+            XCTAssertEqual(counter.recordCompletedView(for: "account-a"), expectedRemaining)
+        }
+        XCTAssertEqual(counter.recordCompletedView(for: "account-a"), 0)
+        XCTAssertEqual(counter.remainingViews(for: "account-a"), 0)
+        XCTAssertEqual(counter.remainingViews(for: "account-b"), 10)
+
+        let resetDate = try XCTUnwrap(counter.nextResetDate())
+        XCTAssertEqual(calendar.component(.hour, from: resetDate), 0)
+        XCTAssertEqual(calendar.component(.minute, from: resetDate), 0)
+        currentDate = resetDate
+
+        XCTAssertEqual(counter.remainingViews(for: "account-a"), 10)
+        XCTAssertEqual(counter.remainingViews(for: "account-b"), 10)
+    }
+
+    func testAdRewardDefaultCounterUsesShanghaiBusinessDay() throws {
+        let suiteName = "bbchat.ad-reward-timezone-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var currentDate = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-07-21T15:59:59Z")
+        )
+        let counter = AdRewardDailyCounter(
+            defaults: defaults,
+            dailyLimit: 10,
+            now: { currentDate }
+        )
+
+        XCTAssertEqual(counter.recordCompletedView(for: "account-a"), 9)
+        currentDate = try XCTUnwrap(
+            ISO8601DateFormatter().date(from: "2026-07-21T16:00:00Z")
+        )
+        XCTAssertEqual(counter.remainingViews(for: "account-a"), 10)
+    }
+
+    func testPendingAdRewardWaitsForServerDecreaseOrSessionExpiry() throws {
+        let formatter = ISO8601DateFormatter()
+        let startedAt = try XCTUnwrap(formatter.date(from: "2026-07-21T10:00:00Z"))
+        let pending = AdRewardPendingCredit(
+            userID: "account-a",
+            remainingCountBeforeReward: 7,
+            businessDayResetAt: startedAt.addingTimeInterval(6 * 60 * 60),
+            sessionExpiresAt: startedAt.addingTimeInterval(30 * 60)
+        )
+
+        XCTAssertFalse(pending.isResolved(
+            currentUserID: "account-a",
+            serverRemainingCount: 7,
+            now: startedAt.addingTimeInterval(5)
+        ))
+        XCTAssertTrue(pending.isResolved(
+            currentUserID: "account-a",
+            serverRemainingCount: 6,
+            now: startedAt.addingTimeInterval(5)
+        ))
+        XCTAssertTrue(pending.isResolved(
+            currentUserID: "account-a",
+            serverRemainingCount: 7,
+            now: startedAt.addingTimeInterval(30 * 60)
+        ))
+        XCTAssertFalse(pending.isServerCreditConfirmed(
+            currentUserID: "account-a",
+            serverRemainingCount: 7,
+            now: startedAt.addingTimeInterval(30 * 60)
+        ))
+        XCTAssertTrue(pending.isServerCreditConfirmed(
+            currentUserID: "account-a",
+            serverRemainingCount: 6,
+            now: startedAt.addingTimeInterval(5)
+        ))
+    }
+
+    func testPendingAdRewardDoesNotUseNextBusinessDaysCounterAsConfirmation() throws {
+        let formatter = ISO8601DateFormatter()
+        let startedAt = try XCTUnwrap(formatter.date(from: "2026-07-21T15:59:50Z"))
+        let pending = AdRewardPendingCredit(
+            userID: "account-a",
+            remainingCountBeforeReward: 1,
+            businessDayResetAt: startedAt.addingTimeInterval(10),
+            sessionExpiresAt: startedAt.addingTimeInterval(30 * 60)
+        )
+
+        XCTAssertFalse(pending.isResolved(
+            currentUserID: "account-a",
+            serverRemainingCount: 0,
+            now: startedAt.addingTimeInterval(11)
+        ))
+    }
+
+    func testPendingAdRewardStoreIsAccountScopedAndRoundTrips() throws {
+        let suiteName = "bbchat.ad-reward-pending-store-tests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AdRewardPendingCreditStore(defaults: defaults)
+        let pending = AdRewardPendingCredit(
+            userID: "account-a",
+            remainingCountBeforeReward: 5,
+            businessDayResetAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sessionExpiresAt: Date(timeIntervalSince1970: 1_799_950_000)
+        )
+
+        store.save(pending)
+
+        XCTAssertEqual(store.pendingCredit(for: "account-a"), pending)
+        XCTAssertNil(store.pendingCredit(for: "account-b"))
+        store.remove(for: "account-a")
+        XCTAssertNil(store.pendingCredit(for: "account-a"))
+    }
+
     private func makeManager(
         load: @escaping (String) -> String? = { _ in nil },
         save: @escaping (String, String) throws -> Void = { _, _ in },

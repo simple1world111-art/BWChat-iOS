@@ -1,8 +1,42 @@
 // BWChat/Services/WalletStore.swift
-// StoreKit-backed wallet for consumable cat-food purchases and withdrawals.
+// StoreKit-backed wallet for consumable gold-coin purchases and withdrawals.
 
 import Foundation
+import OSLog
 import StoreKit
+
+enum WalletTelemetry {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "BWChat",
+        category: "wallet"
+    )
+
+    static func recordMixedCharge(_ charge: MixedAssetCharge, operation: String) {
+        logger.notice(
+            "mixed_charge operation=\(operation, privacy: .public) charged_activity_cat_food=\(charge.chargedActivityCatFood.value) charged_gold_coins=\(charge.chargedGoldCoins.value) total_charged=\(charge.totalCharged) gold_coin_balance_after=\(charge.walletBalance.goldCoinBalance.value) activity_cat_food_balance_after=\(charge.walletBalance.activityCatFoodBalance.value) spendable_balance_after=\(charge.walletBalance.spendableBalance)"
+        )
+    }
+
+    static func recordLiveBilling(
+        operation: String,
+        chargedActivityCatFood: Int,
+        chargedGoldCoins: Int,
+        totalCharged: Int,
+        goldCoinBalanceAfter: Int,
+        activityCatFoodBalanceAfter: Int,
+        spendableBalanceAfter: Int
+    ) {
+        logger.notice(
+            "live_billing operation=\(operation, privacy: .public) charged_activity_cat_food=\(chargedActivityCatFood) charged_gold_coins=\(chargedGoldCoins) total_charged=\(totalCharged) gold_coin_balance_after=\(goldCoinBalanceAfter) activity_cat_food_balance_after=\(activityCatFoodBalanceAfter) spendable_balance_after=\(spendableBalanceAfter)"
+        )
+    }
+
+    static func recordGoldCoinPurchase(productID: String, goldCoinAmount: Int) {
+        logger.notice(
+            "iap_delivery currency=gold_coin gold_coin_amount=\(goldCoinAmount) product_id=\(productID, privacy: .public)"
+        )
+    }
+}
 
 enum WalletPurchaseOutcome: Equatable {
     case success(coins: Int)
@@ -90,8 +124,10 @@ final class WalletStore: ObservableObject {
     static let shared = WalletStore()
 
     @Published private(set) var products: [Product] = []
-    @Published private(set) var balance: Int?
-    @Published private(set) var balanceDetail: WalletBalanceResponseData?
+    @Published private(set) var goldCoinBalance: GoldCoinAmount?
+    @Published private(set) var activityCatFoodBalance: ActivityCatFoodAmount?
+    @Published private(set) var spendableBalance: Int?
+    @Published private(set) var walletBalance: WalletBalanceResponseData?
     @Published private(set) var isLoadingBalance = false
     @Published private(set) var isLoadingProducts = false
     @Published private(set) var isLoadingTransactions = false
@@ -103,18 +139,27 @@ final class WalletStore: ObservableObject {
     @Published private(set) var transactionLoadError: String?
     @Published private(set) var withdrawalLoadError: String?
     @Published private(set) var transactions: [WalletTransaction] = []
+    @Published private(set) var transactionNextCursor: String?
+    @Published private(set) var activityCatFoodTransactions: [ActivityCatFoodTransaction] = []
     @Published private(set) var withdrawals: [WalletWithdrawal] = []
+    @Published private(set) var isLoadingActivityCatFoodTransactions = false
+    @Published private(set) var activityCatFoodTransactionLoadError: String?
+    @Published private(set) var activityCatFoodNextCursor: String?
     @Published private(set) var usdtPayoutAccount = WalletUSDTPayoutAccount.load()
 
     private var updatesTask: Task<Void, Never>?
+    private var transactionsUserID: String?
+    private var requestedTransactionCursors: Set<String> = []
+    private var activityCatFoodTransactionsUserID: String?
+    private var activityCatFoodDisabledByServer = false
 
     private var productIDs: [String] {
-        (AppRemoteConfigStore.shared.config.wallet?.effectiveCatFoodProducts ?? AppConfig.catFoodProducts)
+        (AppRemoteConfigStore.shared.config.wallet?.effectiveGoldCoinProducts ?? AppConfig.goldCoinProducts)
             .map(\.productID)
     }
 
     private var coinsByProductID: [String: Int] {
-        Dictionary(uniqueKeysWithValues: (AppRemoteConfigStore.shared.config.wallet?.effectiveCatFoodProducts ?? AppConfig.catFoodProducts).map {
+        Dictionary(uniqueKeysWithValues: (AppRemoteConfigStore.shared.config.wallet?.effectiveGoldCoinProducts ?? AppConfig.goldCoinProducts).map {
             ($0.productID, $0.coins)
         })
     }
@@ -124,24 +169,36 @@ final class WalletStore: ObservableObject {
     }
 
     private var balanceKey: String {
-        "bbchat.wallet.catfood.balance.\(currentUserID)"
+        "bbchat.wallet.gold_coin.balance.\(currentUserID)"
     }
 
     private var processedTransactionsKey: String {
-        "bbchat.wallet.catfood.processedTransactions.\(currentUserID)"
+        "bbchat.wallet.gold_coin.processedTransactions.\(currentUserID)"
     }
 
     private var isReviewScreenshotMode: Bool {
         #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-walletReviewScreenshot")
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("-walletReviewScreenshot")
+            || arguments.contains("-walletEarningsReviewScreenshot")
+            || arguments.contains("-propBagReviewScreenshot")
         #else
         false
         #endif
     }
 
     private init() {
+        WalletLegacyUserDefaultsMigration.run(userID: currentUserID)
+        LocalCache.migrateWalletCurrencySchemaIfNeeded()
         if isReviewScreenshotMode {
-            applyServerBalance(0)
+            applyServerBalance(WalletBalanceResponseData(
+                goldCoinBalance: 85,
+                activityCatFoodBalance: 20,
+                spendableBalance: 105,
+                rechargeGoldCoinBalance: 50,
+                giftIncomeGoldCoinBalance: 35,
+                withdrawableGoldCoinBalance: 35
+            ))
         } else {
             restoreSnapshots()
         }
@@ -156,46 +213,94 @@ final class WalletStore: ObservableObject {
     }
 
     func reloadBalance() {
+        WalletLegacyUserDefaultsMigration.run(userID: currentUserID)
         guard UserDefaults.standard.object(forKey: balanceKey) != nil else { return }
-        applyServerBalance(UserDefaults.standard.integer(forKey: balanceKey))
+        // The legacy scalar cache can render the Gold Coin balance only. It
+        // must never synthesize activity Cat Food or an authoritative
+        // spendable balance; the next wallet sync installs the full snapshot.
+        goldCoinBalance = GoldCoinAmount(UserDefaults.standard.integer(forKey: balanceKey))
+        walletBalance = nil
+        spendableBalance = nil
     }
 
-    func applyServerBalance(_ serverBalance: Int) {
-        applyServerBalance(WalletBalanceResponseData(balance: serverBalance))
+    func applySpendableBalances(
+        goldCoinBalance: Int,
+        activityCatFoodBalance: Int,
+        spendableBalance: Int
+    ) {
+        let current = walletBalance
+        applyServerBalance(WalletBalanceResponseData(
+            goldCoinBalance: goldCoinBalance,
+            activityCatFoodBalance: activityCatFoodBalance,
+            spendableBalance: spendableBalance,
+            rechargeGoldCoinBalance: current?.rechargeGoldCoinBalance.value,
+            giftIncomeGoldCoinBalance: current?.giftIncomeGoldCoinBalance.value ?? 0,
+            withdrawFrozenGoldCoinBalance: current?.withdrawFrozenGoldCoinBalance.value ?? 0,
+            withdrawableGoldCoinBalance: current?.withdrawableGoldCoinBalance.value ?? 0,
+            chatMoneyFrozenGoldCoinBalance: current?.chatMoneyFrozenGoldCoinBalance.value ?? 0,
+            hasServerActivityCatFoodBalance: true
+        ))
     }
 
     func applyServerBalance(_ serverBalance: WalletBalanceResponseData) {
-        balanceDetail = serverBalance
-        balance = serverBalance.balance
+        walletBalance = serverBalance
+        goldCoinBalance = serverBalance.goldCoinBalance
+        activityCatFoodBalance = serverBalance.activityCatFoodBalance
+        spendableBalance = serverBalance.spendableBalance
+        if serverBalance.hasServerActivityCatFoodBalance,
+           AppRemoteConfigStore.shared.config.wallet?.effectiveActivityCatFoodEnabled == true {
+            activityCatFoodDisabledByServer = false
+        }
         balanceLoadError = nil
-        UserDefaults.standard.set(serverBalance.balance, forKey: balanceKey)
+        UserDefaults.standard.set(serverBalance.goldCoinBalance.value, forKey: balanceKey)
     }
 
-    var totalBalance: Int? {
-        balanceDetail?.totalBalance ?? balance
+    var hasLoadedWallet: Bool {
+        walletBalance != nil || goldCoinBalance != nil
     }
 
-    var rechargeClaimBalance: Int? {
-        balanceDetail?.rechargeClaimBalance ?? balance
+    var canLoadMoreTransactions: Bool {
+        transactionNextCursor?.isBlank == false
     }
 
-    var earningsCatFoodBalance: Int {
-        totalBalance ?? balance ?? 0
+    var goldCoinBalanceValue: Int? {
+        goldCoinBalance?.value
     }
 
-    var withdrawableCatFoodBalanceForAction: Int {
-        guard balanceDetail != nil || balance != nil else { return 0 }
-        return max(earningsCatFoodBalance, 0)
+    var activityCatFoodBalanceValue: Int? {
+        activityCatFoodBalance?.value
     }
 
-    static let usdtPerCatFood: Double = 0.005
-
-    func usdtAmount(for catFoodAmount: Int) -> Double {
-        Double(max(catFoodAmount, 0)) * Self.usdtPerCatFood
+    var isActivityCatFoodEnabled: Bool {
+        isReviewScreenshotMode
+            || (!activityCatFoodDisabledByServer
+            && AppRemoteConfigStore.shared.config.wallet?.effectiveActivityCatFoodEnabled == true
+            )
     }
 
-    func usdtDisplayText(for catFoodAmount: Int) -> String {
-        String(format: "%.2f USDT", usdtAmount(for: catFoodAmount))
+    var rechargeGoldCoinBalance: Int? {
+        walletBalance?.rechargeGoldCoinBalance.value
+    }
+
+    var earningsGoldCoinBalance: Int {
+        walletBalance?.giftIncomeGoldCoinBalance.value ?? 0
+    }
+
+    var withdrawableGoldCoinBalanceForAction: Int {
+        max(walletBalance?.withdrawableGoldCoinBalance.value ?? 0, 0)
+    }
+
+    func withdrawalPolicy(for network: String? = nil) -> WalletWithdrawalPolicy {
+        AppRemoteConfigStore.shared.config.wallet?.effectiveWithdrawalPolicy(for: network)
+            ?? .fallback
+    }
+
+    func usdtAmount(for goldCoinAmount: Int, network: String? = nil) -> Double {
+        withdrawalPolicy(for: network).rawUSDTAmount(forGoldCoins: goldCoinAmount)
+    }
+
+    func usdtDisplayText(for goldCoinAmount: Int, network: String? = nil) -> String {
+        String(format: "%.2f USDT", usdtAmount(for: goldCoinAmount, network: network))
     }
 
     func saveUSDTPayoutAccount(network: String, address: String) throws {
@@ -213,8 +318,8 @@ final class WalletStore: ObservableObject {
     }
 
     func refreshBalanceFromServer(forceRefresh: Bool = false) async {
+        WalletLegacyUserDefaultsMigration.run(userID: currentUserID)
         if isReviewScreenshotMode {
-            balance = balance ?? 0
             balanceLoadError = nil
             return
         }
@@ -235,6 +340,11 @@ final class WalletStore: ObservableObject {
             }
             applyServerBalance(serverBalance)
         } catch {
+            if WalletBusinessError.isActivityCatFoodDisabled(error) {
+                activityCatFoodDisabledByServer = true
+                activityCatFoodTransactions = []
+                activityCatFoodNextCursor = nil
+            }
             balanceLoadError = L10n.tr("wallet.balance.loadFailedWithError", error.localizedDescription)
         }
     }
@@ -242,26 +352,153 @@ final class WalletStore: ObservableObject {
     func loadTransactions(forceRefresh: Bool = false) async {
         if isReviewScreenshotMode {
             transactions = []
+            transactionNextCursor = nil
             transactionLoadError = nil
             return
         }
 
+        let userID = currentUserID
+        prepareTransactionHistory(for: userID)
         guard !isLoadingTransactions else { return }
         isLoadingTransactions = true
         transactionLoadError = nil
         defer { isLoadingTransactions = false }
 
-        guard let key = CacheKey.current(namespace: "wallet", key: "transactions") else { return }
-        do {
-            transactions = Array(try await AppCacheRepository.shared.loadValue(
-                key: key,
-                policy: .list,
-                forceRefresh: forceRefresh
-            ) {
-                try await APIService.shared.getWalletTransactions()
-            }.prefix(500))
-        } catch {
+        guard let key = CacheKey.current(namespace: "wallet", key: "transaction-history-v2") else { return }
+        let result: CacheResult<WalletTransactionsResponseData> = await AppCacheRepository.shared.load(
+            key: key,
+            policy: .list,
+            forceRefresh: forceRefresh
+        ) {
+            try await APIService.shared.getWalletTransactionPage()
+        }
+        guard !Task.isCancelled, currentUserID == userID else { return }
+
+        switch result {
+        case .cache(let page, _), .staleCache(let page, _):
+            applyInitialTransactionPage(page)
+        case .remote(let page):
+            applyInitialTransactionPage(page)
+            persistTransactionHistory()
+        case .failure(let error):
             transactionLoadError = L10n.tr("wallet.transactions.loadFailedWithError", error.localizedDescription)
+        }
+    }
+
+    func loadMoreTransactions() async {
+        guard !isReviewScreenshotMode,
+              let cursor = transactionNextCursor,
+              !cursor.isBlank,
+              !requestedTransactionCursors.contains(cursor),
+              !isLoadingTransactions else { return }
+
+        let userID = currentUserID
+        requestedTransactionCursors.insert(cursor)
+        isLoadingTransactions = true
+        transactionLoadError = nil
+        defer { isLoadingTransactions = false }
+
+        do {
+            let page = try await APIService.shared.getWalletTransactionPage(cursor: cursor)
+            guard !Task.isCancelled, currentUserID == userID else { return }
+
+            transactions = Self.deduplicatedTransactions(transactions + page.transactions)
+            let nextCursor = page.nextCursor?.isBlank == false ? page.nextCursor : nil
+            transactionNextCursor = nextCursor == cursor || requestedTransactionCursors.contains(nextCursor ?? "")
+                ? nil
+                : nextCursor
+            persistTransactionHistory()
+        } catch is CancellationError {
+            requestedTransactionCursors.remove(cursor)
+        } catch {
+            requestedTransactionCursors.remove(cursor)
+            transactionLoadError = L10n.tr("wallet.transactions.loadFailedWithError", error.localizedDescription)
+        }
+    }
+
+    private func prepareTransactionHistory(for userID: String) {
+        guard transactionsUserID != userID else { return }
+        transactions = []
+        transactionNextCursor = nil
+        transactionLoadError = nil
+        requestedTransactionCursors.removeAll()
+        transactionsUserID = userID
+
+        if let key = CacheKey.current(namespace: "wallet", key: "transaction-history-v2"),
+           let cached: CachedSnapshot<WalletTransactionsResponseData> = AppCacheRepository.shared.cachedValue(for: key) {
+            transactions = cached.value.transactions
+            transactionNextCursor = cached.value.nextCursor
+        } else if let key = CacheKey.current(namespace: "wallet", key: "transactions"),
+                  let cached: CachedSnapshot<[WalletTransaction]> = AppCacheRepository.shared.cachedValue(for: key) {
+            transactions = cached.value
+        }
+    }
+
+    private func applyInitialTransactionPage(_ page: WalletTransactionsResponseData) {
+        requestedTransactionCursors.removeAll()
+        transactions = Self.deduplicatedTransactions(page.transactions + transactions)
+        transactionNextCursor = page.nextCursor
+        transactionLoadError = nil
+    }
+
+    private func persistTransactionHistory() {
+        guard let key = CacheKey.current(namespace: "wallet", key: "transaction-history-v2") else { return }
+        AppCacheRepository.shared.save(
+            WalletTransactionsResponseData(
+                transactions: transactions,
+                nextCursor: transactionNextCursor
+            ),
+            for: key,
+            policy: .list
+        )
+    }
+
+    private static func deduplicatedTransactions(
+        _ transactions: [WalletTransaction]
+    ) -> [WalletTransaction] {
+        var seenIDs: Set<String> = []
+        return transactions.filter { seenIDs.insert($0.id).inserted }
+    }
+
+    func loadActivityCatFoodTransactions(reset: Bool = true) async {
+        guard isActivityCatFoodEnabled else { return }
+        let userID = currentUserID
+        if activityCatFoodTransactionsUserID != userID {
+            activityCatFoodTransactions = []
+            activityCatFoodNextCursor = nil
+            activityCatFoodTransactionsUserID = userID
+        }
+        guard !isLoadingActivityCatFoodTransactions else { return }
+        if !reset, activityCatFoodNextCursor == nil { return }
+
+        isLoadingActivityCatFoodTransactions = true
+        if reset { activityCatFoodTransactionLoadError = nil }
+        defer { isLoadingActivityCatFoodTransactions = false }
+
+        do {
+            let page = try await APIService.shared.getActivityCatFoodTransactions(
+                cursor: reset ? nil : activityCatFoodNextCursor
+            )
+            guard !Task.isCancelled, currentUserID == userID else { return }
+            if reset {
+                activityCatFoodTransactions = page.items
+            } else {
+                let existingIDs = Set(activityCatFoodTransactions.map(\.id))
+                activityCatFoodTransactions.append(contentsOf: page.items.filter { !existingIDs.contains($0.id) })
+            }
+            activityCatFoodNextCursor = page.nextCursor
+            activityCatFoodTransactionLoadError = nil
+            activityCatFoodTransactionsUserID = userID
+        } catch is CancellationError {
+            return
+        } catch {
+            if WalletBusinessError.isActivityCatFoodDisabled(error) {
+                activityCatFoodDisabledByServer = true
+                activityCatFoodTransactions = []
+                activityCatFoodNextCursor = nil
+                return
+            }
+            activityCatFoodTransactionLoadError = error.localizedDescription
         }
     }
 
@@ -301,8 +538,13 @@ final class WalletStore: ObservableObject {
         } else {
             reloadBalance()
         }
-        if let key = CacheKey.current(namespace: "wallet", key: "transactions"),
-           let cached: CachedSnapshot<[WalletTransaction]> = AppCacheRepository.shared.cachedValue(for: key) {
+        transactionsUserID = currentUserID
+        if let key = CacheKey.current(namespace: "wallet", key: "transaction-history-v2"),
+           let cached: CachedSnapshot<WalletTransactionsResponseData> = AppCacheRepository.shared.cachedValue(for: key) {
+            transactions = cached.value.transactions
+            transactionNextCursor = cached.value.nextCursor
+        } else if let key = CacheKey.current(namespace: "wallet", key: "transactions"),
+                  let cached: CachedSnapshot<[WalletTransaction]> = AppCacheRepository.shared.cachedValue(for: key) {
             transactions = cached.value
         }
         if let key = CacheKey.current(namespace: "wallet", key: "withdrawals"),
@@ -320,8 +562,16 @@ final class WalletStore: ObservableObject {
         guard amount > 0 else {
             throw APIError.serverError(code: 400, message: L10n.tr("wallet.withdrawal.amount.invalid"))
         }
-        guard amount <= withdrawableCatFoodBalanceForAction else {
-            throw APIError.serverError(code: 400, message: L10n.tr("wallet.withdrawal.amount.insufficientCatFood"))
+        guard amount <= withdrawableGoldCoinBalanceForAction else {
+            throw APIError.serverError(code: 400, message: L10n.tr("wallet.withdrawal.amount.insufficientGoldCoins"))
+        }
+        let policy = withdrawalPolicy(for: network)
+        guard let requestedUSDT = Double(usdtAmount),
+              requestedUSDT + 0.000_000_1 >= policy.minimumUSDT,
+              policy.isValidUSDTIncrement(requestedUSDT),
+              requestedUSDT <= policy.maximumUSDTAmount(forGoldCoins: withdrawableGoldCoinBalanceForAction) + 0.000_000_1,
+              amount == policy.requiredGoldCoins(forUSDT: requestedUSDT) else {
+            throw APIError.serverError(code: 400, message: L10n.tr("wallet.withdrawal.amount.invalid"))
         }
         let payoutAccount = WalletUSDTPayoutAccount(network: network, address: walletAddress)
         guard payoutAccount.isConfigured else {
@@ -335,7 +585,7 @@ final class WalletStore: ObservableObject {
 
         do {
             _ = try await APIService.shared.createWalletWithdrawal(
-                amount: amount,
+                goldCoinAmount: amount,
                 usdtAmount: usdtAmount,
                 payoutMethod: "usdt",
                 payoutAccount: payoutAccount.payoutAccountValue,
@@ -383,10 +633,8 @@ final class WalletStore: ObservableObject {
         switch normalized {
         case "invalid_withdrawal_amount":
             localizedMessage = L10n.tr("wallet.withdrawal.amount.invalid")
-        case "insufficient_withdrawable_cat_food_balance",
-             "insufficient_withdrawable_balance",
-             "insufficient_withdrawable_cat_hair_balance":
-            localizedMessage = L10n.tr("wallet.withdrawal.amount.insufficientCatFood")
+        case "insufficient_gold_coins", "insufficient_withdrawable_gold_coin_balance":
+            localizedMessage = L10n.tr("wallet.withdrawal.amount.insufficientGoldCoins")
         case "usdt_account_required", "payout_account_required":
             localizedMessage = L10n.tr("wallet.withdrawal.usdt.required")
         case "invalid_usdt_account", "invalid_payout_account":
@@ -454,19 +702,19 @@ final class WalletStore: ObservableObject {
         }
     }
 
-    func product(for package: CatFoodProductConfig) -> Product? {
+    func product(for package: GoldCoinProductConfig) -> Product? {
         products.first { $0.id == package.productID }
     }
 
-    func isProductAvailable(for package: CatFoodProductConfig) -> Bool {
+    func isProductAvailable(for package: GoldCoinProductConfig) -> Bool {
         isReviewScreenshotMode || product(for: package) != nil
     }
 
-    func displayPrice(for package: CatFoodProductConfig) -> String {
+    func displayPrice(for package: GoldCoinProductConfig) -> String {
         product(for: package)?.displayPrice ?? package.fallbackPriceUSD
     }
 
-    func purchase(_ package: CatFoodProductConfig) async throws -> WalletPurchaseOutcome {
+    func purchase(_ package: GoldCoinProductConfig) async throws -> WalletPurchaseOutcome {
         guard !isPurchasing else { throw WalletPurchaseError.purchaseInProgress }
         guard let product = product(for: package) else { throw WalletPurchaseError.productUnavailable }
 
@@ -539,7 +787,7 @@ final class WalletStore: ObservableObject {
     private func confirmAndFinish(
         transaction: Transaction,
         signedPayload: String,
-        expectedPackage: CatFoodProductConfig? = nil
+        expectedPackage: GoldCoinProductConfig? = nil
     ) async throws -> Int {
         let confirmed: WalletIAPConfirmationResponseData
         do {
@@ -566,10 +814,15 @@ final class WalletStore: ObservableObject {
         await loadTransactions()
         await transaction.finish()
 
-        return confirmed.coins
+        let deliveredGoldCoins = confirmed.goldCoinAmount
             ?? coinsByProductID[transaction.productID]
             ?? expectedPackage?.coins
             ?? 0
+        WalletTelemetry.recordGoldCoinPurchase(
+            productID: transaction.productID,
+            goldCoinAmount: deliveredGoldCoins
+        )
+        return deliveredGoldCoins
     }
 
     private func isAlreadyConfirmedPurchase(_ error: Error) -> Bool {
