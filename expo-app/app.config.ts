@@ -242,6 +242,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
       ],
       "@sentry/react-native/expo",
+      // Expo config-mod callbacks are stacked, so register this fallback first;
+      // its Android dangerous mod then runs after expo-splash-screen cleanup.
+      "./plugins/with-transparent-android-splash-drawable",
       [
         "expo-splash-screen",
         {
