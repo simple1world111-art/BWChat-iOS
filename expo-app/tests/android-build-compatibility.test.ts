@@ -13,12 +13,16 @@ describe("Android EAS build compatibility", () => {
     expect(easIgnore).not.toMatch(/^android\/$/m);
   });
 
-  test("pins Android Mobile Ads below the Kotlin 2.3 metadata boundary", () => {
+  test("pins the compatible bridge and Android Mobile Ads SDK pair", () => {
     const packageJsonPath = require.resolve("react-native-google-mobile-ads/package.json");
     const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
+      version: string;
       sdkVersions: { android: { googleMobileAds: string } };
     };
 
-    expect(packageJson.sdkVersions.android.googleMobileAds).toBe("25.0.0");
+    expect(packageJson).toMatchObject({
+      version: "16.3.4",
+      sdkVersions: { android: { googleMobileAds: "25.0.0" } },
+    });
   });
 });

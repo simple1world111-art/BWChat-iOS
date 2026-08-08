@@ -219,7 +219,7 @@
 
 ## 2026-08-08：Wallet 第 46 项奖励广告预载/展示时 SSV 顺序收口（真实 AdMob/到账仍待验）
 
-- **原生顺序已对齐**：Expo 不再在点击后才创建并加载广告。现在先按账号+ad unit 单飞预载并缓存，点击时取出已加载广告，再创建 `/wallet/ad-rewards/sessions`；锁定的 `react-native-google-mobile-ads@16.4.0` 原生 patch 会在 `show({ serverSideVerificationOptions })` 时、真正展示前把 owner 与服务端 `ssv_custom_data` 写入 `GADRewardedAd`。这与 Swift 的 `load()` → `prepareServerVerification(for:)` → `present` 顺序一致。
+- **原生顺序已对齐**：Expo 不再在点击后才创建并加载广告。现在先按账号+ad unit 单飞预载并缓存，点击时取出已加载广告，再创建 `/wallet/ad-rewards/sessions`；锁定的 `react-native-google-mobile-ads@16.3.4` 原生 patch 会在 `show({ serverSideVerificationOptions })` 时、真正展示前把 owner 与服务端 `ssv_custom_data` 写入 `GADRewardedAd`。这与 Swift 的 `load()` → `prepareServerVerification(for:)` → `present` 顺序一致。
 - **失败和账号边界**：普通 session API 失败保留尚未展示的广告供下次点击重试；403/429 丢弃并分别关闭入口/清零次数；缓存按账号+unit 隔离，换号立即失效，失败 load 可重试。客户端 earned callback 仍不直接增加余额，只有同一上海业务日服务端 remaining 下降才确认 Google SSV 入账。
 - **自动证据**：钱包/广告聚焦 **7 suites / 32 tests**、strict TypeScript、目标 ESLint/Prettier 全绿；新增 SDK 测试覆盖预载单飞、同对象消费、展示时 SSV、earned+closed、session 失败复用、账号切换与 load 失败重试；真实 hook 状态机测试继续证明 status→preload、take→session→show 顺序、5xx 保留、403 丢弃/禁用及 owner/unmount 失效。原版与桌面 Swift 副本 `AdRewardService.swift`/`WalletView.swift` 哈希逐字节一致，原工程 tracked/staged diff 为零。审计见 `artifacts/acceptance/wallet-ad-reward-current/audit.md`。
 - **总体/门禁**：这只关闭原文档中的 SSV 时机代码缺口。真实 UMP/AdMob fill、Google SSV→后端→余额/流水、403/429/过期/跨日/多设备、前后台 presenter、StoreKit/生产钱包，以及 Wallet 固定双模拟器 95–98% 页面和交互矩阵仍未完成；第 46 项继续 `🟡`，正式总进度仍为 **3/47（6.38%）**，EAS 云端阶段未开始。

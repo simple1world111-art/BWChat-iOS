@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   expo-modules-jsi@57.0.4: 684ea31fae3350575e523e52828b9fe5d876bd3dd49d63fa890e3b7e837cdca8
-  react-native-google-mobile-ads@16.4.0: 5c069801873c597b7017b51368c6099aa3537cdf35ed6c1dbb9e6496bbef7e63
+  react-native-google-mobile-ads@16.3.4: d8f1275eb92f71b2e4f3c93e065db501f18fc8e049a8e19ee300bf461d0247e6
   react-native-webview@13.16.1: 8a31a9b288707fff84a8ad500afefeed8e294464c54998a28e393e17c893d392
 
 importers:
@@ -185,8 +185,8 @@ importers:
         specifier: ~2.32.0
         version: 2.32.0(react-native@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/jest-preset@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       react-native-google-mobile-ads:
-        specifier: 16.4.0
-        version: 16.4.0(patch_hash=5c069801873c597b7017b51368c6099aa3537cdf35ed6c1dbb9e6496bbef7e63)(expo@57.0.11)(react@19.2.3)
+        specifier: 16.3.4
+        version: 16.3.4(patch_hash=d8f1275eb92f71b2e4f3c93e065db501f18fc8e049a8e19ee300bf461d0247e6)(expo@57.0.11)(react@19.2.3)
       react-native-maps:
         specifier: 1.27.2
         version: 1.27.2(react-native-web@0.21.2(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/jest-preset@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
@@ -4674,8 +4674,8 @@ packages:
       react: '*'
       react-native: '*'
 
-  react-native-google-mobile-ads@16.4.0:
-    resolution: {integrity: sha512-I+H9huEO30XaNZ4InPLCZS2DsnbegGjWqFavJMFssDnm78OPJkAOodY6OSCsEtonq0pdG2YbhchhIuZmE427Mw==}
+  react-native-google-mobile-ads@16.3.4:
+    resolution: {integrity: sha512-UDwyymhXZ//AqQVTcnEGD6Nt2M14LNL332jwi9HEHBsGK+N6VKm+IOgsb/b26mtUHxHW+XrQBilbGtiENdrqTA==}
     peerDependencies:
       expo: '>=47.0.0'
     peerDependenciesMeta:
@@ -11151,7 +11151,7 @@ snapshots:
       react: 19.2.3
       react-native: 0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/jest-preset@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(@react-native/metro-config@0.86.2(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)
 
-  react-native-google-mobile-ads@16.4.0(patch_hash=5c069801873c597b7017b51368c6099aa3537cdf35ed6c1dbb9e6496bbef7e63)(expo@57.0.11)(react@19.2.3):
+  react-native-google-mobile-ads@16.3.4(patch_hash=d8f1275eb92f71b2e4f3c93e065db501f18fc8e049a8e19ee300bf461d0247e6)(expo@57.0.11)(react@19.2.3):
     dependencies:
       '@iabtcf/core': 1.5.6
       use-deep-compare-effect: 1.8.1(react@19.2.3)

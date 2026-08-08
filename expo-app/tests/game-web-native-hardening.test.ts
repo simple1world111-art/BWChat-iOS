@@ -29,18 +29,18 @@ describe("react-native-webview game bridge native hardening", () => {
 
   it("coexists with the locked show-time rewarded SSV dependency patch", () => {
     const patch = fs.readFileSync(
-      path.join(root, "patches/react-native-google-mobile-ads@16.4.0.patch"),
+      path.join(root, "patches/react-native-google-mobile-ads@16.3.4.patch"),
       "utf8",
     );
     const workspace = fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf8");
     const lockfile = fs.readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
     expect(workspace).toContain(
-      "react-native-google-mobile-ads@16.4.0: patches/react-native-google-mobile-ads@16.4.0.patch",
+      "react-native-google-mobile-ads@16.3.4: patches/react-native-google-mobile-ads@16.3.4.patch",
     );
     expect(workspace).toContain(
       "react-native-webview@13.16.1: patches/react-native-webview@13.16.1.patch",
     );
-    expect(lockfile).toContain("react-native-google-mobile-ads@16.4.0:");
+    expect(lockfile).toContain("react-native-google-mobile-ads@16.3.4:");
     expect(patch).toContain('showOptions[@"serverSideVerificationOptions"]');
     expect(patch).toContain("setServerSideVerificationOptions:options");
     expect(patch).toContain("serverSideVerificationOptions?: ServerSideVerificationOptions");
