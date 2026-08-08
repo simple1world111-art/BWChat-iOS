@@ -180,6 +180,6 @@ pnpm update:rollback -- <最新异常 Production Android group UUID> android \
 
 仍未完成并且不得提前声称完成：
 
-- Android Production Store Build `4f2e2e67-2ab9-43e7-b87f-4c458a72c24d` 已发起，等待 EAS 完成。iOS Production Build 已通过代码/runtime 配置但被 EAS 拒绝在签名阶段：尚未配置 Apple Distribution Certificate 与 Provisioning Profile，需 Apple Developer 账号交互配置后重试；App Store Connect 提交权限与可选 Sentry project/DSN/source map 上传也尚未验收。Android Production Submit 仍需 Google Play service account/track。
+- Android Production Store Build `4f2e2e67-2ab9-43e7-b87f-4c458a72c24d` 已 `FINISHED`；AAB 为 139,077,166 bytes、SHA-256 `80999fe7e2f08b3276e8f0d4e8cfb4f0f7099a931bdd51c7d5445c3d5188169f`，ZIP 与四种 ABI 的 Expo Updates/App Modules 原生库已核对，临时下载已删除。iOS Production Build 已通过代码/runtime 配置但被 EAS 拒绝在签名阶段：尚未配置 Apple Distribution Certificate 与 Provisioning Profile，需 Apple Developer 账号交互配置后重试；App Store Connect 提交权限与可选 Sentry project/DSN/source map 上传也尚未验收。Android Production Submit 仍需 Google Play service account/track。
 - GitHub `preview`/`production` Environments、Production Required reviewers、实际发布/回滚人员名单与 `EXPO_TOKEN` Secret 尚未由仓库管理员配置。
 - Preview 双端构建、iOS Preview OTA、Production OTA/灰度/撤销/rollback 已完成；没有保留一台可安装 Production iOS Store 包前，iPhone 朋友端的“一次安装后持续收到 Production OTA”仍受 Apple 签名这一外部门槛阻塞。Android 可先使用已完成的 Preview APK 做内部安装与同 runtime 的 Preview OTA。
