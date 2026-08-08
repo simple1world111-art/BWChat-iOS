@@ -94,6 +94,10 @@ describe("local Expo/EAS configuration", () => {
       channel: "development",
       environment: "development",
     });
+    expect(easConfig.build["development-simulator"]).toEqual({
+      extends: "development",
+      ios: { simulator: true },
+    });
     expect(easConfig.build.preview).toMatchObject({
       distribution: "internal",
       channel: "preview",

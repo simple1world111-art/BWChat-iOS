@@ -132,6 +132,7 @@
     "channel:list": "pnpm dlx eas-cli@21.6.0 channel:list",
     "update:list": "pnpm dlx eas-cli@21.6.0 update:list",
     "build:development:ios": "pnpm dlx eas-cli@21.6.0 build --profile development --platform ios",
+    "build:development:ios:simulator": "pnpm dlx eas-cli@21.6.0 build --profile development-simulator --platform ios",
     "build:development:android": "pnpm dlx eas-cli@21.6.0 build --profile development --platform android",
     "build:preview:ios": "pnpm dlx eas-cli@21.6.0 build --profile preview --platform ios",
     "build:preview:ios:simulator": "pnpm dlx eas-cli@21.6.0 build --profile preview-simulator --platform ios",

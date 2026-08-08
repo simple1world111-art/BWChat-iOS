@@ -36,7 +36,7 @@ EXPO_PUBLIC_SENTRY_DSN=<可选>
 
 `EXPO_PUBLIC_*` 会进入客户端，不能放密码、私钥、管理令牌或其他秘密。`EXPO_TOKEN`、`SENTRY_AUTH_TOKEN` 只放 EAS Secret / CI Secret。
 
-当前三个 EAS build profile 都设置了 `SENTRY_DISABLE_AUTO_UPLOAD=true`：在尚未提供 Sentry org/project/token 时，先保证首次安装包不会被 source-map/dSYM 上传步骤阻断。Sentry 凭据配置并验证后，应移除该变量、重新构建并单独验收 source map。
+development、preview、production 三套环境对应的 EAS build profile 都设置了 `SENTRY_DISABLE_AUTO_UPLOAD=true`：在尚未提供 Sentry org/project/token 时，先保证首次安装包不会被 source-map/dSYM 上传步骤阻断。Sentry 凭据配置并验证后，应移除该变量、重新构建并单独验收 source map。
 
 ## 2. 首次二进制
 
@@ -45,13 +45,14 @@ EXPO_PUBLIC_SENTRY_DSN=<可选>
 ```bash
 pnpm validate
 pnpm expo:doctor
+pnpm build:development:ios:simulator
 pnpm build:development:ios
 pnpm build:preview:ios
 pnpm build:prod:ios
 pnpm submit:prod:ios
 ```
 
-Android 使用对应的 `:android` 脚本。Production iOS 提交后，从 TestFlight 给朋友安装一次；以后 compatible OTA 直接进入同一 App。
+`build:development:ios:simulator` 是无需 Apple 设备签名的 Development Client 验收路径；真机 Development Client 继续使用 `build:development:ios`。Android 使用对应的 `:android` 脚本。Production iOS 提交后，从 TestFlight 给朋友安装一次；以后 compatible OTA 直接进入同一 App。
 
 首次包必须验证：登录/离线身份恢复、消息/地图/发现/我的、相机/相册/麦克风/定位/通知权限、冷启动、后台回前台、Sentry 环境标签与 Update metadata。
 
