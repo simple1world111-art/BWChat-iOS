@@ -69,14 +69,14 @@ describe("ShortDramaUnifiedEditor native/Expo source parity", () => {
       expoRoot,
       "modules/bwchat-background-upload/ios/BWChatBackgroundUploadModule.swift",
     );
-    const moduleConfig = source(
-      expoRoot,
-      "modules/bwchat-background-upload/expo-module.config.json",
-    );
-    const provider = source(
-      expoRoot,
-      "ios/Pods/Target Support Files/Pods-BBchatdevelopment/ExpoModulesProvider.swift",
-    );
+    const moduleConfig = JSON.parse(
+      source(expoRoot, "modules/bwchat-background-upload/expo-module.config.json"),
+    ) as {
+      apple?: {
+        modules?: string[];
+        appDelegateSubscribers?: string[];
+      };
+    };
 
     for (const token of [
       "sessionSendsLaunchEvents = true",
@@ -103,9 +103,10 @@ describe("ShortDramaUnifiedEditor native/Expo source parity", () => {
     ]) {
       expect(nativeModule).toContain(token);
     }
-    expect(moduleConfig).toContain("BWChatBackgroundUploadAppDelegateSubscriber");
-    expect(provider).toContain("BWChatBackgroundUploadModule.self");
-    expect(provider).toContain("BWChatBackgroundUploadAppDelegateSubscriber.self");
+    expect(moduleConfig.apple?.modules).toContain("BWChatBackgroundUploadModule");
+    expect(moduleConfig.apple?.appDelegateSubscribers).toContain(
+      "BWChatBackgroundUploadAppDelegateSubscriber",
+    );
   });
 
   it("keeps media takeover owner-scoped and does not reintroduce the removed airplane product", () => {

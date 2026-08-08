@@ -2,6 +2,14 @@
 
 本日志只记录有源码证据和验证证据的进展。自 2026-08-08 起，前端样式/组件采用 **95–98% 视觉还原**标准，不再要求逐像素零差异；功能、交互、状态和全部后端契约仍必须与原版 **100% 一一对应**。页面未满足 `migration-status.md` 的四级完成条件时统一记录为“部分完成”，不会用入口、占位页或单独视觉通过冒充完成。下文早于新口径的 exact `FAIL` 是历史指标，需按新门禁重新判定，但不会自动证明功能完成。
 
+## 2026-08-09：Production iOS 内部安装 IPA 本机签名验收通过
+
+- **真实产物**：使用独立副本当前 `codex/hot` 提交，在隔离临时工程完成 Production prebuild、Pods、Xcode Release archive 与 `release-testing` export；最终 IPA 为 `artifacts/builds/BBchat-production-ios-build8-ad-hoc.ipa`，32,627,601 bytes，SHA-256 `5a0a0ba2a4a20c9f206d0afa16d977d8b8186ee3a3163215c27ce0a068feea2c`。
+- **签名/安装边界**：深度 codesign 与 ZIP 完整性通过；最终为 `Apple Distribution: BANANAWORLD K.K. (A5U93R249R)`、`get-task-allow=false`、Production APNs 与 communication notifications。Ad Hoc Profile 有效至 2027-03-17，包含 75 台已登记设备，因此这些内部 iPhone 可不经蒲公英安装一次。
+- **OTA 一致性**：包内 `EXUpdatesRequestHeaders.expo-channel-name=production`、Update URL 指向真实项目，`EXUpdates.bundle/fingerprint` 为 `610f9a3e005a9939903c424963e89631d7be538f`，与最终 Production iOS OTA runtime 逐字一致；内嵌 Constants 环境为 `production`。
+- **最终质量门**：`pnpm validate` 全量通过：**296/296 suites、1,912/1,912 tests**、1,181 个文本文件密钥扫描、45 个原数字资产、10×1,138 本地化、ESLint、TypeScript、38 条发布策略、Android prebuild、fingerprint 和 7 组 EAS 配置全部 PASS。短剧编辑器的源码一致性测试改为直接校验受版本控制的 Expo module config，不再错误依赖已清理的本机 `ios/Pods` 生成文件；业务实现与 API 未改。
+- **清理/总体**：正式只保留 IPA 与一份验证记录；本轮临时预构建、解包、archive、日志和 DerivedData 已精确删除，并进一步清理 `/private/tmp` 下历史遗留的 **407** 个 `bwchat-*` 临时路径（79,553 MiB，约 77.7 GiB）。桌面独立副本、原项目、源码、原始图片资产与正式证据均未删除；未启动模拟器、原项目 tracked/index 仍 clean。页面复刻仍 **47/47（100%）**；五阶段整体仍 **4/5**，因为 EAS 云端 Store/TestFlight Build 仍需用户完成 Apple credentials，但内部已登记设备的“安装一次 + Production OTA”已有真实可安装包。
+
 ## 2026-08-09：Preview/Production OTA、灰度撤销与 rollback 云端验收完成
 
 - **Preview 构建/安装**：Android Build `b2a6a640-ed3e-4bdf-aa53-22e6a78d1119`、iOS Simulator Build `8b4e9e02-e9c4-4865-88da-704433659673` 均 `FINISHED`，来自 clean commit `b62c319328acef81b14d26fbb7e7d4e0f668f6b1`。Android APK 已下载核对四种 ABI 后清理；iOS 使用唯一固定模拟器安装验收，未创建额外模拟器。
