@@ -2,6 +2,13 @@
 
 本日志只记录有源码证据和验证证据的进展。自 2026-08-08 起，前端样式/组件采用 **95–98% 视觉还原**标准，不再要求逐像素零差异；功能、交互、状态和全部后端契约仍必须与原版 **100% 一一对应**。页面未满足 `migration-status.md` 的四级完成条件时统一记录为“部分完成”，不会用入口、占位页或单独视觉通过冒充完成。下文早于新口径的 exact `FAIL` 是历史指标，需按新门禁重新判定，但不会自动证明功能完成。
 
+## 2026-08-09：双端 Development Client EAS 云构建与产物验收通过
+
+- **iOS Development Client**：在隔离提交临时增加 `development-simulator` profile，继承 development environment/channel 并启用 `developmentClient` 与 simulator；EAS Build `7c0369e0-6431-4787-95c6-a746f8a9fae1` 为 `FINISHED`。96,851,084-byte tar.gz 的 SHA-256 为 `b2a7026d34b7566fea56525ddd60f0144047753624e6e4202eea9ed89cab30ba`；包内 EXDevLauncher/EXDevMenu、x86_64+arm64、真实项目 URL、development channel/Constants 和 runtime `90a786735fff1cf06456964ea794e8476e7f2392` 均通过，深度 codesign 通过。
+- **Android Development Client**：EAS Build `dddaeeea-4efa-41f3-8531-880821e41ffb` 为 `FINISHED`。357,963,779-byte APK 的 SHA-256 为 `fccf2bd9544121d364891bef6b16079c2ce27586b0f68ff3f0471594fa870ddd`；Dev Launcher/Dev Menu、development channel/Constants、runtime `ddc9545efc5ec9dcada2b9aca9e471b3203619d1`、四种 ABI、远端 Keystore 签名块和 ZIP 完整性均通过。
+- **指纹隔离/质量门**：临时 profile 在云构建和产物验收后从最终树撤回，因为永久保留会无意义改变现有 Production fingerprint、使已安装 IPA 无法命中稳定 OTA。最终树恢复 **7/7 profile/platform PASS**，Production iOS/Android fingerprint 逐字恢复 `610f9a3e005a9939903c424963e89631d7be538f` / `141af77e63b25016ffb0edb39594e365ba31c193`；整仓 `pnpm validate` 仍为 **296/296 suites、1,912/1,912 tests PASS**，资产、本地化、密钥、Lint、TypeScript、38 条发布策略与 prebuild 全绿。
+- **清理/总体**：没有启动本机模拟器；两份云产物仅下载到一次性 `/private/tmp` 做内容验收，随后连同解包目录精确删除，`/private/tmp/bwchat-*` 回到 0，仅保留小型正式证据。双端 Development Client 为 **2/2**；页面复刻仍 **47/47（100%）**；五阶段整体仍 **4/5**，剩余 Apple credentials 后的 iOS Production Store/TestFlight 云构建。
+
 ## 2026-08-09：Production iOS 内部安装 IPA 本机签名验收通过
 
 - **真实产物**：使用独立副本当前 `codex/hot` 提交，在隔离临时工程完成 Production prebuild、Pods、Xcode Release archive 与 `release-testing` export；最终 IPA 为 `artifacts/builds/BBchat-production-ios-build8-ad-hoc.ipa`，32,627,601 bytes，SHA-256 `5a0a0ba2a4a20c9f206d0afa16d977d8b8186ee3a3163215c27ce0a068feea2c`。

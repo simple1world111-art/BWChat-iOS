@@ -7,7 +7,7 @@
 
 本审计把“代码/本地证据”“真实 EAS 云端证据”和“需要外部账号的证据”分开。`✅` 表示该阶段全部显式复选项已有对应证据；`⚠️` 表示实现或流程已建立，但仍有下方明确列出的外部/运行证据；`↪` 表示用户明确取消了以风险监控或逐功能设备点测作为完成门槛。
 
-最终本地门禁：密钥扫描 1,184 个文本文件、45/45 原数字资产（聚合 `7d5a25be20c04d12ad6a9faae260fb1c6696fd9faefde071b33d9aebe60d6c6b`）、10×1,138 本地化、ESLint、strict TypeScript、296/296 suites、1,912/1,912 tests、38/38 发布策略、Android 隔离 prebuild、双端 fingerprint、7 个 EAS profile/platform config 全部通过；Expo Doctor 在显式提供 npm/CocoaPods/Xcode 工具路径后 20/20 通过。Production fingerprint 在本轮脚本/文档变更后仍与云端稳定版本逐字一致。
+最终本地门禁：密钥扫描 1,182 个文本文件、45/45 原数字资产（聚合 `7d5a25be20c04d12ad6a9faae260fb1c6696fd9faefde071b33d9aebe60d6c6b`）、10×1,138 本地化、ESLint、strict TypeScript、296/296 suites、1,912/1,912 tests、38/38 发布策略、Android 隔离 prebuild、双端 fingerprint、7 个 EAS profile/platform config 全部通过；Expo Doctor 在显式提供 npm/CocoaPods/Xcode 工具路径后 20/20 通过。临时 iOS Development Simulator profile 在云构建后撤回，Production fingerprint 已逐字恢复到当前安装包/稳定 OTA 的双端 runtime。
 
 ## 237 项逐阶段覆盖
 
@@ -19,12 +19,12 @@
 | 阶段四：原生能力            |    8 | ✅   | 官方 Expo 模块、Config Plugin、最小自定义 `BWChatAuthCompat`/Apple 后台媒体能力及 service 封装均有源码、prebuild、Pods/Gradle 与测试证据；页面不直接拼装底层原生生命周期。                                                                                                                                                                          |
 | app.config.ts               |   13 | ✅   | 名称/slug/scheme/bundle/package/version、fingerprint、updates URL、权限、原图标、透明原生启动层、Config Plugins 与公开/敏感变量边界均由 `verify-eas-config` 和 prebuild 验证。                                                                                                                                                                      |
 | 初始化 EAS                  |    9 | ✅   | Owner `wegpt`、`@wegpt/bbchat`、Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c`、expo-updates、updates URL/project extra 及双端 raw config 已在真实云端/本地读取。                                                                                                                                                                                |
-| eas.json                    |    9 | ✅   | development/preview/production、对应 channel/environment、autoIncrement、internal distribution、development client 与 submit profiles 均存在；六个平台/profile raw config 通过。                                                                                                                                                                    |
+| eas.json                    |    9 | ✅   | development/preview/production、对应 channel/environment、autoIncrement、internal distribution、双端 development client 与 submit profiles 均存在；最终 7 个 platform/profile raw config 通过。iOS Simulator Development Client 使用隔离临时 profile 构建后撤回，避免改变现有 Production runtime。                                                  |
 | 环境变量                    |    7 | ✅   | 三套 EAS Environment 已真实建立并读取；API/Web/WS/Remote Config/AdMob、`.env.example`、缺失值 Gate、密钥扫描已完成。Sentry DSN 是可选外部值，当前通过 `SENTRY_DISABLE_AUTO_UPLOAD` 明确降级，不会阻断构建。                                                                                                                                         |
 | 客户端更新服务              |   10 | ✅   | `src/services/update`、Provider、设置页覆盖异步非阻断检查、状态记录、手动检查、下载后重启、失败降级、监控、Development 禁用、15 分钟限流与 single-flight；iOS Preview 两次冷启已验证。                                                                                                                                                              |
 | Remote Config/Feature Flags |   12 | ✅   | 默认配置、类型、远端加载、账号隔离缓存、schema、8 秒超时、失败回退、hook、maintenance、最低 Build/App Version、商店升级 Gate 与禁止执行远程代码均有源码/测试。                                                                                                                                                                                      |
 | Runtime 管理                |    5 | ✅   | fingerprint policy、原生变更规则、PR 模板、EAS Build 边界和发布前双端指纹检查已完成；`pnpm fingerprint:generate -- all` 可直接运行且 Production 指纹连续稳定。                                                                                                                                                                                      |
-| 构建流程                    |    9 | ⚠️   | Preview Android/iOS 构建、安装与 Preview channel 已通过；Android Production Store AAB 已 `FINISHED`。iOS 已在本机完成真实 Production Release archive 和 Distribution-signed Ad Hoc IPA，签名/channel/runtime 均通过；EAS 云端 Store Build/TestFlight 仍因 credentials 未配置而未完成。独立 Android Development Client 云产物未单独制作。            |
+| 构建流程                    |    9 | ⚠️   | Android Development Client 与 iOS Simulator Development Client、Preview Android/iOS 构建/安装/channel 均通过；Android Production Store AAB 已 `FINISHED`。iOS 已在本机完成真实 Production Release archive 和 Distribution-signed Ad Hoc IPA；仅 EAS 云端 Store Build/TestFlight 仍因 Apple credentials 未配置而未完成。                             |
 | OTA 发布流程                |    9 | ✅/↪ | Preview 先行、Production 固定 10%、清晰 message、30/50/100 与禁止无说明全量均已真实执行。原文要求观察崩溃率/API 错误率/转化后再扩量；本次没有真实用户监控样本，且用户明确要求内部自用、不以潜在风险与逐功能测试阻塞，故这三项作为用户豁免，不冒充有监控数据。                                                                                       |
 | 回滚流程                    |    8 | ✅/↪ | 比例调整、进行中 rollout 撤销、全量 `update:rollback`、SOP、Owner 操作者、全部 Update/Group ID 均已真实记录。回滚后的逐业务设备点测按用户“不测试功能、API 代码一致即可”规则豁免；云端最新状态已验证并最终恢复稳定全量。                                                                                                                             |
 | 监控和错误追踪              |   10 | ⚠️   | Sentry SDK、runtime/update/channel/environment、检查/下载/reload 错误、隐私过滤及禁止 token/密码/正文均已接线和测试；尚无真实 Sentry DSN/org/project/token，因此线上事件接收与 source map/dSYM 解析没有外部证据。                                                                                                                                   |
@@ -37,6 +37,7 @@
 ## 真实云端证据
 
 - Preview Build：Android `b2a6a640-ed3e-4bdf-aa53-22e6a78d1119`、iOS Simulator `8b4e9e02-e9c4-4865-88da-704433659673`，均 `FINISHED`、commit `b62c319328acef81b14d26fbb7e7d4e0f668f6b1`。
+- Development Client：Android `dddaeeea-4efa-41f3-8531-880821e41ffb`、iOS Simulator `7c0369e0-6431-4787-95c6-a746f8a9fae1` 均 `FINISHED`。两份产物已下载验证 Dev Launcher/Dev Menu、development channel/runtime、真实项目配置、双端原生架构与完整性；大文件和解包目录已删除，小型证据位于 `artifacts/verification/eas-development-builds/`。
 - Preview OTA：iOS embedded `0081774e-a1a0-4c37-8063-cf200342465e` 首启后台下载；第二次冷启应用 `019fe2bc-3020-7dac-b8ec-2f4c6edbf9b4`。两张最终证据位于 `artifacts/verification/eas-preview-ota/`。
 - Production 初始灰度：iOS group `860372a8-adb0-463e-95a2-d7e430d57b52`、Android `878b65d7-c56c-4137-9dd7-7b4390eaf705`，10%→30%→50%。
 - Rollout 撤销：iOS `f25f78c2-1bbc-4ab5-9b52-f34a5d202837`、Android `de8d6088-0972-422d-897b-b8a66060807c`，均 rollback-to-embedded。
@@ -46,7 +47,7 @@
 - Production runtime：iOS `610f9a3e005a9939903c424963e89631d7be538f`、Android `141af77e63b25016ffb0edb39594e365ba31c193`。
 - Android Production Store Build：`4f2e2e67-2ab9-43e7-b87f-4c458a72c24d` 已 `FINISHED`；AAB 139,077,166 bytes、SHA-256 `80999fe7e2f08b3276e8f0d4e8cfb4f0f7099a931bdd51c7d5445c3d5188169f`，ZIP/四种 ABI 已核对，临时包已删除。
 - iOS Production 本机内部包：Xcode Release archive 与 `release-testing` export 均通过；最终 Ad Hoc IPA 32,627,601 bytes、SHA-256 `5a0a0ba2a4a20c9f206d0afa16d977d8b8186ee3a3163215c27ce0a068feea2c`。Distribution 签名、Production APNs/communication entitlement、75 台已登记设备、`production` channel、runtime `610f9a3e005a9939903c424963e89631d7be538f`、深度 codesign 与 ZIP 均通过。产物和证据位于 `artifacts/builds/`、`artifacts/verification/eas-production-ios-local/`。
-- 最终本地质量门：`pnpm validate` 为 296/296 suites、1,912/1,912 tests PASS；密钥扫描 1,181 个文本文件、45 个原数字资产、10×1,138 本地化、ESLint、TypeScript、38 条发布策略、Android prebuild、fingerprint 与 7 组 EAS 配置全部通过。验收后删除 `/private/tmp` 下 407 个历史 `bwchat-*` 临时路径（79,553 MiB），未删除代码、资产、IPA 或正式证据。
+- 最终本地质量门：`pnpm validate` 为 296/296 suites、1,912/1,912 tests PASS；密钥扫描 1,182 个文本文件、45 个原数字资产、10×1,138 本地化、ESLint、TypeScript、38 条发布策略、Android prebuild、fingerprint 与最终 7 组 EAS 配置全部通过。验收后删除 `/private/tmp` 下 407 个历史 `bwchat-*` 临时路径（79,553 MiB），未删除代码、资产、IPA 或正式证据。
 
 ## 剩余外部动作
 

@@ -45,14 +45,13 @@ development、preview、production 三套环境对应的 EAS build profile 都�
 ```bash
 pnpm validate
 pnpm expo:doctor
-pnpm build:development:ios:simulator
 pnpm build:development:ios
 pnpm build:preview:ios
 pnpm build:prod:ios
 pnpm submit:prod:ios
 ```
 
-`build:development:ios:simulator` 是无需 Apple 设备签名的 Development Client 验收路径；真机 Development Client 继续使用 `build:development:ios`。Android 使用对应的 `:android` 脚本。Production iOS 提交后，从 TestFlight 给朋友安装一次；以后 compatible OTA 直接进入同一 App。
+Android 使用对应的 `:android` 脚本。Production iOS 提交后，从 TestFlight 给朋友安装一次；以后 compatible OTA 直接进入同一 App。
 
 首次包必须验证：登录/离线身份恢复、消息/地图/发现/我的、相机/相册/麦克风/定位/通知权限、冷启动、后台回前台、Sentry 环境标签与 Update metadata。
 
@@ -173,11 +172,13 @@ pnpm update:rollback -- <最新异常 Production Android group UUID> android \
 
 ## 10. 当前证据与剩余外部工作
 
-当前账号和项目已经真实接通：`eas whoami` 返回 Owner `wegpt`，`eas project:info` 返回 `@wegpt/bbchat` 与 Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c`。development/preview/production 三套 EAS Environment 已登记对应 `APP_ENV`、API/Web/WebSocket/Remote Config、双端 AdMob 与公开项目绑定；三个同名 Channel/Branch 已创建并读取确认。raw EAS config 的 development/preview/production × iOS/Android 六组合全部通过。
+当前账号和项目已经真实接通：`eas whoami` 返回 Owner `wegpt`，`eas project:info` 返回 `@wegpt/bbchat` 与 Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c`。development/preview/production 三套 EAS Environment 已登记对应 `APP_ENV`、API/Web/WebSocket/Remote Config、双端 AdMob 与公开项目绑定；三个同名 Channel/Branch 已创建并读取确认。最终 raw EAS config 共 7 个 profile/platform 组合全部通过；iOS Development Simulator 使用隔离临时 profile 构建后撤回，避免改变当前 Production fingerprint。
 
 本地客户端已通过设置页十语言更新入口、后台/手动检查、15 分钟限流、并发 single-flight、下载后选择重启、缓存读写失败非阻断、最近检查结果、最低 Build/App Version 商店升级 Gate、监控标签与无敏感信息诊断复制。最近完整门禁为 **296 suites / 1912 tests**，当前发布策略扩充为 **38 cases**；45 个原数字资产与 10×1,138 本地化继续通过。诊断路径为“我的 → 设置 → 更新与诊断”。
 
 真实云端验收已经完成：Preview Android Build `b2a6a640-ed3e-4bdf-aa53-22e6a78d1119`、iOS Simulator Build `8b4e9e02-e9c4-4865-88da-704433659673` 均为 `FINISHED`；Preview iOS 两次冷启动已从 embedded update 切换到 Update `019fe2bc-3020-7dac-b8ec-2f4c6edbf9b4`，证明首启后台下载且不打断、下次冷启应用。Production 双端已真实完成 10%→30%→50%、进行中 rollout 撤销、恢复到 100%、全量 `update:rollback`，并最终重新 10%→30%→50%→100%。当前最终稳定 group 为 iOS `a2b703fe-5775-417a-a607-a07521258972`、Android `ab2dd7d6-97ba-4f11-8c48-20a9d3266434`，对应 runtime `610f9a3e005a9939903c424963e89631d7be538f` / `141af77e63b25016ffb0edb39594e365ba31c193` 和 commit `b62c319328acef81b14d26fbb7e7d4e0f668f6b1`。
+
+双端 Development Client 也已补齐：Android Build `dddaeeea-4efa-41f3-8531-880821e41ffb`、iOS Simulator Build `7c0369e0-6431-4787-95c6-a746f8a9fae1` 均为 `FINISHED`。下载后的产物已逐项核对 Dev Launcher/Dev Menu、development channel/runtime、真实项目配置、Android 四 ABI、iOS 双架构、签名与压缩完整性；临时大文件和解包目录已删除，只保留 `artifacts/verification/eas-development-builds/verification.md`。iOS Simulator 的临时 profile 已从最终树撤回；后续真机 Development Client 继续使用正式 `development` profile。
 
 当前 Production iOS 内部安装证据：本机使用现有 Keychain identity 与 Ad Hoc Profile 完成 Production Release archive 和 `release-testing` export。最终 `artifacts/builds/BBchat-production-ios-build8-ad-hoc.ipa` 为 32,627,601 bytes，SHA-256 `5a0a0ba2a4a20c9f206d0afa16d977d8b8186ee3a3163215c27ce0a068feea2c`；Distribution 深度签名、Production APNs/communication entitlement、75 台登记设备、`production` channel 和 iOS runtime `610f9a3e005a9939903c424963e89631d7be538f` 全部通过。这些已登记设备可以绕过蒲公英安装一次，并继续接收 Production OTA。
 

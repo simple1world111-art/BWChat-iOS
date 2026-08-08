@@ -10,7 +10,6 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const projectId = "f623eda4-1a5f-4227-9890-1a2eb5a6df2c";
 const profiles = [
   { name: "development", environment: "development", platforms: ["ios", "android"] },
-  { name: "development-simulator", environment: "development", platforms: ["ios"] },
   { name: "preview", environment: "preview", platforms: ["ios", "android"] },
   { name: "preview-simulator", environment: "preview", platforms: ["ios"] },
   { name: "production", environment: "production", platforms: ["ios", "android"] },
@@ -79,10 +78,6 @@ for (const profile of profiles) {
     if (profile.name === "development") {
       assert.equal(buildProfile.developmentClient, true);
       assert.equal(buildProfile.distribution, "internal");
-    } else if (profile.name === "development-simulator") {
-      assert.equal(buildProfile.developmentClient, true);
-      assert.equal(buildProfile.distribution, "internal");
-      assert.equal(buildProfile.simulator, true);
     } else if (profile.name === "preview") {
       assert.equal(buildProfile.distribution, "internal");
     } else if (profile.name === "preview-simulator") {
