@@ -41,6 +41,12 @@
         "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
       }
     },
+    "preview-simulator": {
+      "extends": "preview",
+      "ios": {
+        "simulator": true
+      }
+    },
     "production": {
       "distribution": "store",
       "channel": "production",

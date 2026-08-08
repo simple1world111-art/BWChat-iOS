@@ -99,6 +99,10 @@ describe("local Expo/EAS configuration", () => {
       channel: "preview",
       environment: "preview",
     });
+    expect(easConfig.build["preview-simulator"]).toEqual({
+      extends: "preview",
+      ios: { simulator: true },
+    });
     expect(easConfig.build.production).toMatchObject({
       distribution: "store",
       channel: "production",

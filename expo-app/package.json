@@ -133,6 +133,7 @@
     "build:development:ios": "pnpm dlx eas-cli@21.6.0 build --profile development --platform ios",
     "build:development:android": "pnpm dlx eas-cli@21.6.0 build --profile development --platform android",
     "build:preview:ios": "pnpm dlx eas-cli@21.6.0 build --profile preview --platform ios",
+    "build:preview:ios:simulator": "pnpm dlx eas-cli@21.6.0 build --profile preview-simulator --platform ios",
     "build:preview:android": "pnpm dlx eas-cli@21.6.0 build --profile preview --platform android",
     "build:prod:ios": "pnpm dlx eas-cli@21.6.0 build --profile production --platform ios",
     "build:prod:android": "pnpm dlx eas-cli@21.6.0 build --profile production --platform android",
