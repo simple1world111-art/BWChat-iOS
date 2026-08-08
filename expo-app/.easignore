@@ -6,8 +6,8 @@ dist-*/
 web-build/
 
 # Generated native projects; EAS Build uses CNG from app.config.ts.
-/ios/
-/android/
+ios/
+android/
 .kotlin/
 
 # Local environments and credentials
@@ -25,9 +25,9 @@ service-account*.json
 *.keystore
 
 # Local QA evidence and development-only inputs
-/artifacts/
-/docs/
-/tests/
+artifacts/
+docs/
+tests/
 coverage/
 *.tsbuildinfo
 .DS_Store
