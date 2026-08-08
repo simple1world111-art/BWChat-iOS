@@ -1,0 +1,36 @@
+# Dependencies and local Expo state
+node_modules/
+.expo/
+dist/
+dist-*/
+web-build/
+
+# Generated native projects; EAS Build uses CNG from app.config.ts.
+/ios/
+/android/
+.kotlin/
+
+# Local environments and credentials
+.env
+.env.*
+!.env.example
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+credentials.json
+service-account*.json
+*.keystore
+
+# Local QA evidence and development-only inputs
+/artifacts/
+/docs/
+/tests/
+coverage/
+*.tsbuildinfo
+.DS_Store
+npm-debug.*
+yarn-debug.*
+yarn-error.*

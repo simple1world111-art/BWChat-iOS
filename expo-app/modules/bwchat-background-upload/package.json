@@ -1,0 +1,14 @@
+{
+  "name": "bwchat-background-upload",
+  "version": "1.0.0",
+  "description": "BBchat account-scoped durable short-drama background multipart uploads for iOS.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "license": "UNLICENSED",
+  "author": "BBchat",
+  "homepage": "https://wegpt.com",
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

@@ -1,0 +1,93 @@
+name: Manual EAS Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Release target
+        required: true
+        type: choice
+        options:
+          - preview
+          - production
+      message:
+        description: Preview message, or Production VERIFIED evidence
+        required: true
+        type: string
+      preview_group_id:
+        description: Required only for Production; verified Preview group UUID for commit validation
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eas-update-${{ inputs.target }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: expo-app
+
+jobs:
+  preview:
+    if: inputs.target == 'preview'
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require develop branch
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "Preview updates must be dispatched from develop." >&2
+          exit 2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: expo-app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Local release gates
+        run: pnpm validate && pnpm expo:doctor
+      - name: Publish Preview update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+          EXPO_OWNER: ${{ vars.EXPO_OWNER }}
+          RELEASE_MESSAGE: ${{ inputs.message }}
+        run: pnpm update:preview -- "$RELEASE_MESSAGE"
+
+  production:
+    if: inputs.target == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Production updates must be dispatched from main." >&2
+          exit 2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: expo-app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Local release gates
+        run: pnpm validate && pnpm expo:doctor
+      - name: Publish verified commit in Production environment at 10 percent
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+          EXPO_OWNER: ${{ vars.EXPO_OWNER }}
+          PREVIEW_GROUP_ID: ${{ inputs.preview_group_id }}
+          VERIFICATION_EVIDENCE: ${{ inputs.message }}
+        run: pnpm update:production -- "$PREVIEW_GROUP_ID" "$VERIFICATION_EVIDENCE"

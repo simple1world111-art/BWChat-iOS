@@ -1,0 +1,16 @@
+{
+  "name": "bwchat-native-map",
+  "version": "1.0.0",
+  "description": "SwiftUI Map bridge used to match the original BBchat MapDating screen on iOS.",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "sideEffects": false,
+  "license": "UNLICENSED",
+  "author": "BBchat",
+  "homepage": "https://wegpt.com",
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

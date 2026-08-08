@@ -1,0 +1,52 @@
+name: Expo CI
+
+on:
+  pull_request:
+    paths:
+      - "expo-app/**"
+      - ".github/workflows/expo-ci.yml"
+      - ".github/workflows/eas-update.yml"
+  push:
+    branches: [main, develop]
+    paths:
+      - "expo-app/**"
+      - ".github/workflows/expo-ci.yml"
+      - ".github/workflows/eas-update.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: expo-app
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.16.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: expo-app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Secret scan
+        run: pnpm secrets:scan
+      - name: Lint
+        run: pnpm lint
+      - name: Type check
+        run: pnpm typecheck
+      - name: Tests
+        run: pnpm test
+      - name: Release-policy tests
+        run: pnpm release-policy:test
+      - name: Asset and localization guards
+        run: pnpm assets:verify && pnpm localization:verify
+      - name: Runtime fingerprint
+        run: pnpm fingerprint:generate
+      - name: Expo config and dependency health
+        run: pnpm expo:config && pnpm eas:config:verify && pnpm expo:doctor

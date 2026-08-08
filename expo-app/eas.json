@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json.schemastore.org/eas.json",
+  "cli": {
+    "version": ">= 21.6.0",
+    "appVersionSource": "remote",
+    "requireCommit": true
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development",
+      "environment": "development",
+      "env": {
+        "APP_ENV": "development",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EAS_PROJECT_ID": "f623eda4-1a5f-4227-9890-1a2eb5a6df2c",
+        "EXPO_OWNER": "wegpt",
+        "EXPO_PUBLIC_API_BASE_URL": "http://52.193.78.191/api/v1",
+        "EXPO_PUBLIC_WEB_BASE_URL": "http://52.193.78.191",
+        "EXPO_PUBLIC_WEBSOCKET_URL": "ws://52.193.78.191/ws",
+        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "http://52.193.78.191/api/v1/app/config",
+        "EXPO_PUBLIC_IOS_ADMOB_APP_ID": "ca-app-pub-1877504503518465~7347579927",
+        "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "environment": "preview",
+      "env": {
+        "APP_ENV": "preview",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EAS_PROJECT_ID": "f623eda4-1a5f-4227-9890-1a2eb5a6df2c",
+        "EXPO_OWNER": "wegpt",
+        "EXPO_PUBLIC_API_BASE_URL": "http://52.193.78.191/api/v1",
+        "EXPO_PUBLIC_WEB_BASE_URL": "http://52.193.78.191",
+        "EXPO_PUBLIC_WEBSOCKET_URL": "ws://52.193.78.191/ws",
+        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "http://52.193.78.191/api/v1/app/config",
+        "EXPO_PUBLIC_IOS_ADMOB_APP_ID": "ca-app-pub-1877504503518465~7347579927",
+        "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "channel": "production",
+      "environment": "production",
+      "autoIncrement": true,
+      "env": {
+        "APP_ENV": "production",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EAS_PROJECT_ID": "f623eda4-1a5f-4227-9890-1a2eb5a6df2c",
+        "EXPO_OWNER": "wegpt",
+        "EXPO_PUBLIC_API_BASE_URL": "http://52.193.78.191/api/v1",
+        "EXPO_PUBLIC_WEB_BASE_URL": "http://52.193.78.191",
+        "EXPO_PUBLIC_WEBSOCKET_URL": "ws://52.193.78.191/ws",
+        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "http://52.193.78.191/api/v1/app/config",
+        "EXPO_PUBLIC_IOS_ADMOB_APP_ID": "ca-app-pub-1877504503518465~7347579927",
+        "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {},
+      "android": {}
+    }
+  }
+}

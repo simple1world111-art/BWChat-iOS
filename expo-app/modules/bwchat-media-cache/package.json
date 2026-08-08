@@ -1,0 +1,14 @@
+{
+  "name": "bwchat-media-cache",
+  "version": "1.0.0",
+  "description": "BBchat account-scoped background MP4 and HLS movpkg cache for iOS.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "sideEffects": false,
+  "license": "UNLICENSED",
+  "author": "BBchat",
+  "homepage": "https://wegpt.com",
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

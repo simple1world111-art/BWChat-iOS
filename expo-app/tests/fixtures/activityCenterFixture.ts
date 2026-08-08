@@ -1,0 +1,50 @@
+export const activitySnapshotWire = {
+  config_version: "activity-2026-08-v3",
+  server_time: "2026-08-03T12:28:00+09:00",
+  business_timezone: "Asia/Tokyo",
+  activity_cat_food_balance: 60,
+  gold_coin_balance: 1_280,
+  phone_binding: { is_verified: true, masked_phone: "+81******5678", default_region: "JP" },
+  check_in: {
+    activity_id: "new_user_7d_v1",
+    claimed_days: 1,
+    completed: false,
+    can_claim: true,
+    days: [
+      { day: 1, reward_activity_cat_food: 10, status: "claimed" },
+      { day: 2, reward_activity_cat_food: 20, status: "claimable" },
+      { day: 3, reward_activity_cat_food: 30, status: "locked" },
+      { day: 4, reward_activity_cat_food: 40, status: "locked" },
+      { day: 5, reward_activity_cat_food: 50, status: "locked" },
+      { day: 6, reward_activity_cat_food: 60, status: "locked" },
+      { day: 7, reward_activity_cat_food: 100, status: "locked" },
+    ],
+  },
+  meal_rewards: [
+    { window_id: "breakfast", title_key: "activityCenter.meal.breakfast", start_local: "07:00", end_local: "09:00", reward_activity_cat_food: 10, status: "claimed" },
+    { window_id: "lunch", title_key: "activityCenter.meal.lunch", start_local: "12:00", end_local: "14:00", reward_activity_cat_food: 20, status: "claimable", next_transition_at: "2026-08-03T14:00:00+09:00" },
+    { window_id: "dinner", title_key: "activityCenter.meal.dinner", start_local: "18:00", end_local: "21:00", reward_activity_cat_food: 20, status: "locked", next_transition_at: "2026-08-03T18:00:00+09:00" },
+  ],
+  tasks: [
+    { id: "contact_sync", kind: "contact_sync", status: "available", reward_activity_cat_food: 100, daily_limit: null, completed_count: 0, credited_count: 0 },
+    { id: "invite_share", kind: "invite_share", status: "available", reward_activity_cat_food: 10, daily_limit: 5, completed_count: 1, credited_count: 1 },
+  ],
+  invitation: { invite_code: "MEOW88", share_url: "https://example.com/i/token", pending_invites: 1, credited_invites: 0, can_redeem: true },
+  wheel: {
+    enabled: true,
+    currency: "gold_coin",
+    current_tier: {
+      id: "tier_10",
+      sequence: 2,
+      cost_gold_coins: 10,
+      next_tier_id: "tier_100",
+      segments: [
+        { id: "p50", payout_gold_coins: 50, probability_ppm: 150_000, display_order: 2 },
+        { id: "p10", payout_gold_coins: 10, probability_ppm: 500_000, display_order: 0 },
+        { id: "p100", payout_gold_coins: 100, probability_ppm: 50_000, display_order: 3 },
+        { id: "p20", payout_gold_coins: 20, probability_ppm: 300_000, display_order: 1 },
+      ],
+    },
+    recent_winners: [],
+  },
+};

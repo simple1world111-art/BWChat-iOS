@@ -1,0 +1,17 @@
+export const languageSettingsPolicy = {
+  horizontalPadding: 16,
+  topPadding: 20,
+  bottomPadding: 30,
+  rowMinimumHeight: 50,
+  rowVerticalPadding: 5,
+  rowSpacing: 13,
+  iconSize: 40,
+  iconRadius: 10,
+  symbolSize: 17,
+  titleSize: 16,
+  titleMinimumScale: 0.82,
+  trailingMinimumSpacing: 10,
+  checkmarkSize: 20,
+  selectedIconOpacity: 0.16,
+  idleIconOpacity: 0.08,
+} as const;

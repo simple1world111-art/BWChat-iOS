@@ -39,3 +39,6 @@ Secrets.swift
 
 # Local archive/export artifacts
 .asc/
+
+# Local Finder duplicate preserved on disk but excluded from the Expo branch/build context
+BWChat/Components/MentionPickerView 2.swift

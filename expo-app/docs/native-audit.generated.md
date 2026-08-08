@@ -1,0 +1,6800 @@
+# BWChat 原生工程自动审计清单
+
+> 生成时间：2026-08-06T08:39:21.477Z  
+> 生成脚本：`expo-app/scripts/generate-native-audit.mjs`  
+> 本文只做事实枚举；完成状态见 `migration-status.md`。
+
+## 汇总
+
+| 项目 | 数量 |
+|---|---:|
+| Swift 文件 | 129 |
+| Swift 行数（含空行） | 101685 |
+| View 文件 | 47 |
+| Component 文件 | 15 |
+| ViewModel 文件 | 17 |
+| Model 文件 | 21 |
+| Service 文件 | 17 |
+| API 函数 | 274 |
+| API 路径模板 | 185 |
+| 行为测试 | 398 |
+| Asset catalog 条目 | 34 |
+
+## Views
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/Views/ActivityCenterView.swift` | 2043 | ActivityBenefitsView, ActivityCard, ActivityCenterView, ActivityCenterView_Previews, ActivityCheckInDayCell, ActivityCheckInGrid, ActivityCheckInProgressBadge, ActivityDurationFormatter, ActivityInviteRedeemSheet, ActivityMatchedUserRow, ActivityMatchesOverlay, ActivityMealRow, ActivityMotion, ActivityOperationPrimaryButton, ActivityPhoneBindingOverlay, ActivityPressButtonStyle, ActivityPrimaryButton, ActivityRewardBadge, ActivityRewardCelebrationOverlay, ActivitySectionTitle, ActivityShareSheet, ActivityTapFeedback, ActivityTaskRow, ActivityUnavailableView, ActivityWheelDisc, ActivityWheelPointer, ActivityWheelResultOverlay, ActivityWheelView, ActivityWheelWedge, Field, Motion, Overlay, Sheet, Tab, Triangle | animationTask, authManager, burstOpacity, burstRotation, burstScale, celebrationOpacity, celebrationScale, code, input, isOptimisticallyRequested, isPresented, motion, operationStatus, overlay, phone, requestedIDs, rewardOffset, rewardOpacity, rewardScale, scale, selectedTab, settledRotation, sheet, spinningSegments, store |
+| `BWChat/Views/AddFriendView.swift` | 235 | AddFriendView, SearchUserRow | navigator, viewModel |
+| `BWChat/Views/AddGroupMembersView.swift` | 177 | AddGroupMembersView | errorMessage, existingMemberIDs, friendsVM, isAdding, isLoadingDetail, selectedFriends |
+| `BWChat/Views/AgentChatView.swift` | 1659 | AgentChatView, AgentLiveVideoMatchCoordinator, AgentLiveVideoMatchResult, AgentMatchingEarthSceneView, AgentMatchingGlobeView, AgentOptimisticTextBubble, AgentOptimisticTextSubmission, AgentTurnNoticeView, AgentTurnProgressView, AgentVersionNoticeView, AgentVideoRoleMatchDialog, AgentVideoRoleTextView, Coordinator, PendingTerminalEvent, Status | breathes, composerImages, composerSelection, coordinator, hasCompletedInitialLoad, imageMessageMenuTarget, imageReplyTarget, inputText, inputTextHeight, isImageMenuTouchSequenceActive, isInputFocused, isLoadingReplyImage, isLoadingSelections, isLoadingVideoRoleDialog, isOpeningAgentSettings, isRoleFocused, isSubmitting, isVideoRoleDialogPresented, isViewVisible, navigator, optimisticTextSubmission, pendingImageReplyTarget, role, scrollRequest, selectedItem, status, videoMatchCoordinator, viewModel |
+| `BWChat/Views/AgentCreatorView.swift` | 363 | AgentCreatorView | isLoadingReference, navigator, referenceItem, viewModel |
+| `BWChat/Views/AgentHubView.swift` | 427 | AgentAvatarView, AgentCatalogRow, AgentConversationRow, AgentHubEmptyState, AgentHubView, AgentTag, JoinedScriptRoomRow | image, navigator, viewModel |
+| `BWChat/Views/AgentMessageView.swift` | 503 | AgentAuthenticatedImage, AgentGalleryMediaResolver, AgentHistoryImageReplyResolver, AgentMessageView, AgentPaidMediaView | didFail, image, menuOwnsTouchSequence, videoPreviewItem |
+| `BWChat/Views/CallView.swift` | 1002 | CallAvatarStage, CallDarkStage, CallMuteBadge, CallPipBubble, CallVideoAvatarPlaceholder, CallView, LiveCallGracefulEndingCard, LiveCallRoleIntroductionCard, PulseAnimation | callManager, isHidden, isPulsing, lastEdgeOnLeft, position |
+| `BWChat/Views/ChatBackgroundSettingsView.swift` | 319 | ChatBackgroundSettingsView, DirectChatSettingsView | appearanceStore, errorMessage, isClearingHistory, isUploading, navigator, selectedPhoto, showClearHistoryConfirmation, toastMessage |
+| `BWChat/Views/ChatView.swift` | 2278 | AudioRecorderManager, ChatMessageRenderItem, ChatPendingMessageRenderItem, ChatTimelineRenderItem, ChatView, ImagePreviewItem, LocalFirstPendingImage, PendingMessageBubble, VideoPreviewItem, VideoTransferable, VoiceRecordingResult | activeComposerPanel, appearanceStore, callManager, composerSelection, composerSurfaceHeights, composerSurfaceTransition, didSubmitInitialRead, draftStore, forwardDraft, hasCompletedInitialLoad, hasRestoredDraft, highlightedMessageID, image, inputTextHeight, interactionMode, isInputFocused, isMessageMenuTouchSequenceActive, isNearBottom, isRecording, isViewVisible, isVoiceMode, lastVisiblePendingCount, messageMenuTarget, moneyStore, navigator, newMessagesBelowCount, pendingComposerPanel, previewVideoURL, recalledEditableTexts, recorder, recordingDuration, redPacketOverlayIsSender, redPacketOverlayPayload, replyLocatorMessageIDs, scrollCommandTask, selectedMediaItems, showForwardModeDialog, showGiftSheet, showSelectionDeleteConfirmation, timelineRows, timelineSnapshot, toastMessage, viewModel, voiceCancelZone |
+| `BWChat/Views/ContactListView.swift` | 1314 | ContactListView, ConversationKindBadge, ConversationPreviewFormatter, ConversationRow, ConversationSwipeActionID, GestureView, HorizontalSwipeGestureSurface, MessageAction, SwipeableConversationCell | agentOpenError, authManager, draftStore, dragStartOffset, groupInviteRouteStore, initialLoadInFlightUserID, initialLoadUserID, isDragging, messageSyncCoordinator, navigator, notificationStore, openSwipeActionID, openingAgentConversationKey, pendingConversationDeletion, pendingMessageAction, searchText, showAddFriendSheet, showCreateGroup, showMessageActions, showScannerComingSoon, swipeOffset, unreadStore, viewModel |
+| `BWChat/Views/CreateGroupView.swift` | 488 | CreateGroupView, GroupFollowersSelectionView, GroupMemberEmptyState, GroupMemberSelectionRow, GroupMemberSource, GroupMemberSourceViewModel | followersVM, groupName, isCreating, isLoading, isLoadingMore, isPublic, mutualFollowsVM, selectedMemberIDs, users, viewModel |
+| `BWChat/Views/CreateMomentView.swift` | 636 | CreateMomentView, Kind, MomentDraftMedia | content, draftID, isImportingMedia, isPublishing, mediaImportTask, selectedImageItems, selectedMedia, selectedVideoItem, showUnlockOptions, toastMessage, unlockPriceGoldCoins |
+| `BWChat/Views/DiscoverView.swift` | 3976 | Coordinator, CurrentSlotFetchResult, DiscoverConfigStore, DiscoverView, LiveAcceptedCallLauncher, LiveAvatarCropDraft, LiveAvatarCropRenderer, LiveAvatarCropView, LiveCallCoordinator, LiveCallEventCorrelation, LiveCallEventCorrelationResult, LiveCallIncomingInvitationPayload, LiveCallInvitationBanner, LiveCallInvitationDirection, LiveCallInvitationMetadata, LiveCallPaymentChoiceView, LiveCallPeer, LiveCallPendingInvitation, LiveCallTypeCheckbox, LiveCheckboxToggleStyle, LiveDialogCallButton, LiveExitDialog, LiveLobbyAvailability, LiveLobbyAvatarCell, LiveLobbyCoverImage, LiveLobbyDialog, LiveLobbyEmptyState, LiveLobbyEventCursor, LiveLobbyGender, LiveLobbyParticipant, LiveLobbyPricingBanner, LiveLobbySkeletonCard, LiveLobbySlotEventKind, LiveLobbySlotEventPayload, LiveLobbySlotPolicy, LiveLobbySnapshotMergePolicy, LiveLobbyStore, LiveLobbyTab, LiveLobbyView, LiveParticipantDialog, LiveRoleTextView, LiveStartDialog, MomentsNotificationManager, RuleOfThirdsGrid | activityInviteRouteStore, allowsVideoCalls, allowsVoiceCalls, authManager, avatarUploadIdempotencyKey, billingPolicy, committedOffset, committedZoom, coordinator, cropDraft, croppedAvatarData, currentSlot, deferredRefreshTask, discoverConfig, dragTranslation, errorMessage, gestureZoom, hasLoaded, hasNewMoments, hasRunInitialAppearRefresh, hasVisibleRoleText, image, invitation, isLoadingPaymentOptions, isReadingPhoto, isRoleFocused, isSubmitting, isUpdating, isWorking, languageStore, liveAvatarUploadSupported, momentsNotif, navigator, newlyStartedParticipantID, participants, paymentCallType, preferredCallType, presentedDialog, propStore, remainingSeconds, remoteSections, role, routeAlert, sections, selectedPhoto, selectedTab, slotCreationIdempotencyKey, store, supportedCallTypes, unreadCount, validationMessage |
+| `BWChat/Views/DynamicScreenView.swift` | 389 | DynamicComponentRenderer, DynamicScreenView | languageStore, navigator, routeAlert, screenStore, walletStore |
+| `BWChat/Views/EditProfileView.swift` | 315 | EditProfileView | navigator, selectedPhoto, showBirthdayPicker, showToast, toastMessage, viewModel |
+| `BWChat/Views/FollowListViews.swift` | 331 | FollowListContentView, FollowUserRow, FollowersListView, FollowingListView, RecommendedUsersListContentView, RecommendedUsersListView, RecommendedUsersListViewModel | errorMessage, isLoading, navigator, updatingUserIDs, users, viewModel |
+| `BWChat/Views/FriendRequestsView.swift` | 95 | FriendRequestRow, FriendRequestsView | viewModel |
+| `BWChat/Views/GameCenterView.swift` | 866 | GameCenterAPIClient, GameCenterMessageState, GameCenterStore, GameCenterTab, GameCenterTabBar, GameCenterView, GameListCard, GamePosterImage, GameRoundStartErrorText, GameSVGPosterHTML, GameSVGPosterRenderer, PendingRequest | alertMessage, finishedLoading, image, isLoadingNextRecommendedPage, isLoadingPlayed, isLoadingRecommended, launchingGameID, navigator, playedGames, playedLoadFailed, recommendedGames, recommendedLoadFailed, refreshPlayedAfterReturn, remoteConfig, selectedTab, store, walletStore |
+| `BWChat/Views/GroupCallView.swift` | 355 | GroupCallView, GroupVideoParticipantCell, GroupVoiceParticipantCell | callManager |
+| `BWChat/Views/GroupChatView.swift` | 2560 | GroupChatView, GroupMessageBubble, GroupMessageRenderItem, GroupPendingRenderItem, GroupTimelineRenderItem, PendingGroupBubble, PendingGroupMediaBubble, PendingGroupStickerBubble | activeComposerPanel, appConfig, appearanceStore, callManager, composerMentions, composerSelection, composerSurfaceHeights, composerSurfaceTransition, didSubmitInitialRead, draftStore, forwardDraft, groupInfoPreferencesStore, groupTransferRecipient, hasCompletedInitialLoad, hasRestoredDraft, highlightedMessageID, inputTextHeight, interactionMode, isInputFocused, isMessageMenuTouchSequenceActive, isNearBottom, isViewVisible, isVoiceMode, lastVisiblePendingCount, memberCount, memberProfilesByID, memberRevision, mentionLocatorMessageIDs, menuOwnsTouchSequence, messageMenuTarget, moneyStore, navigator, newMessagesBelowCount, pendingComposerPanel, pendingLocatedMessageID, pendingMentionTriggerRange, pendingTimelineRows, previewVideoURL, recalledEditableTexts, recorder, redPacketOverlayIsSender, redPacketOverlayPayload, replyLocatorMessageIDs, scrollCommandTask, selectedMediaItems, shouldPopToRoot, showAddMembers, showForwardModeDialog, showGiftSheet, showGroupDetail, showSelectionDeleteConfirmation, timelineRows, timelineSnapshot, toastMessage, viewModel, voiceCancelZone |
+| `BWChat/Views/GroupDetailView.swift` | 1931 | GroupAnnouncementView, GroupDetailView, GroupInfoNavigationRow, GroupInvitePreviewView, GroupInviteView, GroupMemberPreviewSection, GroupMembersView, GroupMessageSearchFiltersView, GroupMessageSearchRow, GroupMessageSearchView, GroupNotificationExceptionsView, GroupReportReason, GroupReportView, GroupRoleBadge, GroupSearchMessageType, GroupSearchPlaceholder, GroupSearchRequestKey, GroupTextSettingView, ImportantGroupMembersView | appConfig, contentText, conversationPreferenceStore, detail, detailText, errorMessage, fromDate, invite, isJoining, isLoading, isLoadingMore, isProcessing, isSaving, isSubmitting, isUpdatingVisibility, isWorking, memberToRemove, members, navigator, nextCursor, notificationSettingsStore, preview, query, reason, results, selectedSenderID, selectedType, showAddMembers, showClearConfirm, showDismissConfirm, showFilters, showLeaveConfirm, showSuccess, store, titleText, toDate, toastMessage, usesDateRange, value, viewerSettingsStore |
+| `BWChat/Views/ImagePreviewView.swift` | 1458 | AttachmentView, Coordinator, DirectionLockedDismissEvent, DirectionLockedDismissGesture, GalleryContent, GalleryDbg, GalleryVerticalDismissMath, HeroImageView, ImageGalleryOverlay, ImageGallerySourceContentMode, ImageGalleryState, LocationAwarePinchEvent, LocationAwarePinchGesture, LocationAwareZoomMath, OnTapCaptureFrameModifier, PreviewPinchGestureRecognizer, PreviewVerticalPanGestureRecognizer, ZoomableImagePage | activeSourceID, appeared, currentIndex, frame, galleryState, image, imageURLs, inHeroPhase, initialIndex, isDismissing, isLoading, isLoadingMore, isPinching, isPresented, lastOffset, lastScale, offset, openToken, ownsActiveSource, pendingSingleTap, pinchContentPoint, pinchLockedIndex, pinchStartScale, reachedEnd, scale, sourceContentMode, sourceCornerRadius, sourceFrame, state, verticalDrag |
+| `BWChat/Views/LoginView.swift` | 514 | AuthCatFormStack, AuthCatMood, AuthFieldChrome, AuthFieldPlaceholder, AuthFloatingPeekCatView, AuthFormCard, AuthInlineMessage, AuthLayout, AuthMotion, AuthPalette, AuthPeekCatView, AuthPrimaryButton, AuthTitleLockup, AuthWhiteBackground, Field, LoginView | showPassword, showRegister, viewModel |
+| `BWChat/Views/MainTabView.swift` | 637 | ContactsNavigationChrome, ContactsTabView, GroupListModePicker, GroupListView, GroupRow, MainTabView, Mode | activityInviteRouteStore, appConfig, appearanceStore, groupInfoPreferencesStore, groupInviteRouteStore, groupsViewModel, languageStore, mediaSaveFeedback, messageSyncCoordinator, navigator, notificationStore, routeAlert, selectedMode, selectedTab, showCreateGroup, tabBarRepairID, tabs, unreadBadgeStore, unreadStore, viewModel |
+| `BWChat/Views/MapDatingView.swift` | 1028 | FlightAssetIcon, FlightInfoBubble, FlightLayerExperiment, FlightMarker, FlightRouteLine, FlightRouteOverlay, MapAvatarMarker, MapDatingAnnotationItem, MapDatingNavigationChrome, MapDatingView, MapDatingViewportPolicy, MapUserDetailSheet | authManager, flightAircraft, flightLayerTTL, flightPollingTask, flightRoutes, isFetchingFlightLayer, isUsingMockFlightLayer, languageStore, lastAutoFitKey, navigator, pendingFlightRefreshTask, region, selectedFlightID, showReportReasons, viewModel |
+| `BWChat/Views/MessageBubble.swift` | 619 | CachedAsyncImage, CallRecordBubble, MessageBubble, RecalledMessageTip, RoundedCorner, TimeSeparatorView, TimestampedTextBubble, VoiceBubbleView, VoicePlayerDelegateHandler, VoicePlayerManager | appConfig, currentTime, currentURL, image, isPlaying, menuOwnsTouchSequence, player |
+| `BWChat/Views/MomentsView.swift` | 2131 | BadgeScale, CommentImageView, GridMetrics, LockedMediaPaymentBadge, LockedMomentMediaModifier, MomentAvatarView, MomentDetailView, MomentImageCell, MomentMediaCell, MomentMediaLayout, MomentMediaTransition, MomentRow, MomentSingleImage, MomentSingleMediaView, MomentUnlockRequest, MomentVideoThumbnailView, MomentsCoverBackdrop, MomentsCoverFramePreferenceKey, MomentsNotificationListView, MomentsNotificationRow, MomentsView | authManager, commentImageData, commentImageItem, commentTarget, commentText, commentTriggerID, image, isLoading, loadedThumbnailURL, loadedURL, moment, momentsNotif, navigator, notifications, previousImage, previousImageOpacity, showActions, showCreateMoment, showNotificationList, toastMessage, unlockIdempotencyKeys, useCoverChrome, videoPreviewItem, viewModel |
+| `BWChat/Views/ProfileView.swift` | 1468 | ChangePasswordView, CodingKeys, LanguageSettingsRow, LanguageSettingsView, ProfileGroupedCard, ProfileMenuRow, ProfileNoticeBanner, ProfileQRCodeView, ProfileRowDivider, ProfileSettingsView, ProfileShareSheet, ProfileView, SettingsPasswordRow, UsernameResetErrorData, UsernameResetErrorPayload, UsernameResetView | appConfig, confirmPassword, currentPassword, isSubmitting, languageStore, mediaCache, navigator, newPassword, routeAlert, showClearAccountCacheAlert, showClearAllCacheAlert, showClearVideoCacheAlert, showLogoutAlert, showsConfirmPassword, showsCurrentPassword, showsNewPassword, showsShareProfile, toastMessage, usernameText, viewModel, walletStore |
+| `BWChat/Views/PropBagView.swift` | 1063 | ActivityCatFoodBagItemCard, ActivityCatFoodDetailView, ActivityCatFoodTransactionRow, CodingKeys, LiveExperienceCardArtwork, MediaUnlockKind, MediaUnlockPaymentMethod, PropBagEmptyState, PropBagGridItemCard, PropBagItem, PropBagItemCard, PropBagLoadError, PropBagMetadata, PropBagPage, PropBagSummary, PropBagTheme, PropBagView, PropBagView_Previews, PropConsumptionResult, PropInventoryStore, RetiredPropDefinition | errorMessage, isLoading, items, navigator, showsUsageRules, store, summary, walletStore |
+| `BWChat/Views/RegisterView.swift` | 284 | Field, RegisterView | showConfirmPassword, showPassword, viewModel |
+| `BWChat/Views/ScriptCenterView.swift` | 398 | ScriptCard, ScriptCenterView, ScriptEmptyState, ScriptRemoteImage, ScriptText | didFail, image, navigator, viewModel |
+| `BWChat/Views/ScriptDetailView.swift` | 423 | ScriptDetailView, ScriptRoleInfoSheet, ScriptRoleSelectionSheet | errorMessage, isCreating, navigator, roleSelectionScript, selectedRole, selectedRoleID, showDeleteConfirmation, viewModel |
+| `BWChat/Views/ScriptEditorView.swift` | 366 | ScriptEditorField, ScriptEditorView | coverItem, editingRole, navigator, viewModel |
+| `BWChat/Views/ScriptRoleEditorView.swift` | 201 | ScriptRoleEditorField, ScriptRoleEditorView | draft, photoItem, validationMessage |
+| `BWChat/Views/ScriptRoomChatView.swift` | 415 | ScriptRoomChatView, ScriptRoomMessageRow | hasCompletedInitialLoad, isViewVisible, navigator, scrollRequest, showEndConfirmation, viewModel |
+| `BWChat/Views/ShortDramaActionRail.swift` | 99 | ShortDramaActionRail | — |
+| `BWChat/Views/ShortDramaCommentsSheet.swift` | 280 | ShortDramaCommentRow, ShortDramaCommentsSheet | comments, draftText, errorMessage, hasMore, isLoading, isLoadingMore, isSending, navigator, nextCursor |
+| `BWChat/Views/ShortDramaFeedView.swift` | 1629 | Coordinator, ShortDramaCoverImage, ShortDramaEpisodeEmptyState, ShortDramaEpisodeRow, ShortDramaEpisodeUploadView, ShortDramaFeedView, ShortDramaFormField, ShortDramaPageHostingController, ShortDramaSeriesDetailView, ShortDramaSeriesDetailViewModel, ShortDramaSeriesEditorMode, ShortDramaSeriesEditorView, ShortDramaSeriesRow, ShortDramaStatusBadge, ShortDramaStudioEmptyState, ShortDramaStudioLoadingState, ShortDramaStudioView, ShortDramaStudioViewModel, ShortDramaVerticalPager | commentTarget, coverData, coverImage, coverItem, deleteTarget, episodeNumber, errorMessage, intro, isLoading, isLoadingMore, isSaving, isUnlocking, isUploading, navigator, remoteImage, series, title, toastMessage, unlockTarget, videoData, videoFilename, videoItem, viewModel |
+| `BWChat/Views/ShortDramaSeriesListView.swift` | 762 | ShortDramaEpisodeRangePicker, ShortDramaEpisodeSlot, ShortDramaEpisodeSquare, ShortDramaHistoryRecord, ShortDramaHistoryStore, ShortDramaPosterView, ShortDramaSeriesCard, ShortDramaSeriesEmptyState, ShortDramaSeriesFilterBar, ShortDramaSeriesListContent, ShortDramaSeriesListView, ShortDramaSeriesListViewModel, ShortDramaSeriesStatusPill | currentPage, errors, isLoadingEpisodes, loadedEpisodes, loadingFilters, loadingMoreFilters, navigator, recommended, remoteImage, selectedFilter, viewModel, watched |
+| `BWChat/Views/ShortDramaUnifiedEditorView.swift` | 1118 | ShortDramaDraftEpisodeSquare, ShortDramaEditorEpisodeGrid, ShortDramaEditorError, ShortDramaEditorField, ShortDramaEditorSeriesCard, ShortDramaEpisodeDraft, ShortDramaEpisodeEditorSheet, ShortDramaEpisodeUploadState, ShortDramaPreparedEpisode, ShortDramaPublishBar, ShortDramaUnifiedEditorMode, ShortDramaUnifiedEditorView, ShortDramaUploadStateMark | coverData, coverFileURL, coverImage, coverSelection, draft, draftID, editingEpisode, episodeSelections, episodes, intro, isPublishing, navigator, priceText, title, toastMessage, workingSeries |
+| `BWChat/Views/ShortDramaVideoPage.swift` | 291 | PlayerSurfaceView, ShortDramaCoverBackdrop, ShortDramaPlayerSurface, ShortDramaVideoPage | hasRenderedFirstFrame, image |
+| `BWChat/Views/SplashScreen.swift` | 257 | GameReentryReviewView, Launch, SplashScreen | authManager, errorMessage, isCheckingToken, launch, logoOpacity, logoScale, navigator |
+| `BWChat/Views/UserProfileView.swift` | 1473 | ProfileContentTab, ProfileGridImage, ProfileHighlightBubble, ProfileHighlightCover, ProfileMoreAction, ProfileMoreActionSection, ProfileMoreActionsOverlay, ProfileSquareGrid, ProfileSquareGridLayout, ProfileTopRoundedShape, SuggestedProfileCard, UserProfileAgentCard, UserProfileGridItem, UserProfileMomentTile, UserProfileView | image, isLoading, isSheetVisible, navigator, selectedTab, showMoreActions, toastMessage, videoPreviewItem, viewModel |
+| `BWChat/Views/VideoPlayerView.swift` | 273 | VideoPlayerView | errorOccurred, isLoading, isPinching, lastMediaOffset, mediaOffset, mediaScale, pinchContentPoint, pinchStartScale, player, resolvedRemoteURL, verticalDrag |
+| `BWChat/Views/WalletView.swift` | 2054 | WalletAdRewardBanner, WalletEmptyCatIllustration, WalletEmptyState, WalletMainBackground, WalletRecordTab, WalletTopRoundedShape, WalletTransactionDetailView, WalletTransactionPaginationFooter, WalletTransactionRow, WalletTransactionsSheet, WalletView, WalletWithdrawalDetailView, WalletWithdrawalRow, WalletWithdrawalsSheet, WithdrawalField | adRewardService, agreedToTerms, alertMessage, appConfig, centerToastMessage, isPreparing, isUSDTInfoBubbleVisible, isWithdrawalNetworkPickerExpanded, isWithdrawalNetworkPickerLayerRaised, navigator, selectedAmountIndex, selectedTab, toastMessage, walletStore, withdrawalAddressText, withdrawalAmountText, withdrawalNetwork |
+| `BWChat/Views/Web/InAppWebView.swift` | 1671 | Address, BridgeHandlerName, CodingKeys, Coordinator, GameBridgeAction, GameBridgeMessage, GameBridgeMessageValidator, GameBridgeRouter, GameBridgeRoutingError, GameBridgeValidationError, GameEntryContext, GameNavigationFailurePolicy, GameProfileOpenGate, GameProfileRoute, GameRewardedAdErrorCode, GameRewardedAdJavaScript, GameRewardedAdRequest, GameRewardedAdRequestLedger, GameRewardedAdRequestValidator, GameRewardedAdResult, GameRewardedAdUnitAllowlist, GameRewardedAdValidationError, GameRoundStartBridgeResult, GameRoundStartErrorCode, GameRoundStartFailureClassifier, GameRoundStartJavaScript, GameRoundStartRequest, GameRoundStartRequestLedger, GameRoundStartRequestValidator, GameRoundStartValidationError, GameWebNavigationResolution, GameWebSecurity, GameWebViewPool, HardenedWebViewRepresentable, InAppWebView, PendingGameRoundStart, Status, WeakScriptMessageHandler | blockedMessage, bridgeToastMessage, isLoading, isStartingGameRound, navigator, pageTitle, paymentBlockedSessionID, pendingGameRoundStart, reloadID, remoteConfig, routeAlert |
+
+## Components
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/Components/AvatarView.swift` | 290 | AvatarView, GroupAvatarIcon, GroupMemberAvatarView, UserAvatarButton | avatarURLs, image, lastOpenAt, navigator |
+| `BWChat/Components/ChatBatchActionViews.swift` | 315 | ChatUnavailableView, ForwardBundleDetailView, ForwardBundleMessageCard, ForwardConfirmationCard, ForwardFlowView | bundle, confirmationTargets, contactsViewModel, errorMessage, groupsViewModel, isMultiTarget, isSending, query, selectedTargets |
+| `BWChat/Components/ChatMoneyComposerViews.swift` | 787 | ChatMoneyBalanceRow, ChatMoneyComposerPreview, ChatMoneyComposerSheet, ChatMoneyComposerViews_Previews, ChatMoneyInputRow, ChatMoneyMessageRow, ChatMoneyModeSelector, ChatMoneyRecipientPickerSheet, ChatMoneyRecipientRow, ChatMoneyTotalSection, FocusField, RedPacketComposerContent, TransferComposerContent | amountText, clientMessageID, isSubmitting, messageText, mode, navigator, packetCountText, searchText, selectedRecipient, selectedRecipientID, store, submissionError |
+| `BWChat/Components/ChatMoneyDetailViews.swift` | 1209 | ChatMoneyClaimRow, ChatMoneyDetailTimeFooter, ChatMoneyDetailView, ChatMoneyLoadErrorView, ChatMoneyRedPacketClaimedPreviewView, ChatMoneyRedPacketEntryOverlay, ChatMoneyRedPacketOpenPreviewProvider, ChatMoneyRedPacketOpenPreviewView, ChatMoneyTransferFeedbackPreviewView, RedPacketBackdrop, RedPacketDetailContent, RedPacketDetailHeaderArc, RedPacketDetailHeaderShape, RedPacketEnvelopeFold, RedPacketOpenEnvelope, TransferDetailContent, TransferDetailTimeRow | detail, isOpening, loadError, navigator, showsReturnConfirmation, store |
+| `BWChat/Components/ChatMoneyViews.swift` | 541 | ChatMoneyBubble, ChatMoneyBubblePresentationPolicy, ChatMoneyCardGlyph, ChatMoneyConversationContext, ChatMoneyErrorText, ChatMoneyPlusMenuTile, ChatMoneyReceiptTip, ChatMoneyRecipient, ChatMoneyRedPacketMenuGlyph, ChatMoneyTheme, ChatMoneyViewsPreview, ChatMoneyViews_Previews, RedPacketMenuFlap | — |
+| `BWChat/Components/GiftViews.swift` | 838 | GiftAssetIcon, GiftMessageBubble, GiftPanelViewModel, GiftPickerSheet, GiftPlusMenuTile, GiftSendAnimationOverlay, GiftSendInteractionDispatcher | activityCatFoodBalance, animate, animatingGift, assetManager, errorMessage, gifts, goldCoinBalance, isLoading, isSending, recipients, selectedGift, selectedRecipient, spendableBalance, viewModel |
+| `BWChat/Components/LoadingView.swift` | 20 | LoadingView | — |
+| `BWChat/Components/MediaPickerPreview.swift` | 161 | MediaPickerPreview, MediaThumbnailCell, MediaType, PreparedMediaItem | — |
+| `BWChat/Components/MentionPickerView 2.swift` | 57 | MentionPickerView | isLoading, members |
+| `BWChat/Components/MentionPickerView.swift` | 471 | ComposerDocument, MentionKind, MentionMemberResolver, MentionPickerView, MentionSelection, MentionSpan, MentionTextEditing | errorMessage, isLoading, isMultiSelecting, members, searchText, selectedIDs |
+| `BWChat/Components/ReplyPreviewBar.swift` | 791 | ChatHistoryReplyResolver, ChatInteractionMode, ChatReplyImageThumbnail, ChatSelectionToolbar, ChatTimelineLocatorButton, ChatTimelineOrdering, ChatTimelineSnapshot, ConversationRef, ImageReplyReferenceStyle, ImageReplyReferenceView, MessageMenuAction, MessageMenuPointer, MessageMenuTarget, MessageRef, MessageSelectionDescriptor, MessageSelectionIndicator, MessageSelectionState, QuotedMessageView, ReplyPreviewBar, TimelineLocatorKind, WeChatMessageActionOverlay | image |
+| `BWChat/Components/RootTabTitle.swift` | 128 | Coordinator, NativeSegmentedControl, RootTabTitle, Source, SystemSegmentedTabs | languageStore |
+| `BWChat/Components/StickerViews.swift` | 466 | ComposerPanel, ComposerPanelRenderedHeightPreferenceKey, ComposerPanelToggleButton, ComposerPlusPanelMetrics, ComposerSurface, ComposerSurfaceHeights, ComposerSurfaceTransition, ComposerTextInsertion, Coordinator, StickerArtworkView, StickerMessageBubble, StickerPanel, StickerPickerSelection | configStore, selectedPackID |
+| `BWChat/Components/ToastView.swift` | 84 | CenterToastModifier, ToastModifier | — |
+| `BWChat/Components/VideoThumbnailView.swift` | 179 | ChatMediaLayout, VideoThumbnailView | image |
+
+## ViewModels
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/ViewModels/AgentCatalogViewModel.swift` | 222 | AgentCatalogViewModel, JoinedScriptRoomResolver | conversations, errorMessage, hasLoadedContent, installedAgents, isLoading, joinedScriptRooms, openingAgentIDs, removingAgentIDs, runtimeConfig, spendableBalance |
+| `BWChat/ViewModels/AgentChatViewModel.swift` | 816 | AgentChatViewModel, AgentComposerImage, AgentGeneratedMediaPollingDecision, AgentGeneratedMediaPollingPolicy, AgentImageGenerationPolicy, AgentImageRequestMode, AgentTerminalResponsePollingPolicy, AgentTurnNotice, AgentTurnProgressPresentationPolicy, LastPayload, SendOperation | agentAvatarAssetID, agentDisplayName, currentTurn, errorMessage, hasMore, isAwaitingGeneratedMedia, isAwaitingTerminalResponse, isCreatingLatestVersionConversation, isLoading, isLoadingMore, isSending, messages, needsWalletTopUp, requiresLatestVersionConversation, runtimeConfig, spendableBalance, turnNotice, unlockingMediaIDs |
+| `BWChat/ViewModels/AgentCreatorViewModel.swift` | 202 | AgentCreatorViewModel, Mode | addressStyle, adultEnabled, descriptionText, errorMessage, greeting, identity, initiative, intimacyStyle, isSaving, language, name, paidImages, personalityText, relationshipType, replyLength, savedAgent, selectedReferenceData, tagline, tagsText, toneStyle, visibility |
+| `BWChat/ViewModels/AuthViewModel.swift` | 118 | AuthViewModel | confirmPassword, errorMessage, isLoading, nickname, password, username |
+| `BWChat/ViewModels/ChatViewModel.swift` | 1813 | ChatViewModel, MessageSource, StickerSendSignature | errorMessage, hasMore, inputText, isLoading, isSending, messages, pendingMessages, replyingTo, selectedImageData |
+| `BWChat/ViewModels/ContactsViewModel.swift` | 264 | ContactsViewModel | contacts, errorMessage, isLoading |
+| `BWChat/ViewModels/ConversationListViewModel.swift` | 1698 | AgentConversationPreviewUpdate, ConversationListViewModel, LocalConversationPreviewUpdate | conversations, deletingConversationIDs, errorMessage, isLoading, isShowingCachedData, lastSuccessfulSyncAt |
+| `BWChat/ViewModels/FollowListViewModel.swift` | 223 | FollowListKind, FollowListViewModel | errorMessage, isLoading, isLoadingMore, users |
+| `BWChat/ViewModels/FriendsViewModel.swift` | 212 | FriendsViewModel | errorMessage, friendRequests, friends, isLoading, isSearching, searchResults, searchText, successMessage, updatingFollowUserIDs |
+| `BWChat/ViewModels/GroupChatViewModel.swift` | 2015 | GroupChatViewModel, GroupMessageSource, PendingGroupMedia, PendingGroupSticker, PendingGroupText, PendingStatus, StickerSendSignature | errorMessage, hasMore, inputText, isLoading, isSending, mentionAlertMessage, messages, pendingMedia, pendingStickers, pendingTexts, replyingTo, showMentionPicker |
+| `BWChat/ViewModels/GroupsViewModel.swift` | 406 | GroupsViewModel | errorMessage, groups, isLoading |
+| `BWChat/ViewModels/InteractiveScriptViewModels.swift` | 697 | ScriptCacheKeys, ScriptCenterViewModel, ScriptDetailViewModel, ScriptEditorValidationError, ScriptEditorViewModel, ScriptRoomViewModel | categories, draft, errorMessage, hasAuthoritativeRoom, hasMore, inputText, isLoading, isLoadingMore, isSaving, isSending, isWorking, messages, room, savedScript, scope, script, scripts, selectedCategoryID, turnState |
+| `BWChat/ViewModels/MapDatingViewModel.swift` | 1001 | MapDatingViewModel | authorizationStatus, draftStatusText, errorMessage, friendEffectiveRadiusM, friendUsers, isLoading, isMapEnabled, isRefreshingLocation, isRefreshingUsers, isUpdatingPresence, mapCenter, mode, nearbyEffectiveRadiusM, nearbyUsers, presence, radiusConstraints, selectedOnlineStatus, selectedUser, selectedVisibilityScope, successMessage, usersLoadErrorMessage |
+| `BWChat/ViewModels/MomentsViewModel.swift` | 1070 | MomentFeedTab, MomentsFeedContext, MomentsFeedPage, MomentsFeedState, MomentsViewModel, PendingMomentUpload | failedMomentIDs, feedStates, selectedTab, uploadingMomentIDs, userStates |
+| `BWChat/ViewModels/ProfileViewModel.swift` | 173 | ProfileViewModel | editBio, editBirthday, editBirthdayDate, editGender, editLocation, editNickname, errorMessage, isLoading, isSaving, profile, successMessage |
+| `BWChat/ViewModels/ShortDramaFeedViewModel.swift` | 902 | PlaybackLoopObserver, ShortDramaFeedViewModel, ShortDramaMediaSecurity | errorMessage, isLoading, isLoadingMore, isManuallyPaused, players, selectedVideoID, videos |
+| `BWChat/ViewModels/UserProfileViewModel.swift` | 596 | UserProfileViewModel | agents, agentsErrorMessage, errorMessage, hasMoreMoments, isLoading, isLoadingAgents, isLoadingMoments, isLoadingMoreAgents, isLoadingMoreMoments, isLoadingMoreShortDramas, isLoadingShortDramas, isLoadingSuggestions, isUpdatingFollow, moments, openingAgentIDs, profile, shortDramas, shortDramasErrorMessage, suggestedUsers, updatingSuggestedUserIDs |
+
+## Models
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/Models/ActivityCenter.swift` | 1001 | ActivityCenterClaimStatus, ActivityCenterDateParser, ActivityCenterGrantResult, ActivityCenterSnapshot, ActivityCenterTask, ActivityCenterTaskKind, ActivityCheckInDay, ActivityCheckInState, ActivityContactDiscoverySession, ActivityContactMatchResult, ActivityInvitationState, ActivityInviteShareSession, ActivityMatchedUser, ActivityMealReward, ActivityMealSchedule, ActivityPhoneBindingState, ActivityPhoneVerificationSession, ActivityWheelGeometry, ActivityWheelMotion, ActivityWheelSegment, ActivityWheelSegmentDecodingKeys, ActivityWheelSpinEnvelope, ActivityWheelSpinResult, ActivityWheelState, ActivityWheelTier, ActivityWheelTierDecodingKeys, ActivityWheelWinner, CodingKeys | — |
+| `BWChat/Models/AgentModels.swift` | 767 | AgentActor, AgentCapabilities, AgentConversation, AgentConversationPreviewResolver, AgentDefinition, AgentGreeting, AgentImageReplyTarget, AgentImageUpload, AgentIntimacyDefinition, AgentMediaResponse, AgentMediaUnlock, AgentMessage, AgentMessagePart, AgentPaidMediaStatePolicy, AgentPartMetadata, AgentProfile, AgentReferenceUpload, AgentRelationshipDefinition, AgentRuntimeConfig, AgentSummary, AgentSummaryPage, AgentToneDefinition, AgentTurn, AgentTurnAccepted, AgentTurnResult, AgentVersion, AgentVisionConfig, CachedAgentMessagePage, CodingKeys, FeatureKeys, ImagePricingKeys, PaidMediaKeys | — |
+| `BWChat/Models/Call.swift` | 1378 | AgentLiveMatchResponse, CallConnectionTransitionPolicy, CallJoinResponse, CallParticipantDeparturePolicy, CallQualityReport, CallQualityStreamReport, CallRecordContent, CallSession, CallSignalIdentity, CallStartResponse, CallState, CallType, CodingKeys, GroupCallStatusResponse, LiveBillingPolicy, LiveCallBillingPolicy, LiveCallBusinessErrorPolicy, LiveCallEntrySource, LiveCallInitiationPolicy, LiveCallInvitationRequest, LiveCallInvitationResponse, LiveCallPaymentMethod, LiveCallRoleContext, LiveCallRoleIntroduction, LiveCallTerminationPolicy, LiveCallTerminationPresentationPolicy, LiveExperienceBillingPolicy, LiveExperienceCardKind, LiveExperienceSnapshot, LiveExperienceStatus, LiveHostCallEndPolicy, LiveSlotCallTypePolicy, OneToOneLiveAvatarUpload, OneToOneLiveCallState, OneToOneLiveCurrentSlotData, OneToOneLiveFinalBilling, OneToOneLiveSlot, OneToOneLiveSlotCreationData, OneToOneLiveSlotPage, OneToOneLiveSlotUser, Phase, Status | — |
+| `BWChat/Models/ChatBatchActions.swift` | 161 | ChatConversationType, CodingKeys, ForwardBundle, ForwardBundleItem, ForwardBundleMessagePayload, ForwardCreatedMessage, ForwardFlowDraft, ForwardMessageSource, ForwardMode, ForwardOperationResult, ForwardRequest, ForwardTarget | — |
+| `BWChat/Models/ChatMoney.swift` | 1400 | ChatMoneyActionResponseData, ChatMoneyActionResult, ChatMoneyClaimRecord, ChatMoneyConfiguration, ChatMoneyCreatedMessage, ChatMoneyCreationResponseData, ChatMoneyCreationResult, ChatMoneyDetail, ChatMoneyDetailResponseData, ChatMoneyEligibility, ChatMoneyKind, ChatMoneyLimits, ChatMoneyMessagePrompt, ChatMoneyMessagePromptResolver, ChatMoneyMessagePromptTone, ChatMoneyPayload, ChatMoneyPreview, ChatMoneyReceiptEventType, ChatMoneyReceiptPayload, ChatMoneyRedPacketPresentationPolicy, ChatMoneyScope, ChatMoneyStatus, ChatMoneyUnavailableReason, ChatMoneyUpdateEvent, ChatMoneyViewerState, CodingKeys, CreateRedPacketRequest, CreateTransferRequest, RedPacketMode | — |
+| `BWChat/Models/Contact.swift` | 29 | CodingKeys, Contact | — |
+| `BWChat/Models/Conversation.swift` | 942 | CodingKeys, Conversation, ConversationPreference, ConversationPreferenceStore, ConversationReadReceipt, ConversationReadTarget, ConversationSnapshotReplacementPolicy, ConversationSyncSnapshot, DirectHistoryClearCoordinator, DirectHistoryClearReceipt | pinnedKeys, updatingKeys |
+| `BWChat/Models/DiscoverConfig.swift` | 460 | CodingKeys, DiscoverConfigData, DiscoverConfigMeta, DiscoverItem, DiscoverRoute, DiscoverSection | — |
+| `BWChat/Models/DynamicConfigModels.swift` | 1765 | AppBuildInfo, AppKillSwitch, AppRemoteConfig, CodingKeys, DynamicComponent, DynamicRoute, DynamicScreen, DynamicSection, DynamicSectionItem, DynamicTabDescriptor, DynamicTheme, FeatureFlag, JSONValue, RemoteAsset, RemoteAssetManifest, ReviewModeConfig, WalletActivityCatFoodRemoteConfig, WalletAdRewardRemoteConfig, WalletRemoteConfig, WalletRemoteProduct, WalletWithdrawalNetworkRemoteConfig, WalletWithdrawalPolicy, WebViewPolicy | — |
+| `BWChat/Models/Follow.swift` | 512 | CodingKeys, FollowRelationship, FollowUser, FollowUsersPage, ProfileHighlight, PublicProfile | — |
+| `BWChat/Models/FriendRequest.swift` | 113 | CodingKeys, FriendCacheKeys, FriendInfo, FriendRequest, SearchUser | — |
+| `BWChat/Models/GameCenter.swift` | 213 | CodingKeys, GameCatalogItem, GameCatalogPage, GameLobbySessionRequest, GameLobbySessionResponseValidationError, GameLobbySessionResponseValidator, GameRoundStart, GameRoundStartRequestPayload, GameRoundStartResponseValidationError, GameRoundStartResponseValidator, GameSession, LegacyCodingKeys | — |
+| `BWChat/Models/Gift.swift` | 1543 | ActivityCatFoodAmount, ActivityCatFoodTransaction, ActivityCatFoodTransactionPage, CodingKeys, FlexibleJSONValue, GiftCatalogItem, GiftCatalogResponseData, GiftMessagePayload, GiftMessagePayloadEnvelope, GiftRecipient, GiftRecipientSource, GoldCoinAmount, LocalizedRecordKind, LossyWalletTransaction, MixedAssetCharge, WalletBalanceResponseData, WalletCurrency, WalletIAPConfirmationResponseData, WalletTransaction, WalletTransactionsResponseData, WalletWithdrawal, WalletWithdrawalResponseData, WalletWithdrawalsResponseData | — |
+| `BWChat/Models/Group.swift` | 1682 | AlternateCodingKeys, ChatGroup, CodingKeys, GroupAnnouncement, GroupCapabilities, GroupDetail, GroupHistoryClearReceipt, GroupInfoPreferencesStore, GroupInvite, GroupInviteAcceptResult, GroupInvitePreview, GroupInviteRouteStore, GroupMember, GroupMemberUpdateEvent, GroupMessage, GroupMessageLocator, GroupMessageScriptContext, GroupMessageSearchPage, GroupMessageSearchResult, GroupNotificationSettings, GroupNotificationSettingsStore, GroupReplyPreview, GroupViewerSettings | pendingToken, settingsByGroupID, updatingGroupIDs |
+| `BWChat/Models/InteractiveScript.swift` | 871 | CodingKeys, InteractiveScript, ScriptActorType, ScriptAsset, ScriptAssetBusiness, ScriptCategoriesData, ScriptCategory, ScriptCreator, ScriptDraft, ScriptPage, ScriptRole, ScriptRoleAssignment, ScriptRoleDraft, ScriptRoom, ScriptRoomCreationData, ScriptRoomEnvelope, ScriptRoomSnapshot, ScriptRoomStatus, ScriptScope, ScriptSingleData, ScriptStatus, ScriptTurnResponse, ScriptTurnState, ScriptTurnStatus, ScriptVisibility | — |
+| `BWChat/Models/MapDating.swift` | 1105 | CodingKeys, MapDatingMode, MapFlightAircraft, MapFlightCoordinate, MapFlightLayerResponseData, MapFlightRoute, MapOnlineStatus, MapPresence, MapPresenceResponseData, MapRadiusConstraints, MapReportReason, MapUser, MapUserCollectionPolicy, MapUserCoordinate, MapUserResponseData, MapUsersResponseData, MapVisibilityScope | — |
+| `BWChat/Models/Message.swift` | 569 | ChatMessageRecallState, ChatOutgoingPayload, ChatTimelineIdentity, CodingKeys, Kind, Message, MessageDeliveryMatcher, OutgoingMediaDraft, PendingMessage, ReplyPreview, SendStatus, TimelineItem | — |
+| `BWChat/Models/Moment.swift` | 556 | CachedMomentFeedSnapshot, CodingKeys, Kind, Moment, MomentAuthor, MomentCacheNamespace, MomentComment, MomentFeedResponseData, MomentFirstPageReplacementPolicy, MomentMedia, MomentMediaPolicy, MomentMediaType, MomentMediaValidationError, MomentOutgoingPayload, MomentPublishDraft, MomentUnlockResponseData, MomentUploadFile, MomentUploadMedia, MomentsNotification | — |
+| `BWChat/Models/ShortDrama.swift` | 1005 | CodingKeys, ShortDramaComment, ShortDramaCommentsPage, ShortDramaCreator, ShortDramaEpisodeUploadResult, ShortDramaFeedPage, ShortDramaInteractionResult, ShortDramaOutgoingEpisode, ShortDramaOutgoingPayload, ShortDramaPublishStatus, ShortDramaSeries, ShortDramaSeriesFilter, ShortDramaStudioPage, ShortDramaUnlockResult, ShortDramaVideo | — |
+| `BWChat/Models/Sticker.swift` | 477 | CodingKeys, EmojiItem, StickerItem, StickerMessagePayload, StickerPack, StickerPackDiagnostics | — |
+| `BWChat/Models/User.swift` | 105 | CodingKeys, User | — |
+
+## Services
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/Services/APIService.swift` | 5503 | APIError, APIResponseWrapper, APIService, AgentConversationRemoteResponse, AgentListData, AgentSummaryRemoteResponse, AppRemoteConfigFetchResult, AppRemoteConfigRemoteResponse, AuthRequestAuthorizer, AvatarData, BackgroundUploadData, BackgroundsData, CodingKeys, ConditionalHTTPResult, ContactsData, Container, ContextData, ConversationListData, Detail, DetailErrorResponse, DiscoverConfigRemoteResponse, DynamicScreenFetchResult, DynamicScreenRemoteResponse, EmptyData, ErrorData, FollowRelationshipChange, FollowRelationshipStore, FriendListData, GiftDirectMessageResponseData, GiftGroupMessageResponseData, GroupMessagesData, GroupsData, LikeData, LoginData, MapFlightLayerRemoteResponse, MessagesData, NotifData, ProfileData, RefreshData, RegisterData, RequestsData, SearchData, SensitiveHTTPResponsePolicy, SensitiveLogRedactor, ShortDramaMultipartFile, StructuredErrorResponse, SymbolicBusinessErrorResponse, TransientHTTPRetryPolicy, UnreadData, UsernameData, VerifyData, WalletBalanceErrorContext, WalletBusinessError, Wrapped | — |
+| `BWChat/Services/ActivityCenterStore.swift` | 728 | ActivityCenterClient, ActivityCenterLocalError, ActivityCenterOperation, ActivityCenterOperationStatus, ActivityCenterOperations, ActivityCenterSnapshotAuthority, ActivityCenterStore, ActivityCenterUserDefaultsBox, ActivityContactDiscoveryService, ActivityInviteRouteStore, ActivityPhoneNormalizer, ActivityRewardCelebration | errorMessage, isLoading, isRunning, isShowingCachedData, matchedUsers, pendingToken, phoneVerificationSession, rewardCelebration, snapshot |
+| `BWChat/Services/AdRewardService.swift` | 1359 | AdMobConfiguration, AdMobConsentManager, AdMobGameErrorMapper, AdMobRuntime, AdRewardDailyCounter, AdRewardPendingCredit, AdRewardPendingCreditStore, AdRewardService, CodingKeys, GameRewardedAdPresentationOutcome, GameRewardedAdPresenting, GameRewardedAdSDKSession, GameRewardedAdTerminalState, RewardedAdCoordinator, RewardedAdPresentationGate, RewardedAdPresenterResolver, RewardedAdUnitResolver, State, TimedRewardedAdLoadAttempt, WalletAdRewardSessionResponseData, WalletAdRewardStatusResponseData | lastErrorCode, lastErrorMessage, remainingViewCount, serverDeliveryEnabled, state |
+| `BWChat/Services/AppRemoteConfigStore.swift` | 418 | AppRemoteConfigSource, AppRemoteConfigStore, AppRemoteConfigUpdatePolicy, FeatureFlagService | config, isLoading, lastETag, lastError, lastFetchDate, source |
+| `BWChat/Services/BackgroundUploadCoordinator.swift` | 1207 | BackgroundUploadCoordinator, Entry, LegacyMultipartAdapter, LegacyMultipartFileField, LegacyMultipartTextField, OutgoingFileStore, OutgoingJob, OutgoingPart, OutgoingRetryPolicy, OutgoingRetryScheduler, OutgoingScene, OutgoingState, OutgoingStore, StoreError, UploadEngine, UploadProjectionStore, UploadTransport, UploadTransportResult | jobs |
+| `BWChat/Services/CacheRepository.swift` | 1000 | AgentCatalogLocalCache, AgentChatLocalCache, AppCacheRepository, CacheKey, CachePolicy, CacheRepositoryError, CacheResult, CachedAgentCatalogSnapshot, CachedDataRepository, CachedSnapshot, ChatDraftQuote, ChatDraftRecord, ChatDraftStore, CodingKeys, ContentLoadState, PersistentSnapshotStore, ScriptRoomLocalCache, WalletCacheSchemaMigration, WalletLegacyUserDefaultsMigration | revision |
+| `BWChat/Services/ChatAppearanceStore.swift` | 321 | BackgroundImageCache, ChatAppearanceStore, ChatBackground, ChatBackgroundLayer, ChatBackgroundTargetType, CodingKeys | backgroundsByKey, image, isLoading |
+| `BWChat/Services/ChatMoneyStore.swift` | 882 | APIChatMoneyService, ChatMoneyServicing, ChatMoneyStore, MockChatMoneyService, TransferActionReceipt, ViewerClaimReceipt | activeOperationAssetID, configuration, details, errorMessage, isLoadingConfiguration, payloads |
+| `BWChat/Services/DynamicRouteHandler.swift` | 202 | DynamicRouteAlert, DynamicRouteHandler, DynamicRouteOutcome | — |
+| `BWChat/Services/DynamicScreenStore.swift` | 111 | DynamicScreenStore | errorMessage, isLoading, lastETag, screen |
+| `BWChat/Services/LoginLocationRecorder.swift` | 149 | LoginLocationRecorder, MapLocationQualityPolicy, MapLocationRecordSource | — |
+| `BWChat/Services/MediaLibrarySaver.swift` | 92 | MediaLibrarySaver, MediaSaveFeedback | toastMessage |
+| `BWChat/Services/MessageStore.swift` | 1435 | MessageStore | — |
+| `BWChat/Services/PushService.swift` | 1034 | AppMessageSyncCoordinator, CodingKeys, ConversationUnreadState, MessageSyncReason, NotificationConversationType, NotificationPayloadNormalizer, NotificationRoute, PushService, UnreadBadgeStore | chatUnreadCount, conversationUnreadCounts, isAuthorized, lastReason, momentsUnreadCount, needsSync, pendingRoute, syncGeneration |
+| `BWChat/Services/RemoteAssetManager.swift` | 231 | RemoteAssetError, RemoteAssetImage, RemoteAssetManager | assetManager, cachedURL, manifest |
+| `BWChat/Services/WalletStore.swift` | 833 | WalletPurchaseError, WalletPurchaseOutcome, WalletStore, WalletTelemetry, WalletUSDTPayoutAccount | activityCatFoodBalance, activityCatFoodNextCursor, activityCatFoodTransactionLoadError, activityCatFoodTransactions, balanceLoadError, goldCoinBalance, isLoadingActivityCatFoodTransactions, isLoadingBalance, isLoadingProducts, isLoadingTransactions, isLoadingWithdrawals, isPurchasing, isSubmittingWithdrawal, productLoadError, products, spendableBalance, transactionLoadError, transactionNextCursor, transactions, usdtPayoutAccount, walletBalance, withdrawalLoadError, withdrawals |
+| `BWChat/Services/WebSocketService.swift` | 931 | LiveCallWebSocketCompatibility, WSMessageType, WebSocketService | isConnected |
+
+## Managers
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/Managers/AppLanguageStore.swift` | 169 | AppLanguage, AppLanguageStore, AppLocalizedEnvironmentModifier, L10n | languageStore, selectedLanguage |
+| `BWChat/Managers/AuthManager.swift` | 360 | AuthManager, AuthSessionError, AuthTokenDiagnostics, AuthTokenMetadata, AuthTokenNormalizer, AuthTokenStore, CachedSessionValidationFailurePolicy | currentUser, isLoggedIn, isSessionUnverified |
+| `BWChat/Managers/CallManager.swift` | 2272 | CallManager, CallManagerError, CallMediaConfiguration, CallQualityAccumulator, CallQualityStreamAccumulator, CallQualityStreamSample, RoomDelegateHandler | activeSpeakerIDs, callDuration, currentCall, errorMessage, isFrontCamera, isLocalVideoEnabled, isMinimized, isMuted, isRemotePrimary, isSpeakerOn, liveEndingDetail, liveEndingMessage, localConnectionQuality, localVideoTrack, mediaConnectionState, remoteParticipants, remoteVideoTrack, room |
+| `BWChat/Managers/ImageCacheManager.swift` | 499 | ChatMediaPreviewPreloader, ChatMediaPreviewRequest, ImageCacheManager | — |
+| `BWChat/Managers/MediaCacheManager.swift` | 381 | Entry, MediaCacheManager, PendingDownload | activeDownloadIDs, totalBytes |
+| `BWChat/Managers/UserCacheManager.swift` | 119 | CachedUserInfo, CodingKeys, UserCacheManager | — |
+
+## Utils
+
+| 文件 | 行数 | 类型声明 | 状态字段 |
+|---|---:|---|---|
+| `BWChat/Utils/Constants.swift` | 179 | AppColors, AppConfig, AppListMetrics, AppSpacing, GoldCoinProductConfig, MediaURLResolver | — |
+| `BWChat/Utils/Extensions.swift` | 1149 | AppBackButton, ChatComposerActionButtonStyle, ChatComposerFieldChromeModifier, ChatComposerRecordChromeModifier, ChatInputTextView, Coordinator, KeyboardDismissTapInstaller, Kind, LongPressSaveMediaModifier, MessageMenuLongPressBridge, MessageMenuLongPressModifier, PreferredLanguageTextView, TabBarHiddenWhileVisibleModifier, TabBarVisibilityBridge, TimestampHelper, UIKitBackButtonModifier | navigator, showConfirmation |
+| `BWChat/Utils/KeychainHelper.swift` | 90 | KeychainError, KeychainHelper | — |
+| `BWChat/Utils/LocalCache.swift` | 99 | LocalCache | — |
+| `BWChat/Utils/UIKitNav.swift` | 876 | Coordinator, DynamicTabPlaceholderView, DynamicTabScreenRootView, InteractivePopDelegate, MainTabController, NavigableHostingController, SwipeBackCoordinator, TabBarAlphaFixDelegate, UIKitNavigator | navigator, routeAlert, screenStore |
+
+## APIService 函数（全量）
+
+- `acceptFriendRequest`
+- `acceptGroupInvite`
+- `acceptOneToOneLiveCall`
+- `acceptTransfer`
+- `addAuthHeader`
+- `addGroupMembers`
+- `addMomentComment`
+- `agentJSONRequest`
+- `appendMomentMediaField`
+- `appendMomentTextField`
+- `appendShortDramaFileField`
+- `apply`
+- `applyAppConfigHeaders`
+- `attemptTokenRefresh`
+- `blockMapUser`
+- `cancelAgentOneToOneLiveMatch`
+- `cancelOneToOneLiveCall`
+- `cancelWalletWithdrawal`
+- `changePassword`
+- `chatThumbnailFilename`
+- `claimActivityCheckIn`
+- `claimActivityMeal`
+- `claimRedPacket`
+- `clearDirectMessageHistory`
+- `clearGroupMessageHistory`
+- `completeActivityInviteShareSession`
+- `compressBackgroundImageForUpload`
+- `compressImageForUpload`
+- `confirmWalletIAPPurchase`
+- `createActivityContactDiscoverySession`
+- `createActivityInviteShareSession`
+- `createActivityPhoneVerificationSession`
+- `createAgent`
+- `createAgentConversation`
+- `createAgentTurn`
+- `createGameLobbySession`
+- `createGroup`
+- `createGroupInvite`
+- `createMoment`
+- `createOneToOneLiveSlot`
+- `createRedPacket`
+- `createScript`
+- `createScriptRoom`
+- `createShortDramaSeries`
+- `createTransfer`
+- `createWalletAdRewardSession`
+- `createWalletWithdrawal`
+- `delayNanoseconds`
+- `deleteChatBackground`
+- `deleteMoment`
+- `deleteOneToOneLiveSlot`
+- `deleteScript`
+- `deleteShortDramaEpisode`
+- `disableMapPresence`
+- `dismissGroup`
+- `downsampledImage`
+- `endCall`
+- `endScriptRoom`
+- `fetchAppRemoteConfig`
+- `fetchDiscoverConfig`
+- `fetchDynamicScreen`
+- `followUser`
+- `forwardMessages`
+- `get`
+- `getActivityCatFoodTransactions`
+- `getActivityCenter`
+- `getAgent`
+- `getAgentConversation`
+- `getAgentConversations`
+- `getAgentMessages`
+- `getAgentRuntimeConfig`
+- `getAgentTurn`
+- `getAllMapUsers`
+- `getChatBackgrounds`
+- `getChatMoneyConfiguration`
+- `getChatMoneyDetail`
+- `getContacts`
+- `getConversationSyncSnapshot`
+- `getConversations`
+- `getCurrentOneToOneLiveSlot`
+- `getFollowRelationship`
+- `getFollowers`
+- `getFollowing`
+- `getForwardBundle`
+- `getFriendList`
+- `getFriendMapUsers`
+- `getFriendRequests`
+- `getGiftCatalog`
+- `getGroupCallStatus`
+- `getGroupDetail`
+- `getGroupInvitePreview`
+- `getGroupMessageContext`
+- `getGroupMessages`
+- `getGroupNotificationSettings`
+- `getGroups`
+- `getInstalledAgents`
+- `getMapFlightLayer`
+- `getMapPresence`
+- `getMapUserDetail`
+- `getMessageContext`
+- `getMessages`
+- `getMomentDetail`
+- `getMomentsFollowing`
+- `getMomentsNotifications`
+- `getMomentsUnreadInfo`
+- `getMomentsWorld`
+- `getMyProfile`
+- `getMyShortDramaSeries`
+- `getNearbyMapUsers`
+- `getOneToOneLiveCallState`
+- `getOneToOneLiveSlots`
+- `getPlayedGames`
+- `getPropBag`
+- `getPublicAgents`
+- `getPublicAgentsPage`
+- `getPublicProfile`
+- `getRecommendedGames`
+- `getRecommendedUsers`
+- `getScript`
+- `getScriptCategories`
+- `getScriptRoom`
+- `getScripts`
+- `getShortDramaComments`
+- `getShortDramaFeed`
+- `getShortDramaSeriesDetail`
+- `getShortDramaSeriesFeed`
+- `getUserMoments`
+- `getUserShortDramaSeries`
+- `getWalletAdRewardStatus`
+- `getWalletBalance`
+- `getWalletTransactionPage`
+- `getWalletWithdrawals`
+- `heartbeatOneToOneLiveSlot`
+- `hideConversation`
+- `httpError`
+- `imagePixelSize`
+- `installAgent`
+- `isActivityCatFoodDisabled`
+- `isCancellation`
+- `isIdempotent`
+- `isJPEG`
+- `joinAcceptedOneToOneLiveCall`
+- `joinCall`
+- `leaveGroup`
+- `leaveGroupCall`
+- `legacyBackgroundMultipartUpload`
+- `loadAgentMedia`
+- `loadAuthenticatedMedia`
+- `loadImage`
+- `logDecodingError`
+- `logFinalRequest`
+- `logTransportError`
+- `login`
+- `logout`
+- `markCallBusy`
+- `markGroupMessagesAsRead`
+- `markMessagesAsRead`
+- `markMomentsFeedViewed`
+- `markMomentsNotificationsRead`
+- `matchActivityContacts`
+- `mimeType`
+- `momentMultipartBody`
+- `nonBlank`
+- `normalized`
+- `normalizedGiftContent`
+- `normalizedGiftMessage`
+- `normalizedGroupGiftMessage`
+- `normalizedRelationship`
+- `patchJSON`
+- `pathComponent`
+- `perform`
+- `performConditional`
+- `performNoContent`
+- `performRaw`
+- `performTransport`
+- `performUpload`
+- `postJSON`
+- `preparedChatImageFilesForUpload`
+- `preparedChatVideoThumbnailFileForUpload`
+- `preparedMomentUploadData`
+- `publishAgent`
+- `putJSON`
+- `recallGroupMessage`
+- `recallMessage`
+- `redact`
+- `redeemActivityInvite`
+- `refreshTokens`
+- `register`
+- `registerDeviceToken`
+- `rejectCall`
+- `rejectFriendRequest`
+- `rejectOneToOneLiveCall`
+- `removeGroupMember`
+- `renameGroup`
+- `reportCallQuality`
+- `reportGroup`
+- `reportMapUser`
+- `reportShortDramaProgress`
+- `requestOneToOneLiveCall`
+- `requiredAgent`
+- `requiredConversation`
+- `requiredData`
+- `resolvedMessageID`
+- `retryScriptTurn`
+- `retryTransientRequest`
+- `returnTransfer`
+- `revokeGroupInvite`
+- `sanitizedJSONShape`
+- `searchGroupMessages`
+- `searchUsers`
+- `sendEncodable`
+- `sendFriendRequest`
+- `sendGiftMessage`
+- `sendGroupGift`
+- `sendGroupImage`
+- `sendGroupSticker`
+- `sendGroupText`
+- `sendGroupVideo`
+- `sendGroupVoice`
+- `sendImageMessage`
+- `sendShortDramaComment`
+- `sendStickerMessage`
+- `sendTextMessage`
+- `sendVideoMessage`
+- `sendVoiceMessage`
+- `setShortDramaLiked`
+- `shortDramaMultipartBody`
+- `shortDramaMultipartRequest`
+- `shouldRetry`
+- `spinActivityWheel`
+- `startAgentOneToOneLiveMatch`
+- `startCall`
+- `startGameRound`
+- `startGroupCall`
+- `submitScriptTurn`
+- `submitShortDramaSeries`
+- `toggleMomentLike`
+- `unblockMapUser`
+- `unfollowUser`
+- `uninstallAgent`
+- `unlockAgentMedia`
+- `unlockMoment`
+- `unlockShortDramaEpisode`
+- `updateAgentDraft`
+- `updateCachedList`
+- `updateCachedProfile`
+- `updateConversationPreference`
+- `updateCurrentUserFollowCaches`
+- `updateGroupAnnouncement`
+- `updateGroupNotificationSettings`
+- `updateGroupViewerSettings`
+- `updateGroupVisibility`
+- `updateMapLocation`
+- `updateMapSettings`
+- `updateMyGroupNickname`
+- `updateProfile`
+- `updateScript`
+- `updateShortDramaEpisode`
+- `updateShortDramaSeries`
+- `updateUsername`
+- `uploadAgentChatImage`
+- `uploadAgentImage`
+- `uploadAgentReference`
+- `uploadAvatar`
+- `uploadChatBackground`
+- `uploadImage`
+- `uploadOneToOneLiveAvatar`
+- `uploadScriptAsset`
+- `uploadShortDramaEpisode`
+- `uploadVideo`
+- `userFacingMessage`
+- `verifyActivityPhone`
+- `verifyToken`
+- `videoMIMEType`
+
+## API 路径模板（全量）
+
+- `/account/phone/verification-sessions`
+- `/account/phone/verify`
+- `/activity-center`
+- `/activity-center/check-in/claim`
+- `/activity-center/contact-discovery/sessions`
+- `/activity-center/contact-discovery/sessions/\(Self.pathComponent(sessionID))/match`
+- `/activity-center/invite-share-sessions`
+- `/activity-center/invite-share-sessions/\(Self.pathComponent(sessionID))/complete`
+- `/activity-center/invites/redeem`
+- `/activity-center/meals/\(Self.pathComponent(windowID))/claim`
+- `/activity-center/wheel/spins`
+- `/agent-assets/images`
+- `/agent-assets/reference-images`
+- `/agent-conversations`
+- `/agent-conversations/\(Self.pathComponent(conversationID))/messages`
+- `/agent-conversations/\(Self.pathComponent(conversationID))/turns`
+- `/agent-conversations/\(Self.pathComponent(id))`
+- `/agent-media/\(Self.pathComponent(id))/unlock`
+- `/agent-turns/\(Self.pathComponent(id))`
+- `/agents`
+- `/agents/\(Self.pathComponent(id))`
+- `/agents/\(Self.pathComponent(id))/draft`
+- `/agents/\(Self.pathComponent(id))/install`
+- `/agents/\(Self.pathComponent(id))/publish`
+- `/agents/installed`
+- `/agents/public`
+- `/agents/runtime-config`
+- `/api/v1/games/`
+- `/app/config`
+- `/app/discover-config`
+- `/app/screens/\(escapedID)`
+- `/auth/change-password`
+- `/auth/login`
+- `/auth/logout`
+- `/auth/refresh`
+- `/auth/register`
+- `/auth/verify`
+- `/call/\(callID)/busy`
+- `/call/\(callID)/end`
+- `/call/\(callID)/quality-report`
+- `/call/\(callID)/reject`
+- `/call/group/\(groupID)/leave`
+- `/call/group/\(groupID)/start`
+- `/call/group/\(groupID)/status`
+- `/call/join`
+- `/call/start`
+- `/chat/backgrounds`
+- `/chat/backgrounds/\(targetType.rawValue)/\(Self.pathComponent(targetID))`
+- `/chat/contacts`
+- `/chat/conversations`
+- `/chat/conversations/\(Self.pathComponent(conversationType))/\(Self.pathComponent(targetID))/preferences`
+- `/chat/forward-bundles/\(Self.pathComponent(bundleID))`
+- `/chat/forwards`
+- `/chat/messages/\(Self.pathComponent(contactID))/\(messageID)/recall`
+- `/chat/messages/\(Self.pathComponent(contactID))/history`
+- `/chat/messages/\(contactID)`
+- `/chat/messages/\(contactID)/\(messageID)/context`
+- `/chat/messages/\(contactID)/read`
+- `/chat/messages/gift`
+- `/chat/messages/image`
+- `/chat/messages/sticker`
+- `/chat/messages/text`
+- `/chat/messages/video`
+- `/chat/messages/voice`
+- `/follows/\(Self.pathComponent(userID))`
+- `/follows/\(Self.pathComponent(userID))/relationship`
+- `/follows/followers`
+- `/follows/following`
+- `/friends/list`
+- `/friends/request`
+- `/friends/requests`
+- `/friends/requests/\(requestID)/accept`
+- `/friends/requests/\(requestID)/reject`
+- `/friends/search`
+- `/games/\(Self.pathComponent(gameID))/sessions`
+- `/games/\(Self.pathComponent(gameID))/sessions/\(Self.pathComponent(sessionID))/rounds`
+- `/games/played`
+- `/games/recommended`
+- `/group-invites/\(Self.pathComponent(token))`
+- `/group-invites/\(Self.pathComponent(token))/accept`
+- `/groups/\(groupID)`
+- `/groups/\(groupID)/announcement`
+- `/groups/\(groupID)/dismiss`
+- `/groups/\(groupID)/invites`
+- `/groups/\(groupID)/invites/\(Self.pathComponent(inviteID))`
+- `/groups/\(groupID)/leave`
+- `/groups/\(groupID)/members/add`
+- `/groups/\(groupID)/members/me`
+- `/groups/\(groupID)/members/remove`
+- `/groups/\(groupID)/messages`
+- `/groups/\(groupID)/messages/\(messageID)/context`
+- `/groups/\(groupID)/messages/\(messageID)/recall`
+- `/groups/\(groupID)/messages/gift`
+- `/groups/\(groupID)/messages/history`
+- `/groups/\(groupID)/messages/image`
+- `/groups/\(groupID)/messages/read`
+- `/groups/\(groupID)/messages/search`
+- `/groups/\(groupID)/messages/sticker`
+- `/groups/\(groupID)/messages/text`
+- `/groups/\(groupID)/messages/video`
+- `/groups/\(groupID)/messages/voice`
+- `/groups/\(groupID)/notification-settings`
+- `/groups/\(groupID)/rename`
+- `/groups/\(groupID)/reports`
+- `/groups/\(groupID)/viewer-settings`
+- `/groups/\(groupID)/visibility`
+- `/groups/create`
+- `/groups/list`
+- `/map/flight-layer`
+- `/map/friends`
+- `/map/me`
+- `/map/me/disable`
+- `/map/me/location`
+- `/map/me/settings`
+- `/map/nearby`
+- `/map/users`
+- `/map/users/\(Self.pathComponent(userID))`
+- `/map/users/\(Self.pathComponent(userID))/block`
+- `/map/users/\(Self.pathComponent(userID))/report`
+- `/me/prop-bag`
+- `/moments/\(momentID)`
+- `/moments/\(momentID)/comment`
+- `/moments/\(momentID)/like`
+- `/moments/\(momentID)/unlock`
+- `/moments/create`
+- `/moments/detail/\(momentID)`
+- `/moments/feed/viewed`
+- `/moments/notifications/read`
+- `/moments/notifications/unread`
+- `/one-to-one-live/assets/avatar`
+- `/one-to-one-live/calls/\(Self.pathComponent(callID))`
+- `/one-to-one-live/calls/\(callID)/accept`
+- `/one-to-one-live/calls/\(callID)/cancel`
+- `/one-to-one-live/calls/\(callID)/join`
+- `/one-to-one-live/calls/\(callID)/reject`
+- `/one-to-one-live/matches`
+- `/one-to-one-live/matches/\(matchID)/cancel`
+- `/one-to-one-live/slots`
+- `/one-to-one-live/slots/\(Self.pathComponent(slotID))`
+- `/one-to-one-live/slots/\(Self.pathComponent(slotID))/heartbeat`
+- `/one-to-one-live/slots/\(slotID)/invite`
+- `/one-to-one-live/slots/me/current`
+- `/profile/avatar`
+- `/profile/me`
+- `/profile/public/\(Self.pathComponent(userID))`
+- `/profile/username`
+- `/push/device-token`
+- `/rounds`
+- `/script-rooms/\(Self.pathComponent(roomID))`
+- `/script-rooms/\(Self.pathComponent(roomID))/end`
+- `/script-rooms/\(Self.pathComponent(roomID))/turns`
+- `/script-rooms/\(Self.pathComponent(roomID))/turns/\(Self.pathComponent(turnID))/retry`
+- `/scripts`
+- `/scripts/\(Self.pathComponent(scriptID))`
+- `/scripts/\(Self.pathComponent(scriptID))/rooms`
+- `/scripts/assets`
+- `/scripts/categories`
+- `/short-drama/feed`
+- `/short-drama/mine`
+- `/short-drama/series`
+- `/short-drama/series/\(Self.pathComponent(seriesID))`
+- `/short-drama/series/\(Self.pathComponent(seriesID))/episodes`
+- `/short-drama/series/\(Self.pathComponent(seriesID))/submit`
+- `/short-drama/videos/\(Self.pathComponent(videoID))`
+- `/short-drama/videos/\(Self.pathComponent(videoID))/comments`
+- `/short-drama/videos/\(Self.pathComponent(videoID))/like`
+- `/short-drama/videos/\(Self.pathComponent(videoID))/progress`
+- `/short-drama/videos/\(Self.pathComponent(videoID))/unlock`
+- `/users/recommended`
+- `/wallet/activity-cat-food/transactions`
+- `/wallet/ad-rewards/sessions`
+- `/wallet/ad-rewards/status`
+- `/wallet/balance`
+- `/wallet/chat-money/\(Self.pathComponent(assetID))`
+- `/wallet/chat-money/config`
+- `/wallet/gifts/catalog`
+- `/wallet/ios-iap/confirm`
+- `/wallet/red-packets`
+- `/wallet/red-packets/\(Self.pathComponent(assetID))/claim`
+- `/wallet/transactions`
+- `/wallet/transfers`
+- `/wallet/transfers/\(Self.pathComponent(assetID))/accept`
+- `/wallet/transfers/\(Self.pathComponent(assetID))/return`
+- `/wallet/withdrawals`
+- `/wallet/withdrawals/\(Self.pathComponent(id))/cancel`
+
+## 动态路由 token（全量）
+
+- `activity_center`
+- `add_friend`
+- `agent_create`
+- `agent_hub`
+- `coming_soon`
+- `comingsoon`
+- `contacts`
+- `create_group`
+- `disabled`
+- `discover`
+- `edit_profile`
+- `external`
+- `friend_requests`
+- `game_center`
+- `games`
+- `groups`
+- `h5`
+- `map`
+- `messages`
+- `moments`
+- `my_groups`
+- `my_moments`
+- `my_short_dramas`
+- `native`
+- `nearby`
+- `profile`
+- `prop_bag`
+- `screen`
+- `script_center`
+- `settings`
+- `short_drama`
+- `url`
+- `wallet`
+- `web`
+
+## 权限键
+
+- `NSCameraUsageDescription`
+- `NSContactsUsageDescription`
+- `NSLocationWhenInUseUsageDescription`
+- `NSMicrophoneUsageDescription`
+- `NSPhotoLibraryAddUsageDescription`
+- `NSPhotoLibraryUsageDescription`
+- `UIBackgroundModes`
+
+## Swift Package 依赖
+
+- `https://github.com/PhoneNumberKit/PhoneNumberKit.git`
+- `https://github.com/apple/swift-protobuf.git`
+- `https://github.com/googleads/swift-package-manager-google-mobile-ads.git`
+- `https://github.com/googleads/swift-package-manager-google-user-messaging-platform.git`
+- `https://github.com/livekit/client-sdk-swift.git`
+
+## 本地化
+
+| 语言 | Localizable key 数量 |
+|---|---:|
+| de | 1138 |
+| en | 1138 |
+| es | 1138 |
+| fr | 1138 |
+| ja | 1138 |
+| ko | 1138 |
+| pt-BR | 1138 |
+| ru | 1138 |
+| zh-Hans | 1138 |
+| zh-Hant | 1138 |
+
+## Assets（全量）
+
+- `AccentColor.colorset`
+- `AuthPortraitBackdrop.imageset`
+- `BBchatAppIcon.appiconset`
+- `activity_cat_food_icon.imageset`
+- `activity_claim_burst.imageset`
+- `activity_reward_paw.imageset`
+- `agent_matching_earth_texture.imageset`
+- `auth_cat_cover.imageset`
+- `auth_cat_idle.imageset`
+- `auth_cat_peek.imageset`
+- `flight_plane_blue.imageset`
+- `flight_plane_gold.imageset`
+- `flight_plane_green.imageset`
+- `flight_plane_orange.imageset`
+- `flight_plane_pink.imageset`
+- `flight_plane_star.imageset`
+- `gift_bell.imageset`
+- `gift_can.imageset`
+- `gift_fish.imageset`
+- `gift_tree.imageset`
+- `gift_wand.imageset`
+- `gift_whimsical_arrow.imageset`
+- `gift_yarn.imageset`
+- `message_action_cat_active.imageset`
+- `message_action_cat_default.imageset`
+- `prop_image_unlock_card.imageset`
+- `prop_live_experience_card_10m.imageset`
+- `prop_live_experience_card_15m.imageset`
+- `prop_live_experience_card_5m.imageset`
+- `prop_video_unlock_card.imageset`
+- `wallet_cat_hair.imageset`
+- `wallet_empty_cat.imageset`
+- `wallet_gold_coin_background.imageset`
+- `wallet_gold_coin_badge.imageset`
+
+## 原生行为测试契约（全量）
+
+### BWChatTests/APIResponseContractTests.swift
+
+- `testChatDisplayTextRemovesOnlyTrailingLineBreaks`
+- `testChatImageCompressionBoundsHighResolutionPhoto`
+- `testChatImageCompressionDoesNotReencodePreparedJPEG`
+- `testIncomingChatThumbnailFallsBackToOriginalMediaPath`
+- `testIncomingChatThumbnailPreservesExistingQueryBeforeFallback`
+- `testChatMediaPreviewRequestMatchesBubbleCacheKeys`
+- `testChatMediaMessagesDecodeAtomicThumbnailContract`
+- `testChatMediaPreviewRequestRejectsNonMediaAndInvalidPaths`
+- `testOutgoingVideoDraftKeepsFileBackedSourceWithoutDataCopy`
+- `testOutgoingImageDraftUsesSameIdentityForPreparedPreview`
+- `testPublicProfileCanOpenDirectConversationWhenServerSendingHintIsFalse`
+- `testPublicProfileWithoutUserIDCannotOpenDirectConversation`
+- `testChatHistoryRestoresImageReplyWhenOnlyReplyIDIsReturned`
+- `testCallStartResponsePreservesServerCallIdentity`
+- `testCallJoinResponseKeepsBackwardCompatibilityWithoutCallID`
+- `testCallJoinResponseDecodesVoiceAndImmutableBillingSnapshot`
+- `testOneToOneLiveSlotPageDecodesRealLobbyPayload`
+- `testOneToOneLiveSlotDecodesHostAllowedCallTypesInStableOrder`
+- `testOneToOneLiveSlotPageDecodesGenderBillingAndAudioVideoCapabilities`
+- `testOneToOneLiveSlotPageAcceptsLegacySlotsAndHostKeys`
+- `testOneToOneLiveAvatarUploadDecodesAssetAndDisplayURL`
+- `testLiveInvitationDefaultsLegacyPayloadToVideo`
+- `testLiveInvitationDecodesServerConfirmedVoicePolicy`
+- `testLiveExperienceInvitationRequestUsesExactCardContractAndStableIdempotencyKey`
+- `testLiveInvitationDecodesReservedExperienceSnapshot`
+- `testOneToOneLiveSlotCreationAcceptsNestedSlotEnvelope`
+- `testOneToOneLiveSlotCreationStillAcceptsDirectSlot`
+- `testLiveHostReturnsToLobbyAfterAcceptedIncomingLiveCallEnds`
+- `testLiveHostReturnPolicyIgnoresViewerAndRegularCallState`
+- `testAgentLiveInvitationExtractsRequestedRoleForHostBanner`
+- `testManualLiveInvitationDoesNotTreatHostSlotRoleAsRequestedRole`
+- `testLiveInviteCompatibilityKeepsRegularCallInviteOnRegularCallPath`
+- `testLiveInviteCompatibilityRecognizesLegacyAndNestedLivePayloads`
+- `testIncomingLiveInviteNormalizesFlatPayload`
+- `testIncomingLiveInviteNormalizesNestedPayload`
+- `testAcceptedLiveEventIsDeferredUntilInviteResponseProvidesCallID`
+- `testAcceptedLiveEventHandlesMatchingSecondCallAfterCallIDArrives`
+- `testLiveEventCorrelationRejectsStaleOrAgentMatchEvents`
+- `testOneToOneLiveCallStateSupportsAcceptedAndTerminalReconciliation`
+- `testOneToOneLiveCallStateCarriesConfirmedMediaAndBillingSnapshot`
+- `testLiveExperienceSnapshotRecoversFromCallStateAndFinalSettlement`
+- `testLiveExperienceCountdownUsesServerClockAnchorInsteadOfDeviceWallClock`
+- `testLiveLobbySlotEventDecodesNestedSnapshotForRealtimeUpsert`
+- `testLiveLobbyEndedEventDecodesTombstoneWithoutFullSlot`
+- `testLiveCallTerminationPolicyRecognizesBalanceReasonsAndValidatesGrace`
+- `testLiveBusinessErrorsUseStableGentleMessages`
+- `testLiveTerminationBillingDetailsDoNotExposePayerBalanceToHost`
+- `testLiveLobbyEventCursorRejectsDuplicatesAndOlderEvents`
+- `testLiveLobbyAvailabilityMapsStatusAndFailsClosedForUnknownValues`
+- `testLiveLobbySortsAvailableBeforeInvitingAndBusyWithoutReorderingTies`
+- `testLobbySnapshotKeepsBusySlotsAndDropsOnlyEndedSlots`
+- `testOldLobbyRESTSnapshotCannotRestoreWebSocketEndedSlot`
+- `testNewerWebSocketWaitingSlotIncludingOwnSlotSurvivesRESTMerge`
+- `testCurrentOwnedSlotEnvelopeDecodesWaitingAndNilStates`
+- `testLiveCallStateDecodesInsufficientTerminationAndFinalBilling`
+- `testLiveRoleIntroductionUsesEntrySpecificCopyForBothParticipants`
+- `testLiveBillingHasTenFreeSecondsThenRoundsEachMinuteUp`
+- `testLiveBillingRequiresOneUnitBeforeStarting`
+- `testLiveExperienceTenSecondConsumptionBoundaryAndAllDurations`
+- `testLiveExperienceOverageStartsImmediatelyWithoutSecondFreePeriod`
+- `testServerBillingPolicyUsesItsOwnBoundariesForBothMediaTypes`
+- `testMalformedBillingPolicySanitizesUnsafeValues`
+- `testLiveAvatarCropGeometryCentersLandscapeAndPortraitImages`
+- `testLiveAvatarCropClampsDragAndZoomWithoutExposingEmptySpace`
+- `testLiveAvatarCropExportsSquareJPEGWithinConfiguredLimit`
+- `testLiveHostCannotInitiateVideoWithAnotherLiveHost`
+- `testCallSignalIdentityDeduplicatesWebSocketAndPushInvite`
+- `testCallMediaConfigurationUsesStableHighBitrate720pDefaults`
+- `testDirectCallRecordParsesLegacyAndServerFormats`
+- `testDirectMessageRecognizesCallRecordWithoutNewMessageType`
+- `testCallQualityReportUsesBoundedPrimitivePayload`
+- `testGroupCallStatusPreservesCallIdentity`
+- `testRequiredDataPreservesLegitimateEmptyList`
+- `testRequiredDataThrowsInsteadOfConvertingMissingPayloadToEmptyList`
+- `testGatewayErrorUsesSafeLocalizedMessage`
+- `testValidationErrorPreservesServerMessage`
+- `testSensitiveLogRedactorRemovesGameTokensTicketsAndAuthorization`
+- `testSensitiveHTTPResponsePolicyPreventsDiskCaching`
+- `testTransientRetryPolicyOnlyRetriesIdempotentRequests`
+- `testAgentSummaryDecodesPlatformContract`
+- `testAgentSummaryPageDecodesProfilePaginationContract`
+- `testAgentRuntimeConfigDecodesDocumentedNestedFeatureContract`
+- `testAgentRuntimeConfigRejectsMissingDocumentedFeaturesObject`
+- `testAgentGalleryOnlyOpensInputAndUnlockedGeneratedImages`
+- `testAgentImageReplyOnlyTargetsAccessibleImagesAndKeepsSourceMessage`
+- `testAgentMessageDecodesImageReplyRelationship`
+- `testAgentSummaryDecodesDraftContractVariants`
+- `testAgentCreateResponseUnwrapsNestedAgent`
+- `testAgentCreateResponseAllowsMissingEnvelopeMessage`
+- `testAgentConversationCreateResponseUnwrapsNestedConversation`
+- `testAgentMessagePartsRemainServerOrderedByOrdinal`
+- `testAgentImageTransformModeBuildsExplicitToolInstruction`
+- `testAgentImageTransformOnlyShowsUserAuthoredTextInMessageBubble`
+- `testAgentImageGenerationPolicyExplainsEveryBlockingState`
+- `testAgentGeneratedMediaPollingContinuesAfterTurnCompletesUntilImageSettles`
+- `testAgentImageProgressCardRemainsVisibleUntilMediaBubbleAppears`
+- `testAgentTerminalTurnKeepsPollingUntilReplyMessageIsRenderable`
+- `testAgentEntryBelongsToProfileAndIsHiddenFromContacts`
+- `testConversationTimeComparisonHandlesMixedTimestampFormats`
+- `testConversationTimeComparisonTreatsMissingTimestampAsOldest`
+- `testConversationReadTargetsUseStableListIdentities`
+- `testDeliveryMatcherTreatsRelativeAndAbsoluteImageURLsAsOneConfirmation`
+- `testDeliveryMatcherNormalizesMediaTypeAliases`
+- `testDeliveryMatcherMatchesEquivalentGiftPayloadsWithDifferentJSONOrder`
+- `testGiftVisualFeedbackIsDispatchedBeforeBackendTransfer`
+- `testBuiltInGiftAssetsResolveToBundledImages`
+- `testRemoteOnlyGiftAssetDoesNotResolveToBundledImage`
+- `testGiftCatalogRejectsRetiredGameEntryItem`
+- `testDeliveryMatcherDoesNotCollapseDifferentTextMessages`
+- `testUnreadBadgeAggregatesPerConversationAndClearsOneConversationOnly`
+- `testUnreadBadgeRetainsKnownZeroAndReplacesStaleSnapshot`
+- `testMutedConversationKeepsRowUnreadButIsExcludedFromGlobalBadge`
+- `testUnreadBadgeCountsOneMessageOnceAcrossWebSocketListAndPush`
+- `testUnreadBadgeSnapshotAcknowledgesAllPendingMessagesThroughLastMessageID`
+- `testGroupCallWaitsForFirstRemoteParticipant`
+- `testGroupCallAutoExitsAfterLastRemoteParticipantLeaves`
+- `testCallStaysOpenWhileAnyRemoteParticipantRemains`
+- `testDirectCallStillAutoExitsWithoutGroupJoinHistory`
+- `testAcceptedOutgoingLivePairConnectsWhenRemoteParticipantJoins`
+- `testOrdinaryConnectingCallDoesNotUseLivePairShortcut`
+- `testOrdinaryOutgoingDirectCallStillWaitsForRemoteAudio`
+- `testIncomingOrMissingRemoteParticipantNeverTransitionsHere`
+- `testRedPacketMessageNeverSerializesAmount`
+- `testRedPacketDecoderDropsAccidentallyLeakedAmount`
+- `testTransferMessageKeepsPublicAmount`
+- `testAllChatMoneyModesAndStatusesDecodeFromContractValues`
+- `testRedPacketOpenPolicyAlwaysRejectsCompletedOrEmptySnapshots`
+- `testDeliveryMatcherCorrelatesChatMoneyByStableAssetID`
+- `testChatMoneyStoreRejectsDuplicateAndOutOfOrderEvents`
+- `testChatMoneyConfigurationFailsClosedUntilBackendConfigurationLoads`
+- `testSuccessfulRedPacketClaimPersistsViewerReceiptAndBlocksDuplicateRequest`
+- `testTransferAcceptPersistsTerminalStateAndBlocksConflictingReturn`
+- `testChatMoneyWalletTransactionSignsFollowLedgerDirection`
+- `testWalletTransactionPageKeepsEveryRowAndCursorBeyondFormerClientCap`
+- `testWalletTransactionPageReadsLegacyGoldCoinRowsWithoutDroppingValidSiblings`
+- `testChatMoneyConfigurationDecodesSplitLimitsAndKeepsLegacyFallback`
+- `testChatMoneyDetailDecodesViewerReasonAndLifecycleFields`
+- `testRoleFilteredRedPacketDetailFailsClosedWithoutOptionalActionFields`
+- `testRedPacketClaimsTolerateMissingOptionalFieldsAndFlexibleScalars`
+- `testRedPacketCardMutesOnlyForTheViewerWhoClaimed`
+- `testRedPacketDetailMergeKeepsEarlierClaimsWhenActionResponseIsIncremental`
+- `testServerClaimedViewerStateRestoresLocalCardReceipt`
+- `testRoleFilteredTransferDetailAcceptsNestedLegacyEnvelopeAndFlexibleScalars`
+- `testTerminalChatMoneyDetailNeverRestoresActionsFromStaleServerFlags`
+- `testUnknownOptionalViewerMetadataDoesNotBreakChatMoneyDetail`
+- `testStructuredReceiptParsesAndLocalizesForEachPrivateChatRole`
+- `testTransferReceiptPlacesNamesInsideLocalizedMessage`
+- `testExpiredRefundReceiptUsesTheMatchingAssetType`
+- `testLegacyExpiredRefundReceiptInfersKindFromAssetID`
+- `testStructuredReceiptRendersWhenHistoryDowngradesTypeOrDoubleEncodesContent`
+- `testStructuredReceiptParsesNestedCamelCasePayloadForGroupHistory`
+- `testChatMoneyUpdateDecodesReceiptWithoutRestoringLeakedRedPacketAmount`
+- `testChatMoneyMachineErrorsUseStableLocalizedPresentation`
+- `testPropBagStoreFiltersRetiredGameEntryInventory`
+- `testPropBagDecodesAllLiveExperienceCardsAndStableAssets`
+- `testLiveExperienceReservationUpdatesOnlyServerConfirmedInventory`
+- `testMediaUnlockAutomaticRequestDelegatesPriorityToServer`
+- `testLegacyExplicitMediaUnlockRequestsRemainEncodable`
+- `testAgentMediaUnlockDecodesConsumedProp`
+- `testGameSessionDecodesLobbyPriceWithoutPayment`
+- `testGameSessionDecodesPreviousCoinPriceFieldDuringRollout`
+- `testGameSessionRejectsScalarWalletBalance`
+- `testMomentUnlockDecodesConsumedPropWithoutWalletMutation`
+
+### BWChatTests/ActivityCenterTests.swift
+
+- `testSnapshotRoundTripsDynamicRewardsAndServerTime`
+- `testDecodesCanonicalBackendActivityCenterEnvelope`
+- `testDecodesSafeBackendBoundaryAliasesWithoutInventingRewards`
+- `testDecodesInactiveBackendSnapshotWithNullConfigVersion`
+- `testRejectsMissingCriticalRewardOrProbabilityFields`
+- `testWheelRequiresFourSegmentsAndOneMillionPPM`
+- `testOperationStatusesUpdateIndependentlyAndRejectDuplicateStarts`
+- `testMealsOrderCurrentThenNextUsingBusinessTimezone`
+- `testWheelGeometryProducesDistinctServerPrizeLandings`
+- `testEveryWheelSpinAddsAtLeastTheConfiguredFullTurns`
+- `testWheelLandingMotionRunsForItsFullDurationWithoutAnEarlyStop`
+- `testOptimisticClaimsUpdateTheVisibleStateBeforeTheNetworkReturns`
+- `testWheelSnapshotUsesHigherTierReturnedByServer`
+- `testWheelSnapshotAcceptsBackendResetToFirstTierInTheSameConfigVersion`
+- `testWheelSnapshotSupportsServerGeneratedTiersWithoutAFourTierFrontendCap`
+- `testTerminalWheelSpinAcceptsNullNextTierID`
+- `testContactHashMatchesContractAndContainsNoRawPhone`
+- `testInviteDeepLinkAndLandingURLDecodeSameToken`
+- `testCheckInProgressIsCumulativeAndDoesNotInferCalendarStreak`
+- `testKnownActivityAndGameWalletRecordsFollowCurrentAppLanguage`
+- `testActivityCatFoodRecordsLocalizeKnownSourcesAndHideRawIdentifiers`
+
+### BWChatTests/AuthSessionTests.swift
+
+- `testKeychainSaveFailureKeepsAccessTokenInMemory`
+- `testStartupRestoresKeychainTokensIntoMemory`
+- `testSimulatorKeychainConfigurationRoundTrips`
+- `testUnexpectedWhitespaceIsRemovedFromLoginToken`
+- `testBearerPrefixIsNotDuplicated`
+- `testAddAuthHeaderSetsAuthorization`
+- `testLoginPublishesLoggedInOnlyAfterTokenIsReadable`
+- `testRefreshRetryReplacesOldAuthorizationWithNewToken`
+- `testLogoutClearsMemoryAndBothKeychainAccounts`
+- `testConcurrentProtectedRequestsUseSameAccessToken`
+- `testCachedSessionSurvivesTransientValidationFailures`
+- `testCachedSessionIsInvalidatedOnlyByExplicitCredentialRejection`
+- `testAdRewardCounterIsSeparatedByAccountLimitedToTenAndResetsAtMidnight`
+- `testAdRewardDefaultCounterUsesShanghaiBusinessDay`
+- `testPendingAdRewardWaitsForServerDecreaseOrSessionExpiry`
+- `testPendingAdRewardDoesNotUseNextBusinessDaysCounterAsConfirmation`
+- `testPendingAdRewardStoreIsAccountScopedAndRoundTrips`
+
+### BWChatTests/ConversationListActionTests.swift
+
+- `testUnconfirmedEmptyConversationSnapshotCannotEraseLocalRows`
+- `testConversationSnapshotRejectsRevisionRegression`
+- `testOfflineCacheCannotRemoveMessageStoreRowsMissingFromSnapshot`
+- `testNotificationRouteParsesEverySupportedContainer`
+- `testConversationRevisionAndReadThroughDecode`
+- `testTimelineLinearMergePreservesStableChronologicalOrder`
+- `testTimelineOrderingKeepsFailedMessageAtOriginalPosition`
+- `testPendingMessageMenuIncludesRetryActionMetadata`
+- `testAgentConversationBecomesDistinctMessageListRow`
+- `testAgentConversationPreviewPrefersCompletedImageOverProcessingText`
+- `testCreatedAgentWithoutConversationStillGetsMessageListRow`
+- `testFailedAgentRefreshPreservesLiveAgentRows`
+- `testSuccessfulEmptyAgentRefreshRemovesLiveAgentRows`
+- `testFreshAgentConversationSuppressesMatchingProfileCard`
+- `testLegacyCachedAgentThreadKeepsConversationIdentity`
+- `testAgentConversationCacheRoundTripsRoutingMetadata`
+- `testProvisionalConversationRefreshPreservesCachedAgentRows`
+- `testCachedAgentRowCanOpenAsOfflineConversation`
+- `testAgentConversationAndMessagesAreCodableForDiskCache`
+- `testGroupMessageCacheRoundTripsMentionAll`
+- `testPinThenDeleteUpdatesConversationListImmediately`
+- `testAcceptedLivePairCreatesPersistentEmptyConversationCard`
+- `testRepeatedLivePairRegistrationDoesNotDuplicateConversationCard`
+- `testLivePairCardSurvivesConversationEndpointCatchUpWindow`
+- `testChatMoneyReceiptPreviewNeverUsesGroupSenderPrefix`
+- `testChatMoneyPreviewUsesViewerSpecificActionPrompt`
+- `testTerminalTransferPromptDistinguishesAcceptedAndReturnedByViewer`
+- `testGroupNotificationSettingsDecodeDefaultsAndNormalizesMembers`
+- `testGroupNotificationSettingsAlertDecisionUsesORRules`
+- `testConversationAndGroupMessageDecodeMuteAndMentionAllCompatibly`
+- `testOutgoingPayloadKeepsMentionAllAcrossLegacyAndNewJobs`
+- `testNotificationRouteParsesMuteDecisionMetadata`
+- `testLegacyPersistedNotificationRouteDefaultsNewFields`
+- `testLegacyGroupDetailDecodesWithSafeV2Defaults`
+- `testGroupDetailV2DecodesViewerSettingsAnnouncementAndPermissions`
+- `testGroupMessageSearchResultProvidesStableLocator`
+- `testGroupHistoryWatermarkFiltersCacheAndFutureBackfill`
+- `testDirectHistoryClearReceiptDecodesCompatibleAliases`
+- `testDirectHistoryWatermarkFiltersCacheAndFutureBackfill`
+- `testGroupInviteDeepLinkParsesUniversalAndCustomURLs`
+- `testLegacyPinnedConversationMigrationIsAccountScoped`
+
+### BWChatTests/GameCenterTests.swift
+
+- `testCacheKeysAlwaysIncludeAccountScope`
+- `testCachePolicyTTLsMatchProductRules`
+- `testShortDramaSnapshotRoundTripKeepsPlaybackAndUnlockState`
+- `testWalletSnapshotRoundTripKeepsAccountSeparatedFields`
+- `testWalletSnapshotRequiresAuthoritativeSpendableBalanceAndGoldCoinCurrency`
+- `testWalletCacheMigrationMapsLegacyCoinKeysWithoutInventingActivityAsset`
+- `testLegacyUserDefaultsMigrationDeletesOldCoinKey`
+- `testActivityCatFoodTransactionPageDecodesCursorAndSignedDeltas`
+- `testWalletRemoteConfigUsesTrueFromNestedOrFlatAndDefaultsOff`
+- `testMixedChargeBillsPureActivityPureCoinsAndMixed`
+- `testMixedChargeRejectsNegativeOrInconsistentBreakdown`
+- `testWalletBusinessErrorsKeepSpendableAndCoinOnlyFailuresDistinct`
+- `testActivityBalanceFundsMixedBusinessesButNotCoinOnlyBusinesses`
+- `testLiveBillingConsumesActivityFirstWhileHostEarnsOnlyGoldCoins`
+- `testLiveBillingRejectsInconsistentAssetBreakdown`
+- `testRechargeWithdrawalEarningsAndAdRewardStayGoldCoinOnly`
+- `testCatalogDecodesSnakeCaseAndNullLastPlayedAt`
+- `testCatalogDecodesPreviousCoinEntryPriceFieldDuringRollout`
+- `testDeduplicationKeepsFirstServerOrderedItem`
+- `testInitialLoadBuildsRecentAndRecommendedSections`
+- `testGameCenterHasOnlyRecommendedAndPlayedTabs`
+- `testPlayedErrorEntersRetryState`
+- `testRecommendedErrorEntersRetryState`
+- `testPaginationForwardsCursorAndDeduplicatesItems`
+- `testLaunchGateRejectsConcurrentSessionCreation`
+- `testGameLobbySessionRequestNeverSelectsOrConsumesPayment`
+- `testGameRoundStartAlwaysUsesGoldCoinsWithoutClientSuppliedPrice`
+- `testLobbyCreationAndRoundStartUseSeparateRequests`
+- `testLobbyResponseRejectsAnyPaymentAtGameCardTap`
+- `testRoundResponseAcceptsOnlyGoldCoinsAndNoPropConsumption`
+- `testGameRoundErrorsMapCoinBalanceFailure`
+- `testGameURLValidationRequiresHTTPSAllowedDomainAndGameAssetsPath`
+- `testEffectiveGamePolicyAddsProductionDomainWithoutBypassingBlocklist`
+- `testGameWebViewUsesSharedPersistentWebsiteDataStore`
+- `testSameOriginRejectsSchemeHostAndPortChanges`
+- `testJustClearBridgeAcceptsOnlyTheFixedProfileMessage`
+- `testJustClearBridgeRejectsTamperedContractFields`
+- `testJustClearBridgeRejectsInvalidUserIDs`
+- `testJustClearBridgeRejectsUntrustedDeepLinks`
+- `testGameNavigationInterceptsValidatedProfileFallback`
+- `testGameNavigationCancelsMalformedFallbackAndUnknownSchemes`
+- `testProfileOpenGateDebouncesOnlyRapidRepeatForSameUser`
+- `testGameBridgeUsesFixedHandlerNameAndWeakDelegate`
+- `testRoundStartBridgeAcceptsOnlyValidatedStartRequests`
+- `testRoundStartBridgeAcceptsOpaqueServerSessionIDWithoutChangingCase`
+- `testRoundStartBridgeRejectsMalformedContractFields`
+- `testRoundStartResultReturnsOnlyThePaidRoundGrantToH5`
+- `testRoundStartRequestLedgerProcessesSameRequestAndSessionOnlyOnce`
+- `testRoundTokenResumeFailuresAreClassifiedAsNonPaymentRecoveryFailures`
+- `testInsufficientGoldCoinFailureUsesStableH5BridgeCode`
+- `testPostLoadGameNavigationFailureKeepsRenderedDocument`
+- `testProfileRouteUsesExistingUIKitNavigationStack`
+- `testRewardedAdBridgeAcceptsJustClearAndFutureGameSlugs`
+- `testRewardedAdBridgeRejectsMalformedContractFields`
+- `testRewardedAdUnitAllowlistUsesRemoteReplacementAndBundledFallback`
+- `testWalletRewardedAdUnitUsesRemoteConfigurationBeforeBundledFallback`
+- `testWalletConfigKeepsRewardedAdFieldsWhenOtherFieldsUseStructuredPayloads`
+- `testWithdrawalPolicyKeepsTotalAndWithdrawableBalancesSemanticallySeparate`
+- `testRewardedAdBridgeRejectsHTTPWhenSecureTransportIsRequired`
+- `testRewardedAdBridgeRejectsNonMainFrame`
+- `testGameBridgeRejectsLegacyHTTPEvenWhenBackendConfigurationIsHTTP`
+- `testRewardedAdBridgeAutomaticallyRequiresHTTPSAfterBackendMigration`
+- `testRewardedAdRequestLedgerAllowsOneTerminalResultPerRequest`
+- `testRewardedAdResultPayloadContainsOnlyStableTerminalFields`
+- `testRewardedAdCoordinatorRejectsConcurrentRequestAndPreservesFirstResult`
+- `testRewardedAdCoordinatorPreloadsWithoutGameSpecificRouting`
+- `testRemoteConfigVersionUpdateReplacesRewardedAdUnitsAnd304PreservesThem`
+- `testKnownRewardedAdConfigVersionRejectsPoisonedAllowlistCache`
+- `testRewardedAdLoadFailureMapsToFailedTerminalResult`
+- `testRewardedAdNoFillMapsToUnavailable`
+- `testRewardedAdEarlyDismissalReturnsDismissed`
+- `testRewardedAdEarnedCallbackProducesExactlyOneCompletedTerminal`
+- `testRewardedAdCallbackUsesArgumentSerializationAgainstJavaScriptInjection`
+- `testGameRewardMetadataIsValidationOnlyAndNeverBecomesWalletReward`
+- `testSVGPosterHTMLCoversContainerWithoutBrowserMargins`
+- `testGameNavigationDisablesSwipeBackWithoutChangingTheDefault`
+- `testSwipeBackCancelsPendingTouchesOnRevealedControls`
+- `testNavigatorCanResetRetainedTabStackWithoutAnimation`
+
+### BWChatTests/InteractiveScriptContractTests.swift
+
+- `testDiscoverKeepsExistingEntriesAndReusesStoriesAsScriptEntry`
+- `testDiscoverGroupsScriptsWithGamesAndKeepsGroupsSeparate`
+- `testEmptyRemoteDiscoverConfigDoesNotSynthesizeScriptOnlySection`
+- `testLegacyConversationStillDecodesWithoutScriptMetadata`
+- `testScriptConversationDecodesRoutingMetadata`
+- `testJoinedScriptRoomResolverFiltersDeduplicatesAndSortsRooms`
+- `testLegacyAgentCatalogSnapshotDefaultsJoinedScriptsToEmpty`
+- `testAgentCatalogSnapshotRoundTripsJoinedScriptRooms`
+- `testScriptConversationCanReplaceGroupAvatarWithSnapshotCover`
+- `testLegacyGroupMessageDecodesWithoutScriptContext`
+- `testScriptGroupMessageDecodesActorIdentity`
+- `testScriptPageAcceptsNumericCategoryAndRoleIDs`
+- `testPublicScriptEnvelopeDecodesCoverAndThreeRoleAvatars`
+- `testMediaURLResolverPreservesAbsoluteAndResolvesRelativePaths`
+- `testScriptImageFallbackOnlyAppearsForMissingInvalidOrFailedURLs`
+- `testRoomSnapshotAndWebSocketAvatarMapping`
+- `testScriptRoomRoundTripsThroughCacheEncoding`
+- `testScriptRoomCanOpenProvisionallyFromConversationCache`
+- `testScriptPageRoundTripsThroughPersistentCacheEncoding`
+- `testPublicDraftValidationRequiresCompleteFields`
+- `testPublicDraftValidationRejectsMissingAvatarAndDuplicateRoleNames`
+
+### BWChatTests/MapDatingResponseTests.swift
+
+- `testMapUserDecodesNestedDisplayCoordinate`
+- `testMapUserRejectsOutOfRangeCoordinateForAnnotation`
+- `testMapUserRejectsZeroCoordinateSentinel`
+- `testMapUserDecodesCamelCaseDisplayCoordinate`
+- `testMapPresenceKeepsRecordedAndDisplayCoordinatesSeparate`
+- `testMapPresencePrefersDeviceCoordinateOverPublicDisplayCoordinate`
+- `testLocationQualityAcceptsFreshAccurateDeviceLocation`
+- `testLocationQualityRejectsStaleOrInaccurateLocation`
+- `testMapUsersResponseThrowsWhenListFieldIsMissing`
+- `testMapUsersResponseThrowsWhenListFieldIsNull`
+- `testMapUsersResponseThrowsInsteadOfSilentlyDroppingMalformedUser`
+- `testMapUsersResponseRejectsDifferentViewerWhenServerProvidesViewerID`
+- `testMapUsersResponseRemainsCompatibleWithoutViewerID`
+- `testMapUserCollectionRemovesViewerAndPrefersMappableDuplicate`
+- `testViewerViewportCentersOnViewerWithFiftyMeterRadius`
+- `testAllUsersViewportFitsViewerAndRemoteUser`
+- `testAllUsersViewportShowsWholeWorldAcrossDateLine`
+
+### BWChatTests/MomentsFollowingFeedTests.swift
+
+- `testFollowingFeedPreservesServerFilteringAndOrdering`
+- `testFollowingFeedDoesNotBecomeEmptyBecauseClientHasNoFollowSnapshot`
+- `testBothPublicMomentTabsSupportOfflineCache`
+- `testUnconfirmedEmptyMomentPageCannotReplaceNonEmptyCache`
+- `testLegacyUserMomentCacheDecodesIntoSharedSnapshot`
+- `testCompleteEmptyMomentPageCanReplaceNonEmptyCache`
+- `testMomentFeedResponseRejectsMissingMomentsField`
+- `testMomentFeedResponseReadsCompletenessSignal`
+- `testMomentMediaLayoutMatchesWechatStyleColumnRules`
+- `testMomentMediaLayoutMakesTwoItemsLargerThanDenseGridItems`
+- `testMomentSingleMediaIsCappedAndGridShrinksOnNarrowScreens`
+- `testMomentMediaPolicyAllowsPhotosOnlyOrOneVideo`
+- `testMomentMediaPolicyRejectsMixedPhotosAndVideo`
+- `testMomentMediaPolicyRejectsMoreThanOneVideo`
+- `testMomentMediaPolicyRejectsMoreThanNinePhotos`
+
+### BWChatTests/ShortDramaPlaybackTests.swift
+
+- `testOutgoingStateMachineAcceptsOnlyLegalForwardTransitions`
+- `testOnlyPermanentFailureIsUserVisible`
+- `testMediaRetryPolicyIncludesWeakNetworkAndTransientServerFailures`
+- `testConfirmationUnknownEntersBoundedRetryPipeline`
+- `testSeriesCreatorAndMetadataFillEpisodeFields`
+- `testPartialEpisodeCreatorUsesMatchingSeriesCreatorFields`
+- `testProtectedSameAPIURLReceivesAuthorizationHeader`
+- `testAuthorizationHeaderIsNotSentOutsideAPIOriginOrPath`
+
+### BWChatTests/StickerPickerTests.swift
+
+- `testEmojiDefaultDecodesWithSnakeCaseAndEmptyStickers`
+- `testEmojiPackWithEmptyStickersRemainsVisibleAndFirst`
+- `testOldThreePackConfigReceivesLocalEmojiFallback`
+- `testEmojiSelectionInsertsAtCursorWithoutStickerSend`
+- `testConsecutiveEmojiTapsAppendAtUpdatedCursor`
+- `testImageStickerStillUsesStickerSender`
+- `testDirectStickerKeepsTimelineIdentityWhenServerAcknowledgementOmitsClientID`
+- `testGroupStickerKeepsTimelineIdentityAcrossWebSocketAndHTTPConfirmation`
+- `testAllChatComposersUseIdenticalInsertionBehavior`
+- `testMentionInsertionUsesUTF16OffsetsAfterEmoji`
+- `testBackspaceAfterMentionRemovesWholeAtomicTokenAndSeparator`
+- `testStandaloneAtDoesNotTriggerInsideEmail`
+- `testComposerDocumentDerivesUniqueMentionRecipients`
+- `testMentionMemberResolverExcludesSelfDeduplicatesAndUsesStableFallbacks`
+- `testGroupDetailMentionContractDecodesRequiredMemberFields`
+- `testMessageSelectionCapsAt99AndKeepsTimelineOrdering`
+- `testForwardRequestUsesStableSnakeCaseWireContract`
+
+## 原版 View 视觉与交互 modifier（代码级全量提取）
+
+### BWChat/Views/ActivityCenterView.swift
+
+视觉 modifier：
+
+- L90: `.background(AppColors.secondaryBackground.ignoresSafeArea())`
+- L100: `.zIndex(20)`
+- L103: `.tint(AppColors.accent)`
+- L106: `.toolbarBackground(Color.clear, for: .navigationBar)`
+- L149: `.frame(width: 228)`
+- L175: `.foregroundStyle(AppColors.secondaryText)`
+- L177: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L197: `.safeAreaInset(edge: .top, spacing: 0) {`
+- L200: `.font(.caption)`
+- L201: `.foregroundStyle(AppColors.secondaryText)`
+- L202: `.frame(maxWidth: .infinity)`
+- L203: `.padding(.vertical, 6)`
+- L204: `.background(.thinMaterial)`
+- L213: `.overlay(alignment: .bottom) {`
+- L216: `.tint(AppColors.accent)`
+- L217: `.padding(.bottom, 40)`
+- L252: `.transition(.opacity.combined(with: .scale(scale: 0.98)))`
+- L253: `.zIndex(10)`
+- L332: `.padding(.horizontal, 14)`
+- L333: `.padding(.top, 12)`
+- L334: `.padding(.bottom, 32)`
+- L344: `.font(.system(size: 18, weight: .bold))`
+- L345: `.foregroundStyle(AppColors.primaryText)`
+- L353: `.font(.system(size: 12, weight: .medium))`
+- L354: `.foregroundStyle(AppColors.secondaryText)`
+- L409: `.padding(.bottom, 4)`
+- L428: `Divider().padding(.leading, 50)`
+- L461: `.font(.system(size: 11, weight: .medium))`
+- L462: `.foregroundStyle(AppColors.secondaryText)`
+- L464: `.font(.system(size: 22, weight: .bold, design: .rounded).monospaced())`
+- L465: `.foregroundStyle(AppColors.primaryText)`
+- L473: `.padding(13)`
+- L474: `.background(AppColors.secondaryBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L481: `.tint(AppColors.accent)`
+- L490: `.font(.caption)`
+- L491: `.foregroundStyle(AppColors.secondaryText)`
+- L510: `.font(.system(size: 12, weight: .bold))`
+- L511: `.foregroundStyle(AppColors.accent)`
+- L512: `.padding(.horizontal, 9)`
+- L513: `.padding(.vertical, 5)`
+- L514: `.background(AppColors.accentLight, in: Capsule())`
+- L515: `.scaleEffect(scale)`
+- L566: `.frame(maxWidth: .infinity)`
+- L596: `.frame(width: 38, height: 38)`
+- L597: `.scaleEffect(rewardScale)`
+- L598: `.opacity(day.status == .locked ? 0.56 : 1)`
+- L602: `.font(.system(size: 11, weight: .semibold))`
+- L604: `.font(.system(size: 20, weight: .bold, design: .rounded))`
+- L609: `.layoutPriority(1)`
+- L613: `.padding(.leading, 12)`
+- L614: `.padding(.trailing, 34)`
+- L615: `.overlay(alignment: .trailing) {`
+- L617: `.font(.system(size: 15, weight: .bold))`
+- L618: `.foregroundStyle(isClaimable ? .white.opacity(0.9) : AppColors.iconYellowDeep)`
+- L619: `.padding(.trailing, 12)`
+- L625: `.font(.system(size: 10, weight: .semibold))`
+- L629: `.frame(width: 30, height: 30)`
+- L630: `.scaleEffect(rewardScale)`
+- L631: `.opacity(day.status == .locked ? 0.48 : 1)`
+- L634: `.font(.system(size: 15, weight: .bold, design: .rounded))`
+- L642: `.foregroundStyle(labelColor)`
+- L643: `.frame(maxWidth: .infinity, minHeight: 88)`
+- L649: `.overlay(alignment: .topTrailing) {`
+- L652: `.font(.system(size: 13, weight: .bold))`
+- L653: `.foregroundStyle(AppColors.accent)`
+- L654: `.padding(7)`
+- L655: `.transition(.scale(scale: 0.6).combined(with: .opacity))`
+- L660: `.font(.system(size: isFinal ? 30 : 24, weight: .bold))`
+- L661: `.foregroundStyle(AppColors.iconYellowDeep)`
+- L662: `.scaleEffect(celebrationScale)`
+- L663: `.opacity(celebrationOpacity)`
+- L667: `.shadow(color: isClaimable ? AppColors.accent.opacity(0.2) : .clear, radius: 8, y: 4)`
+- L668: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: day.status)`
+- L703: `colors: [AppColors.iconYellow.opacity(0.16), AppColors.accentLight],`
+- L716: `if isFinal { return AppColors.iconYellowDeep.opacity(0.28) }`
+- L717: `if isClaimed { return AppColors.accent.opacity(0.16) }`
+- L736: `.font(.system(size: 17, weight: .semibold))`
+- L737: `.foregroundStyle(AppColors.accent)`
+- L738: `.frame(width: 40, height: 40)`
+- L739: `.background(AppColors.accentLight, in: RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L742: `.font(.system(size: 15, weight: .semibold))`
+- L743: `.foregroundStyle(AppColors.primaryText)`
+- L745: `.font(.system(size: 11, weight: .medium))`
+- L746: `.foregroundStyle(AppColors.secondaryText)`
+- L757: `.frame(minWidth: 56)`
+- L758: `.font(.system(size: 11, weight: .bold))`
+- L759: `.foregroundStyle(meal.status.canClaim ? .white : AppColors.secondaryText)`
+- L760: `.padding(.horizontal, 9)`
+- L761: `.padding(.vertical, 6)`
+- L762: `.background(`
+- L766: `.frame(minWidth: 64, minHeight: 40)`
+- L773: `.padding(.vertical, 8)`
+- L774: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: meal.status)`
+- L775: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: operationStatus.isRunning)`
+- L784: `.font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())`
+- L785: `.foregroundStyle(AppColors.accent)`
+- L808: `.font(.system(size: 17, weight: .semibold))`
+- L809: `.foregroundStyle(AppColors.accent)`
+- L810: `.frame(width: 40, height: 40)`
+- L811: `.background(AppColors.accentLight, in: RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L814: `.font(.system(size: 15, weight: .semibold))`
+- L815: `.foregroundStyle(AppColors.primaryText)`
+- L817: `.font(.system(size: 11, weight: .medium))`
+- L818: `.foregroundStyle(AppColors.secondaryText)`
+- L824: `.font(.system(size: 12, weight: .bold))`
+- L825: `.foregroundStyle(AppColors.accent)`
+- L826: `.frame(width: 28, height: 28)`
+- L827: `.background(AppColors.accentLight, in: Circle())`
+- L831: `.font(.system(size: 11, weight: .bold))`
+- L832: `.foregroundStyle(AppColors.tertiaryText)`
+- L839: `.padding(.vertical, 13)`
+- L840: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: task.status)`
+- L841: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: operationStatus.isRunning)`
+- L887: `.font(.caption)`
+- L888: `.foregroundStyle(AppColors.accent)`
+- L889: `.padding(.horizontal, 14)`
+- L890: `.padding(.vertical, 7)`
+- L891: `.background(AppColors.accentLight, in: Capsule())`
+- L897: `.offset(y: 3)`
+- L899: `.frame(maxWidth: 344)`
+- L900: `.padding(.top, 8)`
+- L911: `.padding(.horizontal, 16)`
+- L913: `.padding(.horizontal, 16)`
+- L914: `.padding(.bottom, 32)`
+- L922: `.resizable().scaledToFit().frame(width: 36, height: 36)`
+- L926: `.font(.caption).foregroundStyle(AppColors.secondaryText)`
+- L927: `Text(snapshot.goldCoinBalance.formatted()).font(.title2.bold())`
+- L931: `.font(.caption.bold())`
+- L932: `.foregroundStyle(.white)`
+- L933: `.padding(.horizontal, 10).padding(.vertical, 5)`
+- L934: `.background(AppColors.accent, in: Capsule())`
+- L936: `.padding(14)`
+- L937: `.background(AppColors.cardBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1013: `TimelineView(.animation(paused: motion == nil || reduceMotion)) { context in`
+- L1026: `.rotationEffect(.degrees(rotation))`
+- L1027: `.shadow(color: AppColors.accent.opacity(0.24), radius: 14, y: 6)`
+- L1028: `.padding(12)`
+- L1069: `AppColors.accent.opacity(0.16),`
+- L1071: `AppColors.gradientEnd.opacity(0.18),`
+- L1072: `AppColors.accent.opacity(0.08)`
+- L1085: `.font(.title2.bold())`
+- L1086: `.foregroundStyle(AppColors.primaryText)`
+- L1088: `.resizable().scaledToFit().frame(width: 24, height: 24)`
+- L1090: `.position(labelPosition(index: index, center: center, radius: size * 0.29))`
+- L1095: `Color.white.opacity(0.55),`
+- L1098: `.padding(8)`
+- L1101: `.frame(width: 76, height: 76)`
+- L1102: `.overlay(Text(L10n.tr("activityCenter.wheel.spinShort")).font(.caption.bold()).foregroundStyle(.white))`
+- L1104: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L1140: `.frame(width: 38, height: 38)`
+- L1141: `.shadow(radius: 4, y: 2)`
+- L1180: `Color.black.opacity(0.34)`
+- L1181: `.ignoresSafeArea()`
+- L1191: `.frame(width: 44, height: 44)`
+- L1193: `.font(.system(size: 18, weight: .semibold))`
+- L1194: `.foregroundStyle(AppColors.accent)`
+- L1199: `.font(.system(size: 20, weight: .bold))`
+- L1200: `.foregroundStyle(AppColors.primaryText)`
+- L1202: `.font(.system(size: 11, weight: .medium))`
+- L1203: `.foregroundStyle(AppColors.secondaryText)`
+- L1214: `.font(.system(size: 13, weight: .bold))`
+- L1215: `.foregroundStyle(AppColors.secondaryText)`
+- L1216: `.frame(width: 34, height: 34)`
+- L1217: `.background(AppColors.secondaryBackground, in: Circle())`
+- L1218: `.frame(width: 44, height: 44)`
+- L1224: `Divider().padding(.vertical, 16)`
+- L1228: `.font(.system(size: 12, weight: .semibold))`
+- L1229: `.foregroundStyle(AppColors.secondaryText)`
+- L1233: `.font(.system(size: 15, weight: .semibold))`
+- L1234: `.foregroundStyle(focusedField == .phone ? AppColors.accent : AppColors.secondaryText)`
+- L1235: `.frame(width: 20)`
+- L1240: `.font(.system(size: 16, weight: .medium))`
+- L1241: `.foregroundStyle(AppColors.primaryText)`
+- L1243: `.padding(.horizontal, 14)`
+- L1244: `.frame(minHeight: 52)`
+- L1245: `.background(AppColors.secondaryBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1249: `focusedField == .phone ? AppColors.accent.opacity(0.7) : AppColors.separator,`
+- L1255: `.font(.system(size: 11, weight: .medium))`
+- L1256: `.foregroundStyle(AppColors.secondaryText)`
+- L1273: `.padding(.top, 14)`
+- L1276: `Divider().padding(.vertical, 16)`
+- L1280: `.font(.system(size: 12, weight: .semibold))`
+- L1281: `.foregroundStyle(AppColors.secondaryText)`
+- L1285: `.font(.system(size: 15, weight: .semibold))`
+- L1286: `.foregroundStyle(focusedField == .code ? AppColors.accent : AppColors.secondaryText)`
+- L1287: `.frame(width: 20)`
+- L1292: `.font(.system(size: 16, weight: .medium, design: .rounded))`
+- L1293: `.foregroundStyle(AppColors.primaryText)`
+- L1295: `.padding(.horizontal, 14)`
+- L1296: `.frame(minHeight: 52)`
+- L1297: `.background(AppColors.secondaryBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1301: `focusedField == .code ? AppColors.accent.opacity(0.7) : AppColors.separator,`
+- L1318: `.padding(.top, 12)`
+- L1323: `.font(.system(size: 14, weight: .semibold))`
+- L1324: `.foregroundStyle(AppColors.accent)`
+- L1325: `.padding(.top, 1)`
+- L1327: `.font(.system(size: 11, weight: .medium))`
+- L1328: `.foregroundStyle(AppColors.secondaryText)`
+- L1329: `.fixedSize(horizontal: false, vertical: true)`
+- L1331: `.padding(12)`
+- L1332: `.background(AppColors.accentLight.opacity(0.72), in: RoundedRectangle(cornerRadius: 13, style: .continuous))`
+- L1333: `.padding(.top, 16)`
+- L1335: `.padding(.horizontal, 20)`
+- L1336: `.padding(.top, 20)`
+- L1337: `.padding(.bottom, 22)`
+- L1338: `.frame(maxWidth: 360)`
+- L1339: `.background(AppColors.cardBackground, in: RoundedRectangle(cornerRadius: 26, style: .continuous))`
+- L1342: `.stroke(.white.opacity(0.72), lineWidth: 1)`
+- L1344: `.shadow(color: Color.black.opacity(0.18), radius: 28, y: 14)`
+- L1345: `.padding(.horizontal, 18)`
+- L1348: `.animation(`
+- L1363: `Color.black.opacity(0.34)`
+- L1364: `.ignoresSafeArea()`
+- L1374: `.frame(width: 44, height: 44)`
+- L1376: `.font(.system(size: 18, weight: .semibold))`
+- L1377: `.foregroundStyle(AppColors.accent)`
+- L1381: `.font(.system(size: 20, weight: .bold))`
+- L1382: `.foregroundStyle(AppColors.primaryText)`
+- L1384: `.font(.system(size: 11, weight: .medium))`
+- L1385: `.foregroundStyle(AppColors.secondaryText)`
+- L1394: `.font(.system(size: 13, weight: .bold))`
+- L1395: `.foregroundStyle(AppColors.secondaryText)`
+- L1396: `.frame(width: 34, height: 34)`
+- L1397: `.background(AppColors.secondaryBackground, in: Circle())`
+- L1398: `.frame(width: 44, height: 44)`
+- L1404: `Divider().padding(.vertical, 14)`
+- L1409: `.font(.system(size: 34, weight: .medium))`
+- L1410: `.foregroundStyle(AppColors.tertiaryText)`
+- L1412: `.font(.system(size: 16, weight: .bold))`
+- L1413: `.foregroundStyle(AppColors.primaryText)`
+- L1415: `.font(.system(size: 12, weight: .medium))`
+- L1416: `.foregroundStyle(AppColors.secondaryText)`
+- L1419: `.frame(maxWidth: .infinity)`
+- L1420: `.padding(.vertical, 28)`
+- L1432: `.frame(maxHeight: 336)`
+- L1441: `.padding(.top, 18)`
+- L1443: `.padding(.horizontal, 20)`
+- L1444: `.padding(.top, 20)`
+- L1445: `.padding(.bottom, 22)`
+- L1446: `.frame(maxWidth: 360)`
+- L1447: `.background(AppColors.cardBackground, in: RoundedRectangle(cornerRadius: 26, style: .continuous))`
+- L1450: `.stroke(.white.opacity(0.72), lineWidth: 1)`
+- L1452: `.shadow(color: Color.black.opacity(0.18), radius: 28, y: 14)`
+- L1453: `.padding(.horizontal, 18)`
+- L1470: `Divider().padding(.leading, 58)`
+- L1493: `.font(.system(size: 15, weight: .semibold))`
+- L1494: `.foregroundStyle(AppColors.primaryText)`
+- L1511: `.font(.system(size: 12, weight: .bold))`
+- L1512: `.frame(minWidth: 44)`
+- L1513: `.foregroundStyle(appearsRequested ? AppColors.secondaryText : AppColors.accent)`
+- L1514: `.padding(.horizontal, 10)`
+- L1515: `.frame(minHeight: 40)`
+- L1516: `.background(`
+- L1524: `.padding(.vertical, 10)`
+- L1525: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: isRequested)`
+- L1526: `.animation(reduceMotion ? nil : ActivityMotion.stateChange, value: operationStatus.isRunning)`
+- L1571: `.tint(AppColors.accent)`
+- L1605: `Color.clear`
+- L1606: `.ignoresSafeArea()`
+- L1619: `.font(.system(size: 13, weight: .bold))`
+- L1620: `.foregroundStyle(AppColors.secondaryText)`
+- L1621: `.frame(width: 34, height: 34)`
+- L1622: `.background(AppColors.secondaryBackground, in: Circle())`
+- L1623: `.frame(width: 44, height: 44)`
+- L1631: `.fill(AppColors.iconYellow.opacity(0.14))`
+- L1632: `.frame(width: 104, height: 104)`
+- L1634: `.stroke(AppColors.iconYellowDeep.opacity(0.22), lineWidth: 1)`
+- L1635: `.frame(width: 88, height: 88)`
+- L1639: `.frame(width: 78, height: 78)`
+- L1642: `.padding(.top, 2)`
+- L1643: `.scaleEffect(isPresented ? 1 : 0.78)`
+- L1644: `.opacity(isPresented ? 1 : 0)`
+- L1647: `.font(.system(size: 22, weight: .bold))`
+- L1648: `.foregroundStyle(AppColors.primaryText)`
+- L1649: `.padding(.top, 14)`
+- L1650: `.offset(y: isPresented ? 0 : 8)`
+- L1651: `.opacity(isPresented ? 1 : 0)`
+- L1654: `.font(.system(size: 48, weight: .bold, design: .rounded))`
+- L1655: `.foregroundStyle(AppColors.accent)`
+- L1657: `.padding(.top, 6)`
+- L1658: `.scaleEffect(isPresented ? 1 : 0.86)`
+- L1659: `.opacity(isPresented ? 1 : 0)`
+- L1667: `.padding(.top, 22)`
+- L1668: `.offset(y: isPresented ? 0 : 8)`
+- L1669: `.opacity(isPresented ? 1 : 0)`
+- L1671: `.padding(.horizontal, 22)`
+- L1672: `.padding(.top, 14)`
+- L1673: `.padding(.bottom, 24)`
+- L1674: `.frame(maxWidth: 336)`
+- L1675: `.background(AppColors.cardBackground, in: RoundedRectangle(cornerRadius: 26, style: .continuous))`
+- L1678: `.stroke(.white.opacity(0.72), lineWidth: 1)`
+- L1680: `.shadow(color: Color.black.opacity(0.18), radius: 28, y: 14)`
+- L1681: `.padding(.horizontal, 24)`
+- L1704: `.padding(18)`
+- L1705: `.background(AppColors.cardBackground, in: RoundedRectangle(cornerRadius: 20, style: .continuous))`
+- L1710: `.shadow(color: Color.black.opacity(0.025), radius: 10, y: 4)`
+- L1733: `.frame(width: 224, height: 224)`
+- L1734: `.scaleEffect(burstScale)`
+- L1735: `.rotationEffect(.degrees(burstRotation))`
+- L1736: `.opacity(burstOpacity)`
+- L1748: `.frame(width: 92, height: 92)`
+- L1751: `.stroke(AppColors.iconYellow.opacity(0.28), lineWidth: 1)`
+- L1753: `.shadow(color: AppColors.iconYellowDeep.opacity(0.2), radius: 14, y: 7)`
+- L1758: `.frame(width: 68, height: 68)`
+- L1762: `.font(.system(size: 20, weight: .bold, design: .rounded))`
+- L1763: `.foregroundStyle(AppColors.primaryText)`
+- L1767: `.padding(.horizontal, 16)`
+- L1768: `.frame(minHeight: 40)`
+- L1769: `.background(AppColors.cardBackground.opacity(0.96), in: Capsule())`
+- L1773: `.shadow(color: Color.black.opacity(0.08), radius: 10, y: 5)`
+- L1775: `.scaleEffect(rewardScale)`
+- L1776: `.offset(y: rewardOffset)`
+- L1777: `.opacity(rewardOpacity)`
+- L1779: `.position(x: proxy.size.width / 2, y: proxy.size.height * 0.46)`
+- L1781: `.ignoresSafeArea()`
+- L1854: `.font(.system(size: 17, weight: .bold))`
+- L1855: `.foregroundStyle(AppColors.primaryText)`
+- L1858: `.font(.system(size: 12, weight: .medium))`
+- L1859: `.foregroundStyle(AppColors.secondaryText)`
+- L1860: `.fixedSize(horizontal: false, vertical: true)`
+- L1863: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1874: `.frame(width: 18, height: 18)`
+- L1876: `.font(.system(size: 12, weight: .bold, design: .rounded))`
+- L1879: `.foregroundStyle(AppColors.primaryText)`
+- L1880: `.padding(.horizontal, 8)`
+- L1881: `.padding(.vertical, 5)`
+- L1882: `.background(`
+- L1883: `AppColors.iconYellow.opacity(0.16),`
+- L1916: `.scaleEffect(configuration.isPressed ? pressedScale : 1)`
+- L1917: `.opacity(configuration.isPressed ? pressedOpacity : 1)`
+- L1918: `.animation(`
+- L1968: `.font(.system(size: 16, weight: .bold))`
+- L1969: `.frame(maxWidth: .infinity)`
+- L1970: `.frame(minHeight: 50)`
+- L1971: `.foregroundStyle(isDisabled && !isLoading ? AppColors.primaryText.opacity(0.58) : .white)`
+- L1981: `.shadow(`
+- L1982: `color: (isLoading ? AppColors.warningColor : AppColors.accent).opacity(0.22),`
+- L1992: `? AppColors.accent.opacity(0.2)`
+- L1993: `: .white.opacity(0.12),`
+- L1997: `.animation(`
+- L2022: `.font(.system(size: 40))`
+- L2023: `.foregroundStyle(AppColors.tertiaryText)`
+- L2024: `Text(title).font(.headline)`
+- L2026: `.font(.subheadline)`
+- L2027: `.foregroundStyle(AppColors.secondaryText)`
+- L2030: `.padding(24)`
+- L2031: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+
+交互 modifier：
+
+- L116: `.task(id: authManager.currentUser?.userID ?? "anonymous") {`
+- L120: `.onChange(of: scenePhase) { phase in`
+- L127: `.sheet(item: $sheet) { item in sheetContent(item) }`
+- L128: `.alert(`
+- L187: `.refreshable { await store.load(force: true) }`
+- L193: `.refreshable { await store.load(force: true) }`
+- L324: `if snapshot.task(.contactSync) != nil || snapshot.task(.inviteShare) != nil {`
+- L327: `if !snapshot.invitation.inviteCode.isEmpty || snapshot.task(.validInvite) != nil {`
+- L410: `if let task = snapshot.task(.contactSync) {`
+- L430: `if let task = snapshot.task(.inviteShare) {`
+- L469: `if let task = snapshot.task(.validInvite) {`
+- L516: `.onChange(of: claimedDays) { _ in`
+- L669: `.onChange(of: isClaimed) { claimed in`
+- L842: `.accessibilityLabel(L10n.tr("activityCenter.task.claim", title, task.rewardActivityCatFood))`
+- L1183: `.onTapGesture(perform: dismiss)`
+- L1352: `.onAppear { focusedField = .phone }`
+- L1366: `.onTapGesture(perform: dismiss)`
+- L1608: `.onTapGesture(perform: dismiss)`
+- L1684: `.onAppear {`
+- L1785: `.onAppear(perform: play)`
+- L1786: `.onDisappear { animationTask?.cancel() }`
+
+### BWChat/Views/AddFriendView.swift
+
+视觉 modifier：
+
+- L17: `.foregroundColor(AppColors.secondaryText)`
+- L18: `.font(.system(size: 16))`
+- L21: `.font(.system(size: 16))`
+- L35: `.foregroundColor(AppColors.tertiaryText)`
+- L36: `.font(.system(size: 18))`
+- L37: `.frame(width: 36, height: 36)`
+- L42: `.padding(.horizontal, 14)`
+- L43: `.padding(.vertical, 10)`
+- L44: `.background(AppColors.separator.opacity(0.8))`
+- L45: `.cornerRadius(12)`
+- L46: `.padding(.horizontal, 16)`
+- L47: `.padding(.top, 8)`
+- L52: `.tint(AppColors.accent)`
+- L58: `.font(.system(size: 36))`
+- L59: `.foregroundColor(AppColors.tertiaryText)`
+- L61: `.font(.system(size: 15))`
+- L62: `.foregroundColor(AppColors.secondaryText)`
+- L69: `.font(.system(size: 36))`
+- L70: `.foregroundColor(AppColors.tertiaryText)`
+- L72: `.font(.system(size: 15))`
+- L73: `.foregroundColor(AppColors.secondaryText)`
+- L93: `Divider().padding(.leading, 72)`
+- L96: `.padding(.top, 8)`
+- L100: `.background(AppColors.background)`
+- L109: `.font(.system(size: 16))`
+- L110: `.foregroundColor(AppColors.accent)`
+- L111: `.frame(height: 44)`
+- L159: `.font(.system(size: 16, weight: .semibold))`
+- L160: `.foregroundColor(AppColors.primaryText)`
+- L169: `.padding(.horizontal, 16)`
+- L170: `.padding(.vertical, 10)`
+- L179: `.tint(followButtonForegroundColor)`
+- L186: `.font(.system(size: 13, weight: .semibold))`
+- L187: `.foregroundColor(followButtonForegroundColor)`
+- L188: `.padding(.horizontal, 10)`
+- L189: `.frame(minWidth: 56, minHeight: 32)`
+- L190: `.background(`
+- L201: `.font(.system(size: 13, weight: .semibold))`
+- L202: `.foregroundColor(AppColors.primaryText)`
+- L205: `.padding(.horizontal, 10)`
+- L206: `.frame(minWidth: 56, minHeight: 32)`
+- L207: `.background(`
+- L214: `.fixedSize(horizontal: true, vertical: false)`
+
+交互 modifier：
+
+- L25: `.onChange(of: viewModel.searchText) { _ in`
+
+### BWChat/Views/AddGroupMembersView.swift
+
+视觉 modifier：
+
+- L27: `.tint(AppColors.accent)`
+- L33: `.font(.system(size: 36))`
+- L34: `.foregroundColor(AppColors.tertiaryText)`
+- L36: `.font(.system(size: 14))`
+- L37: `.foregroundColor(AppColors.secondaryText)`
+- L40: `.frame(maxWidth: .infinity)`
+- L45: `.font(.system(size: 13, weight: .medium))`
+- L46: `.foregroundColor(AppColors.secondaryText)`
+- L48: `.padding(.horizontal, 16)`
+- L50: `.padding(.top, 16)`
+- L51: `.padding(.bottom, 8)`
+- L68: `.frame(width: 24, height: 24)`
+- L72: `.frame(width: 24, height: 24)`
+- L74: `.font(.system(size: 11, weight: .bold))`
+- L75: `.foregroundColor(.white)`
+- L78: `.frame(width: 36, height: 36)`
+- L84: `.font(.system(size: 16, weight: .medium))`
+- L85: `.foregroundColor(AppColors.primaryText)`
+- L90: `.padding(.horizontal, 16)`
+- L91: `.padding(.vertical, 8)`
+- L95: `Divider().padding(.leading, 76)`
+- L103: `.background(AppColors.background)`
+- L109: `.font(.system(size: 16))`
+- L110: `.foregroundColor(AppColors.accent)`
+- L111: `.frame(height: 44)`
+- L120: `.scaleEffect(0.8)`
+- L123: `.font(.system(size: 16, weight: .semibold))`
+- L124: `.foregroundColor(!selectedFriends.isEmpty ? AppColors.accent : AppColors.tertiaryText)`
+- L128: `.frame(height: 44)`
+
+交互 modifier：
+
+- L132: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L141: `.task {`
+
+### BWChat/Views/AgentChatView.swift
+
+视觉 modifier：
+
+- L63: `.safeAreaInset(edge: .bottom, spacing: 0) {`
+- L66: `.background(AppColors.secondaryBackground)`
+- L79: `.font(.system(size: 16, weight: .semibold))`
+- L80: `.foregroundColor(AppColors.primaryText)`
+- L93: `.font(.system(size: 16, weight: .semibold))`
+- L105: `.font(.system(size: 15, weight: .semibold))`
+- L152: `Color.clear`
+- L153: `.frame(height: 1)`
+- L190: `.font(.system(size: 13, weight: .semibold))`
+- L193: `.padding(.vertical, 8)`
+- L197: `.padding(.horizontal, 12)`
+- L198: `.padding(.vertical, 14)`
+- L201: `.rotationEffect(.degrees(180))`
+- L202: `.scaleEffect(x: -1, y: 1, anchor: .center)`
+- L251: `.font(.system(size: 13, weight: .semibold))`
+- L252: `.foregroundColor(AppColors.accent)`
+- L253: `.padding(12)`
+- L254: `.background(AppColors.accentLight)`
+- L255: `.cornerRadius(12)`
+- L267: `.font(.system(size: 12))`
+- L268: `.foregroundColor(AppColors.errorColor)`
+- L269: `.padding(10)`
+- L270: `.background(AppColors.errorColor.opacity(0.08))`
+- L271: `.cornerRadius(10)`
+- L305: `.font(.system(size: 12, weight: .medium))`
+- L306: `.foregroundColor(AppColors.secondaryText)`
+- L309: `.padding(.horizontal, 12)`
+- L310: `.padding(.vertical, 10)`
+- L324: `.padding(.horizontal, 12)`
+- L325: `.padding(.top, 9)`
+- L326: `.padding(.bottom, imageAdjustmentBlockReason == nil ? 8 : 0)`
+- L332: `.font(.system(size: 12, weight: .semibold))`
+- L333: `.foregroundColor(.white)`
+- L334: `.padding(.horizontal, 11)`
+- L335: `.padding(.vertical, 7)`
+- L336: `.background(AppColors.accent)`
+- L337: `.clipShape(Capsule())`
+- L340: `.padding(.horizontal, 12)`
+- L341: `.padding(.top, 9)`
+- L351: `.frame(width: 62, height: 62)`
+- L352: `.clipShape(RoundedRectangle(cornerRadius: 10))`
+- L359: `.foregroundStyle(.white, Color.black.opacity(0.6))`
+- L361: `.offset(x: 5, y: -5)`
+- L365: `.padding(.horizontal, 12)`
+- L366: `.padding(.top, 2)`
+- L372: `.font(.system(size: 12))`
+- L373: `.foregroundColor(AppColors.errorColor)`
+- L374: `.padding(.horizontal, 12)`
+- L375: `.padding(.bottom, 4)`
+- L378: `.font(.system(size: 12))`
+- L379: `.foregroundColor(AppColors.accent)`
+- L380: `.padding(.horizontal, 12)`
+- L381: `.padding(.bottom, 4)`
+- L400: `.frame(height: inputTextHeight)`
+- L403: `.font(.system(size: 16))`
+- L404: `.foregroundColor(AppColors.tertiaryText)`
+- L405: `.padding(.leading, 2)`
+- L406: `.opacity(inputText.isEmpty && !isInputFocused ? 1 : 0)`
+- L409: `.frame(maxWidth: .infinity)`
+- L414: `.padding(.horizontal, 10)`
+- L415: `.padding(.top, 10)`
+- L416: `.padding(.bottom, isInputFocused ? 5 : 12)`
+- L417: `.animation(composerFocusAnimation, value: isInputFocused)`
+- L432: `.tint(AppColors.accent)`
+- L433: `.scaleEffect(0.75)`
+- L436: `.font(.system(size: 25))`
+- L437: `.foregroundColor(AppColors.accent)`
+- L440: `.frame(width: 40, height: 40)`
+- L445: `.frame(`
+- L450: `.offset(x: -(composerActionButtonWidth + composerActionsSpacing))`
+- L451: `.opacity(isInputFocused ? 0 : 1)`
+- L461: `.tint(AppColors.accent)`
+- L462: `.scaleEffect(0.75)`
+- L465: `.font(.system(size: 23))`
+- L466: `.foregroundColor(AppColors.accent)`
+- L469: `.frame(width: 40, height: 40)`
+- L479: `.frame(`
+- L485: `.opacity(isInputFocused ? 0 : 1)`
+- L497: `.frame(width: 40, height: 40)`
+- L500: `.tint(.white)`
+- L501: `.scaleEffect(0.7)`
+- L504: `.font(.system(size: 15, weight: .bold))`
+- L505: `.foregroundColor(canSubmit ? .white : AppColors.tertiaryText)`
+- L512: `.frame(`
+- L517: `.opacity(isInputFocused ? 1 : 0)`
+- L521: `.frame(`
+- L801: `.font(.system(size: 15))`
+- L802: `.foregroundColor(AppColors.sentBubbleText)`
+- L803: `.padding(.horizontal, 13)`
+- L804: `.padding(.vertical, 9)`
+- L812: `.tint(AppColors.secondaryText)`
+- L815: `.frame(maxWidth: 290, alignment: .trailing)`
+- L817: `.frame(maxWidth: .infinity)`
+- L1130: `Color.black.opacity(0.34)`
+- L1131: `.ignoresSafeArea()`
+- L1143: `.padding(.horizontal, 28)`
+- L1145: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1146: `.background(`
+- L1168: `.transition(`
+- L1177: `.transition(`
+- L1186: `.transition(.opacity)`
+- L1189: `.transition(`
+- L1194: `.frame(height: coordinator.isActive ? 326 : 224)`
+- L1195: `.padding(.horizontal, 18)`
+- L1196: `.padding(.vertical, coordinator.isActive ? 10 : 18)`
+- L1197: `.frame(maxWidth: 330)`
+- L1198: `.background(AppColors.cardBackground)`
+- L1199: `.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))`
+- L1202: `.stroke(Color.white.opacity(0.72), lineWidth: 1)`
+- L1205: `.shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 10)`
+- L1206: `.animation(`
+- L1217: `.font(.system(size: 34, weight: .medium))`
+- L1218: `.foregroundColor(AppColors.secondaryText)`
+- L1221: `.font(.system(size: 17, weight: .semibold))`
+- L1222: `.foregroundColor(AppColors.primaryText)`
+- L1226: `.font(.system(size: 13))`
+- L1227: `.foregroundColor(AppColors.secondaryText)`
+- L1232: `.font(.system(size: 15, weight: .medium))`
+- L1233: `.foregroundColor(AppColors.secondaryText)`
+- L1234: `.frame(maxWidth: .infinity)`
+- L1235: `.frame(height: 42)`
+- L1236: `.background(AppColors.secondaryBackground)`
+- L1237: `.clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))`
+- L1242: `.font(.system(size: 15, weight: .semibold))`
+- L1243: `.foregroundColor(.white)`
+- L1244: `.frame(maxWidth: .infinity)`
+- L1245: `.frame(height: 42)`
+- L1246: `.background(AppColors.accentGradient)`
+- L1247: `.clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))`
+- L1256: `.font(.system(size: 18, weight: .semibold))`
+- L1257: `.foregroundColor(AppColors.primaryText)`
+- L1264: `.padding(.horizontal, 12)`
+- L1265: `.frame(height: 112)`
+- L1269: `.font(.system(size: 15))`
+- L1270: `.foregroundColor(AppColors.tertiaryText)`
+- L1271: `.padding(.horizontal, 13)`
+- L1272: `.padding(.vertical, 14)`
+- L1276: `.frame(height: 124)`
+- L1277: `.background(AppColors.secondaryBackground)`
+- L1278: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L1282: `isRoleFocused ? AppColors.accent.opacity(0.72) : AppColors.separator,`
+- L1287: `.animation(.easeOut(duration: 0.16), value: isRoleFocused)`
+- L1292: `.font(.system(size: 16, weight: .semibold))`
+- L1296: `.font(.system(size: 11, weight: .semibold))`
+- L1298: `.font(.system(size: 12, weight: .medium))`
+- L1300: `.foregroundStyle(Color.white.opacity(0.86))`
+- L1302: `.foregroundColor(.white)`
+- L1303: `.frame(maxWidth: .infinity)`
+- L1304: `.frame(height: 46)`
+- L1305: `.background(AppColors.accentGradient)`
+- L1306: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L1310: `.opacity(trimmedRole.isEmpty ? 0.5 : 1)`
+- L1348: `.frame(width: 252, height: 252)`
+- L1351: `.font(.system(size: 17, weight: .semibold))`
+- L1352: `.foregroundColor(AppColors.primaryText)`
+- L1353: `.padding(.top, 4)`
+- L1356: `.font(.system(size: 13))`
+- L1357: `.foregroundColor(AppColors.secondaryText)`
+- L1359: `.padding(.top, 2)`
+- L1363: `.font(.system(size: 14, weight: .medium))`
+- L1364: `.foregroundColor(AppColors.accent)`
+- L1366: `.padding(.top, 8)`
+- L1369: `.frame(maxWidth: .infinity)`
+- L1387: `AppColors.accent.opacity(breathes ? 0.22 : 0.13),`
+- L1388: `AppColors.accent.opacity(0)`
+- L1394: `.scaleEffect(breathes ? 1.04 : 0.94)`
+- L1397: `.frame(width: 248, height: 248)`
+- L1443: `ambientLight.color = UIColor.white`
+- L1451: `keyLight.color = UIColor.white`
+- L1470: `material.specular.contents = UIColor(white: 1, alpha: 0.08)`
+- L1533: `textView.textColor = UIColor(AppColors.primaryText)`
+- L1534: `textView.tintColor = UIColor(AppColors.accent)`
+- L1588: `.font(.system(size: 13, weight: .semibold))`
+- L1589: `.foregroundColor(AppColors.primaryText)`
+- L1591: `.font(.system(size: 12))`
+- L1592: `.foregroundColor(AppColors.secondaryText)`
+- L1597: `.font(.system(size: 13, weight: .semibold))`
+- L1599: `.foregroundColor(AppColors.accent)`
+- L1604: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1605: `.padding(12)`
+- L1606: `.background(AppColors.accentLight)`
+- L1607: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L1625: `ProgressView().scaleEffect(0.8)`
+- L1627: `.font(.system(size: 13))`
+- L1628: `.foregroundColor(AppColors.secondaryText)`
+- L1631: `.padding(12)`
+- L1632: `.background(AppColors.cardBackground)`
+- L1633: `.cornerRadius(12)`
+- L1645: `.font(.system(size: 13))`
+- L1650: `.font(.system(size: 13, weight: .semibold))`
+- L1653: `.foregroundColor(notice.isFailure ? AppColors.errorColor : AppColors.warningColor)`
+- L1654: `.padding(12)`
+- L1655: `.background((notice.isFailure ? AppColors.errorColor : AppColors.warningColor).opacity(0.08))`
+- L1656: `.cornerRadius(12)`
+
+交互 modifier：
+
+- L108: `.task {`
+- L114: `.onAppear {`
+- L117: `.onDisappear {`
+- L125: `.onChange(of: scenePhase) { phase in`
+- L128: `.onChange(of: selectedItem) { item in`
+- L134: `.onChange(of: viewModel.messages.last?.id) { _ in`
+- L138: `.onChange(of: viewModel.currentTurn?.status) { _ in`
+- L142: `.onChange(of: viewModel.errorMessage) { message in`
+- L204: `.simultaneousGesture(`
+- L211: `.simultaneousGesture(`
+- L216: `.onChange(of: scrollRequest) { _ in`
+- L1133: `.onTapGesture {`
+- L1156: `.onDisappear {`
+- L1373: `.onAppear(perform: startAnimation)`
+- L1374: `.onChange(of: reduceMotion) { isReduced in`
+
+### BWChat/Views/AgentCreatorView.swift
+
+视觉 modifier：
+
+- L44: `.font(.system(size: 13))`
+- L45: `.foregroundColor(AppColors.errorColor)`
+- L51: `.background(AppColors.secondaryBackground)`
+- L68: `ProgressView().scaleEffect(0.8)`
+- L71: `.fontWeight(.semibold)`
+- L82: `.background(`
+- L103: `.font(.system(size: 15, weight: .semibold))`
+- L104: `.foregroundColor(AppColors.primaryText)`
+- L106: `.font(.system(size: 12))`
+- L107: `.foregroundColor(AppColors.secondaryText)`
+- L136: `.font(.system(size: 22, weight: .semibold))`
+- L137: `.foregroundColor(AppColors.accent)`
+- L141: `.frame(width: 64, height: 64)`
+- L142: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L145: `.stroke(AppColors.accent.opacity(0.16), lineWidth: 1)`
+- L328: `.font(.system(size: 12))`
+- L329: `.foregroundColor(AppColors.secondaryText)`
+- L337: `.font(.system(size: 14, weight: .semibold))`
+- L338: `.foregroundColor(.black)`
+
+交互 modifier：
+
+- L77: `.onChange(of: referenceItem) { item in`
+- L90: `.onDisappear {`
+
+### BWChat/Views/AgentHubView.swift
+
+视觉 modifier：
+
+- L12: `.background(AppColors.secondaryBackground)`
+- L20: `.font(.system(size: 17, weight: .semibold))`
+- L21: `.foregroundColor(AppColors.primaryText)`
+- L28: `.font(.system(size: 16, weight: .semibold))`
+- L42: `.overlay(alignment: .bottom) { errorBanner }`
+- L49: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L89: `.font(.system(size: 15, weight: .semibold))`
+- L90: `.foregroundColor(.white)`
+- L91: `.padding(.horizontal, 22)`
+- L92: `.frame(height: 44)`
+- L93: `.background(AppColors.accent)`
+- L94: `.clipShape(Capsule())`
+- L130: `.padding(16)`
+- L131: `.padding(.bottom, 60)`
+- L137: `.font(.system(size: 13, weight: .semibold))`
+- L138: `.foregroundColor(AppColors.secondaryText)`
+- L139: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L140: `.padding(.top, 4)`
+- L148: `Text(error).font(.system(size: 13)).lineLimit(2)`
+- L151: `.font(.system(size: 13, weight: .semibold))`
+- L153: `.foregroundColor(.white)`
+- L154: `.padding(12)`
+- L155: `.background(AppColors.errorColor.opacity(0.95))`
+- L156: `.cornerRadius(12)`
+- L157: `.padding(16)`
+- L195: `.font(.system(size: 16, weight: .semibold))`
+- L196: `.foregroundColor(AppColors.primaryText)`
+- L199: `.font(.system(size: 13))`
+- L200: `.foregroundColor(AppColors.secondaryText)`
+- L213: `ProgressView().scaleEffect(0.8)`
+- L216: `.font(.system(size: 13, weight: .semibold))`
+- L217: `.foregroundColor(AppColors.accent)`
+- L220: `.padding(14)`
+- L221: `.background(AppColors.cardBackground)`
+- L222: `.cornerRadius(14)`
+- L234: `.font(.system(size: 16, weight: .semibold))`
+- L235: `.foregroundColor(AppColors.primaryText)`
+- L237: `.font(.system(size: 13))`
+- L238: `.foregroundColor(AppColors.secondaryText)`
+- L243: `.font(.system(size: 12, weight: .semibold))`
+- L244: `.foregroundColor(AppColors.tertiaryText)`
+- L246: `.padding(14)`
+- L247: `.background(AppColors.cardBackground)`
+- L248: `.cornerRadius(14)`
+- L269: `.frame(width: 54, height: 54)`
+- L274: `.font(.system(size: 16, weight: .semibold))`
+- L275: `.foregroundColor(AppColors.primaryText)`
+- L280: `.font(.system(size: 13))`
+- L281: `.foregroundColor(AppColors.secondaryText)`
+- L290: `.font(.system(size: 11))`
+- L291: `.foregroundColor(AppColors.tertiaryText)`
+- L294: `.font(.system(size: 12, weight: .semibold))`
+- L295: `.foregroundColor(AppColors.tertiaryText)`
+- L298: `.padding(14)`
+- L299: `.background(AppColors.cardBackground)`
+- L300: `.cornerRadius(14)`
+- L344: `.frame(width: size, height: size)`
+- L345: `.clipShape(RoundedRectangle(cornerRadius: resolvedCornerRadius, style: .continuous))`
+- L388: `.font(.system(size: size * 0.34, weight: .semibold))`
+- L389: `.foregroundColor(.white)`
+- L398: `.font(.system(size: 10, weight: .semibold))`
+- L399: `.foregroundColor(AppColors.accent)`
+- L400: `.padding(.horizontal, 7)`
+- L401: `.padding(.vertical, 3)`
+- L402: `.background(AppColors.accentLight)`
+- L403: `.clipShape(Capsule())`
+- L414: `.font(.system(size: 34, weight: .medium))`
+- L415: `.foregroundColor(AppColors.tertiaryText)`
+- L417: `.font(.system(size: 16, weight: .semibold))`
+- L418: `.foregroundColor(AppColors.primaryText)`
+- L420: `.font(.system(size: 13))`
+- L421: `.foregroundColor(AppColors.secondaryText)`
+- L423: `.frame(maxWidth: .infinity)`
+- L424: `.padding(.vertical, 70)`
+
+交互 modifier：
+
+- L33: `.task { await viewModel.load() }`
+- L37: `.onChange(of: scenePhase) { phase in`
+- L41: `.refreshable { await viewModel.load(forceRefresh: true) }`
+- L109: `.contextMenu {`
+- L346: `.onAppear {`
+- L352: `.task(id: assetID) {`
+
+### BWChat/Views/AgentMessageView.swift
+
+视觉 modifier：
+
+- L34: `.frame(maxWidth: 290, alignment: isFromUser ? .trailing : .leading)`
+- L38: `.frame(maxWidth: .infinity)`
+- L50: `.font(.system(size: 15))`
+- L51: `.foregroundColor(isFromUser ? AppColors.sentBubbleText : AppColors.receivedBubbleText)`
+- L52: `.padding(.horizontal, 13)`
+- L53: `.padding(.vertical, 9)`
+- L65: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 0.5)`
+- L74: `.frame(`
+- L78: `.clipShape(RoundedRectangle(`
+- L202: `.frame(width: historyMediaSize.width, height: historyMediaSize.height)`
+- L203: `.background(AppColors.separator)`
+- L204: `.clipShape(RoundedRectangle(`
+- L213: `.stroke(Color.black.opacity(0.08), lineWidth: 0.5)`
+- L230: `.font(.system(size: 12, weight: .semibold))`
+- L231: `.foregroundColor(AppColors.accent)`
+- L255: `Color.black.opacity(0.18)`
+- L258: `.fill(Color.black.opacity(0.42))`
+- L259: `.frame(width: 44, height: 44)`
+- L261: `.font(.system(size: 17, weight: .bold))`
+- L262: `.foregroundColor(.white)`
+- L263: `.offset(x: 2)`
+- L304: `Color.black.opacity(0.12)`
+- L306: `Color.black.opacity(0.25)`
+- L309: `.font(.system(size: 24, weight: .semibold))`
+- L315: `if isUnlocking { ProgressView().tint(.white).scaleEffect(0.7) }`
+- L321: `.font(.system(size: 13, weight: .semibold))`
+- L323: `.foregroundColor(.white)`
+- L324: `.padding(.horizontal, 14)`
+- L325: `.padding(.vertical, 8)`
+- L326: `.background(AppColors.accent)`
+- L327: `.clipShape(Capsule())`
+- L331: `.foregroundColor(.white)`
+- L337: `.font(.system(size: 13))`
+- L338: `.foregroundColor(AppColors.secondaryText)`
+- L340: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L351: `Image(systemName: icon).font(.system(size: 26))`
+- L352: `Text(text).font(.system(size: 13))`
+- L354: `.foregroundColor(AppColors.secondaryText)`
+- L355: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L455: `.blur(radius: blurRadius)`
+- L460: `.foregroundColor(AppColors.secondaryText)`
+
+交互 modifier：
+
+- L236: `.fullScreenCover(item: $videoPreviewItem) { item in`
+- L266: `.onTapGesture {`
+- L473: `.onAppear {`
+- L479: `.task(id: cacheKey) {`
+
+### BWChat/Views/CallView.swift
+
+视觉 modifier：
+
+- L14: `Color.black.ignoresSafeArea()`
+- L28: `.font(.system(size: 16, weight: .semibold))`
+- L29: `.foregroundColor(.white.opacity(0.8))`
+- L30: `.frame(width: 40, height: 40)`
+- L31: `.background(.white.opacity(0.15))`
+- L32: `.clipShape(Circle())`
+- L37: `.padding(.horizontal, 16)`
+- L38: `.padding(.top, 54)`
+- L40: `Spacer().frame(height: 20)`
+- L47: `.shadow(color: .white.opacity(0.2), radius: 20)`
+- L53: `.shadow(color: .white.opacity(0.2), radius: 20)`
+- L57: `.font(.system(size: 28, weight: .semibold))`
+- L58: `.foregroundColor(.white)`
+- L59: `.padding(.top, 20)`
+- L64: `.padding(.top, 8)`
+- L70: `.font(.system(size: 14))`
+- L71: `.foregroundColor(.white.opacity(0.6))`
+- L72: `.padding(.top, 4)`
+- L86: `.padding(.horizontal, 16)`
+- L87: `.padding(.bottom, 14)`
+- L98: `Spacer().frame(height: 50)`
+- L110: `.transition(.opacity.combined(with: .scale(scale: 0.96)))`
+- L111: `.zIndex(20)`
+- L119: `.transition(.opacity.combined(with: .scale(scale: 0.96)))`
+- L120: `.zIndex(40)`
+- L123: `.animation(.easeInOut(duration: 0.22), value: callManager.liveEndingMessage)`
+- L124: `.animation(.easeInOut(duration: 0.3), value: callManager.currentCall?.state)`
+- L194: `.font(.system(size: 12, weight: .semibold))`
+- L195: `.foregroundColor(.white)`
+- L196: `.padding(.horizontal, 11)`
+- L197: `.padding(.vertical, 7)`
+- L198: `.background(`
+- L200: `? Color.orange.opacity(0.82)`
+- L201: `: Color.black.opacity(0.48),`
+- L212: `.font(.system(size: 16))`
+- L213: `.foregroundColor(.white.opacity(0.7))`
+- L218: `.font(.system(size: 16))`
+- L219: `.foregroundColor(.white.opacity(0.7))`
+- L222: `.font(.system(size: 16))`
+- L223: `.foregroundColor(.white.opacity(0.7))`
+- L228: `.font(.system(size: 15, weight: .medium))`
+- L229: `.foregroundColor(.orange)`
+- L232: `.font(.system(size: 18, weight: .medium, design: .monospaced))`
+- L233: `.foregroundColor(.green)`
+- L239: `.font(.system(size: 12, weight: .medium))`
+- L240: `.foregroundColor(.orange)`
+- L264: `.transition(.opacity)`
+- L267: `.transition(.opacity)`
+- L281: `.ignoresSafeArea()`
+- L293: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)`
+- L294: `.padding(.leading, 16)`
+- L295: `.padding(.bottom, 160)`
+- L308: `.ignoresSafeArea()`
+- L322: `.ignoresSafeArea()`
+- L356: `.padding(5)`
+- L359: `.frame(width: 110, height: 150)`
+- L361: `.clipShape(.rect(cornerRadius: 12))`
+- L364: `.shadow(color: .black.opacity(0.4), radius: 8)`
+- L365: `.padding(.top, 60)`
+- L366: `.padding(.trailing, 16)`
+- L402: `.font(.system(size: 31))`
+- L403: `.foregroundColor(.white)`
+- L404: `.frame(width: 76, height: 76)`
+- L405: `.background(Color.red)`
+- L406: `.clipShape(Circle())`
+- L410: `.font(.system(size: 13))`
+- L411: `.foregroundColor(.white.opacity(0.7))`
+- L417: `.font(.system(size: 31))`
+- L418: `.foregroundColor(.white)`
+- L419: `.frame(width: 76, height: 76)`
+- L420: `.background(Color.green)`
+- L421: `.clipShape(Circle())`
+- L425: `.font(.system(size: 13))`
+- L426: `.foregroundColor(.white.opacity(0.7))`
+- L479: `.padding(.horizontal, 12)`
+- L504: `.padding(.horizontal, 28)`
+- L512: `.font(.system(size: buttonDiameter * 0.4))`
+- L513: `.foregroundColor(.white)`
+- L514: `.frame(width: buttonDiameter, height: buttonDiameter)`
+- L515: `.background(Color.red)`
+- L516: `.clipShape(Circle())`
+- L520: `.font(.system(size: 12))`
+- L521: `.foregroundColor(.white.opacity(0.7))`
+- L525: `.frame(width: buttonDiameter)`
+- L539: `.font(.system(size: buttonDiameter * 0.4))`
+- L540: `.foregroundColor(isActive ? .black : .white)`
+- L541: `.frame(width: buttonDiameter, height: buttonDiameter)`
+- L542: `.background(isActive ? Color.white : Color.white.opacity(0.2))`
+- L543: `.clipShape(Circle())`
+- L547: `.font(.system(size: 12))`
+- L548: `.foregroundColor(.white.opacity(0.7))`
+- L552: `.frame(width: buttonDiameter)`
+- L567: `Color.black.opacity(0.34)`
+- L568: `.ignoresSafeArea()`
+- L572: `.font(.system(size: 28, weight: .semibold))`
+- L573: `.foregroundColor(AppColors.accent)`
+- L574: `.frame(width: 54, height: 54)`
+- L575: `.background(AppColors.accent.opacity(0.12))`
+- L576: `.clipShape(Circle())`
+- L579: `.font(.system(size: 18, weight: .semibold))`
+- L580: `.foregroundColor(AppColors.primaryText)`
+- L585: `.font(.system(size: 14, weight: .medium))`
+- L586: `.foregroundColor(AppColors.primaryText.opacity(0.82))`
+- L591: `.font(.system(size: 14))`
+- L592: `.foregroundColor(AppColors.secondaryText)`
+- L595: `.tint(AppColors.accent)`
+- L596: `.padding(.top, 2)`
+- L598: `.padding(.horizontal, 24)`
+- L599: `.padding(.vertical, 22)`
+- L600: `.frame(maxWidth: 310)`
+- L601: `.background(.ultraThinMaterial)`
+- L602: `.background(AppColors.cardBackground.opacity(0.9))`
+- L603: `.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))`
+- L604: `.shadow(color: .black.opacity(0.2), radius: 24, x: 0, y: 12)`
+- L605: `.padding(.horizontal, 32)`
+- L622: `Color.black.opacity(0.38)`
+- L623: `.ignoresSafeArea()`
+- L628: `.font(.system(size: 22, weight: .semibold))`
+- L629: `.foregroundColor(AppColors.accent)`
+- L633: `.font(.system(size: 13, weight: .medium))`
+- L634: `.foregroundColor(AppColors.secondaryText)`
+- L636: `.font(.system(size: 20, weight: .semibold))`
+- L637: `.foregroundColor(AppColors.primaryText)`
+- L644: `.font(.system(size: 13, weight: .bold))`
+- L645: `.foregroundColor(AppColors.secondaryText)`
+- L646: `.frame(width: 32, height: 32)`
+- L647: `.background(AppColors.secondaryBackground)`
+- L648: `.clipShape(Circle())`
+- L656: `.font(.system(size: 16))`
+- L657: `.foregroundColor(AppColors.primaryText)`
+- L658: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L661: `.frame(maxHeight: 180)`
+- L664: `.font(.system(size: 16, weight: .semibold))`
+- L665: `.foregroundColor(.white)`
+- L666: `.frame(maxWidth: .infinity)`
+- L667: `.frame(height: 44)`
+- L668: `.background(AppColors.accentGradient)`
+- L669: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L672: `.padding(20)`
+- L673: `.frame(maxWidth: 340)`
+- L674: `.background(AppColors.cardBackground)`
+- L675: `.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))`
+- L676: `.shadow(color: .black.opacity(0.24), radius: 24, x: 0, y: 12)`
+- L677: `.padding(.horizontal, 24)`
+- L686: `colors: [Color(hex: "171923"), Color(hex: "101522"), Color.black],`
+- L690: `.ignoresSafeArea()`
+- L704: `.shadow(color: .black.opacity(0.38), radius: 26, y: 12)`
+- L706: `.ignoresSafeArea()`
+- L719: `Color(hex: "2A2A3E")`
+- L722: `.shadow(color: .black.opacity(0.24), radius: 8, y: 4)`
+- L724: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L744: `.font(.caption2.weight(.semibold))`
+- L745: `.foregroundStyle(.white)`
+- L746: `.padding(.horizontal, 7)`
+- L747: `.padding(.vertical, 5)`
+- L748: `.background(.red.opacity(0.88), in: Capsule())`
+- L787: `.position(position)`
+- L794: `.position(position)`
+- L803: `.ignoresSafeArea()`
+- L819: `colors: [Color(hex: "34C759"), Color(hex: "30B350")],`
+- L827: `.font(.system(size: 20, weight: .semibold))`
+- L828: `.foregroundColor(.white)`
+- L832: `.font(.system(size: 9, weight: .semibold, design: .monospaced))`
+- L833: `.foregroundColor(.white.opacity(0.9))`
+- L837: `.frame(width: voicePipSize, height: voicePipSize)`
+- L850: `.font(.system(size: 8, weight: .bold))`
+- L851: `.foregroundColor(.white)`
+- L852: `.frame(width: 18, height: 18)`
+- L853: `.background(Color.black.opacity(0.5))`
+- L854: `.clipShape(Circle())`
+- L856: `.offset(x: 4, y: -4)`
+- L859: `.shadow(color: .black.opacity(0.3), radius: 6, y: 2)`
+- L879: `colors: [Color(hex: "5856D6"), Color(hex: "764BA2")],`
+- L888: `.font(.system(size: 22, weight: .semibold))`
+- L889: `.foregroundColor(.white)`
+- L894: `.font(.system(size: 11, weight: .semibold, design: .monospaced))`
+- L895: `.foregroundColor(.white)`
+- L896: `.padding(.horizontal, 6)`
+- L897: `.padding(.vertical, 2)`
+- L898: `.background(Color.black.opacity(0.5))`
+- L899: `.cornerRadius(6)`
+- L903: `.frame(width: videoPipWidth, height: videoPipHeight)`
+- L904: `.cornerRadius(14)`
+- L917: `.font(.system(size: 10, weight: .bold))`
+- L918: `.foregroundColor(.white)`
+- L919: `.frame(width: 22, height: 22)`
+- L920: `.background(Color.black.opacity(0.5))`
+- L921: `.clipShape(Circle())`
+- L923: `.offset(x: -4, y: 4)`
+- L926: `.shadow(color: .black.opacity(0.35), radius: 8, y: 3)`
+- L945: `? LinearGradient(colors: [Color(hex: "34C759"), Color(hex: "30B350")], startPoint: .top, endPoint: .bottom)`
+- L946: `: LinearGradient(colors: [Color(hex: "5856D6"), Color(hex: "764BA2")], startPoint: .top, endPoint: .bottom)`
+- L949: `.font(.system(size: 14, weight: .bold))`
+- L950: `.foregroundColor(.white)`
+- L954: `.frame(width: 22, height: 56)`
+- L955: `.shadow(color: .black.opacity(0.3), radius: 4, y: 2)`
+- L956: `.position(x: x, y: clampedY)`
+- L994: `.opacity(isPulsing ? 0.3 : 1.0)`
+
+交互 modifier：
+
+- L126: `.onAppear {`
+- L788: `.simultaneousGesture(dragGesture(screenW: screenW, screenH: screenH))`
+- L789: `.onAppear {`
+- L795: `.simultaneousGesture(dragGesture(screenW: screenW, screenH: screenH))`
+- L796: `.onAppear {`
+- L995: `.onAppear {`
+
+### BWChat/Views/ChatBackgroundSettingsView.swift
+
+视觉 modifier：
+
+- L36: `.padding(.horizontal, 16)`
+- L37: `.padding(.top, 12)`
+- L38: `.padding(.bottom, 28)`
+- L40: `.background(AppColors.secondaryBackground)`
+- L67: `.font(.system(size: 15, weight: .semibold))`
+- L68: `.foregroundColor(AppColors.primaryText)`
+- L71: `.font(.system(size: 12, weight: .medium))`
+- L72: `.foregroundColor(AppColors.secondaryText)`
+- L73: `.padding(.horizontal, 8)`
+- L74: `.padding(.vertical, 4)`
+- L75: `.background(Color(hex: "F4F4F8"))`
+- L76: `.cornerRadius(8)`
+- L81: `.frame(height: 280)`
+- L82: `.cornerRadius(8)`
+- L87: `.font(.system(size: 28, weight: .medium))`
+- L89: `.font(.system(size: 14, weight: .medium))`
+- L91: `.foregroundColor(AppColors.tertiaryText)`
+- L94: `.overlay(`
+- L96: `.stroke(Color.black.opacity(0.05), lineWidth: 1)`
+- L99: `.padding(14)`
+- L100: `.background(AppColors.cardBackground)`
+- L101: `.cornerRadius(8)`
+- L116: `Divider().padding(.leading, 56)`
+- L129: `.background(AppColors.cardBackground)`
+- L130: `.cornerRadius(8)`
+- L141: `.font(.system(size: 16, weight: .semibold))`
+- L142: `.foregroundColor(tint)`
+- L143: `.frame(width: 28, height: 28)`
+- L144: `.background(tint.opacity(0.10))`
+- L145: `.cornerRadius(8)`
+- L148: `.font(.system(size: 16, weight: .medium))`
+- L149: `.foregroundColor(tint)`
+- L155: `.tint(tint)`
+- L158: `.font(.system(size: 12, weight: .semibold))`
+- L159: `.foregroundColor(AppColors.tertiaryText)`
+- L162: `.padding(.horizontal, 14)`
+- L163: `.padding(.vertical, 13)`
+- L213: `.font(.system(size: 18, weight: .semibold))`
+- L214: `.foregroundColor(AppColors.primaryText)`
+- L216: `.frame(maxWidth: .infinity)`
+- L217: `.padding(.vertical, 22)`
+- L218: `.background(AppColors.cardBackground)`
+- L219: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L230: `.font(.system(size: 17, weight: .semibold))`
+- L231: `.foregroundColor(AppColors.accent)`
+- L232: `.frame(width: 28)`
+- L234: `.font(.system(size: 16))`
+- L235: `.foregroundColor(AppColors.primaryText)`
+- L238: `.font(.system(size: 12, weight: .semibold))`
+- L239: `.foregroundColor(AppColors.tertiaryText)`
+- L241: `.padding(16)`
+- L242: `.background(AppColors.cardBackground)`
+- L243: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L253: `.font(.system(size: 17, weight: .semibold))`
+- L254: `.foregroundColor(AppColors.errorColor)`
+- L255: `.frame(width: 28)`
+- L257: `.font(.system(size: 16))`
+- L258: `.foregroundColor(AppColors.errorColor)`
+- L261: `.padding(16)`
+- L262: `.background(AppColors.cardBackground)`
+- L263: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L269: `.padding(16)`
+- L271: `.background(AppColors.secondaryBackground)`
+- L295: `Color.black.opacity(0.08).ignoresSafeArea()`
+- L296: `ProgressView().tint(AppColors.accent)`
+
+交互 modifier：
+
+- L45: `.task {`
+- L48: `.onChange(of: selectedPhoto) { item in`
+- L53: `.alert(L10n.tr("common.operationFailed"), isPresented: Binding(`
+- L276: `.alert(L10n.tr("chat.clear.confirmTitle"), isPresented: $showClearHistoryConfirmation) {`
+- L284: `.alert(L10n.tr("common.operationFailed"), isPresented: Binding(`
+
+### BWChat/Views/ChatView.swift
+
+视觉 modifier：
+
+- L1227: `.fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)`
+- L1232: `Color.clear`
+- L1233: `.frame(width: 1, height: 1)`
+- L1253: `Color.clear`
+- L1254: `.frame(height: 1)`
+- L1308: `.tint(AppColors.accent)`
+- L1309: `.padding()`
+- L1316: `.padding(.horizontal, 12)`
+- L1317: `.padding(.top, 8)`
+- L1318: `.padding(.bottom, 8)`
+- L1321: `.rotationEffect(.degrees(180))`
+- L1322: `.scaleEffect(x: -1, y: 1, anchor: .center)`
+- L1385: `.padding(.trailing, 12)`
+- L1386: `.padding(.bottom, 14)`
+- L1389: `.transition(.move(edge: .trailing).combined(with: .opacity))`
+- L1425: `.ignoresSafeArea(`
+- L1429: `.background(AppColors.secondaryBackground)`
+- L1440: `.font(.system(size: 16, weight: .medium))`
+- L1441: `.foregroundColor(AppColors.accent)`
+- L1443: `.opacity(isSelectingMessages ? 0 : 1)`
+- L1452: `.font(.system(size: 15, weight: .semibold))`
+- L1596: `.overlay(alignment: .leading) {`
+- L1601: `.font(.system(size: 20, weight: .medium))`
+- L1602: `.foregroundColor(recorder.isRecording ? .white : AppColors.accent)`
+- L1603: `.frame(width: 42, height: inputChromeHeight)`
+- L1621: `.padding(.leading, showsComposerMicrophone ? 34 : 0)`
+- L1622: `.frame(height: inputTextHeight)`
+- L1625: `.font(.system(size: 16))`
+- L1626: `.foregroundColor(AppColors.tertiaryText)`
+- L1627: `.padding(.leading, showsComposerMicrophone ? 36 : 2)`
+- L1628: `.opacity(viewModel.inputText.isEmpty && !isInputFocused ? 1 : 0)`
+- L1633: `.font(.system(size: 20, weight: .medium))`
+- L1634: `.foregroundColor(AppColors.accent)`
+- L1635: `.frame(width: 34, height: inputTextHeight)`
+- L1639: `.opacity(showsComposerMicrophone ? 1 : 0)`
+- L1640: `.scaleEffect(showsComposerMicrophone ? 1 : 0.82)`
+- L1642: `.animation(.easeOut(duration: 0.12), value: showsComposerMicrophone)`
+- L1644: `.frame(maxWidth: .infinity)`
+- L1658: `.frame(width: 42, height: composerActionButtonHeight, alignment: .center)`
+- L1667: `.frame(width: 40, height: 40)`
+- L1669: `.font(.system(size: 15, weight: .bold))`
+- L1670: `.foregroundColor(.white)`
+- L1675: `.opacity(viewModel.isSendEnabled ? 1 : 0)`
+- L1686: `.opacity(viewModel.isSendEnabled ? 0 : 1)`
+- L1689: `.frame(width: 42, height: composerActionButtonHeight, alignment: .center)`
+- L1693: `.padding(.horizontal, 10)`
+- L1694: `.padding(.top, 10)`
+- L1695: `.padding(.bottom, isInputFocused || selectedComposerPanel != nil ? 5 : 12)`
+- L1709: `.frame(maxWidth: .infinity)`
+- L1710: `.frame(`
+- L1726: `Color(uiColor: .secondarySystemBackground)`
+- L1727: `.opacity(0.98)`
+- L1728: `.ignoresSafeArea(edges: .bottom)`
+- L1752: `.font(.system(size: 16, weight: .medium))`
+- L1753: `.foregroundColor(recorder.isRecording ? .white : AppColors.primaryText)`
+- L1785: `Color.black.opacity(0.6)`
+- L1786: `.ignoresSafeArea()`
+- L1794: `.fill(voiceCancelZone ? Color.red.opacity(0.9) : AppColors.accent)`
+- L1795: `.frame(width: 100, height: 100)`
+- L1799: `.font(.system(size: 36, weight: .bold))`
+- L1800: `.foregroundColor(.white)`
+- L1805: `.scaleEffect(voiceCancelZone ? 1.1 : 1.0)`
+- L1806: `.animation(.easeInOut(duration: 0.2), value: voiceCancelZone)`
+- L1809: `.font(.system(size: 48, weight: .light, design: .monospaced))`
+- L1810: `.foregroundColor(.white)`
+- L1813: `.font(.system(size: 15))`
+- L1814: `.foregroundColor(.white.opacity(0.7))`
+- L1815: `.padding(.bottom, 120)`
+- L1818: `.transition(.opacity)`
+- L1826: `.fill(Color.white)`
+- L1827: `.frame(width: 4, height: CGFloat([16, 24, 32, 24, 16][i]))`
+- L1828: `.animation(`
+- L1855: `.frame(width: 56, height: 56)`
+- L1857: `.font(.system(size: 22))`
+- L1858: `.foregroundColor(AppColors.primaryText)`
+- L1861: `.font(.system(size: 11))`
+- L1862: `.foregroundColor(AppColors.secondaryText)`
+- L1910: `RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)`
+- L1911: `Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)`
+- L1913: `Text(L10n.tr("call.voice")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)`
+- L1924: `RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)`
+- L1925: `Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)`
+- L1927: `Text(L10n.tr("call.video")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)`
+- L1932: `.padding(.vertical, 16)`
+- L1933: `.frame(maxWidth: .infinity)`
+- L1936: `Color.clear.preference(`
+- L1975: `.foregroundColor(.red)`
+- L1976: `.font(.system(size: 20))`
+- L1981: `.font(.system(size: 12, weight: .medium))`
+- L1982: `.foregroundColor(AppColors.secondaryText)`
+- L2005: `Color.black.opacity(0.1)`
+- L2007: `.fill(Color.black.opacity(0.42))`
+- L2008: `.frame(width: 44, height: 44)`
+- L2010: `.font(.system(size: 17, weight: .bold))`
+- L2011: `.foregroundColor(.white)`
+- L2012: `.offset(x: 1)`
+- L2014: `.frame(`
+- L2018: `.clipShape(RoundedRectangle(`
+- L2026: `.font(.system(size: 14))`
+- L2027: `.foregroundColor(.white)`
+- L2032: `.fill(Color.white)`
+- L2033: `.frame(width: 2, height: CGFloat([6, 10, 6][i]))`
+- L2037: `.padding(.horizontal, 12)`
+- L2038: `.padding(.vertical, 10)`
+- L2039: `.frame(width: 100)`
+- L2040: `.background(AppColors.sentBubbleGradient)`
+- L2041: `.cornerRadius(18, corners: [.topLeft, .topRight, .bottomLeft])`
+- L2059: `.padding(.vertical, 2)`
+- L2094: `.frame(`
+- L2099: `.clipShape(RoundedRectangle(`
+- L2108: `.stroke(Color.black.opacity(0.08), lineWidth: 0.5)`
+
+交互 modifier：
+
+- L1219: `row.onTapGesture {`
+- L1256: `.onAppear {`
+- L1263: `.onDisappear {`
+- L1311: `.onAppear {`
+- L1325: `.simultaneousGesture(`
+- L1335: `.onChange(of: viewModel.messages.last.map {`
+- L1349: `.onChange(of: viewModel.visiblePendingMessages.count) { count in`
+- L1358: `.task {`
+- L1393: `.simultaneousGesture(`
+- L1420: `.simultaneousGesture(TapGesture().onEnded {`
+- L1456: `.alert(L10n.tr("selection.delete.title"), isPresented: $showSelectionDeleteConfirmation) {`
+- L1462: `.confirmationDialog(L10n.tr("forward.chooseMode"), isPresented: $showForwardModeDialog) {`
+- L1469: `.sheet(item: $forwardDraft) { draft in`
+- L1475: `.sheet(isPresented: $showGiftSheet) {`
+- L1493: `.onAppear {`
+- L1498: `.onChange(of: viewModel.inputText) { _ in`
+- L1501: `.onChange(of: viewModel.replyingTo?.id) { _ in`
+- L1527: `.task {`
+- L1530: `.onChange(of: viewModel.errorMessage) { message in`
+- L1551: `.onDisappear {`
+- L1562: `.onChange(of: callManager.currentCall != nil) { hasCalling in`
+- L1571: `.onChange(of: callManager.currentCall?.state) { newState in`
+- L1580: `.fullScreenCover(item: Binding(`
+- L1759: `.gesture(`
+- L1865: `.onChange(of: selectedMediaItems) { items in`
+- L2113: `.task(id: identity) {`
+
+### BWChat/Views/ContactListView.swift
+
+视觉 modifier：
+
+- L79: `.background(AppColors.secondaryBackground)`
+- L80: `.background(`
+- L87: `.ignoresSafeArea(.keyboard, edges: .bottom)`
+- L459: `.padding(.top, AppSpacing.rootTabTopInset)`
+- L460: `.padding(.horizontal, 16)`
+- L461: `.padding(.bottom, 8)`
+- L465: `.padding(.horizontal, 16)`
+- L466: `.padding(.bottom, 10)`
+- L470: `.padding(.top, 28)`
+- L471: `.padding(.horizontal, 16)`
+- L480: `.padding(.horizontal, 16)`
+- L507: `Color.clear`
+- L508: `.frame(height: AppListMetrics.rootTabBottomScrollableClearance)`
+- L518: `.padding(.horizontal, 16)`
+- L519: `.padding(.top, AppSpacing.rootTabTopInset)`
+- L522: `.padding(.horizontal, 16)`
+- L527: `.font(.system(size: 34, weight: .semibold))`
+- L528: `.foregroundColor(AppColors.warningColor)`
+- L530: `.font(.system(size: 14))`
+- L531: `.foregroundColor(AppColors.secondaryText)`
+- L533: `.padding(.horizontal, 28)`
+- L537: `.font(.system(size: 14, weight: .semibold))`
+- L539: `.tint(AppColors.accent)`
+- L543: `.fill(AppColors.accent.opacity(0.08))`
+- L544: `.frame(width: 80, height: 80)`
+- L546: `.font(.system(size: 32))`
+- L547: `.foregroundColor(AppColors.accent.opacity(0.5))`
+- L550: `.font(.system(size: 17, weight: .semibold))`
+- L551: `.foregroundColor(AppColors.primaryText)`
+- L553: `.font(.system(size: 14))`
+- L554: `.foregroundColor(AppColors.secondaryText)`
+- L558: `.frame(maxWidth: .infinity)`
+- L564: `.font(.system(size: 15, weight: .semibold))`
+- L565: `.foregroundColor(AppColors.tertiaryText)`
+- L568: `.font(.system(size: 15))`
+- L569: `.foregroundColor(AppColors.primaryText)`
+- L587: `.font(.system(size: 15, weight: .semibold))`
+- L588: `.foregroundColor(AppColors.tertiaryText)`
+- L589: `.frame(width: 28, height: 28)`
+- L596: `.padding(.horizontal, 13)`
+- L597: `.frame(maxWidth: .infinity, minHeight: 42)`
+- L598: `.background(AppColors.cardBackground)`
+- L599: `.cornerRadius(12)`
+- L610: `.font(.system(size: 28, weight: .semibold))`
+- L611: `.foregroundColor(AppColors.tertiaryText)`
+- L613: `.font(.system(size: 14, weight: .medium))`
+- L614: `.foregroundColor(AppColors.secondaryText)`
+- L616: `.frame(maxWidth: .infinity)`
+- L617: `.padding(.vertical, 20)`
+- L625: `.frame(maxWidth: .infinity, minHeight: 36, alignment: .center)`
+- L635: `.font(.system(size: 20, weight: .bold))`
+- L636: `.foregroundColor(AppColors.primaryText)`
+- L637: `.frame(width: 40, height: 40)`
+- L643: `.fill(Color.white.opacity(0.52))`
+- L648: `.stroke(Color.white.opacity(0.72), lineWidth: 1)`
+- L650: `.shadow(color: Color.black.opacity(0.08), radius: 5, x: 0, y: 2)`
+- L653: `.frame(width: 44, height: 44)`
+- L697: `.frame(width: 210)`
+- L698: `.padding(.vertical, 4)`
+- L705: `.padding(.leading, 48)`
+- L720: `.font(.system(size: 17, weight: .regular))`
+- L721: `.foregroundColor(AppColors.primaryText)`
+- L722: `.frame(width: 22)`
+- L725: `.font(.system(size: 16))`
+- L726: `.foregroundColor(AppColors.primaryText)`
+- L730: `.padding(.horizontal, 14)`
+- L731: `.frame(height: 44)`
+- L872: `.frame(width: actionWidth, height: actionHeight)`
+- L876: `.background(AppColors.secondaryBackground)`
+- L889: `.offset(x: swipeOffset)`
+- L918: `.foregroundColor(.white)`
+- L919: `.frame(width: actionWidth / 2, height: actionHeight)`
+- L920: `.background(Color(hex: "F0A020"))`
+- L931: `.foregroundColor(.white)`
+- L932: `.frame(width: actionWidth / 2, height: actionHeight)`
+- L933: `.background(Color(hex: "E5484D"))`
+- L940: `.font(.system(size: 16, weight: .semibold))`
+- L942: `.font(.system(size: 12, weight: .semibold))`
+- L946: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1190: `.frame(width: 50, height: 50)`
+- L1191: `.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))`
+- L1205: `.font(.system(size: 16, weight: .semibold))`
+- L1206: `.foregroundColor(AppColors.primaryText)`
+- L1219: `.font(.system(size: 10, weight: .semibold))`
+- L1220: `.foregroundColor(Color(hex: "F0A020"))`
+- L1225: `.font(.system(size: 13))`
+- L1226: `.foregroundColor(AppColors.tertiaryText)`
+- L1231: `.font(.system(size: 11, weight: .medium))`
+- L1232: `.foregroundColor(AppColors.tertiaryText)`
+- L1240: `.font(.system(size: 14))`
+- L1241: `.foregroundColor(AppColors.errorColor)`
+- L1243: `.font(.system(size: 14))`
+- L1244: `.foregroundColor(AppColors.secondaryText)`
+- L1254: `.font(.system(size: 14))`
+- L1255: `.foregroundColor(AppColors.secondaryText)`
+- L1258: `.font(.system(size: 14))`
+- L1259: `.foregroundColor(AppColors.secondaryText)`
+- L1264: `.font(.system(size: 14))`
+- L1265: `.foregroundColor(AppColors.tertiaryText)`
+- L1274: `.font(.system(size: 12))`
+- L1275: `.foregroundColor(AppColors.tertiaryText)`
+- L1279: `.font(.system(size: 11, weight: .bold))`
+- L1280: `.foregroundColor(.white)`
+- L1281: `.padding(.horizontal, 7)`
+- L1282: `.padding(.vertical, 2)`
+- L1283: `.background(isMuted ? AppColors.mutedUnreadBadge : AppColors.unreadBadge)`
+- L1284: `.cornerRadius(10)`
+- L1288: `.padding(.vertical, 10)`
+- L1289: `.frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)`
+- L1291: `.overlay(alignment: .bottom) {`
+- L1294: `.padding(.leading, 62)`
+- L1305: `.font(.system(size: 10, weight: .semibold))`
+- L1306: `.foregroundColor(AppColors.accent)`
+- L1307: `.padding(.horizontal, 5)`
+- L1308: `.padding(.vertical, 1)`
+- L1309: `.background(AppColors.accentLight)`
+- L1310: `.cornerRadius(4)`
+- L1311: `.fixedSize(horizontal: true, vertical: false)`
+
+交互 modifier：
+
+- L91: `.sheet(isPresented: $showAddFriendSheet) {`
+- L94: `.alert(L10n.tr("messages.scan"), isPresented: $showScannerComingSoon) {`
+- L99: `.alert(`
+- L124: `.alert("无法打开智能体", isPresented: Binding(`
+- L132: `.refreshable {`
+- L136: `.sheet(isPresented: $showCreateGroup) {`
+- L142: `.task(id: AuthManager.shared.currentUser?.userID ?? "") {`
+- L145: `.onDisappear {`
+- L462: `.simultaneousGesture(TapGesture().onEnded(closeOpenSwipeAction))`
+- L577: `.onChange(of: searchText) { _ in`
+- L601: `.onTapGesture {`
+- L700: `.onDisappear(perform: performPendingMessageAction)`
+- L892: `.onAppear {`
+- L899: `.onChange(of: openID) { newValue in`
+
+### BWChat/Views/CreateGroupView.swift
+
+视觉 modifier：
+
+- L28: `.background(AppColors.background)`
+- L44: `.font(.system(size: 13, weight: .medium))`
+- L45: `.foregroundColor(AppColors.secondaryText)`
+- L49: `.font(.system(size: 16))`
+- L50: `.padding(.horizontal, 16)`
+- L51: `.padding(.vertical, 12)`
+- L52: `.background(AppColors.separator.opacity(0.6))`
+- L53: `.cornerRadius(12)`
+- L55: `.padding(.horizontal, 16)`
+- L56: `.padding(.top, 16)`
+- L57: `.padding(.bottom, 8)`
+- L61: `.font(.system(size: 17, weight: .medium))`
+- L62: `.foregroundColor(AppColors.accent)`
+- L63: `.frame(width: 24)`
+- L66: `.font(.system(size: 16, weight: .medium))`
+- L67: `.foregroundColor(AppColors.primaryText)`
+- L73: `.tint(AppColors.accent)`
+- L75: `.padding(.horizontal, 16)`
+- L76: `.padding(.vertical, 12)`
+- L77: `.background(AppColors.separator.opacity(0.6))`
+- L78: `.cornerRadius(12)`
+- L79: `.padding(.horizontal, 16)`
+- L80: `.padding(.bottom, 12)`
+- L87: `.font(.system(size: 13, weight: .medium))`
+- L88: `.foregroundColor(AppColors.secondaryText)`
+- L90: `.padding(.horizontal, 16)`
+- L97: `.font(.system(size: 13, weight: .semibold))`
+- L98: `.foregroundColor(AppColors.secondaryText)`
+- L99: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L100: `.padding(.horizontal, 16)`
+- L101: `.padding(.top, 14)`
+- L102: `.padding(.bottom, 6)`
+- L125: `.frame(width: 42, height: 42)`
+- L127: `.font(.system(size: 17, weight: .semibold))`
+- L128: `.foregroundColor(AppColors.accent)`
+- L132: `.font(.system(size: 16, weight: .semibold))`
+- L133: `.foregroundColor(AppColors.primaryText)`
+- L139: `.font(.system(size: 13, weight: .semibold))`
+- L140: `.foregroundColor(AppColors.accent)`
+- L141: `.padding(.horizontal, 9)`
+- L142: `.frame(height: 26)`
+- L143: `.background(Capsule().fill(AppColors.accentLight))`
+- L147: `.font(.system(size: 13, weight: .semibold))`
+- L148: `.foregroundColor(AppColors.tertiaryText)`
+- L150: `.padding(.horizontal, 16)`
+- L151: `.padding(.vertical, 9)`
+- L162: `.tint(AppColors.accent)`
+- L163: `.padding(.top, 36)`
+- L184: `.tint(AppColors.accent)`
+- L185: `.padding(.vertical, 16)`
+- L194: `.font(.system(size: 16))`
+- L195: `.foregroundColor(AppColors.accent)`
+- L196: `.frame(height: 44)`
+- L205: `.scaleEffect(0.8)`
+- L208: `.font(.system(size: 16, weight: .semibold))`
+- L209: `.foregroundColor(canCreate ? AppColors.accent : AppColors.tertiaryText)`
+- L213: `.frame(height: 44)`
+- L255: `.tint(AppColors.accent)`
+- L256: `.padding(.top, 80)`
+- L262: `.padding(.top, 36)`
+- L278: `.tint(AppColors.accent)`
+- L279: `.padding(.vertical, 16)`
+- L284: `.background(AppColors.background)`
+- L290: `.font(.system(size: 14, weight: .semibold))`
+- L291: `.foregroundColor(AppColors.accent)`
+- L322: `.frame(width: 24, height: 24)`
+- L326: `.frame(width: 24, height: 24)`
+- L328: `.font(.system(size: 11, weight: .bold))`
+- L329: `.foregroundColor(.white)`
+- L332: `.frame(width: 36, height: 36)`
+- L338: `.font(.system(size: 16, weight: .medium))`
+- L339: `.foregroundColor(AppColors.primaryText)`
+- L344: `.padding(.horizontal, 16)`
+- L345: `.padding(.vertical, 8)`
+- L352: `Divider().padding(.leading, 76)`
+- L363: `.font(.system(size: 36))`
+- L364: `.foregroundColor(AppColors.tertiaryText)`
+- L366: `.font(.system(size: 14))`
+- L367: `.foregroundColor(AppColors.secondaryText)`
+- L369: `.frame(maxWidth: .infinity)`
+- L370: `.padding(.vertical, 42)`
+
+交互 modifier：
+
+- L33: `.task {`
+- L107: `.refreshable {`
+- L177: `.onAppear {`
+- L271: `.onAppear {`
+- L294: `.refreshable {`
+- L297: `.task {`
+
+### BWChat/Views/CreateMomentView.swift
+
+视觉 modifier：
+
+- L66: `.padding(.horizontal, 16)`
+- L67: `.padding(.top, 14)`
+- L68: `.padding(.bottom, 24)`
+- L71: `.background(`
+- L79: `.background(AppColors.secondaryBackground)`
+- L84: `.toolbarBackground(Color(hex: "F7F7F7"), for: .navigationBar)`
+- L101: `.font(.system(size: 16, weight: .semibold))`
+- L102: `.foregroundColor(canPublish ? AppColors.accent : AppColors.tertiaryText)`
+- L103: `.frame(width: 36, height: 36)`
+- L108: `.opacity(canPublish ? 1 : 0.72)`
+- L142: `.background(AppColors.separator.opacity(0.65))`
+- L145: `.padding(.horizontal, 18)`
+- L146: `.padding(.top, 18)`
+- L147: `.padding(.bottom, 22)`
+- L154: `.background(AppColors.separator.opacity(0.65))`
+- L158: `.background(AppColors.cardBackground)`
+- L159: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L160: `.overlay(`
+- L162: `.stroke(AppColors.separator.opacity(0.8), lineWidth: 1)`
+- L169: `.font(.system(size: 16))`
+- L170: `.foregroundColor(AppColors.primaryText)`
+- L171: `.frame(height: 190)`
+- L172: `.padding(.horizontal, 22)`
+- L173: `.padding(.top, 18)`
+- L174: `.padding(.bottom, 28)`
+- L176: `.background(Color.clear)`
+- L185: `.font(.system(size: 16))`
+- L186: `.foregroundColor(AppColors.tertiaryText)`
+- L187: `.padding(.horizontal, 26)`
+- L188: `.padding(.top, 26)`
+- L197: `.font(.system(size: 14))`
+- L198: `.foregroundColor(AppColors.tertiaryText)`
+- L199: `.padding(.trailing, 20)`
+- L200: `.padding(.bottom, 14)`
+- L223: `.font(.system(size: 12))`
+- L224: `.foregroundColor(AppColors.tertiaryText)`
+- L226: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L275: `.tint(AppColors.primaryText)`
+- L278: `.font(.system(size: 27))`
+- L279: `.foregroundColor(AppColors.primaryText)`
+- L282: `.font(.system(size: 14, weight: .medium))`
+- L283: `.foregroundColor(AppColors.secondaryText)`
+- L286: `.frame(width: mediaTileSize, height: mediaTileSize)`
+- L287: `.background(Color(hex: "F7F7F7"))`
+- L288: `.clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))`
+- L300: `.fill(Color(hex: "ECEEF4"))`
+- L301: `.overlay(`
+- L303: `.font(.system(size: 24))`
+- L304: `.foregroundColor(AppColors.secondaryText)`
+- L308: `.frame(width: mediaTileSize, height: mediaTileSize)`
+- L309: `.clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))`
+- L313: `.font(.system(size: 25))`
+- L314: `.foregroundColor(.white)`
+- L315: `.shadow(color: .black.opacity(0.35), radius: 4, x: 0, y: 1)`
+- L316: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)`
+- L324: `.font(.system(size: 20))`
+- L325: `.foregroundColor(.white)`
+- L326: `.shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 1)`
+- L328: `.offset(x: 7, y: -7)`
+- L331: `.frame(width: mediaTileSize, height: mediaTileSize)`
+- L353: `.font(.system(size: 21, weight: .medium))`
+- L354: `.foregroundColor(AppColors.primaryText)`
+- L355: `.frame(width: 22)`
+- L358: `.font(.system(size: 16, weight: .medium))`
+- L359: `.foregroundColor(AppColors.primaryText)`
+- L364: `.font(.system(size: 14))`
+- L365: `.foregroundColor(AppColors.tertiaryText)`
+- L369: `.font(.system(size: 15, weight: .semibold))`
+- L370: `.foregroundColor(AppColors.primaryText)`
+- L372: `.frame(height: 64)`
+- L373: `.padding(.horizontal, 22)`
+
+交互 modifier：
+
+- L74: `.onTapGesture {`
+- L112: `.confirmationDialog(`
+- L128: `.onDisappear {`
+- L149: `.onTapGesture {`
+- L178: `.onChange(of: content) { value in`
+- L227: `.onChange(of: selectedImageItems) { items in`
+- L230: `.onChange(of: selectedVideoItem) { item in`
+
+### BWChat/Views/DiscoverView.swift
+
+视觉 modifier：
+
+- L46: `.padding(.horizontal, 16)`
+- L47: `.padding(.top, AppSpacing.rootTabTopInset)`
+- L48: `.padding(.bottom, 20)`
+- L51: `.background(AppColors.secondaryBackground)`
+- L89: `.frame(maxWidth: .infinity, minHeight: 36, alignment: .center)`
+- L90: `.padding(.bottom, 2)`
+- L146: `.background(AppColors.cardBackground)`
+- L147: `.cornerRadius(14)`
+- L163: `.frame(width: 40, height: 40)`
+- L164: `.overlay(`
+- L166: `.font(.system(size: 17))`
+- L167: `.foregroundColor(.white)`
+- L172: `.fill(Color.red)`
+- L173: `.frame(width: 10, height: 10)`
+- L174: `.offset(x: 3, y: -3)`
+- L179: `.font(.system(size: 16, weight: .medium))`
+- L180: `.foregroundColor(AppColors.primaryText)`
+- L188: `.font(.system(size: 11, weight: .bold))`
+- L189: `.foregroundColor(.white)`
+- L190: `.padding(.horizontal, 7)`
+- L191: `.padding(.vertical, 2)`
+- L192: `.background(Color.red)`
+- L193: `.cornerRadius(10)`
+- L197: `.font(.system(size: 13, weight: .semibold))`
+- L198: `.foregroundColor(AppColors.tertiaryText)`
+- L200: `.padding(.horizontal, 16)`
+- L201: `.padding(.vertical, 14)`
+- L233: `.frame(height: 1)`
+- L234: `.padding(.leading, 70)`
+- L367: `case .male: return Color(hex: "4A90E2")`
+- L368: `case .female: return Color(hex: "FF5D8F")`
+- L370: `case .unspecified: return Color(.systemGray)`
+- L439: `case .available: return Color(hex: "2DBE70")`
+- L440: `case .inviting, .unknown: return Color(hex: "F4A621")`
+- L1454: `.clipShape(Circle())`
+- L1458: `.font(.system(size: 14, weight: .semibold))`
+- L1459: `.foregroundColor(AppColors.primaryText)`
+- L1467: `.font(.system(size: 12))`
+- L1468: `.foregroundColor(AppColors.secondaryText)`
+- L1478: `.font(.system(size: 11, weight: .semibold))`
+- L1479: `.foregroundColor(coordinator.isIncoming ? AppColors.warningColor : AppColors.accent)`
+- L1485: `.font(.system(size: 12, weight: .medium))`
+- L1486: `.foregroundColor(AppColors.accent)`
+- L1488: `.fixedSize(horizontal: false, vertical: true)`
+- L1496: `.font(.system(size: 12, weight: .semibold, design: .monospaced))`
+- L1497: `.foregroundColor(AppColors.secondaryText)`
+- L1498: `.frame(minWidth: 26)`
+- L1503: `.font(.system(size: 13, weight: .bold))`
+- L1504: `.foregroundColor(AppColors.secondaryText)`
+- L1505: `.frame(width: 34, height: 34)`
+- L1506: `.background(AppColors.secondaryBackground)`
+- L1507: `.clipShape(Circle())`
+- L1516: `ProgressView().tint(.white)`
+- L1523: `.font(.system(size: 13, weight: .semibold))`
+- L1526: `.foregroundColor(.white)`
+- L1527: `.frame(width: 38, height: 34)`
+- L1528: `.background(Color(hex: "34C759"))`
+- L1529: `.clipShape(Capsule())`
+- L1537: `.font(.system(size: 13, weight: .medium))`
+- L1538: `.foregroundColor(AppColors.secondaryText)`
+- L1539: `.frame(minWidth: 38, minHeight: 34)`
+- L1544: `.padding(.leading, 10)`
+- L1545: `.padding(.trailing, 8)`
+- L1546: `.padding(.vertical, 8)`
+- L1547: `.background(.ultraThinMaterial)`
+- L1548: `.background(AppColors.cardBackground.opacity(0.82))`
+- L1549: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L1552: `.stroke(Color.white.opacity(0.7), lineWidth: 1)`
+- L1554: `.shadow(color: Color.black.opacity(0.14), radius: 16, x: 0, y: 7)`
+- L1555: `.padding(.horizontal, 12)`
+- L1556: `.padding(.top, 52)`
+- L1557: `.transition(.move(edge: .top).combined(with: .opacity))`
+- L2165: `.transition(.scale(scale: 0.84).combined(with: .opacity))`
+- L2168: `.animation(`
+- L2174: `.padding(.horizontal, 16)`
+- L2175: `.padding(.top, 16)`
+- L2176: `.padding(.bottom, 32)`
+- L2178: `.background(AppColors.secondaryBackground)`
+- L2201: `.frame(width: 196)`
+- L2209: `.font(.system(size: 15, weight: .semibold))`
+- L2210: `.foregroundColor(AppColors.errorColor)`
+- L2211: `.frame(minWidth: 42, minHeight: 34)`
+- L2214: `.transition(.opacity.combined(with: .scale(scale: 0.86)))`
+- L2218: `.font(.system(size: 18, weight: .semibold))`
+- L2219: `.foregroundColor(AppColors.primaryText)`
+- L2220: `.frame(width: 34, height: 34)`
+- L2223: `.transition(.opacity.combined(with: .scale(scale: 0.86)))`
+- L2227: `.animation(.easeInOut(duration: 0.2), value: isCurrentUserLive)`
+- L2430: `.font(.subheadline.weight(.semibold))`
+- L2431: `.foregroundColor(AppColors.accent)`
+- L2432: `.frame(width: 30, height: 30)`
+- L2433: `.background(AppColors.accentLight, in: Circle())`
+- L2437: `.font(.subheadline.weight(.semibold))`
+- L2438: `.foregroundColor(AppColors.primaryText)`
+- L2440: `.font(.caption)`
+- L2441: `.foregroundColor(AppColors.secondaryText)`
+- L2442: `.fixedSize(horizontal: false, vertical: true)`
+- L2447: `.padding(.horizontal, 12)`
+- L2448: `.padding(.vertical, 10)`
+- L2449: `.background(AppColors.cardBackground)`
+- L2450: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L2462: `.font(.system(size: 34, weight: .medium))`
+- L2463: `.foregroundColor(AppColors.tertiaryText)`
+- L2465: `.font(.headline)`
+- L2466: `.foregroundColor(AppColors.primaryText)`
+- L2468: `.font(.subheadline)`
+- L2469: `.foregroundColor(AppColors.secondaryText)`
+- L2472: `.frame(maxWidth: .infinity)`
+- L2473: `.frame(minHeight: 260)`
+- L2474: `.padding(.horizontal, 24)`
+- L2483: `.fill(Color(.systemGray5))`
+- L2487: `.fill(Color(.systemGray5))`
+- L2488: `.frame(width: 72, height: 10)`
+- L2490: `.fill(Color(.systemGray5))`
+- L2491: `.frame(height: 12)`
+- L2493: `.fill(Color(.systemGray5))`
+- L2494: `.frame(width: 96, height: 12)`
+- L2496: `.padding(10)`
+- L2499: `.fill(Color(.systemGray5))`
+- L2500: `.frame(height: 54)`
+- L2502: `.fill(Color(.systemGray5))`
+- L2503: `.frame(height: 54)`
+- L2505: `.padding(8)`
+- L2507: `.background(AppColors.cardBackground)`
+- L2508: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L2546: `.font(.largeTitle.weight(.semibold))`
+- L2547: `.foregroundColor(.white.opacity(0.94))`
+- L2556: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L2591: `[Color(hex: "FF7A9E"), Color(hex: "FFB36B")],`
+- L2592: `[Color(hex: "7C8CFF"), Color(hex: "A86BF2")],`
+- L2593: `[Color(hex: "35C8C2"), Color(hex: "62A8FF")],`
+- L2594: `[Color(hex: "FF8A65"), Color(hex: "E85D9E")],`
+- L2595: `[Color(hex: "5D8BFF"), Color(hex: "7BD5FF")],`
+- L2596: `[Color(hex: "71C777"), Color(hex: "D1B74A")],`
+- L2597: `[Color(hex: "9B6DFF"), Color(hex: "FF70A6")]`
+- L2615: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L2619: `colors: [.clear, Color.black.opacity(0.78)],`
+- L2623: `.frame(height: proxy.size.height * 0.56)`
+- L2628: `.font(.headline)`
+- L2629: `.foregroundColor(.white)`
+- L2633: `.font(.caption2.weight(.semibold))`
+- L2634: `.foregroundColor(.white)`
+- L2635: `.padding(.horizontal, 7)`
+- L2636: `.padding(.vertical, 3)`
+- L2637: `.background(`
+- L2638: `participant.gender.color.opacity(0.88),`
+- L2641: `.fixedSize(horizontal: true, vertical: false)`
+- L2642: `.layoutPriority(1)`
+- L2644: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L2645: `.padding(11)`
+- L2652: `.frame(width: 7, height: 7)`
+- L2654: `.font(.system(size: 10, weight: .semibold))`
+- L2655: `.foregroundColor(.white)`
+- L2656: `.padding(.horizontal, 7)`
+- L2657: `.frame(height: 22)`
+- L2658: `.background(Color.black.opacity(0.48), in: Capsule())`
+- L2659: `.padding(9)`
+- L2660: `.frame(`
+- L2667: `.font(.caption2.weight(.bold))`
+- L2668: `.foregroundColor(.white)`
+- L2669: `.padding(.horizontal, 8)`
+- L2670: `.frame(height: 22)`
+- L2671: `.background(AppColors.accent.opacity(0.92), in: Capsule())`
+- L2672: `.padding(9)`
+- L2673: `.frame(`
+- L2694: `.font(.caption2.weight(.semibold))`
+- L2695: `.foregroundColor(AppColors.secondaryText)`
+- L2697: `.font(.caption)`
+- L2698: `.foregroundColor(AppColors.primaryText)`
+- L2700: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L2702: `.frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)`
+- L2703: `.padding(.horizontal, 10)`
+- L2704: `.padding(.vertical, 9)`
+- L2705: `.background(AppColors.cardBackground)`
+- L2713: `.background(AppColors.cardBackground)`
+- L2714: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L2715: `.shadow(`
+- L2717: `? AppColors.accent.opacity(0.30)`
+- L2718: `: Color.black.opacity(0.08),`
+- L2723: `.scaleEffect(isNewlyStarted ? 1.025 : 1)`
+- L2724: `.animation(.spring(response: 0.42, dampingFraction: 0.72), value: isNewlyStarted)`
+- L2774: `Color.black.opacity(0.34)`
+- L2775: `.ignoresSafeArea()`
+- L2782: `.clipShape(Circle())`
+- L2784: `.shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)`
+- L2788: `.font(.title3.weight(.semibold))`
+- L2789: `.foregroundColor(AppColors.primaryText)`
+- L2793: `.font(.caption.weight(.semibold))`
+- L2794: `.foregroundColor(participant.gender.color)`
+- L2795: `.padding(.horizontal, 8)`
+- L2796: `.padding(.vertical, 4)`
+- L2797: `.background(`
+- L2798: `participant.gender.color.opacity(0.12),`
+- L2807: `.frame(width: 8, height: 8)`
+- L2809: `.font(.caption.weight(.semibold))`
+- L2810: `.foregroundColor(participant.availability.color)`
+- L2818: `.font(.caption.weight(.medium))`
+- L2819: `.foregroundColor(AppColors.secondaryText)`
+- L2822: `.font(.subheadline)`
+- L2823: `.foregroundColor(AppColors.primaryText)`
+- L2824: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L2825: `.fixedSize(horizontal: false, vertical: true)`
+- L2827: `.padding(14)`
+- L2828: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L2829: `.background(AppColors.secondaryBackground)`
+- L2830: `.clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))`
+- L2831: `.padding(.top, 18)`
+- L2835: `.font(.caption.weight(.semibold))`
+- L2836: `.foregroundColor(AppColors.accent)`
+- L2837: `.padding(.top, 1)`
+- L2839: `.font(.caption)`
+- L2840: `.foregroundColor(AppColors.secondaryText)`
+- L2841: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L2843: `.padding(12)`
+- L2844: `.background(AppColors.accentLight)`
+- L2845: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L2846: `.padding(.top, 12)`
+- L2858: `.font(.caption.weight(.medium))`
+- L2859: `.foregroundColor(AppColors.secondaryText)`
+- L2861: `.padding(.top, 12)`
+- L2873: `.padding(.top, 16)`
+- L2876: `.font(.caption.weight(.medium))`
+- L2877: `.foregroundColor(AppColors.secondaryText)`
+- L2878: `.frame(maxWidth: .infinity)`
+- L2879: `.padding(.top, 16)`
+- L2903: `.frame(maxWidth: .infinity)`
+- L2904: `.padding(.top, 16)`
+- L2908: `.font(.subheadline.weight(.medium))`
+- L2909: `.foregroundColor(AppColors.secondaryText)`
+- L2911: `.frame(height: 40)`
+- L2912: `.padding(.top, 4)`
+- L2914: `.padding(.horizontal, 20)`
+- L2915: `.padding(.top, 22)`
+- L2916: `.padding(.bottom, 12)`
+- L2917: `.frame(maxWidth: 360)`
+- L2918: `.background(AppColors.cardBackground)`
+- L2919: `.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))`
+- L2922: `.stroke(Color.white.opacity(0.72), lineWidth: 1)`
+- L2925: `.shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 10)`
+- L2926: `.padding(.horizontal, 18)`
+- L2928: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L2958: `.font(.caption.weight(.semibold))`
+- L2961: `.foregroundColor(AppColors.secondaryText)`
+- L2971: `.font(.subheadline.weight(.semibold))`
+- L2972: `.foregroundColor(AppColors.primaryText)`
+- L2983: `.frame(width: 42, height: 42)`
+- L2996: `.frame(width: 36, height: 36)`
+- L3000: `.font(.system(size: 11, weight: .medium))`
+- L3001: `.foregroundColor(AppColors.secondaryText)`
+- L3002: `.fixedSize(horizontal: false, vertical: true)`
+- L3003: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L3004: `.padding(.top, 2)`
+- L3018: `.frame(width: 44, height: 44)`
+- L3022: `.font(.system(size: 14, weight: .bold))`
+- L3024: `.font(.system(size: 10, weight: .medium))`
+- L3025: `.opacity(0.78)`
+- L3032: `.font(.system(size: 11, weight: .bold))`
+- L3034: `.foregroundColor(isPrimary ? .white : AppColors.primaryText)`
+- L3035: `.padding(.horizontal, 11)`
+- L3036: `.frame(maxWidth: .infinity)`
+- L3037: `.frame(minHeight: 54)`
+- L3038: `.background(`
+- L3042: `.overlay(`
+- L3044: `.stroke(isPrimary ? Color.clear : AppColors.separator, lineWidth: 1)`
+- L3069: `.font(.subheadline.weight(.semibold))`
+- L3071: `.font(.subheadline.weight(.semibold))`
+- L3075: `.font(.caption2)`
+- L3079: `.foregroundColor(isEnabled ? .white : AppColors.secondaryText)`
+- L3080: `.frame(maxWidth: .infinity)`
+- L3081: `.frame(height: 66)`
+- L3082: `.background(`
+- L3087: `.clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))`
+- L3091: `.stroke(Color.white.opacity(0.94), lineWidth: 2)`
+- L3092: `.padding(2)`
+- L3277: `Color.black.opacity(0.34)`
+- L3278: `.ignoresSafeArea()`
+- L3291: `.font(.system(size: 20, weight: .semibold))`
+- L3292: `.foregroundColor(AppColors.primaryText)`
+- L3302: `.padding(.horizontal, 12)`
+- L3303: `.frame(height: 172)`
+- L3307: `.font(.system(size: 15))`
+- L3308: `.foregroundColor(AppColors.tertiaryText)`
+- L3309: `.padding(.horizontal, 13)`
+- L3310: `.padding(.vertical, 14)`
+- L3314: `.frame(height: 184)`
+- L3315: `.background(AppColors.secondaryBackground)`
+- L3316: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L3320: `isRoleFocused ? AppColors.accent.opacity(0.72) : AppColors.separator,`
+- L3325: `.animation(.easeOut(duration: 0.16), value: isRoleFocused)`
+- L3335: `.tint(.white)`
+- L3338: `.font(.system(size: 14, weight: .semibold))`
+- L3341: `.font(.system(size: 16, weight: .semibold))`
+- L3343: `.foregroundColor(.white)`
+- L3344: `.frame(maxWidth: .infinity)`
+- L3345: `.frame(height: 48)`
+- L3346: `.background(AppColors.accentGradient)`
+- L3347: `.clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))`
+- L3351: `.opacity(canSubmit ? 1 : 0.5)`
+- L3353: `.padding(20)`
+- L3354: `.frame(maxWidth: 344)`
+- L3355: `.background(AppColors.cardBackground)`
+- L3356: `.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))`
+- L3359: `.stroke(Color.white.opacity(0.72), lineWidth: 1)`
+- L3362: `.shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 10)`
+- L3363: `.padding(.horizontal, 24)`
+- L3365: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L3366: `.background(`
+- L3406: `.font(.system(size: 15, weight: .semibold))`
+- L3407: `.foregroundColor(AppColors.primaryText)`
+- L3425: `.font(.caption)`
+- L3426: `.foregroundColor(`
+- L3448: `.frame(width: 72, height: 72)`
+- L3449: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L3452: `.stroke(AppColors.accent.opacity(0.28), lineWidth: 1)`
+- L3457: `.font(.subheadline.weight(.semibold))`
+- L3458: `.foregroundColor(AppColors.primaryText)`
+- L3463: `.font(.caption.weight(.semibold))`
+- L3464: `.foregroundColor(AppColors.accent)`
+- L3475: `.font(.caption.weight(.medium))`
+- L3476: `.foregroundColor(AppColors.errorColor)`
+- L3484: `.padding(12)`
+- L3485: `.background(AppColors.secondaryBackground)`
+- L3486: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L3535: `.font(.subheadline.weight(.semibold))`
+- L3549: `.font(.system(size: 19, weight: .semibold))`
+- L3550: `.foregroundColor(`
+- L3557: `.foregroundColor(AppColors.primaryText)`
+- L3561: `.padding(.horizontal, 12)`
+- L3562: `.frame(maxWidth: .infinity)`
+- L3563: `.frame(height: 44)`
+- L3564: `.background(`
+- L3569: `.clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))`
+- L3574: `? AppColors.accent.opacity(0.42)`
+- L3628: `Color.black`
+- L3631: `.frame(width: displayedSize.width, height: displayedSize.height)`
+- L3632: `.scaleEffect(effectiveZoom)`
+- L3633: `.offset(effectiveOffset)`
+- L3635: `.frame(width: cropSide, height: cropSide)`
+- L3639: `.stroke(Color.white, lineWidth: 2)`
+- L3643: `.stroke(Color.white.opacity(0.38), lineWidth: 0.7)`
+- L3682: `.font(.subheadline)`
+- L3683: `.foregroundColor(.white.opacity(0.86))`
+- L3692: `.font(.subheadline.weight(.semibold))`
+- L3693: `.foregroundColor(AppColors.accent)`
+- L3698: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L3699: `.background(Color.black.ignoresSafeArea())`
+- L3703: `.foregroundColor(.white)`
+- L3707: `.font(.headline)`
+- L3708: `.foregroundColor(.white)`
+- L3724: `.fontWeight(.semibold)`
+- L3725: `.foregroundColor(AppColors.accent)`
+- L3729: `.toolbarBackground(Color.black, for: .navigationBar)`
+- L3758: `Color.black.opacity(0.34)`
+- L3759: `.ignoresSafeArea()`
+- L3766: `.fill(AppColors.errorColor.opacity(0.12))`
+- L3767: `.frame(width: 58, height: 58)`
+- L3770: `.font(.system(size: 23, weight: .semibold))`
+- L3771: `.foregroundColor(AppColors.errorColor)`
+- L3775: `.font(.system(size: 20, weight: .semibold))`
+- L3776: `.foregroundColor(AppColors.primaryText)`
+- L3777: `.padding(.top, 14)`
+- L3780: `.font(.system(size: 14))`
+- L3781: `.foregroundColor(AppColors.secondaryText)`
+- L3784: `.padding(.top, 8)`
+- L3788: `.font(.system(size: 16, weight: .semibold))`
+- L3789: `.foregroundColor(.white)`
+- L3790: `.frame(maxWidth: .infinity)`
+- L3791: `.frame(height: 46)`
+- L3792: `.background(AppColors.errorColor)`
+- L3793: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L3796: `.padding(.top, 20)`
+- L3799: `.font(.system(size: 15, weight: .medium))`
+- L3800: `.foregroundColor(AppColors.secondaryText)`
+- L3802: `.frame(height: 40)`
+- L3803: `.padding(.top, 4)`
+- L3805: `.padding(.horizontal, 20)`
+- L3806: `.padding(.top, 22)`
+- L3807: `.padding(.bottom, 12)`
+- L3808: `.frame(maxWidth: 330)`
+- L3809: `.background(AppColors.cardBackground)`
+- L3810: `.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))`
+- L3813: `.stroke(Color.white.opacity(0.72), lineWidth: 1)`
+- L3816: `.shadow(color: Color.black.opacity(0.18), radius: 24, x: 0, y: 10)`
+- L3817: `.padding(.horizontal, 24)`
+- L3819: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L3838: `textView.textColor = UIColor(AppColors.primaryText)`
+- L3839: `textView.tintColor = UIColor(AppColors.accent)`
+
+交互 modifier：
+
+- L55: `.onAppear {`
+- L60: `.onDisappear {`
+- L63: `.onChange(of: authManager.currentUser?.userID ?? "guest") { _ in`
+- L66: `.onChange(of: scenePhase) { phase in`
+- L76: `.alert(item: $routeAlert) { item in`
+- L297: `case .alert(let alert):`
+- L2230: `.task(id: "\(selectedTab.rawValue):\(authManager.currentUser?.userID ?? "guest")") {`
+- L2236: `.refreshable {`
+- L2239: `.onChange(of: scenePhase) { phase in`
+- L2273: `.onDisappear {`
+- L2561: `.task(id: url) {`
+- L2777: `.onTapGesture(perform: onDismiss)`
+- L2929: `.task {`
+- L3280: `.onTapGesture {`
+- L3376: `.fullScreenCover(item: $cropDraft) { draft in`
+- L3384: `.onChange(of: selectedPhoto) { item in`
+- L3388: `.onChange(of: role) { _ in`
+- L3391: `.onChange(of: allowsVoiceCalls) { _ in`
+- L3394: `.onChange(of: allowsVideoCalls) { _ in`
+- L3397: `.onDisappear {`
+- L3646: `.gesture(`
+- L3662: `.simultaneousGesture(`
+- L3761: `.onTapGesture(perform: onDismiss)`
+
+### BWChat/Views/DynamicScreenView.swift
+
+视觉 modifier：
+
+- L25: `.padding(.horizontal, 16)`
+- L26: `.padding(.top, 16)`
+- L27: `.padding(.bottom, 24)`
+- L31: `.tint(AppColors.accent)`
+- L36: `.background(AppColors.secondaryBackground)`
+- L60: `.font(.system(size: 38, weight: .semibold))`
+- L61: `.foregroundColor(AppColors.tertiaryText)`
+- L63: `.font(.system(size: 15, weight: .medium))`
+- L64: `.foregroundColor(AppColors.secondaryText)`
+- L66: `.padding(.horizontal, 28)`
+- L69: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L106: `Divider().background(AppColors.separator)`
+- L132: `.background(AppColors.cardBackground)`
+- L133: `.cornerRadius(14)`
+- L145: `.font(.system(size: 16, weight: .medium))`
+- L146: `.foregroundColor(AppColors.primaryText)`
+- L151: `.font(.system(size: 13))`
+- L152: `.foregroundColor(AppColors.secondaryText)`
+- L161: `.font(.system(size: 13, weight: .semibold))`
+- L162: `.foregroundColor(AppColors.tertiaryText)`
+- L164: `.padding(.horizontal, 16)`
+- L165: `.padding(.vertical, 13)`
+- L181: `.font(.system(size: 19, weight: .bold))`
+- L182: `.foregroundColor(AppColors.primaryText)`
+- L186: `.font(.system(size: 14))`
+- L187: `.foregroundColor(AppColors.secondaryText)`
+- L193: `.padding(16)`
+- L194: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L195: `.background(`
+- L197: `colors: [Color(hex: "FFF4C9"), Color(hex: "E9F8FF")],`
+- L202: `.cornerRadius(14)`
+- L211: `.font(.system(size: style == "title" ? 22 : 15, weight: style == "title" ? .bold : .regular))`
+- L212: `.foregroundColor(style == "title" ? AppColors.primaryText : AppColors.secondaryText)`
+- L213: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L214: `.fixedSize(horizontal: false, vertical: true)`
+- L223: `.frame(maxWidth: .infinity)`
+- L224: `.frame(height: CGFloat(component.props.int("height") ?? 160))`
+- L225: `.background(AppColors.cardBackground)`
+- L226: `.cornerRadius(14)`
+- L237: `.font(.system(size: 14, weight: .bold))`
+- L240: `.font(.system(size: 15, weight: .bold))`
+- L244: `.foregroundColor(.white)`
+- L245: `.frame(maxWidth: .infinity)`
+- L246: `.frame(height: 46)`
+- L247: `.background(AppColors.accentGradient)`
+- L248: `.cornerRadius(14)`
+- L262: `.font(.system(size: 13))`
+- L263: `.foregroundColor(AppColors.secondaryText)`
+- L265: `.font(.system(size: 22, weight: .bold))`
+- L266: `.foregroundColor(AppColors.primaryText)`
+- L270: `.font(.system(size: 13, weight: .semibold))`
+- L271: `.foregroundColor(AppColors.tertiaryText)`
+- L273: `.padding(16)`
+- L289: `.font(.system(size: 11, weight: .medium))`
+- L290: `.foregroundColor(AppColors.secondaryText)`
+- L293: `.frame(maxWidth: .infinity)`
+- L296: `.padding(14)`
+- L309: `.font(.system(size: 15, weight: .semibold))`
+- L310: `.foregroundColor(AppColors.primaryText)`
+- L312: `.font(.system(size: 12))`
+- L313: `.foregroundColor(AppColors.secondaryText)`
+- L317: `.font(.system(size: 13, weight: .semibold))`
+- L318: `.foregroundColor(AppColors.tertiaryText)`
+- L320: `.padding(.horizontal, 14)`
+- L321: `.padding(.vertical, 11)`
+- L331: `.frame(width: size, height: size)`
+- L335: `.padding(size * 0.22)`
+- L338: `.font(.system(size: size * 0.42, weight: .semibold))`
+- L339: `.foregroundColor(.white)`
+- L349: `.map(Color.init(hex:)) ?? []`
+
+交互 modifier：
+
+- L41: `.task {`
+- L44: `.refreshable {`
+- L47: `.alert(item: $routeAlert) { alert in`
+- L76: `case .alert(let alert):`
+- L277: `.task {`
+
+### BWChat/Views/EditProfileView.swift
+
+视觉 modifier：
+
+- L28: `.padding(.bottom, 30)`
+- L34: `.background(AppColors.secondaryBackground)`
+- L57: `.tint(AppColors.accent)`
+- L60: `.font(.system(size: 16, weight: .semibold))`
+- L61: `.foregroundColor(AppColors.accent)`
+- L72: `.font(.system(size: 14, weight: .medium))`
+- L73: `.foregroundColor(.white)`
+- L74: `.padding(.horizontal, 20)`
+- L75: `.padding(.vertical, 10)`
+- L76: `.background(Color.black.opacity(0.75))`
+- L77: `.cornerRadius(20)`
+- L78: `.padding(.bottom, 30)`
+- L80: `.transition(.move(edge: .bottom).combined(with: .opacity))`
+- L81: `.animation(.easeInOut, value: showToast)`
+- L98: `.shadow(color: AppColors.accent.opacity(0.2), radius: 6, x: 0, y: 3)`
+- L103: `.frame(width: 28, height: 28)`
+- L105: `.font(.system(size: 12, weight: .bold))`
+- L106: `.foregroundColor(.white)`
+- L108: `.offset(x: -2, y: -2)`
+- L121: `.font(.system(size: 13))`
+- L122: `.foregroundColor(AppColors.secondaryText)`
+- L124: `.frame(maxWidth: .infinity)`
+- L125: `.padding(.top, 20)`
+- L135: `.font(.system(size: 15))`
+- L136: `.foregroundColor(AppColors.primaryText)`
+- L139: `Divider().padding(.leading, 16)`
+- L149: `.font(.system(size: 15))`
+- L150: `.foregroundColor(AppColors.primaryText)`
+- L153: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L156: `.font(.system(size: 11, weight: .medium))`
+- L157: `.foregroundColor(`
+- L164: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L166: `Divider().padding(.leading, 16)`
+- L177: `.tint(AppColors.primaryText)`
+- L179: `Divider().padding(.leading, 16)`
+- L190: `.font(.system(size: 15, weight: .medium))`
+- L191: `.foregroundColor(AppColors.primaryText)`
+- L196: `.font(.system(size: 15))`
+- L197: `.foregroundColor(viewModel.editBirthday.isEmpty ? AppColors.tertiaryText : AppColors.primaryText)`
+- L200: `.font(.system(size: 12, weight: .semibold))`
+- L201: `.foregroundColor(AppColors.tertiaryText)`
+- L203: `.padding(.horizontal, 16)`
+- L204: `.padding(.vertical, 18)`
+- L207: `Divider().padding(.leading, 16)`
+- L212: `.font(.system(size: 15))`
+- L213: `.foregroundColor(AppColors.primaryText)`
+- L217: `.padding(.vertical, 4)`
+- L218: `.background(AppColors.cardBackground)`
+- L219: `.cornerRadius(14)`
+- L220: `.padding(.horizontal, 16)`
+- L245: `.font(.system(size: 14))`
+- L246: `.foregroundColor(AppColors.errorColor)`
+- L258: `.font(.system(size: 14, weight: .semibold))`
+- L259: `.foregroundColor(AppColors.accent)`
+- L262: `.padding(.horizontal, 4)`
+- L264: `.padding()`
+- L265: `.background(AppColors.cardBackground)`
+- L266: `.cornerRadius(14)`
+- L267: `.padding(.horizontal, 16)`
+- L293: `.font(.system(size: 15, weight: .medium))`
+- L294: `.foregroundColor(AppColors.primaryText)`
+- L297: `.frame(width: 96, alignment: .leading)`
+- L303: `.padding(.horizontal, 16)`
+- L304: `.padding(.vertical, 18)`
+
+交互 modifier：
+
+- L31: `.onTapGesture {`
+- L84: `.onChange(of: viewModel.errorMessage) { msg in`
+- L111: `.onChange(of: selectedPhoto) { newValue in`
+
+### BWChat/Views/FollowListViews.swift
+
+视觉 modifier：
+
+- L166: `.tint(AppColors.accent)`
+- L167: `.padding(.top, 80)`
+- L171: `.font(.system(size: 34, weight: .semibold))`
+- L172: `.foregroundColor(AppColors.tertiaryText)`
+- L174: `.font(.system(size: 15, weight: .semibold))`
+- L175: `.foregroundColor(AppColors.secondaryText)`
+- L177: `.frame(maxWidth: .infinity)`
+- L178: `.padding(.top, 80)`
+- L195: `.padding(.horizontal, 16)`
+- L196: `.padding(.top, 12)`
+- L197: `.padding(.bottom, 28)`
+- L199: `.background(AppColors.secondaryBackground)`
+- L223: `.tint(AppColors.accent)`
+- L224: `.padding(.top, 80)`
+- L227: `.padding(.top, 80)`
+- L247: `.tint(AppColors.accent)`
+- L248: `.padding(.vertical, 16)`
+- L252: `.padding(.horizontal, 16)`
+- L253: `.padding(.top, 12)`
+- L254: `.padding(.bottom, 28)`
+- L256: `.background(AppColors.secondaryBackground)`
+- L273: `.font(.system(size: 34, weight: .semibold))`
+- L274: `.foregroundColor(AppColors.tertiaryText)`
+- L276: `.font(.system(size: 15, weight: .semibold))`
+- L277: `.foregroundColor(AppColors.secondaryText)`
+- L279: `.frame(maxWidth: .infinity)`
+- L297: `.font(.system(size: 16, weight: .semibold))`
+- L298: `.foregroundColor(AppColors.primaryText)`
+- L302: `.font(.system(size: 13))`
+- L303: `.foregroundColor(AppColors.secondaryText)`
+- L307: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L314: `.font(.system(size: 13, weight: .bold))`
+- L315: `.foregroundColor(user.followedByMe ? AppColors.accent : .white)`
+- L316: `.padding(.horizontal, 14)`
+- L317: `.frame(height: 32)`
+- L318: `.background(`
+- L326: `.padding(14)`
+- L327: `.background(AppColors.cardBackground)`
+- L328: `.cornerRadius(14)`
+
+交互 modifier：
+
+- L204: `.task {`
+- L207: `.refreshable {`
+- L240: `.onAppear {`
+- L261: `.task {`
+- L264: `.refreshable {`
+
+### BWChat/Views/FriendRequestsView.swift
+
+视觉 modifier：
+
+- L15: `.font(.system(size: 40))`
+- L16: `.foregroundColor(AppColors.tertiaryText)`
+- L18: `.font(.system(size: 15))`
+- L19: `.foregroundColor(AppColors.secondaryText)`
+- L22: `.frame(maxWidth: .infinity)`
+- L32: `Divider().padding(.leading, 72)`
+- L38: `.background(AppColors.secondaryBackground)`
+- L61: `.font(.system(size: 16, weight: .semibold))`
+- L62: `.foregroundColor(AppColors.primaryText)`
+- L65: `.font(.system(size: 13))`
+- L66: `.foregroundColor(AppColors.secondaryText)`
+- L74: `.font(.system(size: 14, weight: .semibold))`
+- L75: `.foregroundColor(AppColors.secondaryText)`
+- L76: `.frame(width: 38, height: 38)`
+- L77: `.background(AppColors.separator)`
+- L78: `.clipShape(Circle())`
+- L83: `.font(.system(size: 14, weight: .semibold))`
+- L84: `.foregroundColor(.white)`
+- L85: `.frame(width: 38, height: 38)`
+- L86: `.background(AppColors.accentGradient)`
+- L87: `.clipShape(Circle())`
+- L91: `.padding(.horizontal, 16)`
+- L92: `.padding(.vertical, 10)`
+
+交互 modifier：
+
+- L43: `.task {`
+
+### BWChat/Views/GameCenterView.swift
+
+视觉 modifier：
+
+- L50: `.padding(.vertical, 18)`
+- L55: `.background(AppColors.secondaryBackground)`
+- L58: `.toolbarBackground(Color.clear, for: .navigationBar)`
+- L101: `.frame(minHeight: 320)`
+- L107: `.frame(minHeight: 320)`
+- L116: `.padding(.horizontal, 16)`
+- L120: `.tint(AppColors.accent)`
+- L121: `.frame(maxWidth: .infinity)`
+- L122: `.padding(.vertical, 8)`
+- L139: `.frame(minHeight: 320)`
+- L145: `.frame(minHeight: 320)`
+- L152: `.padding(.horizontal, 16)`
+- L158: `.tint(AppColors.accent)`
+- L159: `.frame(maxWidth: .infinity, minHeight: 320)`
+- L291: `.frame(width: 196)`
+- L510: `.frame(width: 50, height: 50)`
+- L514: `Color.black.opacity(0.28)`
+- L515: `ProgressView().tint(.white)`
+- L519: `.clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))`
+- L523: `.font(.system(size: 17, weight: .semibold))`
+- L524: `.foregroundColor(AppColors.primaryText)`
+- L528: `.font(.system(size: 14, weight: .regular))`
+- L529: `.foregroundColor(AppColors.secondaryText)`
+- L535: `.font(.system(size: 12, weight: .semibold))`
+- L536: `.foregroundColor(AppColors.accent)`
+- L537: `.padding(.horizontal, 9)`
+- L538: `.padding(.vertical, 4)`
+- L539: `.background(AppColors.accent.opacity(0.12))`
+- L540: `.clipShape(Capsule())`
+- L543: `.frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)`
+- L545: `.padding(12)`
+- L546: `.frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)`
+- L547: `.background(AppColors.cardBackground)`
+- L548: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L582: `ProgressView().tint(.white)`
+- L610: `.font(.system(size: 19, weight: .medium))`
+- L611: `.foregroundColor(.white.opacity(0.8))`
+- L841: `.font(.system(size: 38, weight: .semibold))`
+- L842: `.foregroundColor(AppColors.tertiaryText)`
+- L845: `.font(.system(size: 15, weight: .medium))`
+- L846: `.foregroundColor(AppColors.secondaryText)`
+- L852: `.font(.system(size: 14, weight: .semibold))`
+- L853: `.foregroundColor(.white)`
+- L854: `.padding(.horizontal, 18)`
+- L855: `.padding(.vertical, 10)`
+- L856: `.background(AppColors.accentGradient)`
+- L857: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L862: `.padding(28)`
+- L863: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+
+交互 modifier：
+
+- L52: `.refreshable {`
+- L68: `.task {`
+- L72: `.onAppear {`
+- L77: `.alert(`
+- L112: `.onAppear {`
+- L588: `.task(id: url) {`
+
+### BWChat/Views/GroupCallView.swift
+
+视觉 modifier：
+
+- L13: `Color.black.ignoresSafeArea()`
+- L19: `.font(.system(size: 18, weight: .semibold))`
+- L20: `.foregroundColor(.white)`
+- L22: `.font(.system(size: 13))`
+- L23: `.foregroundColor(.white.opacity(0.6))`
+- L26: `.font(.system(size: 12, weight: .medium))`
+- L27: `.foregroundColor(.orange)`
+- L31: `.font(.system(size: 12, weight: .medium))`
+- L32: `.foregroundColor(.orange)`
+- L42: `.font(.system(size: 14, weight: .semibold))`
+- L43: `.foregroundColor(.white.opacity(0.8))`
+- L44: `.frame(width: 36, height: 36)`
+- L45: `.background(.white.opacity(0.15))`
+- L46: `.clipShape(Circle())`
+- L50: `.padding(.horizontal, 20)`
+- L51: `.padding(.top, 16)`
+- L52: `.padding(.bottom, 8)`
+- L65: `.padding(.bottom, 40)`
+- L102: `.padding(.horizontal, 4)`
+- L127: `.padding(.horizontal, 16)`
+- L128: `.padding(.top, 20)`
+- L166: `.padding(.horizontal, 28)`
+- L169: `Color.clear`
+- L170: `.frame(width: 64, height: 68)`
+- L186: `.padding(.horizontal, 28)`
+- L210: `.padding(.horizontal, 28)`
+- L218: `.font(.system(size: buttonDiameter * 0.4))`
+- L219: `.foregroundColor(.white)`
+- L220: `.frame(width: buttonDiameter, height: buttonDiameter)`
+- L221: `.background(Color.red)`
+- L222: `.clipShape(Circle())`
+- L236: `.font(.system(size: buttonDiameter * 0.4))`
+- L237: `.foregroundColor(isActive ? .black : .white)`
+- L238: `.frame(width: buttonDiameter, height: buttonDiameter)`
+- L239: `.background(isActive ? Color.white : Color.white.opacity(0.2))`
+- L240: `.clipShape(Circle())`
+- L270: `Color(hex: "2A2A3E")`
+- L274: `.fill(Color.white.opacity(0.1))`
+- L275: `.frame(width: 72, height: 72)`
+- L278: `.font(.system(size: 32, weight: .bold))`
+- L279: `.foregroundStyle(.white.opacity(0.62))`
+- L286: `.padding(4)`
+- L289: `.font(.caption2.weight(.medium))`
+- L290: `.foregroundStyle(.white)`
+- L292: `.padding(.horizontal, 6)`
+- L293: `.padding(.vertical, 3)`
+- L294: `.background(.black.opacity(0.5), in: .rect(cornerRadius: 4))`
+- L295: `.padding(4)`
+- L300: `.stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)`
+- L303: `.clipShape(.rect(cornerRadius: 8))`
+- L324: `.fill(Color(hex: "2A2A3E"))`
+- L325: `.frame(width: 64, height: 64)`
+- L328: `.font(.title2.bold())`
+- L329: `.foregroundStyle(.white.opacity(0.7))`
+- L333: `.stroke(isSpeaking ? Color.green : Color.clear, lineWidth: 3)`
+- L335: `.overlay(alignment: .bottomTrailing) {`
+- L338: `.font(.caption2.bold())`
+- L339: `.foregroundStyle(.white)`
+- L340: `.padding(5)`
+- L341: `.background(.red, in: Circle())`
+- L347: `.font(.caption)`
+- L348: `.foregroundStyle(.white.opacity(0.8))`
+
+交互 modifier：
+
+- L69: `.onAppear {`
+
+### BWChat/Views/GroupChatView.swift
+
+视觉 modifier：
+
+- L1334: `.fill(highlightedMessageID == message.id ? AppColors.accent.opacity(0.15) : Color.clear)`
+- L1336: `Color.clear`
+- L1337: `.frame(width: 1, height: 1)`
+- L1363: `Color.clear`
+- L1364: `.frame(height: 1)`
+- L1392: `.tint(AppColors.accent)`
+- L1393: `.padding()`
+- L1398: `.padding(.horizontal, 12)`
+- L1399: `.padding(.vertical, 8)`
+- L1402: `.rotationEffect(.degrees(180))`
+- L1403: `.scaleEffect(x: -1, y: 1, anchor: .center)`
+- L1450: `.padding(.trailing, 12)`
+- L1451: `.padding(.bottom, 14)`
+- L1454: `.transition(.move(edge: .trailing).combined(with: .opacity))`
+- L1567: `.ignoresSafeArea(`
+- L1580: `.background(AppColors.secondaryBackground)`
+- L1587: `.font(.system(size: 15, weight: .semibold))`
+- L1599: `.font(.system(size: 16, weight: .medium))`
+- L1600: `.foregroundColor(AppColors.accent)`
+- L1602: `.opacity(isSelectingMessages ? 0 : 1)`
+- L1806: `.overlay(alignment: .leading) {`
+- L1811: `.font(.system(size: 20, weight: .medium))`
+- L1812: `.foregroundColor(recorder.isRecording ? .white : AppColors.accent)`
+- L1813: `.frame(width: 42, height: inputChromeHeight)`
+- L1836: `.padding(.leading, showsComposerMicrophone ? 34 : 0)`
+- L1837: `.frame(height: inputTextHeight)`
+- L1840: `.font(.system(size: 16))`
+- L1841: `.foregroundColor(AppColors.tertiaryText)`
+- L1842: `.padding(.leading, showsComposerMicrophone ? 36 : 2)`
+- L1843: `.opacity(viewModel.inputText.isEmpty && !isInputFocused ? 1 : 0)`
+- L1848: `.font(.system(size: 20, weight: .medium))`
+- L1849: `.foregroundColor(AppColors.accent)`
+- L1850: `.frame(width: 34, height: inputTextHeight)`
+- L1854: `.opacity(showsComposerMicrophone ? 1 : 0)`
+- L1855: `.scaleEffect(showsComposerMicrophone ? 1 : 0.82)`
+- L1857: `.animation(.easeOut(duration: 0.12), value: showsComposerMicrophone)`
+- L1859: `.frame(maxWidth: .infinity)`
+- L1873: `.frame(width: 42, height: composerActionButtonHeight, alignment: .center)`
+- L1882: `.frame(width: 40, height: 40)`
+- L1884: `.font(.system(size: 15, weight: .bold))`
+- L1885: `.foregroundColor(.white)`
+- L1890: `.opacity(viewModel.isSendEnabled ? 1 : 0)`
+- L1901: `.opacity(viewModel.isSendEnabled ? 0 : 1)`
+- L1904: `.frame(width: 42, height: composerActionButtonHeight, alignment: .center)`
+- L1908: `.padding(.horizontal, 10)`
+- L1909: `.padding(.top, 10)`
+- L1910: `.padding(.bottom, isInputFocused || selectedComposerPanel != nil ? 5 : 12)`
+- L1924: `.frame(maxWidth: .infinity)`
+- L1925: `.frame(`
+- L1941: `Color(uiColor: .secondarySystemBackground)`
+- L1942: `.opacity(0.98)`
+- L1943: `.ignoresSafeArea(edges: .bottom)`
+- L2004: `.font(.system(size: 16, weight: .medium))`
+- L2005: `.foregroundColor(recorder.isRecording ? .white : AppColors.primaryText)`
+- L2037: `Color.black.opacity(0.6)`
+- L2038: `.ignoresSafeArea()`
+- L2046: `.fill(voiceCancelZone ? Color.red.opacity(0.9) : AppColors.accent)`
+- L2047: `.frame(width: 100, height: 100)`
+- L2051: `.font(.system(size: 36, weight: .bold))`
+- L2052: `.foregroundColor(.white)`
+- L2057: `.fill(Color.white)`
+- L2058: `.frame(width: 4, height: CGFloat([16, 24, 32, 24, 16][i]))`
+- L2059: `.animation(`
+- L2069: `.scaleEffect(voiceCancelZone ? 1.1 : 1.0)`
+- L2070: `.animation(.easeInOut(duration: 0.2), value: voiceCancelZone)`
+- L2073: `.font(.system(size: 48, weight: .light, design: .monospaced))`
+- L2074: `.foregroundColor(.white)`
+- L2077: `.font(.system(size: 15))`
+- L2078: `.foregroundColor(.white.opacity(0.7))`
+- L2079: `.padding(.bottom, 120)`
+- L2082: `.transition(.opacity)`
+- L2101: `RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)`
+- L2102: `Image(systemName: "photo").font(.system(size: 22)).foregroundColor(AppColors.primaryText)`
+- L2104: `Text(L10n.tr("chat.album")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)`
+- L2154: `RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)`
+- L2155: `Image(systemName: "phone.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)`
+- L2157: `Text(L10n.tr("call.voice")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)`
+- L2168: `RoundedRectangle(cornerRadius: 12).fill(AppColors.composerPanelIconBackground).frame(width: 56, height: 56)`
+- L2169: `Image(systemName: "video.fill").font(.system(size: 22)).foregroundColor(AppColors.primaryText)`
+- L2171: `Text(L10n.tr("call.video")).font(.system(size: 11)).foregroundColor(AppColors.secondaryText)`
+- L2175: `.padding(.vertical, 16)`
+- L2176: `.frame(maxWidth: .infinity)`
+- L2179: `Color.clear.preference(`
+- L2243: `.font(.system(size: 12))`
+- L2244: `.foregroundColor(AppColors.secondaryText)`
+- L2245: `.padding(.horizontal, 12)`
+- L2246: `.padding(.vertical, 4)`
+- L2247: `.background(AppColors.separator.opacity(0.5))`
+- L2248: `.cornerRadius(10)`
+- L2251: `.padding(.vertical, 4)`
+- L2271: `.font(.caption)`
+- L2272: `.foregroundColor(AppColors.secondaryText)`
+- L2308: `.padding(.vertical, 2)`
+- L2418: `.foregroundColor(.red)`
+- L2419: `.font(.system(size: 20))`
+- L2437: `.padding(.vertical, 2)`
+- L2468: `.foregroundColor(.red)`
+- L2469: `.font(.system(size: 20))`
+- L2489: `.padding(.vertical, 2)`
+- L2505: `.foregroundColor(.red)`
+- L2506: `.font(.system(size: 20))`
+- L2510: `.font(.system(size: 12, weight: .medium))`
+- L2511: `.foregroundColor(AppColors.secondaryText)`
+- L2529: `Color.black.opacity(0.1)`
+- L2531: `.fill(Color.black.opacity(0.42))`
+- L2532: `.frame(width: 44, height: 44)`
+- L2534: `.font(.system(size: 17, weight: .bold))`
+- L2535: `.foregroundColor(.white)`
+- L2536: `.offset(x: 1)`
+- L2538: `.frame(`
+- L2544: `.clipShape(RoundedRectangle(`
+- L2557: `.padding(.vertical, 2)`
+
+交互 modifier：
+
+- L536: `// only if neither source has anything — in which case .task will`
+- L1326: `row.onTapGesture {`
+- L1366: `.onAppear {`
+- L1374: `.onDisappear {`
+- L1395: `.onAppear { Task { await viewModel.loadMoreMessages() } }`
+- L1406: `.simultaneousGesture(`
+- L1413: `.onChange(of: viewModel.messages.last.map {`
+- L1427: `.onChange(of: viewModel.visiblePendingTexts.count`
+- L1435: `.onChange(of: pendingLocatedMessageID) { messageID in`
+- L1440: `.task { await loadInitialTimeline(proxy: proxy) }`
+- L1458: `.simultaneousGesture(TapGesture().onEnded {`
+- L1562: `.simultaneousGesture(TapGesture().onEnded {`
+- L1571: `.fullScreenCover(isPresented: $viewModel.showMentionPicker) {`
+- L1606: `.alert(L10n.tr("selection.delete.title"), isPresented: $showSelectionDeleteConfirmation) {`
+- L1612: `.confirmationDialog(L10n.tr("forward.chooseMode"), isPresented: $showForwardModeDialog) {`
+- L1619: `.sheet(item: $forwardDraft) { draft in`
+- L1625: `.sheet(isPresented: $showAddMembers) {`
+- L1628: `.sheet(isPresented: $showGiftSheet) {`
+- L1642: `.onChange(of: showGroupDetail) { show in`
+- L1658: `.onAppear {`
+- L1663: `.onChange(of: viewModel.inputText) { _ in`
+- L1666: `.onChange(of: composerMentions) { _ in`
+- L1669: `.onChange(of: viewModel.replyingTo?.id) { _ in`
+- L1709: `.task {`
+- L1712: `.onChange(of: viewModel.errorMessage) { message in`
+- L1730: `.onDisappear {`
+- L1741: `.onChange(of: callManager.currentCall != nil) { hasCalling in`
+- L1750: `.onChange(of: callManager.currentCall?.state) { newState in`
+- L1779: `.onChange(of: shouldPopToRoot) { pop in`
+- L1789: `.fullScreenCover(item: Binding(`
+- L2011: `.gesture(`
+- L2107: `.onChange(of: selectedMediaItems) { items in`
+- L2335: `.onTapGesture {`
+
+### BWChat/Views/GroupDetailView.swift
+
+视觉 modifier：
+
+- L46: `.tint(AppColors.accent)`
+- L47: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L53: `.font(.title)`
+- L54: `.foregroundColor(AppColors.secondaryText)`
+- L56: `.foregroundColor(AppColors.secondaryText)`
+- L59: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L62: `.background(AppColors.secondaryBackground)`
+- L120: `Color.black.opacity(0.08).ignoresSafeArea()`
+- L121: `ProgressView().tint(AppColors.accent)`
+- L155: `.padding(.bottom, 6)`
+- L203: `.tint(AppColors.accent)`
+- L224: `.tint(AppColors.accent)`
+- L244: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L268: `.frame(maxWidth: .infinity, alignment: .center)`
+- L273: `.frame(maxWidth: .infinity, alignment: .center)`
+- L280: `.background(AppColors.secondaryBackground)`
+- L282: `.tint(AppColors.accent)`
+- L346: `.tint(AppColors.accent)`
+- L369: `.font(.caption)`
+- L370: `.foregroundColor(AppColors.secondaryText)`
+- L373: `.tint(AppColors.accent)`
+- L629: `.font(.body)`
+- L630: `.foregroundColor(AppColors.primaryText)`
+- L633: `.font(.subheadline)`
+- L634: `.foregroundColor(AppColors.secondaryText)`
+- L641: `.font(.body)`
+- L642: `.foregroundColor(AppColors.secondaryText)`
+- L645: `.frame(maxWidth: 190, alignment: .trailing)`
+- L649: `.font(.body)`
+- L650: `.foregroundColor(AppColors.secondaryText)`
+- L654: `.font(.caption.weight(.semibold))`
+- L655: `.foregroundColor(AppColors.tertiaryText)`
+- L689: `.font(.caption)`
+- L690: `.foregroundColor(AppColors.secondaryText)`
+- L693: `.frame(maxWidth: .infinity)`
+- L704: `.frame(width: 48, height: 48)`
+- L707: `.font(.title3)`
+- L708: `.foregroundColor(AppColors.secondaryText)`
+- L711: `.font(.caption)`
+- L712: `.foregroundColor(AppColors.secondaryText)`
+- L715: `.frame(maxWidth: .infinity)`
+- L721: `.padding(.horizontal, 16)`
+- L722: `.padding(.top, 18)`
+- L728: `.font(.caption.weight(.semibold))`
+- L730: `.font(.body)`
+- L731: `.foregroundColor(AppColors.secondaryText)`
+- L732: `.frame(maxWidth: .infinity)`
+- L733: `.padding(.vertical, 12)`
+- L737: `.background(AppColors.background)`
+- L748: `.font(.caption2.weight(.semibold))`
+- L749: `.foregroundColor(normalized == "owner" ? .white : AppColors.accent)`
+- L750: `.padding(.horizontal, 6)`
+- L751: `.padding(.vertical, 2)`
+- L752: `.background(normalized == "owner" ? AppColors.accent : AppColors.accentLight)`
+- L753: `.clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))`
+- L807: `.font(.body)`
+- L808: `.foregroundColor(AppColors.primaryText)`
+- L814: `.font(.caption)`
+- L815: `.foregroundColor(AppColors.secondaryText)`
+- L824: `.foregroundColor(AppColors.errorColor)`
+- L868: `.overlay { if isProcessing { ProgressView().tint(AppColors.accent) } }`
+- L939: `.font(.footnote)`
+- L940: `.foregroundColor(AppColors.secondaryText)`
+- L944: `.background(AppColors.secondaryBackground)`
+- L956: `.overlay { if isSaving { ProgressView().tint(AppColors.accent) } }`
+- L1016: `.frame(minHeight: 180)`
+- L1024: `.font(.footnote)`
+- L1025: `.foregroundColor(AppColors.secondaryText)`
+- L1030: `.background(AppColors.secondaryBackground)`
+- L1035: `.font(.title3.weight(.semibold))`
+- L1037: `.font(.body)`
+- L1038: `.foregroundColor(contentText.isBlank ? AppColors.secondaryText : AppColors.primaryText)`
+- L1041: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1042: `.padding()`
+- L1044: `.background(AppColors.background)`
+- L1060: `.overlay { if isSaving { ProgressView().tint(AppColors.accent) } }`
+- L1101: `.font(.title3.weight(.semibold))`
+- L1109: `.frame(maxWidth: 260)`
+- L1110: `.padding(18)`
+- L1111: `.background(Color(.systemBackground))`
+- L1112: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L1113: `.shadow(color: .black.opacity(0.08), radius: 12, y: 4)`
+- L1120: `.font(.footnote)`
+- L1121: `.foregroundColor(AppColors.secondaryText)`
+- L1126: `.frame(maxWidth: .infinity)`
+- L1138: `.font(.system(size: 80, weight: .light))`
+- L1139: `.foregroundColor(AppColors.secondaryText)`
+- L1141: `.font(.body)`
+- L1142: `.foregroundColor(AppColors.secondaryText)`
+- L1148: `.frame(maxWidth: .infinity)`
+- L1154: `.frame(maxWidth: 420)`
+- L1155: `.padding(24)`
+- L1156: `.frame(maxWidth: .infinity)`
+- L1158: `.background(AppColors.secondaryBackground)`
+- L1163: `.tint(AppColors.accent)`
+- L1165: `.overlay { if isWorking { ProgressView().tint(AppColors.accent) } }`
+- L1286: `HStack { Spacer(); ProgressView().tint(AppColors.accent); Spacer() }`
+- L1311: `HStack { Spacer(); ProgressView().tint(AppColors.accent); Spacer() }`
+- L1422: `.font(.title)`
+- L1423: `.foregroundColor(AppColors.tertiaryText)`
+- L1425: `.font(.body)`
+- L1426: `.foregroundColor(AppColors.secondaryText)`
+- L1429: `.frame(maxWidth: .infinity)`
+- L1430: `.padding(.vertical, 70)`
+- L1444: `.font(.subheadline.weight(.medium))`
+- L1445: `.foregroundColor(AppColors.primaryText)`
+- L1448: `.font(.caption)`
+- L1449: `.foregroundColor(AppColors.tertiaryText)`
+- L1452: `.font(.body)`
+- L1453: `.foregroundColor(AppColors.secondaryText)`
+- L1457: `.font(.caption.weight(.semibold))`
+- L1458: `.foregroundColor(AppColors.tertiaryText)`
+- L1459: `.padding(.top, 4)`
+- L1504: `.tint(AppColors.accent)`
+- L1564: `.frame(minHeight: 130)`
+- L1576: `.frame(maxWidth: .infinity)`
+- L1582: `.background(AppColors.secondaryBackground)`
+- L1588: `.overlay { if isSubmitting { ProgressView().tint(AppColors.accent) } }`
+- L1631: `ProgressView().tint(AppColors.accent)`
+- L1635: `.font(.title2.weight(.semibold))`
+- L1638: `.font(.body)`
+- L1639: `.foregroundColor(AppColors.secondaryText)`
+- L1642: `.font(.subheadline)`
+- L1643: `.foregroundColor(AppColors.secondaryText)`
+- L1649: `.font(.footnote)`
+- L1650: `.foregroundColor(AppColors.tertiaryText)`
+- L1656: `.frame(maxWidth: .infinity)`
+- L1664: `.frame(maxWidth: 420)`
+- L1665: `.padding(24)`
+- L1666: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1667: `.background(AppColors.secondaryBackground)`
+- L1672: `.tint(AppColors.accent)`
+- L1674: `.overlay { if isJoining { ProgressView().tint(AppColors.accent) } }`
+- L1778: `.foregroundColor(AppColors.primaryText)`
+- L1781: `.foregroundColor(AppColors.secondaryText)`
+- L1783: `.font(.system(size: 13, weight: .medium))`
+- L1784: `.foregroundColor(AppColors.tertiaryText)`
+- L1798: `ProgressView().tint(AppColors.accent)`
+- L1871: `.font(.footnote)`
+- L1872: `.foregroundColor(AppColors.secondaryText)`
+- L1885: `.foregroundColor(AppColors.primaryText)`
+- L1887: `.font(.caption)`
+- L1888: `.foregroundColor(AppColors.tertiaryText)`
+- L1893: `.foregroundColor(AppColors.accent)`
+
+交互 modifier：
+
+- L76: `.task {`
+- L80: `.sheet(isPresented: $showAddMembers) {`
+- L85: `.alert(L10n.tr("group.leave.confirmTitle"), isPresented: $showLeaveConfirm) {`
+- L93: `.alert(L10n.tr("group.dismiss.confirmTitle"), isPresented: $showDismissConfirm) {`
+- L101: `.alert(L10n.tr("group.clear.confirmTitle"), isPresented: $showClearConfirm) {`
+- L109: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L832: `.searchable(text: $query, prompt: L10n.tr("group.members.search"))`
+- L845: `.sheet(isPresented: $showAddMembers) {`
+- L850: `.alert(L10n.tr("group.removeMember.title"), isPresented: Binding(`
+- L862: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L957: `.onAppear { isFocused = true }`
+- L958: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1061: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1166: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1304: `.onAppear {`
+- L1317: `.searchable(`
+- L1334: `.sheet(isPresented: $showFilters) {`
+- L1344: `.task(id: requestKey) {`
+- L1349: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1589: `.alert(L10n.tr("group.report.success"), isPresented: $showSuccess) {`
+- L1592: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1673: `.task { await load() }`
+- L1675: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1801: `.task {`
+- L1816: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+- L1901: `.searchable(text: $query, prompt: L10n.tr("group.notifications.search"))`
+- L1906: `.alert(L10n.tr("common.error"), isPresented: Binding(`
+
+### BWChat/Views/ImagePreviewView.swift
+
+视觉 modifier：
+
+- L479: `.opacity(shouldHideSource ? 0 : 1)`
+- L480: `.background(`
+- L482: `Color.clear`
+- L483: `.onAppear { frame = geo.frame(in: .global) }`
+- L484: `.onChange(of: geo.frame(in: .global)) { newFrame in`
+- L543: `.transition(.identity)`
+- L546: `.ignoresSafeArea()`
+- L732: `Color.black`
+- L733: `.ignoresSafeArea()`
+- L734: `.opacity(appeared ? backgroundOpacity : 0)`
+- L766: `// when an ancestor calls .ignoresSafeArea(). The inset shifts`
+- L769: `// .position(imageRect.midX, imageRect.midY) — coordinates`
+- L775: `// .ignoresSafeArea() ZStack) IS at imageRect.midY, so the`
+- L779: `// .ignoresSafeArea() on the TabView itself eliminates the`
+- L781: `.ignoresSafeArea()`
+- L782: `.frame(width: screen.width, height: screen.height)`
+- L807: `.opacity(inHeroPhase || (!hasSrc && !appeared) ? 0 : 1)`
+- L835: `.frame(width: targetRect.width, height: targetRect.height)`
+- L836: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L838: `.scaleEffect(heroScale, anchor: .center)`
+- L839: `.offset(x: heroOffsetX, y: heroOffsetY)`
+- L840: `.position(x: targetRect.midX, y: targetRect.midY)`
+- L842: `.frame(width: screen.width, height: screen.height)`
+- L848: `.frame(width: heroMaskRect.width, height: heroMaskRect.height)`
+- L849: `.position(x: heroMaskRect.midX, y: heroMaskRect.midY)`
+- L851: `.opacity(inHeroPhase ? 1 : 0)`
+- L861: `.font(.system(size: 14, weight: .medium))`
+- L862: `.foregroundColor(.white.opacity(0.9))`
+- L863: `.padding(.horizontal, 12)`
+- L864: `.padding(.vertical, 5)`
+- L865: `.background(.black.opacity(0.4))`
+- L866: `.cornerRadius(14)`
+- L867: `.padding(.top, 54)`
+- L870: `.opacity(scale <= 1.05 && verticalDrag == 0 && appeared ? 1 : 0)`
+- L873: `.ignoresSafeArea()`
+- L1150: `offset = LocationAwareZoomMath.offset(`
+- L1284: `let globalFrame = geo.frame(in: .global)`
+- L1296: `Color.clear`
+- L1318: `.frame(width: imageRect.width, height: imageRect.height)`
+- L1319: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L1320: `.scaleEffect(scale, anchor: .center)`
+- L1321: `.offset(x: offset.width, y: offset.height)`
+- L1322: `.scaleEffect(dismissScale, anchor: .center)`
+- L1323: `.offset(y: dismissTranslation)`
+- L1324: `.position(mediaCenterInPage)`
+- L1366: `.font(.system(size: 48))`
+- L1367: `.foregroundColor(.gray)`
+- L1370: `.frame(width: geo.size.width, height: geo.size.height)`
+- L1444: `Color.black.opacity(0.001)`
+
+交互 modifier：
+
+- L483: `.onAppear { frame = geo.frame(in: .global) }`
+- L484: `.onChange(of: geo.frame(in: .global)) { newFrame in`
+- L489: `.onTapGesture {`
+- L508: `.onChange(of: galleryState.isPresented) { isPresented in`
+- L791: `.onChange(of: currentIndex) { newIndex in`
+- L853: `.onAppear {`
+- L894: `.onAppear {`
+- L1298: `.onTapGesture {`
+- L1302: `.onAppear {`
+- L1328: `.simultaneousGesture(scale > 1.05 && !isPinching ? panGesture : nil)`
+- L1329: `.simultaneousGesture(`
+- L1343: `.onTapGesture {`
+- L1373: `.task(id: shouldLoadFullResolution) {`
+- L1447: `.task(id: url) {`
+
+### BWChat/Views/LoginView.swift
+
+视觉 modifier：
+
+- L38: `.frame(height: AuthLayout.loginTopSpacing(height: geo.size.height, isEditing: isEditing))`
+- L62: `.font(.system(size: 16, weight: .medium))`
+- L63: `.foregroundColor(AuthPalette.inputText)`
+- L68: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L75: `.font(.system(size: 15, weight: .semibold))`
+- L76: `.foregroundColor(AuthPalette.mutedText.opacity(0.55))`
+- L105: `.font(.system(size: 16, weight: .medium))`
+- L106: `.foregroundColor(AuthPalette.inputText)`
+- L111: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L117: `.font(.system(size: 15, weight: .semibold))`
+- L118: `.foregroundColor(AuthPalette.mutedText.opacity(0.72))`
+- L142: `.padding(.top, 4)`
+- L149: `.foregroundColor(AuthPalette.mutedText)`
+- L151: `.foregroundColor(AuthPalette.coral)`
+- L152: `.fontWeight(.semibold)`
+- L154: `.font(.system(size: 14, weight: .medium))`
+- L155: `.frame(maxWidth: .infinity)`
+- L156: `.padding(.top, 2)`
+- L164: `.frame(height: isEditing ? 18 : 30)`
+- L166: `.padding(.horizontal, 20)`
+- L167: `.padding(.bottom, max(geo.safeAreaInsets.bottom, 14))`
+- L168: `.frame(minHeight: geo.size.height)`
+- L171: `.animation(AuthMotion.focusShift, value: isEditing)`
+- L180: `.font(.system(size: 15, weight: .semibold))`
+- L207: `static let blue = Color(hex: "4BB7E8")`
+- L208: `static let coral = Color(hex: "FF6C7C")`
+- L209: `static let tailGreen = Color(hex: "57DDBB")`
+- L210: `static let amber = Color(hex: "F4B642")`
+- L211: `static let ink = Color(hex: "20222E")`
+- L212: `static let softInk = Color(hex: "4A5160")`
+- L213: `static let cardFill = Color.white`
+- L214: `static let cardStroke = Color(hex: "E9ECF2")`
+- L215: `static let fieldFill = Color(hex: "F6F8FB")`
+- L216: `static let fieldStroke = Color(hex: "E2E7EF")`
+- L218: `static let placeholderText = Color(hex: "8E96A6")`
+- L219: `static let mutedText = Color(hex: "6B7280")`
+- L220: `static let disabledFill = Color(hex: "D9DEE7")`
+- L297: `Color.white.ignoresSafeArea()`
+- L313: `.frame(width: AuthLayout.catSize, height: AuthLayout.catSize)`
+- L314: `.zIndex(0)`
+- L317: `.padding(.top, AuthLayout.catFormTopPadding)`
+- L318: `.zIndex(1)`
+- L321: `.frame(width: AuthLayout.catSize, height: AuthLayout.catSize)`
+- L322: `.offset(y: AuthLayout.catFloatingPeekOffset)`
+- L323: `.zIndex(3)`
+- L325: `.frame(maxWidth: .infinity)`
+- L339: `.scaleEffect(candidate == mood ? candidate.artworkScale : candidate.artworkScale * 0.98)`
+- L340: `.offset(candidate == mood ? candidate.artworkOffset : candidate.inactiveArtworkOffset)`
+- L341: `.opacity(candidate == mood && candidate != hiddenMood ? 1 : 0)`
+- L344: `.animation(AuthMotion.catMood, value: mood)`
+- L358: `.scaleEffect(mood == .peek ? AuthCatMood.peek.artworkScale : AuthCatMood.peek.artworkScale * 0.98)`
+- L359: `.offset(mood == .peek ? AuthCatMood.peek.artworkOffset : AuthCatMood.peek.inactiveArtworkOffset)`
+- L360: `.opacity(mood == .peek ? 1 : 0)`
+- L361: `.animation(AuthMotion.catMood, value: mood)`
+- L381: `.font(.system(size: 35, weight: .heavy, design: .rounded))`
+- L382: `.foregroundColor(AuthPalette.ink)`
+- L387: `.font(.system(size: 15, weight: .semibold))`
+- L388: `.foregroundColor(AuthPalette.mutedText)`
+- L392: `.frame(maxWidth: .infinity)`
+- L405: `.padding(16)`
+- L406: `.background(`
+- L410: `.overlay(`
+- L414: `.shadow(color: Color.black.opacity(0.08), radius: 20, x: 0, y: 10)`
+- L427: `.font(.system(size: 16, weight: .medium))`
+- L428: `.foregroundColor(AuthPalette.placeholderText)`
+- L447: `.font(.system(size: 16, weight: .semibold))`
+- L448: `.foregroundColor(isFocused ? AuthPalette.tailGreen : AuthPalette.softInk.opacity(0.62))`
+- L449: `.frame(width: 22)`
+- L453: `.padding(.horizontal, 16)`
+- L454: `.frame(height: 52)`
+- L455: `.background(`
+- L459: `.overlay(`
+- L461: `.stroke(isFocused ? AuthPalette.tailGreen.opacity(0.82) : AuthPalette.fieldStroke, lineWidth: 1)`
+- L480: `.font(.system(size: 17, weight: .bold))`
+- L483: `.foregroundColor(.white)`
+- L484: `.frame(maxWidth: .infinity)`
+- L485: `.frame(height: 52)`
+- L486: `.background(isEnabled ? AuthPalette.actionGradient : LinearGradient(colors: [AuthPalette.disabledFill], startPoint: .leading, endPoint: .trailing))`
+- L487: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L488: `.shadow(color: isEnabled ? AuthPalette.coral.opacity(0.30) : .clear, radius: 14, x: 0, y: 8)`
+- L503: `.font(.system(size: 12, weight: .semibold))`
+- L504: `.padding(.top, 2)`
+- L506: `.font(.system(size: 13, weight: .medium))`
+- L510: `.foregroundColor(color)`
+- L511: `.padding(.horizontal, 2)`
+
+交互 modifier：
+
+- L84: `.onTapGesture { focusField(.username) }`
+- L125: `.onTapGesture { focusField(.password) }`
+- L170: `.onTapGesture { dismissKeyboard() }`
+- L183: `.fullScreenCover(isPresented: $showRegister) {`
+
+### BWChat/Views/MainTabView.swift
+
+视觉 modifier：
+
+- L36: `.ignoresSafeArea(.container)`
+- L37: `.ignoresSafeArea(.keyboard, edges: .bottom)`
+- L41: `.ignoresSafeArea(.keyboard, edges: .bottom)`
+- L134: `.padding(.horizontal, 16)`
+- L135: `.padding(.top, AppSpacing.rootTabTopInset)`
+- L136: `.padding(.bottom, 12)`
+- L138: `Color.clear`
+- L139: `.frame(height: 16)`
+- L143: `.padding(.bottom, 12)`
+- L149: `.font(.system(size: 36))`
+- L150: `.foregroundColor(AppColors.tertiaryText)`
+- L152: `.font(.system(size: 15))`
+- L153: `.foregroundColor(AppColors.secondaryText)`
+- L155: `.font(.system(size: 13))`
+- L156: `.foregroundColor(AppColors.tertiaryText)`
+- L158: `.frame(maxWidth: .infinity)`
+- L159: `.padding(.top, 40)`
+- L163: `.font(.system(size: 13, weight: .medium))`
+- L164: `.foregroundColor(AppColors.secondaryText)`
+- L166: `.padding(.leading, 16 + RootTabTitle.leadingContentInset)`
+- L167: `.padding(.trailing, 16)`
+- L168: `.padding(.top, 20)`
+- L169: `.padding(.bottom, 8)`
+- L187: `.font(.system(size: 16, weight: .medium))`
+- L188: `.foregroundColor(AppColors.primaryText)`
+- L193: `.font(.system(size: 13, weight: .semibold))`
+- L194: `.foregroundColor(AppColors.tertiaryText)`
+- L196: `.padding(.horizontal, 16)`
+- L197: `.padding(.vertical, 10)`
+- L198: `.frame(minHeight: AppListMetrics.userCardHeight)`
+- L203: `Divider().padding(.leading, 70)`
+- L207: `.background(AppColors.cardBackground)`
+- L208: `.cornerRadius(14)`
+- L209: `.padding(.horizontal, 16)`
+- L213: `.padding(.bottom, 20)`
+- L215: `.background(AppColors.secondaryBackground)`
+- L252: `.frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)`
+- L253: `.background(AppColors.cardBackground)`
+- L254: `.cornerRadius(14)`
+- L255: `.padding(.horizontal, 16)`
+- L283: `.frame(width: 40, height: 40)`
+- L285: `.font(.system(size: 17, weight: .semibold))`
+- L286: `.foregroundColor(.white)`
+- L292: `.font(.system(size: 16, weight: .medium))`
+- L293: `.foregroundColor(AppColors.primaryText)`
+- L298: `.font(.system(size: 12))`
+- L299: `.foregroundColor(AppColors.secondaryText)`
+- L308: `.font(.system(size: 13))`
+- L309: `.foregroundColor(AppColors.secondaryText)`
+- L315: `.font(.system(size: 12, weight: .bold))`
+- L316: `.foregroundColor(.white)`
+- L317: `.padding(.horizontal, 8)`
+- L318: `.padding(.vertical, 3)`
+- L319: `.background(AppColors.unreadBadge)`
+- L320: `.cornerRadius(10)`
+- L324: `.font(.system(size: 13, weight: .semibold))`
+- L325: `.foregroundColor(AppColors.tertiaryText)`
+- L327: `.padding(.horizontal, 16)`
+- L328: `.padding(.vertical, 12)`
+- L329: `.frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)`
+- L366: `.font(.system(size: 16, weight: .medium))`
+- L367: `.foregroundColor(AppColors.primaryText)`
+- L373: `.font(.system(size: 13))`
+- L374: `.foregroundColor(AppColors.secondaryText)`
+- L378: `.font(.system(size: 13, weight: .semibold))`
+- L379: `.foregroundColor(AppColors.tertiaryText)`
+- L381: `.padding(.horizontal, 16)`
+- L382: `.frame(maxWidth: .infinity, minHeight: AppListMetrics.userCardHeight, alignment: .leading)`
+- L383: `.background(AppColors.cardBackground)`
+- L384: `.cornerRadius(14)`
+- L388: `.padding(.horizontal, 16)`
+- L473: `.font(.system(size: 16, weight: .medium))`
+- L474: `.foregroundColor(AppColors.secondaryText)`
+- L476: `.font(.system(size: 14))`
+- L477: `.foregroundColor(AppColors.tertiaryText)`
+- L480: `.frame(maxWidth: .infinity)`
+- L497: `.listRowBackground(Color.clear)`
+- L503: `.background(AppColors.secondaryBackground)`
+- L516: `.font(.system(size: 18, weight: .semibold))`
+- L517: `.foregroundColor(AppColors.primaryText)`
+- L518: `.frame(width: 34, height: 34)`
+- L548: `.frame(width: 196)`
+- L581: `.font(.system(size: 16, weight: .semibold))`
+- L582: `.foregroundColor(AppColors.primaryText)`
+- L586: `.font(.system(size: 13))`
+- L587: `.foregroundColor(AppColors.tertiaryText)`
+- L591: `.font(.system(size: 11, weight: .medium))`
+- L592: `.foregroundColor(AppColors.tertiaryText)`
+- L604: `.font(.system(size: 14))`
+- L605: `.foregroundColor(AppColors.secondaryText)`
+- L608: `.font(.system(size: 14))`
+- L609: `.foregroundColor(AppColors.secondaryText)`
+- L619: `.font(.system(size: 12))`
+- L620: `.foregroundColor(AppColors.tertiaryText)`
+- L624: `.font(.system(size: 11, weight: .bold))`
+- L625: `.foregroundColor(.white)`
+- L626: `.padding(.horizontal, 7)`
+- L627: `.padding(.vertical, 2)`
+- L628: `.background(isMuted ? AppColors.mutedUnreadBadge : AppColors.unreadBadge)`
+- L629: `.cornerRadius(10)`
+- L633: `.padding(.vertical, 10)`
+- L634: `.frame(minHeight: AppListMetrics.userCardHeight)`
+
+交互 modifier：
+
+- L88: `.task(id: AuthManager.shared.currentUser?.userID ?? "") {`
+- L92: `.onChange(of: tabs.map(\.id)) { _ in`
+- L95: `.onChange(of: scenePhase) { phase in`
+- L218: `.task(id: AuthManager.shared.currentUser?.userID ?? "") {`
+- L228: `.refreshable {`
+- L238: `.alert(item: $routeAlert) { alert in`
+- L270: `case .alert(let alert):`
+- L524: `.sheet(isPresented: $showCreateGroup) {`
+- L529: `.task(id: AuthManager.shared.currentUser?.userID ?? "") {`
+- L532: `.refreshable {`
+
+### BWChat/Views/MapDatingView.swift
+
+视觉 modifier：
+
+- L110: `.tint(AppColors.accent)`
+- L111: `.padding(18)`
+- L112: `.background(AppColors.cardBackground)`
+- L113: `.clipShape(Circle())`
+- L114: `.shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 4)`
+- L118: `.background(AppColors.secondaryBackground)`
+- L200: `.zIndex(selectedFlightID == flight.id ? 1 : 0)`
+- L223: `.ignoresSafeArea(.container, edges: [.top, .bottom])`
+- L579: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L616: `let color = routeColor(for: line.assetKey)`
+- L619: `with: .color(color.opacity(0.18)),`
+- L624: `with: .color(color.opacity(0.72)),`
+- L672: `private func routeColor(for assetKey: String) -> Color {`
+- L674: `case "flight_plane_blue": return Color(hex: "2786C5")`
+- L675: `case "flight_plane_pink": return Color(hex: "D94E83")`
+- L676: `case "flight_plane_gold": return Color(hex: "B96A18")`
+- L677: `case "flight_plane_green": return Color(hex: "2FAE88")`
+- L678: `case "flight_plane_orange": return Color(hex: "D85D34")`
+- L679: `case "flight_plane_star": return Color(hex: "5C96D8")`
+- L693: `.rotationEffect(.degrees(aircraft.markerRotationDegrees))`
+- L694: `.animation(.spring(response: 0.28, dampingFraction: 0.78), value: isSelected)`
+- L697: `.overlay(alignment: .top) {`
+- L700: `.offset(y: -48)`
+- L701: `.transition(.scale(scale: 0.92).combined(with: .opacity))`
+- L715: `.fill(haloColor.opacity(0.16))`
+- L716: `.frame(width: size * 0.88, height: size * 0.88)`
+- L717: `.blur(radius: size * 0.08)`
+- L718: `.offset(y: size * 0.08)`
+- L721: `.fill(Color.white.opacity(0.94))`
+- L722: `.frame(width: size * 0.74, height: size * 0.74)`
+- L723: `.shadow(color: Color.black.opacity(0.05), radius: size * 0.08, x: 0, y: size * 0.04)`
+- L726: `.frame(width: size * 1.2, height: size * 1.2)`
+- L728: `.frame(width: size, height: size)`
+- L729: `.shadow(color: outlineColor.opacity(0.2), radius: size * 0.08, x: 0, y: size * 0.04)`
+- L758: `.foregroundColor(AppColors.accent)`
+- L759: `.padding(size * 0.26)`
+- L765: `case "flight_plane_blue": return Color(hex: "57BFEF")`
+- L766: `case "flight_plane_pink": return Color(hex: "FF7AAE")`
+- L767: `case "flight_plane_gold": return Color(hex: "FFC94A")`
+- L768: `case "flight_plane_green": return Color(hex: "67D6B3")`
+- L769: `case "flight_plane_orange": return Color(hex: "FF8A5B")`
+- L770: `case "flight_plane_star": return Color(hex: "8EC7FF")`
+- L777: `case "flight_plane_blue": return Color(hex: "2786C5")`
+- L778: `case "flight_plane_pink": return Color(hex: "D94E83")`
+- L779: `case "flight_plane_gold": return Color(hex: "B96A18")`
+- L780: `case "flight_plane_green": return Color(hex: "2FAE88")`
+- L781: `case "flight_plane_orange": return Color(hex: "D85D34")`
+- L782: `case "flight_plane_star": return Color(hex: "5C96D8")`
+- L794: `.font(.system(size: 12, weight: .bold))`
+- L795: `.foregroundColor(AppColors.primaryText)`
+- L803: `.padding(.horizontal, 9)`
+- L804: `.padding(.vertical, 7)`
+- L805: `.background(Color.white.opacity(0.96))`
+- L806: `.overlay(`
+- L808: `.stroke(Color.black.opacity(0.06), lineWidth: 1)`
+- L810: `.cornerRadius(8)`
+- L811: `.shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 4)`
+- L817: `.font(.system(size: 9, weight: .bold))`
+- L819: `.font(.system(size: 10, weight: .semibold))`
+- L823: `.foregroundColor(AppColors.secondaryText)`
+- L834: `.overlay(`
+- L836: `.stroke(Color.white, lineWidth: isCurrentUser ? 4 : 3)`
+- L838: `.overlay(alignment: .bottomTrailing) {`
+- L841: `.fill(Color.green)`
+- L842: `.frame(width: isCurrentUser ? 12 : 10, height: isCurrentUser ? 12 : 10)`
+- L843: `.overlay(Circle().stroke(Color.white, lineWidth: 2))`
+- L846: `.shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 4)`
+- L869: `.padding(20)`
+- L871: `.background(AppColors.secondaryBackground)`
+- L893: `.font(.system(size: 22, weight: .bold))`
+- L894: `.foregroundColor(AppColors.primaryText)`
+- L911: `.frame(maxWidth: .infinity)`
+- L938: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L939: `.padding(16)`
+- L940: `.background(AppColors.cardBackground)`
+- L941: `.cornerRadius(14)`
+- L990: `.font(.system(size: 16, weight: .bold))`
+- L991: `.foregroundColor(filled ? .white : color)`
+- L992: `.frame(maxWidth: .infinity)`
+- L993: `.frame(height: 46)`
+- L994: `.background(filled ? AnyShapeStyle(AppColors.accentGradient) : AnyShapeStyle(color.opacity(0.1)))`
+- L995: `.cornerRadius(23)`
+- L1001: `.font(.system(size: 12, weight: .medium))`
+- L1002: `.foregroundColor(AppColors.secondaryText)`
+- L1004: `.font(.system(size: 15, weight: .medium))`
+- L1005: `.foregroundColor(AppColors.primaryText)`
+- L1006: `.fixedSize(horizontal: false, vertical: true)`
+- L1012: `.font(.system(size: 12, weight: .semibold))`
+- L1013: `.foregroundColor(AppColors.secondaryText)`
+- L1014: `.padding(.horizontal, 9)`
+- L1015: `.padding(.vertical, 5)`
+- L1016: `.background(AppColors.cardBackground)`
+- L1017: `.cornerRadius(12)`
+
+交互 modifier：
+
+- L122: `.task(id: authManager.currentUser?.userID) {`
+- L126: `.onDisappear {`
+- L141: `.onChange(of: scenePhase) { phase in`
+- L873: `.confirmationDialog(L10n.tr("map.reportReason"), isPresented: $showReportReasons, titleVisibility: .visible) {`
+
+### BWChat/Views/MessageBubble.swift
+
+视觉 modifier：
+
+- L62: `.font(.system(size: 12))`
+- L63: `.foregroundColor(AppColors.secondaryText)`
+- L64: `.padding(.horizontal, 12)`
+- L65: `.padding(.vertical, 5)`
+- L66: `.background(AppColors.separator.opacity(0.5))`
+- L67: `.clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))`
+- L70: `.padding(.vertical, 4)`
+- L117: `.padding(.vertical, 2)`
+- L235: `.foregroundColor(AppColors.secondaryText)`
+- L240: `.foregroundColor(AppColors.accent)`
+- L243: `.font(.system(size: 12))`
+- L244: `.frame(maxWidth: .infinity)`
+- L245: `.padding(.vertical, 7)`
+- L261: `.font(.system(size: 16))`
+- L262: `.foregroundStyle(foregroundColor)`
+- L266: `.font(.system(size: 20, weight: .medium))`
+- L267: `.foregroundStyle(foregroundColor)`
+- L268: `.frame(width: 28, height: 28)`
+- L271: `.padding(.horizontal, 14)`
+- L272: `.padding(.vertical, 10)`
+- L280: `.cornerRadius(`
+- L303: `.font(.system(size: 12, weight: .medium))`
+- L304: `.foregroundColor(AppColors.secondaryText)`
+- L309: `.font(.system(size: 16))`
+- L310: `.foregroundColor(textColor)`
+- L312: `.fixedSize(horizontal: false, vertical: true)`
+- L313: `.padding(.horizontal, 14)`
+- L314: `.padding(.vertical, 10)`
+- L315: `.background(`
+- L328: `.cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])`
+- L339: `.font(.system(size: 12))`
+- L340: `.foregroundColor(AppColors.secondaryText)`
+- L341: `.padding(.horizontal, 10)`
+- L342: `.padding(.vertical, 4)`
+- L343: `.background(AppColors.separator.opacity(0.6))`
+- L344: `.cornerRadius(8)`
+- L345: `.frame(maxWidth: .infinity)`
+- L346: `.padding(.vertical, 6)`
+- L405: `.font(.system(size: 14))`
+- L406: `.foregroundColor(isFromMe ? .white : AppColors.primaryText)`
+- L409: `.font(.system(size: 14))`
+- L410: `.foregroundColor(isFromMe ? .white : AppColors.primaryText)`
+- L415: `.padding(.horizontal, 12)`
+- L416: `.padding(.vertical, 10)`
+- L417: `.frame(width: bubbleWidth)`
+- L418: `.background(`
+- L430: `.cornerRadius(18, corners: isFromMe ? [.topLeft, .topRight, .bottomLeft] : [.topLeft, .topRight, .bottomRight])`
+- L445: `.fill(isFromMe ? Color.white : AppColors.primaryText)`
+- L446: `.frame(width: 2, height: isPlaying ? CGFloat([8, 14, 10][i]) : CGFloat([6, 10, 6][i]))`
+- L447: `.animation(`
+- L578: `.foregroundColor(AppColors.secondaryText)`
+- L581: `.frame(width: displaySize.width, height: displaySize.height)`
+- L583: `.clipShape(RoundedRectangle(`
+- L592: `.stroke(Color.black.opacity(0.08), lineWidth: 0.5)`
+
+交互 modifier：
+
+- L205: `.onTapGesture {`
+- L432: `.onTapGesture {`
+- L597: `.task(id: thumbCacheKey) {`
+
+### BWChat/Views/MomentsView.swift
+
+视觉 modifier：
+
+- L77: `.padding(.horizontal, 12)`
+- L78: `.padding(.bottom, 8)`
+- L86: `.font(.system(size: 34))`
+- L87: `.foregroundColor(AppColors.warningColor)`
+- L89: `.font(.system(size: 15))`
+- L90: `.foregroundColor(AppColors.secondaryText)`
+- L95: `.font(.system(size: 14, weight: .semibold))`
+- L97: `.tint(AppColors.accent)`
+- L99: `.frame(maxWidth: .infinity)`
+- L100: `.padding(.horizontal, 28)`
+- L101: `.padding(.top, 60)`
+- L105: `.font(.system(size: 36))`
+- L106: `.foregroundColor(AppColors.tertiaryText)`
+- L108: `.font(.system(size: 15))`
+- L109: `.foregroundColor(AppColors.secondaryText)`
+- L111: `.frame(maxWidth: .infinity)`
+- L112: `.padding(.top, 60)`
+- L143: `.font(.system(size: 12, weight: .medium))`
+- L144: `.foregroundColor(.red)`
+- L146: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L147: `.padding(.horizontal, 68)`
+- L148: `.padding(.bottom, 10)`
+- L160: `.padding()`
+- L163: `.padding(.bottom, 18)`
+- L165: `.background(AppColors.cardBackground)`
+- L166: `.ignoresSafeArea(edges: .top)`
+- L177: `.toolbarBackground(Color(hex: "F7F7F7"), for: .navigationBar)`
+- L180: `.animation(.easeInOut(duration: 0.16), value: useCoverChrome)`
+- L198: `.font(.system(size: 16))`
+- L199: `.foregroundColor(useCoverChrome ? .white : AppColors.primaryText)`
+- L213: `.overlay(alignment: .bottom) {`
+- L287: `.frame(width: 196)`
+- L288: `.background(`
+- L290: `.fill(useCoverChrome ? Color.black.opacity(0.16) : Color.clear)`
+- L296: `let navigationBottomY = rootProxy.frame(in: .global).minY + rootProxy.safeAreaInsets.top + 44`
+- L308: `.font(.system(size: 32))`
+- L309: `.foregroundColor(Color(hex: "576B95"))`
+- L312: `.font(.system(size: 10, weight: .bold))`
+- L313: `.foregroundColor(.white)`
+- L314: `.padding(.horizontal, 5)`
+- L315: `.padding(.vertical, 1)`
+- L316: `.background(Color.red)`
+- L317: `.cornerRadius(8)`
+- L318: `.offset(x: 6, y: -4)`
+- L322: `.font(.system(size: 14, weight: .medium))`
+- L323: `.foregroundColor(Color(hex: "576B95"))`
+- L328: `.font(.system(size: 12, weight: .semibold))`
+- L329: `.foregroundColor(AppColors.tertiaryText)`
+- L331: `.padding(.horizontal, 14)`
+- L332: `.padding(.vertical, 10)`
+- L333: `.background(`
+- L335: `.fill(Color(hex: "576B95").opacity(0.08))`
+- L343: `.frame(height: 226)`
+- L344: `.background(`
+- L346: `Color.clear.preference(`
+- L348: `value: proxy.frame(in: .global)`
+- L358: `.font(.system(size: 18, weight: .bold))`
+- L359: `.foregroundColor(.white)`
+- L361: `.shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)`
+- L362: `.padding(.bottom, 13)`
+- L365: `.overlay(`
+- L367: `.stroke(Color.white, lineWidth: 3)`
+- L369: `.offset(y: 30)`
+- L371: `.padding(.horizontal, 18)`
+- L374: `.frame(height: 226)`
+- L375: `.padding(.bottom, 44)`
+- L385: `.font(.system(size: 10))`
+- L386: `.foregroundColor(AppColors.tertiaryText)`
+- L388: `.font(.system(size: 12, weight: .medium))`
+- L389: `.foregroundColor(Color(hex: "576B95"))`
+- L392: `.font(.system(size: 12))`
+- L393: `.foregroundColor(AppColors.secondaryText)`
+- L398: `.padding(.horizontal, 14)`
+- L399: `.padding(.top, 8)`
+- L400: `.padding(.bottom, 2)`
+- L409: `.frame(width: 60, height: 60)`
+- L411: `.cornerRadius(6)`
+- L418: `.font(.system(size: 16))`
+- L419: `.foregroundColor(.white)`
+- L420: `.background(Circle().fill(Color.black.opacity(0.5)))`
+- L422: `.offset(x: 4, y: -4)`
+- L426: `.padding(.horizontal, 14)`
+- L427: `.padding(.top, 6)`
+- L433: `.font(.system(size: 20))`
+- L434: `.foregroundColor(AppColors.accent)`
+- L450: `.font(.system(size: 16))`
+- L452: `.padding(.horizontal, 14)`
+- L453: `.padding(.vertical, 10)`
+- L454: `.background(RoundedRectangle(cornerRadius: 20).fill(AppColors.separator))`
+- L460: `.font(.system(size: 15, weight: .semibold))`
+- L461: `.foregroundColor(.white)`
+- L462: `.padding(.horizontal, 16)`
+- L463: `.padding(.vertical, 10)`
+- L464: `.background(canSendComment ? AppColors.accent : AppColors.tertiaryText)`
+- L465: `.cornerRadius(20)`
+- L473: `.font(.system(size: 22))`
+- L474: `.foregroundColor(AppColors.tertiaryText)`
+- L477: `.padding(.horizontal, 12)`
+- L478: `.padding(.vertical, 8)`
+- L480: `.background(AppColors.cardBackground)`
+- L481: `.shadow(color: .black.opacity(0.08), radius: 8, y: -2)`
+- L541: `Color(hex: "5667EA"),`
+- L542: `Color(hex: "7A58D6"),`
+- L543: `Color(hex: "25294D")`
+- L553: `.blur(radius: 22)`
+- L554: `.saturation(1.12)`
+- L555: `.opacity(0.58)`
+- L556: `.scaleEffect(1.08)`
+- L561: `Color(hex: "5667EA").opacity(0.42),`
+- L562: `Color(hex: "7A58D6").opacity(0.24),`
+- L563: `Color.black.opacity(0.5)`
+- L570: `Color.white.opacity(0.08)`
+- L571: `.frame(height: 1)`
+- L575: `Color.clear,`
+- L576: `Color.black.opacity(0.38)`
+- L581: `.frame(height: 118)`
+- L647: `.overlay(`
+- L649: `.font(.system(size: size * 0.38, weight: .medium))`
+- L650: `.foregroundColor(.white.opacity(0.84))`
+- L654: `.frame(width: size, height: size)`
+- L655: `.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))`
+- L708: `.font(.system(size: 15, weight: .bold))`
+- L709: `.foregroundColor(Color(hex: "576B95"))`
+- L716: `.font(.system(size: 15))`
+- L717: `.foregroundColor(AppColors.primaryText)`
+- L718: `.fixedSize(horizontal: false, vertical: true)`
+- L733: `.font(.system(size: 12))`
+- L734: `.foregroundColor(AppColors.tertiaryText)`
+- L740: `.font(.system(size: 13, weight: .bold))`
+- L741: `.foregroundColor(AppColors.tertiaryText)`
+- L742: `.frame(width: 30, height: 24)`
+- L743: `.background(`
+- L745: `.fill(AppColors.separator.opacity(0.75))`
+- L762: `.font(.system(size: 13))`
+- L764: `.font(.system(size: 13))`
+- L766: `.foregroundColor(.white)`
+- L767: `.padding(.horizontal, 13)`
+- L768: `.frame(height: 34)`
+- L773: `.fill(Color.white.opacity(0.16))`
+- L774: `.frame(width: 1, height: 16)`
+- L782: `.font(.system(size: 13))`
+- L784: `.font(.system(size: 13))`
+- L786: `.foregroundColor(.white)`
+- L787: `.padding(.horizontal, 13)`
+- L788: `.frame(height: 34)`
+- L794: `.fill(Color.white.opacity(0.16))`
+- L795: `.frame(width: 1, height: 16)`
+- L803: `.font(.system(size: 13))`
+- L805: `.font(.system(size: 13))`
+- L807: `.foregroundColor(.white)`
+- L808: `.padding(.horizontal, 13)`
+- L809: `.frame(height: 34)`
+- L814: `.background(`
+- L816: `.fill(Color(hex: "252B3A"))`
+- L817: `.shadow(color: .black.opacity(0.12), radius: 8, x: 0, y: 4)`
+- L820: `.transition(.move(edge: .trailing).combined(with: .opacity))`
+- L828: `.font(.system(size: 11))`
+- L829: `.foregroundColor(Color(hex: "576B95"))`
+- L831: `.font(.system(size: 13))`
+- L832: `.foregroundColor(Color(hex: "576B95"))`
+- L835: `.padding(.horizontal, 9)`
+- L836: `.padding(.vertical, 7)`
+- L840: `Divider().padding(.horizontal, 8)`
+- L845: `.padding(.horizontal, 9)`
+- L846: `.padding(.vertical, 6)`
+- L849: `.background(Color(hex: "F5F6FA"))`
+- L850: `.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))`
+- L854: `.padding(.horizontal, 16)`
+- L855: `.padding(.vertical, 14)`
+- L856: `.background(AppColors.cardBackground)`
+- L872: `.font(.system(size: 13, weight: .semibold))`
+- L873: `.foregroundColor(Color(hex: "576B95"))`
+- L875: `.font(.system(size: 13))`
+- L876: `.foregroundColor(AppColors.secondaryText)`
+- L878: `.font(.system(size: 13, weight: .semibold))`
+- L879: `.foregroundColor(Color(hex: "576B95"))`
+- L881: `.font(.system(size: 13))`
+- L882: `.foregroundColor(AppColors.primaryText))`
+- L885: `.font(.system(size: 13, weight: .semibold))`
+- L886: `.foregroundColor(Color(hex: "576B95"))`
+- L888: `.font(.system(size: 13))`
+- L889: `.foregroundColor(AppColors.secondaryText)`
+- L891: `.font(.system(size: 13, weight: .semibold))`
+- L892: `.foregroundColor(Color(hex: "576B95")))`
+- L897: `.font(.system(size: 13, weight: .semibold))`
+- L898: `.foregroundColor(Color(hex: "576B95"))`
+- L900: `.font(.system(size: 13))`
+- L901: `.foregroundColor(AppColors.primaryText))`
+- L904: `.font(.system(size: 13, weight: .semibold))`
+- L905: `.foregroundColor(Color(hex: "576B95"))`
+- L909: `.fixedSize(horizontal: false, vertical: true)`
+- L952: `.font(.system(size: 11))`
+- L953: `.foregroundColor(AppColors.tertiaryText)`
+- L984: `.padding(.top, 1)`
+- L1012: `.frame(width: metrics.gridWidth, alignment: .leading)`
+- L1135: `.transition(.opacity.combined(with: .scale(scale: 0.98)))`
+- L1139: `.animation(MomentMediaTransition.animation, value: isLocked)`
+- L1164: `.font(.system(size: badgeScale.iconSize, weight: .semibold))`
+- L1167: `.font(.system(size: badgeScale.fontSize, weight: .semibold))`
+- L1171: `.foregroundColor(.white)`
+- L1172: `.padding(.horizontal, badgeScale.horizontalPadding)`
+- L1173: `.padding(.vertical, badgeScale.verticalPadding)`
+- L1174: `.background(`
+- L1176: `.fill(Color.black.opacity(0.46))`
+- L1178: `.overlay(`
+- L1180: `.stroke(Color.white.opacity(0.22), lineWidth: 1)`
+- L1182: `.shadow(color: .black.opacity(0.18), radius: badgeScale.shadowRadius, x: 0, y: 2)`
+- L1305: `.frame(width: width, height: height)`
+- L1306: `.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))`
+- L1307: `.overlay(`
+- L1309: `.font(.system(size: min(width, height) > 120 ? 42 : 28))`
+- L1310: `.foregroundColor(.white)`
+- L1311: `.shadow(color: .black.opacity(0.32), radius: 5, x: 0, y: 2)`
+- L1326: `.opacity(previousImageOpacity)`
+- L1333: `.overlay(`
+- L1335: `.font(.system(size: 26))`
+- L1336: `.foregroundColor(AppColors.secondaryText)`
+- L1345: `.frame(width: width, height: height)`
+- L1431: `.opacity(previousImageOpacity)`
+- L1439: `.frame(width: size, height: size)`
+- L1440: `.overlay(`
+- L1442: `.foregroundColor(AppColors.secondaryText)`
+- L1455: `.frame(width: size, height: size)`
+- L1457: `.clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))`
+- L1540: `.opacity(previousImageOpacity)`
+- L1548: `.frame(width: size, height: size)`
+- L1549: `.overlay(`
+- L1551: `.foregroundColor(AppColors.secondaryText)`
+- L1564: `.frame(width: size, height: size)`
+- L1566: `.clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))`
+- L1627: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1631: `.font(.system(size: 36))`
+- L1632: `.foregroundColor(AppColors.tertiaryText)`
+- L1634: `.font(.system(size: 15))`
+- L1635: `.foregroundColor(AppColors.secondaryText)`
+- L1637: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1650: `.background(AppColors.secondaryBackground)`
+- L1697: `.font(.system(size: 14, weight: .semibold))`
+- L1698: `.foregroundColor(Color(hex: "576B95"))`
+- L1701: `.font(.system(size: 14))`
+- L1702: `.foregroundColor(AppColors.primaryText)`
+- L1707: `.font(.system(size: 13))`
+- L1708: `.foregroundColor(AppColors.secondaryText)`
+- L1713: `.font(.system(size: 11))`
+- L1714: `.foregroundColor(AppColors.tertiaryText)`
+- L1721: `.padding(.vertical, 4)`
+- L1730: `.font(.system(size: 11))`
+- L1731: `.foregroundColor(AppColors.secondaryText)`
+- L1733: `.frame(width: 44, height: 44)`
+- L1734: `.background(AppColors.separator.opacity(0.5))`
+- L1735: `.cornerRadius(4)`
+- L1761: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1782: `.overlay(alignment: .bottom) {`
+- L1790: `.font(.system(size: 36))`
+- L1791: `.foregroundColor(AppColors.tertiaryText)`
+- L1793: `.font(.system(size: 15))`
+- L1794: `.foregroundColor(AppColors.secondaryText)`
+- L1796: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1799: `.background(AppColors.secondaryBackground)`
+- L1969: `.font(.system(size: 10))`
+- L1970: `.foregroundColor(AppColors.tertiaryText)`
+- L1972: `.font(.system(size: 12, weight: .medium))`
+- L1973: `.foregroundColor(Color(hex: "576B95"))`
+- L1976: `.font(.system(size: 12))`
+- L1977: `.foregroundColor(AppColors.secondaryText)`
+- L1982: `.padding(.horizontal, 14)`
+- L1983: `.padding(.top, 8)`
+- L1984: `.padding(.bottom, 2)`
+- L1993: `.frame(width: 60, height: 60)`
+- L1995: `.cornerRadius(6)`
+- L2002: `.font(.system(size: 16))`
+- L2003: `.foregroundColor(.white)`
+- L2004: `.background(Circle().fill(Color.black.opacity(0.5)))`
+- L2006: `.offset(x: 4, y: -4)`
+- L2010: `.padding(.horizontal, 14)`
+- L2011: `.padding(.top, 6)`
+- L2017: `.font(.system(size: 20))`
+- L2018: `.foregroundColor(AppColors.accent)`
+- L2034: `.font(.system(size: 16))`
+- L2036: `.padding(.horizontal, 14)`
+- L2037: `.padding(.vertical, 10)`
+- L2038: `.background(RoundedRectangle(cornerRadius: 20).fill(AppColors.separator))`
+- L2042: `.font(.system(size: 15, weight: .semibold))`
+- L2043: `.foregroundColor(.white)`
+- L2044: `.padding(.horizontal, 16)`
+- L2045: `.padding(.vertical, 10)`
+- L2046: `.background(canSendDetailComment ? AppColors.accent : AppColors.tertiaryText)`
+- L2047: `.cornerRadius(20)`
+- L2059: `.font(.system(size: 22))`
+- L2060: `.foregroundColor(AppColors.tertiaryText)`
+- L2063: `.padding(.horizontal, 12)`
+- L2064: `.padding(.vertical, 8)`
+- L2066: `.background(AppColors.cardBackground)`
+- L2067: `.shadow(color: .black.opacity(0.08), radius: 8, y: -2)`
+- L2098: `.frame(width: 50, height: 50)`
+- L2100: `.cornerRadius(4)`
+- L2105: `.frame(width: 50, height: 50)`
+- L2106: `.overlay(`
+- L2108: `.font(.system(size: 15))`
+- L2109: `.foregroundColor(AppColors.secondaryText)`
+- L2113: `.padding(.top, 2)`
+
+交互 modifier：
+
+- L151: `.onAppear {`
+- L204: `.sheet(isPresented: $showCreateMoment) {`
+- L209: `.fullScreenCover(item: $videoPreviewItem) { item in`
+- L218: `.onChange(of: showNotificationList) { show in`
+- L224: `.task(id: "\(AuthManager.shared.currentUser?.userID ?? "")|\(filterUserID ?? "")|\(viewModel.selectedTab.rawValue)") {`
+- L228: `.onChange(of: viewModel.selectedTab) { _ in`
+- L231: `.refreshable {`
+- L436: `.onChange(of: commentImageItem) { item in`
+- L482: `.onChange(of: commentTriggerID) { _ in`
+- L585: `.onAppear {`
+- L592: `.task(id: url) {`
+- L657: `.onAppear {`
+- L664: `.task(id: url) {`
+- L911: `.onTapGesture {`
+- L914: `.contextMenu {`
+- L945: `.onTapGesture {`
+- L1313: `.task(id: explicitThumbnailURL ?? media.url) {`
+- L1446: `.task(id: url) {`
+- L1555: `.task(id: url) {`
+- L1663: `.task {`
+- L1812: `.fullScreenCover(item: $videoPreviewItem) { item in`
+- L1816: `.task { await loadMoment() }`
+- L2020: `.onChange(of: commentImageItem) { item in`
+- L2068: `.onChange(of: commentTriggerID) { _ in`
+- L2114: `.task(id: url) {`
+
+### BWChat/Views/ProfileView.swift
+
+视觉 modifier：
+
+- L83: `.padding(.bottom, 2)`
+- L94: `.padding(.horizontal, 16)`
+- L95: `.padding(.top, AppSpacing.rootTabTopInset)`
+- L96: `.padding(.bottom, 28)`
+- L98: `.background(AppColors.secondaryBackground)`
+- L148: `.padding(.leading, 12)`
+- L151: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L152: `.padding(.top, 3)`
+- L156: `.font(.system(size: 14, weight: .medium))`
+- L157: `.foregroundColor(AppColors.primaryText)`
+- L161: `.fixedSize(horizontal: false, vertical: true)`
+- L162: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L163: `.padding(.horizontal, 2)`
+- L167: `.padding(.horizontal, 16)`
+- L168: `.padding(.vertical, 18)`
+- L169: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L170: `.background(AppColors.cardBackground)`
+- L171: `.cornerRadius(18)`
+- L172: `.overlay(`
+- L174: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L182: `.frame(width: 82, height: 82)`
+- L185: `.overlay(`
+- L190: `.frame(width: 82, height: 82)`
+- L196: `.font(.system(size: 24, weight: .bold))`
+- L197: `.foregroundColor(AppColors.primaryText)`
+- L202: `.font(.system(size: 12, weight: .bold))`
+- L203: `.foregroundColor(AppColors.secondaryText)`
+- L206: `.padding(.horizontal, 8)`
+- L207: `.frame(height: 22)`
+- L208: `.background(`
+- L227: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L234: `.font(.system(size: 15, weight: .semibold))`
+- L235: `.foregroundColor(AppColors.primaryText)`
+- L238: `.frame(maxWidth: .infinity)`
+- L239: `.frame(height: 42)`
+- L240: `.background(`
+- L251: `.font(.system(size: 15, weight: .semibold))`
+- L252: `.foregroundColor(AppColors.primaryText)`
+- L255: `.frame(maxWidth: .infinity)`
+- L256: `.frame(height: 42)`
+- L257: `.background(`
+- L290: `.font(.system(size: 22, weight: .bold))`
+- L291: `.foregroundColor(AppColors.primaryText)`
+- L297: `.font(.system(size: 13, weight: .semibold))`
+- L298: `.foregroundColor(AppColors.secondaryText)`
+- L302: `.frame(width: 48, alignment: isLeading ? .leading : .center)`
+- L303: `.frame(minHeight: 40, alignment: .top)`
+- L382: `colors: [Color(hex: "5E6AD2"), Color(hex: "2EC4B6")]`
+- L475: `.frame(width: 38, height: 4)`
+- L476: `.padding(.top, 8)`
+- L477: `.padding(.bottom, 12)`
+- L481: `.font(.system(size: 20, weight: .bold))`
+- L482: `.foregroundColor(AppColors.primaryText)`
+- L490: `.font(.system(size: 13, weight: .bold))`
+- L491: `.foregroundColor(AppColors.secondaryText)`
+- L492: `.frame(width: 32, height: 32)`
+- L493: `.background(Circle().fill(AppColors.secondaryBackground))`
+- L498: `.padding(.horizontal, 20)`
+- L499: `.padding(.bottom, 14)`
+- L508: `.overlay(`
+- L510: `.stroke(Color.white, lineWidth: 2)`
+- L515: `.font(.system(size: 20, weight: .bold))`
+- L516: `.foregroundColor(AppColors.primaryText)`
+- L521: `.font(.system(size: 13, weight: .semibold))`
+- L522: `.foregroundColor(AppColors.secondaryText)`
+- L527: `.font(.system(size: 12))`
+- L528: `.foregroundColor(AppColors.secondaryText)`
+- L533: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L535: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L540: `.frame(width: 172, height: 172)`
+- L541: `.padding(14)`
+- L542: `.background(`
+- L544: `.fill(Color.white)`
+- L547: `.padding(18)`
+- L548: `.frame(maxWidth: .infinity)`
+- L549: `.background(`
+- L558: `.font(.system(size: 16, weight: .semibold))`
+- L559: `.foregroundColor(.white)`
+- L562: `.frame(maxWidth: .infinity)`
+- L563: `.frame(height: 50)`
+- L564: `.background(`
+- L577: `.font(.system(size: 16, weight: .semibold))`
+- L578: `.foregroundColor(AppColors.primaryText)`
+- L581: `.frame(maxWidth: .infinity)`
+- L582: `.frame(height: 50)`
+- L583: `.background(`
+- L587: `.overlay(`
+- L595: `.padding(.horizontal, 20)`
+- L596: `.padding(.top, 18)`
+- L597: `.padding(.bottom, 24)`
+- L600: `.background(AppColors.cardBackground)`
+- L617: `.font(.system(size: 96, weight: .regular))`
+- L618: `.foregroundColor(AppColors.primaryText)`
+- L652: `.padding(.horizontal, 16)`
+- L653: `.padding(.top, 20)`
+- L654: `.padding(.bottom, 30)`
+- L656: `.background(AppColors.secondaryBackground)`
+- L708: `colors: [Color(hex: "2EC4B6"), Color(hex: "3A86FF")]`
+- L718: `colors: [Color(hex: "3A86FF"), Color(hex: "7C3AED")]`
+- L737: `colors: [Color(hex: "7C3AED"), Color(hex: "3A86FF")]`
+- L747: `colors: [Color(hex: "3A86FF"), Color(hex: "2EC4B6")]`
+- L766: `colors: [Color(hex: "3A86FF"), Color(hex: "2EC4B6")]`
+- L774: `colors: [Color(hex: "FF9F1C"), Color(hex: "FFBF69")]`
+- L782: `colors: [AppColors.errorColor, Color(hex: "FF6B6B")]`
+- L797: `.fill(AppColors.errorColor.opacity(0.12))`
+- L798: `.frame(width: 40, height: 40)`
+- L799: `.overlay(`
+- L801: `.font(.system(size: 17, weight: .semibold))`
+- L802: `.foregroundColor(AppColors.errorColor)`
+- L806: `.font(.system(size: 16, weight: .semibold))`
+- L807: `.foregroundColor(AppColors.errorColor)`
+- L812: `.padding(.vertical, 5)`
+- L841: `.padding(.horizontal, 16)`
+- L842: `.padding(.top, 20)`
+- L843: `.padding(.bottom, 30)`
+- L845: `.background(AppColors.secondaryBackground)`
+- L869: `.fill(AppColors.accent.opacity(isSelected ? 0.16 : 0.08))`
+- L870: `.frame(width: 40, height: 40)`
+- L871: `.overlay(`
+- L873: `.font(.system(size: 17, weight: .semibold))`
+- L874: `.foregroundColor(isSelected ? AppColors.accent : AppColors.tertiaryText)`
+- L878: `.font(.system(size: 16, weight: .semibold))`
+- L879: `.foregroundColor(AppColors.primaryText)`
+- L887: `.font(.system(size: 20, weight: .semibold))`
+- L888: `.foregroundColor(AppColors.accent)`
+- L892: `.padding(.vertical, 5)`
+- L944: `.padding(.horizontal, 16)`
+- L945: `.padding(.top, 84)`
+- L946: `.padding(.bottom, 110)`
+- L953: `.background(Color.white)`
+- L965: `.safeAreaInset(edge: .bottom) {`
+- L967: `.padding(.horizontal, 46)`
+- L968: `.padding(.top, 12)`
+- L969: `.padding(.bottom, 24)`
+- L970: `.background(Color.white.opacity(0.96))`
+- L983: `.font(.system(size: 62, weight: .semibold))`
+- L984: `.foregroundColor(Color.black.opacity(0.12))`
+- L988: `.font(.system(size: 25, weight: .bold))`
+- L989: `.foregroundColor(AppColors.primaryText)`
+- L995: `.font(.system(size: 13, weight: .regular))`
+- L996: `.foregroundColor(AppColors.secondaryText)`
+- L999: `.fixedSize(horizontal: false, vertical: true)`
+- L1000: `.padding(.horizontal, 10)`
+- L1003: `.frame(maxWidth: .infinity)`
+- L1010: `.font(.system(size: 15, weight: .semibold))`
+- L1011: `.foregroundColor(AppColors.primaryText)`
+- L1014: `.font(.system(size: 15, weight: .medium))`
+- L1015: `.foregroundColor(AppColors.primaryText)`
+- L1022: `.padding(.vertical, 7)`
+- L1033: `.tint(AppColors.primaryText)`
+- L1037: `.font(.system(size: 17, weight: .semibold))`
+- L1039: `.foregroundColor(AppColors.primaryText)`
+- L1040: `.frame(maxWidth: .infinity)`
+- L1041: `.padding(.vertical, 15)`
+- L1042: `.background(`
+- L1044: `.fill(canSubmit ? AppColors.secondaryBackground : Color(hex: "EFEFEF"))`
+- L1198: `.padding(.horizontal, 16)`
+- L1199: `.padding(.top, 20)`
+- L1200: `.padding(.bottom, 30)`
+- L1206: `.background(AppColors.secondaryBackground)`
+- L1259: `.tint(.white)`
+- L1263: `.font(.system(size: 16, weight: .semibold))`
+- L1265: `.foregroundColor(.white)`
+- L1266: `.frame(maxWidth: .infinity)`
+- L1267: `.padding(.vertical, 15)`
+- L1268: `.background(`
+- L1321: `.font(.system(size: 14, weight: .semibold))`
+- L1322: `.foregroundColor(AppColors.primaryText)`
+- L1331: `.font(.system(size: 15))`
+- L1332: `.foregroundColor(AppColors.primaryText)`
+- L1342: `.font(.system(size: 16, weight: .semibold))`
+- L1343: `.foregroundColor(AppColors.tertiaryText)`
+- L1344: `.frame(width: 36, height: 36)`
+- L1349: `.padding(.vertical, 5)`
+- L1362: `.padding(.horizontal, 16)`
+- L1363: `.padding(.vertical, 10)`
+- L1364: `.background(AppColors.cardBackground)`
+- L1365: `.cornerRadius(14)`
+- L1366: `.overlay(`
+- L1368: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L1392: `.frame(width: 40, height: 40)`
+- L1393: `.overlay(`
+- L1395: `.font(.system(size: 17, weight: .semibold))`
+- L1396: `.foregroundColor(.white)`
+- L1401: `.font(.system(size: 16, weight: .semibold))`
+- L1402: `.foregroundColor(AppColors.primaryText)`
+- L1408: `.font(.system(size: 12, weight: .medium))`
+- L1409: `.foregroundColor(AppColors.secondaryText)`
+- L1420: `.font(.system(size: 13, weight: .semibold))`
+- L1421: `.foregroundColor(AppColors.secondaryText)`
+- L1427: `.font(.system(size: 13, weight: .bold))`
+- L1428: `.foregroundColor(AppColors.tertiaryText)`
+- L1432: `.padding(.vertical, 5)`
+- L1444: `.font(.system(size: 15, weight: .semibold))`
+- L1446: `.font(.system(size: 13, weight: .medium))`
+- L1450: `.foregroundColor(Color(hex: "8A4B00"))`
+- L1451: `.padding(12)`
+- L1452: `.background(`
+- L1454: `.fill(Color(hex: "FFF2CC"))`
+- L1463: `.frame(height: 1)`
+- L1464: `.padding(.leading, 55)`
+- L1465: `.padding(.vertical, 10)`
+
+交互 modifier：
+
+- L99: `.refreshable {`
+- L106: `.task(id: AuthManager.shared.currentUser?.userID ?? "") {`
+- L111: `.onChange(of: scenePhase) { phase in`
+- L118: `.alert(item: $routeAlert) { alert in`
+- L125: `.sheet(isPresented: $showsShareProfile) {`
+- L411: `case .alert(let alert):`
+- L668: `.alert(L10n.tr("settings.logout.confirmTitle"), isPresented: $showLogoutAlert) {`
+- L679: `.alert(L10n.tr("settings.cache.video.clear"), isPresented: $showClearVideoCacheAlert) {`
+- L685: `.alert(L10n.tr("settings.cache.account.clear"), isPresented: $showClearAccountCacheAlert) {`
+- L693: `.alert(L10n.tr("settings.cache.all.clear"), isPresented: $showClearAllCacheAlert) {`
+- L949: `.onTapGesture {`
+- L973: `.onAppear {`
+- L1203: `.onTapGesture {`
+
+### BWChat/Views/PropBagView.swift
+
+视觉 modifier：
+
+- L436: `.padding(.horizontal, 16)`
+- L437: `.padding(.top, 18)`
+- L438: `.padding(.bottom, 32)`
+- L440: `.background(AppColors.secondaryBackground)`
+- L462: `.frame(maxWidth: .infinity)`
+- L463: `.frame(minHeight: 280)`
+- L505: `.frame(maxWidth: .infinity)`
+- L506: `.frame(minHeight: 120)`
+- L536: `.padding(2)`
+- L537: `.frame(width: 92, height: 92)`
+- L578: `.padding(.horizontal, 16)`
+- L579: `.padding(.top, 18)`
+- L580: `.padding(.bottom, 32)`
+- L582: `.background(AppColors.secondaryBackground)`
+- L604: `.frame(width: 92, height: 92)`
+- L609: `.font(.system(size: 13, weight: .semibold))`
+- L610: `.foregroundColor(.white.opacity(0.78))`
+- L612: `.font(.system(size: 34, weight: .bold, design: .rounded))`
+- L613: `.foregroundColor(.white)`
+- L616: `.font(.system(size: 12, weight: .medium))`
+- L617: `.foregroundColor(.white.opacity(0.78))`
+- L621: `.padding(18)`
+- L622: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L623: `.background(`
+- L625: `colors: [Color(hex: "667EEA"), Color(hex: "8C7CF3")],`
+- L630: `.clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))`
+- L636: `.font(.system(size: 16, weight: .bold))`
+- L637: `.foregroundColor(AppColors.primaryText)`
+- L645: `.padding(16)`
+- L646: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L647: `.background(AppColors.cardBackground)`
+- L648: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L649: `.overlay(`
+- L658: `.font(.system(size: 13, weight: .medium))`
+- L659: `.foregroundColor(AppColors.secondaryText)`
+- L662: `.foregroundColor(Color(hex: "7667E8"))`
+- L671: `.frame(maxWidth: .infinity)`
+- L672: `.frame(minHeight: 220)`
+- L683: `.frame(width: 72, height: 72)`
+- L685: `.font(.system(size: 15, weight: .semibold))`
+- L686: `.foregroundColor(AppColors.secondaryText)`
+- L688: `.frame(maxWidth: .infinity)`
+- L689: `.frame(minHeight: 220)`
+- L690: `.background(AppColors.cardBackground)`
+- L691: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L695: `.font(.system(size: 17, weight: .bold))`
+- L696: `.foregroundColor(AppColors.primaryText)`
+- L709: `.frame(maxWidth: .infinity)`
+- L710: `.padding(.vertical, 8)`
+- L725: `.frame(width: 38, height: 38)`
+- L726: `.padding(5)`
+- L727: `.background(Color(hex: "EEEAFE"), in: RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L731: `.font(.system(size: 14, weight: .semibold))`
+- L732: `.foregroundColor(AppColors.primaryText)`
+- L736: `.font(.system(size: 11, weight: .medium))`
+- L737: `.foregroundColor(AppColors.tertiaryText)`
+- L742: `.font(.system(size: 10, weight: .medium))`
+- L743: `.foregroundColor(AppColors.tertiaryText)`
+- L752: `.font(.system(size: 16, weight: .bold, design: .rounded))`
+- L753: `.foregroundColor(transaction.delta >= 0 ? AppColors.online : AppColors.primaryText)`
+- L756: `.font(.system(size: 10, weight: .medium))`
+- L757: `.foregroundColor(AppColors.tertiaryText)`
+- L760: `.padding(13)`
+- L761: `.background(AppColors.cardBackground)`
+- L762: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L763: `.overlay(`
+- L808: `.frame(width: 92, height: 92)`
+- L812: `.font(.system(size: 13, weight: .semibold))`
+- L813: `.foregroundColor(AppColors.primaryText)`
+- L816: `.frame(maxWidth: .infinity)`
+- L819: `.font(.system(size: 16, weight: .heavy, design: .rounded))`
+- L820: `.foregroundColor(AppColors.primaryText)`
+- L822: `.padding(.horizontal, 7)`
+- L823: `.frame(height: 24)`
+- L824: `.background(AppColors.cardBackground.opacity(0.92), in: Capsule())`
+- L827: `.strokeBorder(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L831: `.frame(maxWidth: .infinity)`
+- L832: `.frame(minHeight: 170)`
+- L833: `.padding(.horizontal, 8)`
+- L834: `.padding(.top, 10)`
+- L835: `.padding(.bottom, 8)`
+- L839: `.shadow(color: Color.black.opacity(0.035), radius: 3, x: 0, y: 2)`
+- L843: `.strokeBorder(AppColors.separator.opacity(0.62), lineWidth: 1)`
+- L884: `.font(.system(size: 18, weight: .semibold))`
+- L885: `.foregroundColor(AppColors.accent)`
+- L890: `.font(.system(size: 15, weight: .bold))`
+- L891: `.foregroundColor(AppColors.primaryText)`
+- L894: `.font(.system(size: 13, weight: .medium))`
+- L895: `.foregroundColor(AppColors.secondaryText)`
+- L896: `.fixedSize(horizontal: false, vertical: true)`
+- L899: `.frame(width: 230, alignment: .leading)`
+- L900: `.padding(16)`
+- L912: `.padding(2)`
+- L917: `.padding(2)`
+- L927: `.padding(6)`
+- L935: `.font(.system(size: 40, weight: .semibold))`
+- L936: `.foregroundColor(AppColors.accent)`
+- L952: `.font(.system(size: 34))`
+- L953: `.foregroundColor(AppColors.warningColor)`
+- L956: `.font(.system(size: 14))`
+- L957: `.foregroundColor(AppColors.secondaryText)`
+- L962: `.tint(AppColors.accent)`
+- L964: `.padding(.horizontal, 28)`
+- L965: `.frame(maxWidth: .infinity)`
+- L966: `.frame(minHeight: 280)`
+- L967: `.background(AppColors.cardBackground)`
+- L968: `.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))`
+- L978: `.frame(width: 88, height: 88)`
+- L981: `.font(.system(size: 38, weight: .medium))`
+- L982: `.foregroundColor(AppColors.accent)`
+- L987: `.font(.system(size: 18, weight: .bold))`
+- L988: `.foregroundColor(AppColors.primaryText)`
+- L991: `.font(.system(size: 14, weight: .medium))`
+- L992: `.foregroundColor(AppColors.secondaryText)`
+- L995: `.fixedSize(horizontal: false, vertical: true)`
+- L998: `.padding(.horizontal, 28)`
+- L999: `.frame(maxWidth: .infinity)`
+- L1000: `.frame(minHeight: 280)`
+- L1001: `.background(AppColors.cardBackground)`
+- L1002: `.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))`
+- L1003: `.overlay(`
+
+交互 modifier：
+
+- L445: `.task {`
+- L451: `.refreshable {`
+- L587: `.task {`
+- L592: `.refreshable {`
+- L700: `.onAppear {`
+
+### BWChat/Views/RegisterView.swift
+
+视觉 modifier：
+
+- L41: `.frame(height: AuthLayout.registerTopSpacing(height: geo.size.height, isEditing: isEditing))`
+- L65: `.font(.system(size: 16, weight: .medium))`
+- L66: `.foregroundColor(AuthPalette.inputText)`
+- L71: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L78: `.font(.system(size: 15, weight: .semibold))`
+- L79: `.foregroundColor(AuthPalette.mutedText.opacity(0.55))`
+- L102: `.font(.system(size: 16, weight: .medium))`
+- L103: `.foregroundColor(AuthPalette.inputText)`
+- L108: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L115: `.font(.system(size: 15, weight: .semibold))`
+- L116: `.foregroundColor(AuthPalette.mutedText.opacity(0.55))`
+- L145: `.font(.system(size: 16, weight: .medium))`
+- L146: `.foregroundColor(AuthPalette.inputText)`
+- L151: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L157: `.font(.system(size: 15, weight: .semibold))`
+- L158: `.foregroundColor(AuthPalette.mutedText.opacity(0.72))`
+- L186: `.font(.system(size: 16, weight: .medium))`
+- L187: `.foregroundColor(AuthPalette.inputText)`
+- L192: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L198: `.font(.system(size: 15, weight: .semibold))`
+- L199: `.foregroundColor(AuthPalette.mutedText.opacity(0.72))`
+- L229: `.padding(.top, 4)`
+- L235: `.font(.system(size: 14, weight: .semibold))`
+- L236: `.foregroundColor(AuthPalette.coral)`
+- L237: `.frame(maxWidth: .infinity)`
+- L238: `.padding(.top, 2)`
+- L246: `.frame(height: isEditing ? 18 : 28)`
+- L248: `.padding(.horizontal, 20)`
+- L249: `.padding(.bottom, max(geo.safeAreaInsets.bottom, 14))`
+- L250: `.frame(minHeight: geo.size.height)`
+- L253: `.animation(AuthMotion.focusShift, value: isEditing)`
+- L262: `.font(.system(size: 15, weight: .semibold))`
+
+交互 modifier：
+
+- L87: `.onTapGesture { focusField(.username) }`
+- L124: `.onTapGesture { focusField(.nickname) }`
+- L165: `.onTapGesture { focusField(.password) }`
+- L206: `.onTapGesture { focusField(.confirmPassword) }`
+- L252: `.onTapGesture { dismissKeyboard() }`
+
+### BWChat/Views/ScriptCenterView.swift
+
+视觉 modifier：
+
+- L71: `.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))`
+- L85: `.overlay(ProgressView().tint(AppColors.accent))`
+- L91: `colors: [AppColors.accentLight, Color(hex: "F2E8FF")],`
+- L96: `.font(.system(size: 24, weight: .semibold))`
+- L97: `.foregroundColor(AppColors.accent.opacity(0.7))`
+- L146: `.background(AppColors.secondaryBackground)`
+- L149: `.toolbarBackground(Color.clear, for: .navigationBar)`
+- L162: `.frame(width: 196)`
+- L171: `.font(.system(size: 18, weight: .semibold))`
+- L172: `.foregroundColor(AppColors.primaryText)`
+- L173: `.frame(width: 34, height: 34)`
+- L211: `.padding(.horizontal, 16)`
+- L212: `.padding(.top, 10)`
+- L213: `.padding(.bottom, 12)`
+- L223: `.font(.system(size: 13, weight: selected ? .semibold : .regular))`
+- L224: `.foregroundColor(selected ? AppColors.accent : AppColors.secondaryText)`
+- L225: `.padding(.horizontal, 13)`
+- L226: `.padding(.vertical, 7)`
+- L227: `.background(selected ? AppColors.accentLight : AppColors.cardBackground)`
+- L228: `.clipShape(Capsule())`
+- L244: `.padding(.horizontal, 16)`
+- L245: `.padding(.bottom, 24)`
+- L257: `.font(.system(size: 15, weight: .semibold))`
+- L258: `.foregroundColor(AppColors.accent)`
+- L259: `.padding(.bottom, 28)`
+- L284: `.padding(.horizontal, 16)`
+- L285: `.padding(.bottom, 24)`
+- L288: `ProgressView().padding(.bottom, 20)`
+- L305: `.font(.system(size: 36, weight: .semibold))`
+- L306: `.foregroundStyle(AppColors.accentGradient)`
+- L308: `.font(.system(size: 17, weight: .semibold))`
+- L309: `.foregroundColor(AppColors.primaryText)`
+- L311: `.font(.system(size: 14))`
+- L312: `.foregroundColor(AppColors.secondaryText)`
+- L316: `.padding(30)`
+- L317: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L328: `.frame(maxWidth: .infinity)`
+- L334: `.font(.system(size: 10, weight: .bold))`
+- L335: `.foregroundColor(.white)`
+- L336: `.padding(.horizontal, 7)`
+- L337: `.padding(.vertical, 4)`
+- L338: `.background(Color.black.opacity(0.62))`
+- L339: `.clipShape(Capsule())`
+- L340: `.padding(7)`
+- L345: `.font(.system(size: 15, weight: .semibold))`
+- L346: `.foregroundColor(AppColors.primaryText)`
+- L350: `.font(.system(size: 12))`
+- L351: `.foregroundColor(AppColors.secondaryText)`
+- L353: `.frame(maxWidth: .infinity, minHeight: 32, alignment: .topLeading)`
+- L362: `.frame(width: 22, height: 22)`
+- L363: `.clipShape(Circle())`
+- L364: `.overlay(Circle().stroke(AppColors.cardBackground, lineWidth: 1.5))`
+- L368: `.font(.system(size: 10))`
+- L369: `.foregroundColor(AppColors.tertiaryText)`
+- L373: `.padding(10)`
+- L374: `.background(AppColors.cardBackground)`
+- L375: `.clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))`
+
+交互 modifier：
+
+- L72: `.task(id: urlString) { await load() }`
+- L179: `.task { await viewModel.loadInitial() }`
+- L281: `.onAppear { viewModel.loadMoreIfNeeded(currentScriptID: script.id) }`
+- L291: `.refreshable { await viewModel.refresh() }`
+
+### BWChat/Views/ScriptDetailView.swift
+
+视觉 modifier：
+
+- L22: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L31: `.background(AppColors.secondaryBackground)`
+- L77: `.padding(.horizontal, 16)`
+- L78: `.padding(.bottom, 110)`
+- L80: `.safeAreaInset(edge: .bottom) {`
+- L88: `.frame(maxWidth: .infinity)`
+- L93: `colors: [.clear, .black.opacity(0.72)],`
+- L97: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L101: `.font(.system(size: 25, weight: .bold))`
+- L102: `.foregroundColor(.white)`
+- L105: `.font(.system(size: 13, weight: .medium))`
+- L106: `.foregroundColor(.white.opacity(0.82))`
+- L108: `.padding(16)`
+- L110: `.padding(.top, 12)`
+- L124: `.font(.system(size: 17, weight: .semibold))`
+- L125: `.foregroundColor(AppColors.primaryText)`
+- L127: `.font(.system(size: 15))`
+- L128: `.foregroundColor(AppColors.secondaryText)`
+- L129: `.fixedSize(horizontal: false, vertical: true)`
+- L133: `.font(.system(size: 13))`
+- L134: `.foregroundColor(AppColors.errorColor)`
+- L135: `.padding(10)`
+- L136: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L137: `.background(AppColors.errorColor.opacity(0.08))`
+- L138: `.clipShape(RoundedRectangle(cornerRadius: 10))`
+- L141: `.padding(16)`
+- L142: `.background(AppColors.cardBackground)`
+- L143: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L148: `.font(.system(size: 11, weight: .semibold))`
+- L149: `.foregroundColor(color)`
+- L150: `.padding(.horizontal, 8)`
+- L151: `.padding(.vertical, 4)`
+- L152: `.background(color.opacity(0.1))`
+- L153: `.clipShape(Capsule())`
+- L159: `.font(.system(size: 17, weight: .semibold))`
+- L160: `.foregroundColor(AppColors.primaryText)`
+- L170: `.frame(width: 48, height: 48)`
+- L171: `.clipShape(Circle())`
+- L175: `.font(.system(size: 15, weight: .semibold))`
+- L176: `.foregroundColor(AppColors.primaryText)`
+- L178: `.font(.system(size: 10, weight: .medium))`
+- L179: `.foregroundColor(AppColors.accent)`
+- L182: `.font(.system(size: 13))`
+- L183: `.foregroundColor(AppColors.secondaryText)`
+- L188: `.font(.system(size: 12, weight: .semibold))`
+- L189: `.foregroundColor(AppColors.tertiaryText)`
+- L198: `.padding(16)`
+- L199: `.background(AppColors.cardBackground)`
+- L200: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L212: `Divider().padding(.leading, 46)`
+- L230: `Divider().padding(.leading, 46)`
+- L237: `.padding(.horizontal, 16)`
+- L238: `.background(AppColors.cardBackground)`
+- L239: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L245: `.frame(width: 22)`
+- L246: `.foregroundColor(color)`
+- L248: `.font(.system(size: 15, weight: .medium))`
+- L249: `.foregroundColor(color)`
+- L252: `.font(.system(size: 12, weight: .semibold))`
+- L253: `.foregroundColor(AppColors.tertiaryText)`
+- L255: `.padding(.vertical, 14)`
+- L266: `if viewModel.isWorking { ProgressView().tint(.white) }`
+- L268: `.font(.system(size: 16, weight: .semibold))`
+- L270: `.foregroundColor(.white)`
+- L271: `.frame(maxWidth: .infinity)`
+- L272: `.padding(.vertical, 13)`
+- L273: `.background(AppColors.accentGradient)`
+- L274: `.clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))`
+- L278: `.opacity(script.status == .ready && !script.isAdminHidden && script.roles.count >= 2 ? 1 : 0.45)`
+- L279: `.padding(.horizontal, 16)`
+- L280: `.padding(.vertical, 10)`
+- L282: `.background(AppColors.cardBackground)`
+- L303: `.frame(width: 92, height: 92)`
+- L304: `.clipShape(Circle())`
+- L306: `.font(.system(size: 22, weight: .bold))`
+- L307: `.foregroundColor(AppColors.primaryText)`
+- L309: `.font(.system(size: 13, weight: .semibold))`
+- L310: `.foregroundColor(AppColors.accent)`
+- L312: `.font(.system(size: 15))`
+- L313: `.foregroundColor(AppColors.secondaryText)`
+- L314: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L315: `.padding(16)`
+- L316: `.background(AppColors.cardBackground)`
+- L317: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L319: `.padding(20)`
+- L321: `.background(AppColors.secondaryBackground)`
+- L348: `.font(.system(size: 14))`
+- L349: `.foregroundColor(AppColors.secondaryText)`
+- L350: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L351: `.padding(.bottom, 4)`
+- L361: `.frame(width: 48, height: 48)`
+- L362: `.clipShape(Circle())`
+- L365: `.font(.system(size: 15, weight: .semibold))`
+- L366: `.foregroundColor(AppColors.primaryText)`
+- L368: `.font(.system(size: 12))`
+- L369: `.foregroundColor(AppColors.secondaryText)`
+- L374: `.font(.system(size: 22))`
+- L375: `.foregroundColor(selectedRoleID == role.id ? AppColors.accent : AppColors.tertiaryText)`
+- L377: `.padding(12)`
+- L378: `.background(AppColors.cardBackground)`
+- L379: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L385: `.padding(16)`
+- L387: `.background(AppColors.secondaryBackground)`
+
+交互 modifier：
+
+- L36: `.task { await viewModel.load() }`
+- L42: `.sheet(item: $selectedRole) { role in`
+- L46: `.sheet(item: $roleSelectionScript) { script in`
+- L52: `.confirmationDialog(`
+
+### BWChat/Views/ScriptEditorView.swift
+
+视觉 modifier：
+
+- L35: `.background(AppColors.secondaryBackground)`
+- L61: `Text(ScriptText.value("保存", "Save")).fontWeight(.semibold)`
+- L77: `.background(`
+- L95: `.font(.system(size: 12))`
+- L96: `.foregroundColor(AppColors.secondaryText)`
+- L99: `.tint(AppColors.accent)`
+- L119: `.frame(maxWidth: .infinity)`
+- L137: `.font(.system(size: 11))`
+- L138: `.foregroundColor(AppColors.tertiaryText)`
+- L139: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L153: `.frame(minHeight: 130)`
+- L158: `.font(.system(size: 11))`
+- L159: `.foregroundColor(AppColors.tertiaryText)`
+- L160: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L175: `.frame(height: 180)`
+- L177: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L180: `.frame(height: 180)`
+- L184: `.font(.system(size: 30, weight: .semibold))`
+- L186: `.font(.system(size: 14, weight: .medium))`
+- L188: `.foregroundColor(AppColors.accent)`
+- L189: `.frame(maxWidth: .infinity, minHeight: 150)`
+- L190: `.background(AppColors.accentLight)`
+- L191: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L198: `ProgressView().frame(maxWidth: .infinity)`
+- L206: `.foregroundColor(AppColors.primaryText)`
+- L209: `.foregroundColor(viewModel.draft.categoryIDs.contains(category.id) ? AppColors.accent : AppColors.tertiaryText)`
+- L228: `.frame(minHeight: 120)`
+- L233: `.font(.system(size: 11))`
+- L234: `.foregroundColor(AppColors.tertiaryText)`
+- L235: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L256: `.font(.system(size: 15, weight: .semibold))`
+- L257: `.foregroundColor(AppColors.primaryText)`
+- L259: `.font(.system(size: 12))`
+- L260: `.foregroundColor(AppColors.secondaryText)`
+- L274: `.foregroundColor(AppColors.errorColor)`
+- L289: `.font(.system(size: 15, weight: .semibold))`
+- L290: `.foregroundColor(AppColors.accent)`
+- L306: `.font(.system(size: 14, weight: .semibold))`
+- L307: `.foregroundColor(.black)`
+- L317: `.frame(width: 42, height: 42)`
+- L318: `.clipShape(Circle())`
+- L321: `.frame(width: 42, height: 42)`
+- L322: `.clipShape(Circle())`
+- L326: `.frame(width: 42, height: 42)`
+- L327: `.overlay(Image(systemName: "person.fill").foregroundColor(AppColors.accent))`
+
+交互 modifier：
+
+- L67: `.task { await viewModel.loadCategories() }`
+- L68: `.onChange(of: coverItem) { item in`
+- L72: `.sheet(item: $editingRole) { role in`
+- L84: `.onDisappear {`
+- L133: `.onChange(of: viewModel.draft.title) {`
+- L154: `.onChange(of: viewModel.draft.synopsis) {`
+- L229: `.onChange(of: viewModel.draft.worldSetting) {`
+
+### BWChat/Views/ScriptRoleEditorView.swift
+
+视觉 modifier：
+
+- L46: `.font(.system(size: 11))`
+- L47: `.foregroundColor(AppColors.tertiaryText)`
+- L48: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L59: `.font(.system(size: 13, weight: .medium))`
+- L60: `.foregroundColor(AppColors.secondaryText)`
+- L63: `.frame(minHeight: 110)`
+- L68: `.font(.system(size: 11))`
+- L69: `.foregroundColor(AppColors.tertiaryText)`
+- L70: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L78: `.frame(minHeight: 110)`
+- L83: `.font(.system(size: 11))`
+- L84: `.foregroundColor(AppColors.tertiaryText)`
+- L85: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L95: `.background(AppColors.secondaryBackground)`
+- L107: `.fontWeight(.semibold)`
+- L116: `.background(`
+- L134: `.frame(width: 92, height: 92)`
+- L135: `.clipShape(Circle())`
+- L136: `.overlay(Circle().stroke(AppColors.accent, lineWidth: 2))`
+- L139: `.frame(width: 92, height: 92)`
+- L140: `.clipShape(Circle())`
+- L141: `.overlay(Circle().stroke(AppColors.accent, lineWidth: 2))`
+- L146: `.font(.system(size: 24, weight: .semibold))`
+- L147: `.foregroundColor(AppColors.accent)`
+- L149: `.frame(width: 92, height: 92)`
+
+交互 modifier：
+
+- L44: `.onChange(of: draft.name) { draft.name = String($0.prefix(8)) }`
+- L64: `.onChange(of: draft.roleDescription) {`
+- L79: `.onChange(of: draft.hiddenSetting) {`
+- L110: `.onChange(of: photoItem) { item in`
+- L123: `.onDisappear {`
+
+### BWChat/Views/ScriptRoomChatView.swift
+
+视觉 modifier：
+
+- L26: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L37: `.background(AppColors.secondaryBackground)`
+- L58: `.foregroundColor(AppColors.primaryText)`
+- L103: `.frame(width: 40, height: 40)`
+- L104: `.clipShape(Circle())`
+- L107: `.frame(width: 12, height: 12)`
+- L108: `.overlay(`
+- L110: `.font(.system(size: 6, weight: .bold))`
+- L111: `.foregroundColor(.white)`
+- L113: `.overlay(Circle().stroke(AppColors.cardBackground, lineWidth: 1.5))`
+- L116: `.font(.system(size: 10, weight: .medium))`
+- L117: `.foregroundColor(AppColors.secondaryText)`
+- L120: `.frame(width: 52)`
+- L123: `.padding(.horizontal, 14)`
+- L124: `.padding(.vertical, 8)`
+- L126: `.background(AppColors.cardBackground)`
+- L127: `.overlay(Divider(), alignment: .bottom)`
+- L135: `Color.clear`
+- L136: `.frame(height: 1)`
+- L158: `.padding(.horizontal, 14)`
+- L159: `.padding(.vertical, 14)`
+- L162: `.rotationEffect(.degrees(180))`
+- L163: `.scaleEffect(x: -1, y: 1, anchor: .center)`
+- L189: `.frame(width: 96, height: 72)`
+- L192: `.font(.system(size: 13))`
+- L193: `.foregroundColor(AppColors.secondaryText)`
+- L195: `.fixedSize(horizontal: false, vertical: true)`
+- L196: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L198: `.padding(12)`
+- L199: `.frame(maxWidth: .infinity)`
+- L200: `.background(AppColors.cardBackground.opacity(0.92))`
+- L201: `.clipShape(RoundedRectangle(cornerRadius: 14))`
+- L208: `ProgressView().tint(AppColors.accent)`
+- L214: `.font(.system(size: 13, weight: .medium))`
+- L215: `.foregroundColor(AppColors.secondaryText)`
+- L217: `.padding(12)`
+- L218: `.background(AppColors.cardBackground)`
+- L219: `.clipShape(Capsule())`
+- L223: `.font(.system(size: 13, weight: .semibold))`
+- L224: `.foregroundColor(AppColors.errorColor)`
+- L228: `.font(.system(size: 13, weight: .semibold))`
+- L229: `.foregroundColor(AppColors.accent)`
+- L231: `.padding(12)`
+- L232: `.frame(maxWidth: .infinity)`
+- L233: `.background(AppColors.errorColor.opacity(0.06))`
+- L234: `.clipShape(RoundedRectangle(cornerRadius: 12))`
+- L237: `.font(.system(size: 13, weight: .semibold))`
+- L238: `.foregroundColor(AppColors.secondaryText)`
+- L239: `.padding(.horizontal, 14)`
+- L240: `.padding(.vertical, 8)`
+- L241: `.background(AppColors.cardBackground)`
+- L242: `.clipShape(Capsule())`
+- L264: `.padding(.horizontal, 13)`
+- L265: `.padding(.vertical, 10)`
+- L266: `.background(AppColors.secondaryBackground)`
+- L267: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L274: `.font(.system(size: 16, weight: .bold))`
+- L275: `.foregroundColor(.white)`
+- L276: `.frame(width: 38, height: 38)`
+- L277: `.background(viewModel.canSend ? AnyShapeStyle(AppColors.accentGradient) : AnyShapeStyle(AppColors.tertiaryText))`
+- L278: `.clipShape(Circle())`
+- L284: `.padding(.horizontal, 12)`
+- L285: `.padding(.vertical, 9)`
+- L287: `.background(AppColors.cardBackground)`
+- L340: `.font(.system(size: 11, weight: .semibold))`
+- L341: `.foregroundColor(`
+- L343: `? Color.white.opacity(0.82)`
+- L348: `.font(.system(size: 8, weight: .bold))`
+- L349: `.foregroundColor(AppColors.accent)`
+- L350: `.padding(.horizontal, 4)`
+- L351: `.padding(.vertical, 1)`
+- L352: `.background(AppColors.accentLight)`
+- L353: `.clipShape(Capsule())`
+- L358: `.font(.system(size: 15))`
+- L359: `.foregroundColor(isCurrentPlayer ? .white : AppColors.receivedBubbleText)`
+- L362: `.padding(.horizontal, 13)`
+- L363: `.padding(.vertical, 10)`
+- L364: `.background(`
+- L369: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L376: `.shadow(`
+- L377: `color: isCurrentPlayer ? .clear : Color.black.opacity(0.055),`
+- L387: `.frame(maxWidth: .infinity)`
+- L398: `.frame(width: 32, height: 32)`
+- L399: `.clipShape(Circle())`
+
+交互 modifier：
+
+- L62: `.onAppear {`
+- L66: `.task {`
+- L72: `.onDisappear {`
+- L76: `.confirmationDialog(`
+- L128: `.onTapGesture { dismissInput() }`
+- L166: `.simultaneousGesture(`
+- L172: `.onChange(of: viewModel.messages.last?.id) { _ in`
+- L176: `.onChange(of: viewModel.turnState?.status) { _ in`
+- L180: `.onChange(of: scrollRequest) { _ in`
+- L268: `.onChange(of: viewModel.inputText) {`
+
+### BWChat/Views/ShortDramaActionRail.swift
+
+视觉 modifier：
+
+- L18: `.overlay(`
+- L20: `.stroke(Color.white, lineWidth: 2)`
+- L28: `.font(.system(size: 13, weight: .bold))`
+- L29: `.foregroundColor(.white)`
+- L30: `.frame(width: 26, height: 26)`
+- L31: `.background(video.creator.followedByMe ? Color.white.opacity(0.26) : AppColors.errorColor)`
+- L32: `.clipShape(Circle())`
+- L55: `.frame(width: 58)`
+- L56: `.shadow(color: .black.opacity(0.45), radius: 8, x: 0, y: 2)`
+- L69: `.font(.system(size: 27, weight: .bold))`
+- L70: `.foregroundColor(tint)`
+- L71: `.frame(width: 44, height: 34)`
+- L74: `.font(.system(size: 11, weight: .bold))`
+- L75: `.foregroundColor(.white)`
+- L78: `.frame(width: 54)`
+
+交互 modifier：
+
+- （未识别到单行交互 modifier）
+
+### BWChat/Views/ShortDramaCommentsSheet.swift
+
+视觉 modifier：
+
+- L37: `.background(AppColors.secondaryBackground)`
+- L47: `.font(.system(size: 17, weight: .bold))`
+- L48: `.foregroundColor(AppColors.primaryText)`
+- L51: `.font(.system(size: 13, weight: .bold))`
+- L52: `.foregroundColor(AppColors.secondaryText)`
+- L54: `.padding(.horizontal, 18)`
+- L55: `.padding(.vertical, 14)`
+- L63: `.tint(AppColors.accent)`
+- L64: `.padding(.top, 40)`
+- L68: `.font(.system(size: 30, weight: .semibold))`
+- L69: `.foregroundColor(AppColors.tertiaryText)`
+- L71: `.font(.system(size: 14, weight: .semibold))`
+- L72: `.foregroundColor(AppColors.secondaryText)`
+- L74: `.frame(maxWidth: .infinity)`
+- L75: `.padding(.top, 48)`
+- L89: `.tint(AppColors.accent)`
+- L90: `.padding(.vertical, 14)`
+- L94: `.padding(.horizontal, 18)`
+- L95: `.padding(.vertical, 10)`
+- L102: `.font(.system(size: 15))`
+- L104: `.padding(.horizontal, 14)`
+- L105: `.padding(.vertical, 10)`
+- L106: `.background(AppColors.cardBackground)`
+- L107: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L114: `.tint(.white)`
+- L115: `.frame(width: 44, height: 38)`
+- L118: `.font(.system(size: 16, weight: .bold))`
+- L119: `.foregroundColor(.white)`
+- L120: `.frame(width: 44, height: 38)`
+- L123: `.background(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppColors.tertiaryText : AppColors.accent)`
+- L124: `.clipShape(Capsule())`
+- L127: `.padding(.horizontal, 16)`
+- L128: `.padding(.vertical, 12)`
+- L129: `.background(AppColors.secondaryBackground)`
+- L257: `.font(.system(size: 13, weight: .bold))`
+- L258: `.foregroundColor(AppColors.primaryText)`
+- L265: `.font(.system(size: 11, weight: .medium))`
+- L266: `.foregroundColor(AppColors.tertiaryText)`
+- L271: `.font(.system(size: 14))`
+- L272: `.foregroundColor(AppColors.primaryText)`
+- L273: `.fixedSize(horizontal: false, vertical: true)`
+- L275: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L277: `.padding(.vertical, 10)`
+
+交互 modifier：
+
+- L38: `.task {`
+- L82: `.onAppear {`
+
+### BWChat/Views/ShortDramaFeedView.swift
+
+视觉 modifier：
+
+- L24: `Color.black`
+- L25: `.ignoresSafeArea()`
+- L94: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L95: `.ignoresSafeArea()`
+- L97: `.ignoresSafeArea()`
+- L108: `.font(.system(size: 18, weight: .bold))`
+- L109: `.foregroundColor(.white)`
+- L110: `.frame(width: 42, height: 42)`
+- L111: `.background(Color.black.opacity(0.32))`
+- L112: `.clipShape(Circle())`
+- L120: `.font(.system(size: 17, weight: .bold))`
+- L121: `.foregroundColor(.white)`
+- L122: `.shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)`
+- L126: `Color.clear`
+- L127: `.frame(width: 42, height: 42)`
+- L129: `.padding(.horizontal, 14)`
+- L130: `.padding(.top, 8)`
+- L141: `.tint(.white)`
+- L144: `.font(.system(size: 38, weight: .semibold))`
+- L145: `.foregroundColor(.white.opacity(0.72))`
+- L147: `.font(.system(size: 15, weight: .semibold))`
+- L148: `.foregroundColor(.white.opacity(0.78))`
+- L375: `.padding(.top, 92)`
+- L378: `.padding(.top, 70)`
+- L396: `.tint(AppColors.accent)`
+- L397: `.padding(.vertical, 16)`
+- L402: `.padding(.horizontal, 16)`
+- L403: `.padding(.top, 16)`
+- L404: `.padding(.bottom, 30)`
+- L406: `.background(AppColors.secondaryBackground)`
+- L421: `.font(.system(size: 18, weight: .semibold))`
+- L422: `.foregroundColor(AppColors.primaryText)`
+- L423: `.frame(width: 34, height: 34)`
+- L588: `.padding(.top, 48)`
+- L591: `.padding(.top, 42)`
+- L602: `.padding(.horizontal, 16)`
+- L603: `.padding(.top, 16)`
+- L604: `.padding(.bottom, 30)`
+- L606: `.background(AppColors.secondaryBackground)`
+- L622: `.font(.system(size: 16, weight: .semibold))`
+- L623: `.foregroundColor(AppColors.primaryText)`
+- L624: `.frame(width: 34, height: 34)`
+- L631: `.font(.system(size: 16, weight: .semibold))`
+- L632: `.foregroundColor(AppColors.primaryText)`
+- L633: `.frame(width: 34, height: 34)`
+- L684: `.frame(width: 96, height: 128)`
+- L685: `.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))`
+- L690: `.font(.system(size: 20, weight: .bold))`
+- L691: `.foregroundColor(AppColors.primaryText)`
+- L693: `.fixedSize(horizontal: false, vertical: true)`
+- L699: `.font(.system(size: 14))`
+- L700: `.foregroundColor(AppColors.secondaryText)`
+- L702: `.fixedSize(horizontal: false, vertical: true)`
+- L705: `.font(.system(size: 13, weight: .semibold))`
+- L706: `.foregroundColor(AppColors.secondaryText)`
+- L711: `.font(.system(size: 12, weight: .semibold))`
+- L712: `.foregroundColor(AppColors.errorColor)`
+- L714: `.fixedSize(horizontal: false, vertical: true)`
+- L717: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L720: `.padding(14)`
+- L721: `.background(AppColors.cardBackground)`
+- L722: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L723: `.overlay(`
+- L725: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L920: `.padding(.horizontal, 16)`
+- L921: `.padding(.top, 16)`
+- L922: `.padding(.bottom, 30)`
+- L924: `.background(AppColors.secondaryBackground)`
+- L940: `.tint(AppColors.accent)`
+- L943: `.font(.system(size: 15, weight: .bold))`
+- L948: `.foregroundColor(canSave ? AppColors.accent : AppColors.tertiaryText)`
+- L961: `.frame(height: 210)`
+- L962: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L965: `.font(.system(size: 13, weight: .bold))`
+- L966: `.foregroundColor(.white)`
+- L967: `.padding(.horizontal, 12)`
+- L968: `.padding(.vertical, 8)`
+- L969: `.background(Color.black.opacity(0.55))`
+- L970: `.clipShape(Capsule())`
+- L971: `.padding(12)`
+- L983: `.font(.system(size: 16, weight: .semibold))`
+- L984: `.foregroundColor(AppColors.primaryText)`
+- L988: `Divider().padding(.leading, 16)`
+- L992: `.font(.system(size: 15))`
+- L993: `.foregroundColor(AppColors.primaryText)`
+- L997: `.background(AppColors.cardBackground)`
+- L998: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L999: `.overlay(`
+- L1001: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L1093: `.padding(.horizontal, 16)`
+- L1094: `.padding(.top, 16)`
+- L1095: `.padding(.bottom, 30)`
+- L1097: `.background(AppColors.secondaryBackground)`
+- L1113: `.tint(AppColors.accent)`
+- L1116: `.font(.system(size: 15, weight: .bold))`
+- L1121: `.foregroundColor(canUpload ? AppColors.accent : AppColors.tertiaryText)`
+- L1138: `.frame(height: 190)`
+- L1142: `.font(.system(size: 34, weight: .semibold))`
+- L1143: `.foregroundColor(AppColors.accent)`
+- L1146: `.font(.system(size: 15, weight: .bold))`
+- L1147: `.foregroundColor(AppColors.primaryText)`
+- L1152: `.font(.system(size: 12, weight: .medium))`
+- L1153: `.foregroundColor(AppColors.secondaryText)`
+- L1155: `.padding(.horizontal, 18)`
+- L1157: `.overlay(`
+- L1159: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L1170: `.frame(height: 190)`
+- L1171: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1174: `.font(.system(size: 13, weight: .bold))`
+- L1175: `.foregroundColor(.white)`
+- L1176: `.padding(.horizontal, 12)`
+- L1177: `.padding(.vertical, 8)`
+- L1178: `.background(Color.black.opacity(0.55))`
+- L1179: `.clipShape(Capsule())`
+- L1180: `.padding(12)`
+- L1191: `.font(.system(size: 16, weight: .semibold))`
+- L1192: `.foregroundColor(AppColors.primaryText)`
+- L1195: `Divider().padding(.leading, 16)`
+- L1199: `.font(.system(size: 16, weight: .semibold))`
+- L1200: `.foregroundColor(AppColors.primaryText)`
+- L1204: `Divider().padding(.leading, 16)`
+- L1208: `.font(.system(size: 15))`
+- L1209: `.foregroundColor(AppColors.primaryText)`
+- L1213: `.background(AppColors.cardBackground)`
+- L1214: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1215: `.overlay(`
+- L1217: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L1310: `.frame(width: 74, height: 96)`
+- L1311: `.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))`
+- L1316: `.font(.system(size: 17, weight: .bold))`
+- L1317: `.foregroundColor(AppColors.primaryText)`
+- L1324: `.font(.system(size: 13))`
+- L1325: `.foregroundColor(AppColors.secondaryText)`
+- L1331: `.font(.system(size: 12, weight: .semibold))`
+- L1332: `.foregroundColor(AppColors.errorColor)`
+- L1342: `.font(.system(size: 12, weight: .semibold))`
+- L1343: `.foregroundColor(AppColors.tertiaryText)`
+- L1346: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1349: `.font(.system(size: 13, weight: .bold))`
+- L1350: `.foregroundColor(AppColors.tertiaryText)`
+- L1352: `.padding(12)`
+- L1353: `.background(AppColors.cardBackground)`
+- L1354: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1355: `.overlay(`
+- L1357: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L1369: `.frame(width: 66, height: 88)`
+- L1370: `.clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))`
+- L1375: `.font(.system(size: 12, weight: .bold))`
+- L1376: `.foregroundColor(AppColors.accent)`
+- L1384: `.font(.system(size: 16, weight: .bold))`
+- L1385: `.foregroundColor(AppColors.primaryText)`
+- L1389: `.font(.system(size: 13))`
+- L1390: `.foregroundColor(AppColors.secondaryText)`
+- L1396: `.font(.system(size: 12, weight: .semibold))`
+- L1397: `.foregroundColor(AppColors.errorColor)`
+- L1401: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1405: `.font(.system(size: 15, weight: .semibold))`
+- L1406: `.foregroundColor(AppColors.errorColor)`
+- L1407: `.frame(width: 36, height: 36)`
+- L1412: `.padding(12)`
+- L1413: `.background(AppColors.cardBackground)`
+- L1414: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1415: `.overlay(`
+- L1417: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L1449: `colors: [Color(hex: "2B2D42"), Color(hex: "7C3AED"), Color(hex: "FF4D8D")],`
+- L1454: `.font(.system(size: 30, weight: .semibold))`
+- L1455: `.foregroundColor(.white.opacity(0.88))`
+- L1482: `.font(.system(size: 11, weight: .bold))`
+- L1483: `.foregroundColor(color)`
+- L1484: `.padding(.horizontal, 7)`
+- L1485: `.padding(.vertical, 4)`
+- L1486: `.background(color.opacity(0.12))`
+- L1487: `.clipShape(Capsule())`
+- L1513: `.font(.system(size: 13, weight: .bold))`
+- L1514: `.foregroundColor(AppColors.secondaryText)`
+- L1517: `.padding(.horizontal, 16)`
+- L1518: `.padding(.vertical, 14)`
+- L1526: `.tint(AppColors.accent)`
+- L1528: `.font(.system(size: 14, weight: .semibold))`
+- L1529: `.foregroundColor(AppColors.secondaryText)`
+- L1540: `.font(.system(size: 44, weight: .semibold))`
+- L1541: `.foregroundColor(AppColors.accent)`
+- L1545: `.font(.system(size: 18, weight: .bold))`
+- L1546: `.foregroundColor(AppColors.primaryText)`
+- L1549: `.font(.system(size: 14))`
+- L1550: `.foregroundColor(AppColors.secondaryText)`
+- L1556: `.font(.system(size: 15, weight: .bold))`
+- L1557: `.foregroundColor(.white)`
+- L1558: `.padding(.horizontal, 18)`
+- L1559: `.frame(height: 40)`
+- L1560: `.background(AppColors.accent)`
+- L1561: `.clipShape(Capsule())`
+- L1565: `.frame(maxWidth: .infinity)`
+- L1566: `.padding(28)`
+- L1567: `.background(AppColors.cardBackground)`
+- L1568: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L1578: `.font(.system(size: 38, weight: .semibold))`
+- L1579: `.foregroundColor(AppColors.accent)`
+- L1582: `.font(.system(size: 17, weight: .bold))`
+- L1583: `.foregroundColor(AppColors.primaryText)`
+- L1587: `.font(.system(size: 15, weight: .bold))`
+- L1588: `.foregroundColor(.white)`
+- L1589: `.padding(.horizontal, 18)`
+- L1590: `.frame(height: 40)`
+- L1591: `.background(AppColors.accent)`
+- L1592: `.clipShape(Capsule())`
+- L1596: `.frame(maxWidth: .infinity)`
+- L1597: `.padding(28)`
+- L1598: `.background(AppColors.cardBackground)`
+- L1599: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+
+交互 modifier：
+
+- L39: `.task {`
+- L42: `.onChange(of: viewModel.selectedVideoID) { videoID in`
+- L50: `.onChange(of: scenePhase) { phase in`
+- L57: `.onDisappear {`
+- L60: `.sheet(item: $commentTarget) { video in`
+- L66: `.alert(item: $unlockTarget) { video in`
+- L389: `.onAppear {`
+- L429: `.task {`
+- L432: `.refreshable {`
+- L640: `.task {`
+- L644: `.refreshable {`
+- L648: `.onDisappear {`
+- L651: `.confirmationDialog(`
+- L675: `.onChange(of: viewModel.series) { updated in`
+- L951: `.onChange(of: coverItem) { item in`
+- L1124: `.onChange(of: videoItem) { item in`
+- L1127: `.onChange(of: coverItem) { item in`
+- L1459: `.task(id: url) {`
+
+### BWChat/Views/ShortDramaSeriesListView.swift
+
+视觉 modifier：
+
+- L18: `.background(AppColors.secondaryBackground)`
+- L23: `.toolbarBackground(Color.clear, for: .navigationBar)`
+- L41: `.font(.system(size: 18, weight: .semibold))`
+- L42: `.foregroundColor(AppColors.primaryText)`
+- L43: `.frame(width: 34, height: 34)`
+- L101: `.frame(width: 196)`
+- L130: `ProgressView().tint(AppColors.accent).padding(28)`
+- L135: `.padding(16)`
+- L137: `.overlay(alignment: .top) {`
+- L140: `.font(.caption.weight(.semibold))`
+- L141: `.foregroundColor(.white)`
+- L142: `.padding(.horizontal, 12)`
+- L143: `.padding(.vertical, 8)`
+- L144: `.background(AppColors.errorColor)`
+- L145: `.clipShape(Capsule())`
+- L146: `.padding(.top, 8)`
+- L214: `.font(.headline.weight(.bold))`
+- L215: `.foregroundColor(AppColors.primaryText)`
+- L223: `.frame(maxWidth: .infinity)`
+- L224: `.frame(height: 131)`
+- L225: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L228: `.fontWeight(.semibold)`
+- L230: `.font(.subheadline)`
+- L231: `.foregroundColor(AppColors.secondaryText)`
+- L235: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L266: `.padding(.top, 14)`
+- L270: `.opacity(0.5)`
+- L271: `.padding(.top, 14)`
+- L282: `.font(.system(size: 14, weight: .medium))`
+- L283: `.foregroundColor(AppColors.secondaryText)`
+- L286: `.frame(minHeight: 44)`
+- L287: `.padding(.top, 10)`
+- L290: `.padding(14)`
+- L291: `.background(AppColors.cardBackground)`
+- L292: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L293: `.overlay(`
+- L295: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L356: `.font(.subheadline.weight(.bold))`
+- L357: `.foregroundColor(episode == nil ? AppColors.tertiaryText : AppColors.primaryText)`
+- L364: `.font(.system(size: 9, weight: .bold))`
+- L365: `.foregroundColor(AppColors.accent)`
+- L369: `.padding(6)`
+- L377: `.frame(width: 7, height: 7)`
+- L378: `.padding(5)`
+- L384: `.tint(AppColors.accent)`
+- L385: `.scaleEffect(0.65)`
+- L388: `.frame(height: 44)`
+- L414: `.font(.system(size: 16, weight: .semibold))`
+- L415: `.foregroundColor(page == currentPage ? .black : AppColors.secondaryText)`
+- L419: `.fill(page == currentPage ? Color.black : Color.clear)`
+- L420: `.frame(width: 38, height: 3)`
+- L422: `.frame(minWidth: 76, alignment: .leading)`
+- L430: `.padding(.bottom, 12)`
+- L431: `.overlay(alignment: .bottom) {`
+- L433: `.opacity(0.5)`
+- L447: `var placeholderColors: [Color] = [Color(hex: "2B2D42"), Color(hex: "7C3AED"), Color(hex: "FF4D8D")]`
+- L463: `.font(.title2.weight(.semibold))`
+- L464: `.foregroundColor(.white.opacity(0.9))`
+- L487: `.font(.caption2.weight(.bold))`
+- L488: `.foregroundColor(Self.color(for: status))`
+- L489: `.padding(.horizontal, 7)`
+- L490: `.padding(.vertical, 3)`
+- L491: `.background(Self.color(for: status).opacity(0.12))`
+- L492: `.clipShape(Capsule())`
+- L511: `.font(.largeTitle.weight(.semibold))`
+- L512: `.foregroundColor(AppColors.accent)`
+- L514: `.font(.subheadline.weight(.semibold))`
+- L515: `.foregroundColor(AppColors.secondaryText)`
+- L518: `.frame(maxWidth: .infinity)`
+- L519: `.padding(.top, 80)`
+
+交互 modifier：
+
+- L49: `.task(id: selectedFilter) {`
+- L52: `.refreshable {`
+- L126: `.onAppear { onLoadMore(item.id) }`
+- L297: `.onChange(of: series.episodes) { updated in`
+- L300: `.task(id: series.id) {`
+- L468: `.task(id: url) {`
+
+### BWChat/Views/ShortDramaUnifiedEditorView.swift
+
+视觉 modifier：
+
+- L141: `.padding(16)`
+- L142: `.padding(.bottom, 96)`
+- L144: `.background(AppColors.secondaryBackground)`
+- L154: `.safeAreaInset(edge: .bottom) {`
+- L174: `.ignoresSafeArea(.keyboard, edges: .bottom)`
+- L175: `.background(`
+- L733: `.font(.caption.weight(.bold))`
+- L734: `.foregroundColor(.black)`
+- L737: `.font(.headline.weight(.bold))`
+- L738: `.foregroundColor(AppColors.primaryText)`
+- L740: `.padding(.horizontal, 12)`
+- L741: `.frame(minHeight: 44)`
+- L742: `.background(AppColors.secondaryBackground)`
+- L743: `.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))`
+- L744: `.overlay(`
+- L747: `focusedField == .title ? AppColors.accent : AppColors.separator.opacity(0.55),`
+- L754: `.font(.caption.weight(.bold))`
+- L755: `.foregroundColor(.black)`
+- L762: `placeholderColors: [Color.black, AppColors.iconYellow]`
+- L769: `.font(.caption.weight(.bold))`
+- L770: `.foregroundColor(.white)`
+- L771: `.padding(.horizontal, 10)`
+- L772: `.padding(.vertical, 7)`
+- L773: `.background(Color.black.opacity(0.55))`
+- L774: `.clipShape(Capsule())`
+- L775: `.padding(10)`
+- L777: `.frame(maxWidth: .infinity)`
+- L778: `.frame(height: 131)`
+- L779: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L786: `.font(.caption.weight(.bold))`
+- L787: `.foregroundColor(.black)`
+- L790: `.font(.subheadline)`
+- L791: `.foregroundColor(AppColors.primaryText)`
+- L794: `.padding(12)`
+- L795: `.frame(maxWidth: .infinity, minHeight: 76, alignment: .topLeading)`
+- L796: `.background(AppColors.secondaryBackground)`
+- L797: `.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))`
+- L798: `.overlay(`
+- L801: `focusedField == .intro ? AppColors.accent : AppColors.separator.opacity(0.55),`
+- L807: `.padding(14)`
+- L808: `.background(AppColors.cardBackground)`
+- L809: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L810: `.overlay(`
+- L812: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L826: `.font(.subheadline.weight(.bold))`
+- L827: `.foregroundColor(AppColors.primaryText)`
+- L830: `.opacity(0.5)`
+- L843: `.overlay(`
+- L845: `.font(.headline.weight(.bold))`
+- L846: `.foregroundColor(AppColors.accent)`
+- L848: `.frame(height: 44)`
+- L854: `.padding(14)`
+- L855: `.background(AppColors.cardBackground)`
+- L856: `.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))`
+- L857: `.overlay(`
+- L859: `.stroke(AppColors.separator.opacity(0.7), lineWidth: 1)`
+- L875: `.font(.subheadline.weight(.bold))`
+- L876: `.foregroundColor(AppColors.primaryText)`
+- L885: `.font(.system(size: 9, weight: .bold))`
+- L886: `.foregroundColor(.white)`
+- L893: `.font(.caption2.weight(.bold))`
+- L894: `.foregroundColor(.white)`
+- L895: `.padding(.horizontal, 6)`
+- L896: `.padding(.vertical, 3)`
+- L897: `.background(Color.black.opacity(0.55))`
+- L898: `.clipShape(Capsule())`
+- L900: `.padding(5)`
+- L902: `.frame(height: 44)`
+- L903: `.clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))`
+- L915: `case .uploaded: Image(systemName: "checkmark.circle.fill").foregroundColor(AppColors.online)`
+- L916: `case .failed: Image(systemName: "exclamationmark.circle.fill").foregroundColor(AppColors.errorColor)`
+- L919: `.font(.system(size: 12, weight: .bold))`
+- L952: `.frame(width: 70)`
+- L954: `.foregroundColor(AppColors.secondaryText)`
+- L1014: `Text(L10n.tr("common.publish")).font(.headline.weight(.bold))`
+- L1015: `.foregroundColor(.white)`
+- L1016: `.frame(maxWidth: .infinity, minHeight: 48)`
+- L1017: `.background(isEnabled ? AppColors.accent : AppColors.tertiaryText)`
+- L1018: `.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))`
+- L1023: `.font(.caption)`
+- L1024: `.foregroundColor(AppColors.secondaryText)`
+- L1026: `.padding(.horizontal, 16)`
+- L1027: `.padding(.top, 10)`
+- L1028: `.padding(.bottom, 8)`
+- L1029: `.background(.ultraThinMaterial)`
+
+交互 modifier：
+
+- L157: `.onChange(of: coverSelection) { item in`
+- L160: `.onChange(of: episodeSelections) { items in`
+- L165: `.sheet(item: $editingEpisode) { episode in`
+- L182: `.onDisappear {`
+- L975: `.onChange(of: priceText) { value in`
+
+### BWChat/Views/ShortDramaVideoPage.swift
+
+视觉 modifier：
+
+- L25: `Color.black`
+- L26: `.ignoresSafeArea()`
+- L31: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L33: `.ignoresSafeArea()`
+- L36: `.opacity(shouldShowCover ? 1 : 0)`
+- L37: `.animation(.easeOut(duration: 0.18), value: shouldShowCover)`
+- L38: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L41: `colors: [.clear, .black.opacity(0.66)],`
+- L45: `.ignoresSafeArea()`
+- L54: `.font(.system(size: 24, weight: .bold))`
+- L56: `.font(.subheadline.weight(.bold))`
+- L59: `.foregroundColor(.white)`
+- L60: `.padding(.horizontal, 18)`
+- L61: `.padding(.vertical, 14)`
+- L62: `.background(Color.black.opacity(0.58))`
+- L63: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L64: `.padding(.horizontal, 36)`
+- L78: `.padding(.horizontal, 16)`
+- L79: `.padding(.bottom, 28)`
+- L80: `.frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)`
+- L84: `.tint(.white)`
+- L85: `.scaleEffect(1.1)`
+- L88: `.frame(width: proxy.size.width, height: proxy.size.height)`
+- L90: `.background(Color.black)`
+- L91: `.ignoresSafeArea()`
+- L111: `Color.clear`
+- L113: `.ignoresSafeArea()`
+- L123: `.font(.system(size: 28, weight: .bold))`
+- L124: `.foregroundColor(.white)`
+- L125: `.frame(width: 74, height: 74)`
+- L126: `.background(Color.black.opacity(0.42))`
+- L127: `.clipShape(Circle())`
+- L128: `.overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))`
+- L129: `.shadow(color: .black.opacity(0.45), radius: 16, x: 0, y: 6)`
+- L132: `.opacity(isPlaybackTarget && isPlaybackPaused ? 1 : 0)`
+- L134: `.animation(.easeInOut(duration: 0.18), value: isPlaybackPaused)`
+- L141: `.font(.system(size: 16, weight: .bold))`
+- L142: `.foregroundColor(.white)`
+- L146: `.font(.system(size: 17, weight: .bold))`
+- L147: `.foregroundColor(.white)`
+- L149: `.fixedSize(horizontal: false, vertical: true)`
+- L152: `.font(.system(size: 14, weight: .medium))`
+- L153: `.foregroundColor(.white.opacity(0.88))`
+- L155: `.fixedSize(horizontal: false, vertical: true)`
+- L159: `.font(.system(size: 12, weight: .bold))`
+- L160: `.foregroundColor(.white)`
+- L161: `.padding(.horizontal, 10)`
+- L162: `.padding(.vertical, 5)`
+- L163: `.background(Color.white.opacity(0.16))`
+- L164: `.clipShape(Capsule())`
+- L168: `.font(.system(size: 12, weight: .semibold))`
+- L169: `.foregroundColor(.white.opacity(0.84))`
+- L174: `.shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 2)`
+- L175: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L270: `colors: [Color(hex: "171725"), Color.black],`
+- L276: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+
+交互 modifier：
+
+- L92: `.onChange(of: video.id) { _ in`
+- L95: `.onChange(of: player == nil) { isNil in`
+- L114: `.onTapGesture {`
+- L278: `.task(id: url) {`
+
+### BWChat/Views/SplashScreen.swift
+
+视觉 modifier：
+
+- L60: `.font(.system(size: 36, weight: .heavy, design: .rounded))`
+- L61: `.foregroundColor(AuthPalette.ink)`
+- L62: `.scaleEffect(logoScale)`
+- L63: `.opacity(logoOpacity)`
+- L66: `.font(.system(size: 15, weight: .semibold))`
+- L67: `.foregroundColor(AuthPalette.mutedText)`
+- L68: `.opacity(logoOpacity)`
+- L71: `.font(.system(size: 13, weight: .medium))`
+- L72: `.foregroundColor(AuthPalette.mutedText.opacity(0.72))`
+- L74: `.opacity(logoOpacity)`
+- L78: `.padding(.top, 6)`
+- L79: `.opacity(logoOpacity)`
+- L82: `.frame(height: 86)`
+- L220: `.font(.system(size: 32, weight: .semibold))`
+- L222: `.font(.headline)`
+- L224: `.font(.subheadline)`
+- L225: `.foregroundColor(AppColors.secondaryText)`
+- L228: `.padding(24)`
+
+交互 modifier：
+
+- L47: `.task {`
+- L85: `.onAppear {`
+- L235: `.task {`
+
+### BWChat/Views/UserProfileView.swift
+
+视觉 modifier：
+
+- L25: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L26: `.background(AppColors.background)`
+- L40: `.font(.system(size: 17, weight: .bold))`
+- L41: `.foregroundColor(AppColors.primaryText)`
+- L44: `.frame(maxWidth: 180, alignment: .leading)`
+- L53: `.font(.system(size: 17, weight: .semibold))`
+- L54: `.foregroundColor(AppColors.primaryText)`
+- L65: `.ignoresSafeArea()`
+- L66: `.zIndex(10)`
+- L93: `.tint(AppColors.accent)`
+- L94: `.padding(.top, 96)`
+- L110: `.frame(`
+- L117: `.padding(.top, 96)`
+- L120: `.padding(.bottom, 28)`
+- L137: `.overlay(`
+- L145: `.font(.system(size: 16, weight: .bold))`
+- L146: `.foregroundColor(AppColors.primaryText)`
+- L152: `.font(.system(size: 14, weight: .semibold))`
+- L153: `.foregroundColor(Color(hex: "1DA1F2"))`
+- L187: `.frame(maxWidth: .infinity)`
+- L193: `.font(.system(size: 14, weight: .medium))`
+- L194: `.foregroundColor(AppColors.secondaryText)`
+- L200: `.font(.system(size: 13, weight: .semibold))`
+- L201: `.foregroundColor(AppColors.secondaryText)`
+- L207: `.font(.system(size: 14))`
+- L208: `.foregroundColor(AppColors.primaryText)`
+- L209: `.fixedSize(horizontal: false, vertical: true)`
+- L220: `.font(.system(size: 14, weight: .semibold))`
+- L221: `.foregroundColor(Color(hex: "385898"))`
+- L229: `.padding(.horizontal, 16)`
+- L230: `.padding(.top, 4)`
+- L231: `.padding(.bottom, 12)`
+- L254: `.font(.system(size: 12, weight: .medium))`
+- L255: `.foregroundColor(AppColors.secondaryText)`
+- L259: `.font(.system(size: 12, weight: .medium))`
+- L260: `.foregroundColor(AppColors.secondaryText)`
+- L270: `.font(.system(size: 11, weight: .semibold))`
+- L271: `.foregroundColor(AppColors.primaryText)`
+- L272: `.padding(.horizontal, 7)`
+- L273: `.padding(.vertical, 3)`
+- L274: `.background(`
+- L286: `.font(.system(size: 13, weight: .medium))`
+- L287: `.foregroundColor(AppColors.secondaryText)`
+- L298: `.font(.system(size: 15, weight: .bold))`
+- L299: `.foregroundColor((profile.followedByMe || profile.followRequested) ? AppColors.primaryText : .white)`
+- L300: `.frame(maxWidth: .infinity)`
+- L301: `.frame(height: 36)`
+- L302: `.background(`
+- L318: `.font(.system(size: 15, weight: .bold))`
+- L319: `.foregroundColor(AppColors.primaryText)`
+- L320: `.frame(maxWidth: .infinity)`
+- L321: `.frame(height: 36)`
+- L322: `.background(`
+- L329: `.padding(.horizontal, 16)`
+- L330: `.padding(.bottom, 12)`
+- L340: `.font(.system(size: 16, weight: .bold))`
+- L341: `.foregroundColor(AppColors.primaryText)`
+- L354: `.font(.system(size: 14, weight: .semibold))`
+- L355: `.foregroundColor(AppColors.accent)`
+- L359: `.padding(.horizontal, 16)`
+- L363: `.tint(AppColors.accent)`
+- L364: `.frame(maxWidth: .infinity)`
+- L365: `.frame(height: 120)`
+- L368: `.font(.system(size: 14))`
+- L369: `.foregroundColor(AppColors.secondaryText)`
+- L370: `.frame(maxWidth: .infinity)`
+- L371: `.padding(.vertical, 36)`
+- L391: `.padding(.horizontal, 16)`
+- L395: `.padding(.top, 4)`
+- L396: `.padding(.bottom, 14)`
+- L414: `.padding(.horizontal, 16)`
+- L415: `.padding(.vertical, 10)`
+- L429: `.font(.system(size: 15, weight: selectedTab == tab ? .bold : .semibold))`
+- L430: `.foregroundColor(selectedTab == tab ? AppColors.primaryText : AppColors.tertiaryText)`
+- L433: `.frame(maxWidth: .infinity)`
+- L434: `.frame(height: 43)`
+- L437: `.fill(selectedTab == tab ? AppColors.primaryText : Color.clear)`
+- L438: `.frame(height: 1)`
+- L466: `.tint(AppColors.accent)`
+- L467: `.padding(.top, 52)`
+- L472: `.padding(.top, 42)`
+- L475: `.padding(.top, 54)`
+- L497: `.tint(AppColors.accent)`
+- L498: `.padding(.vertical, 16)`
+- L501: `.padding(16)`
+- L509: `.tint(AppColors.accent)`
+- L510: `.padding(.top, 52)`
+- L513: `.padding(.top, 54)`
+- L541: `.frame(maxWidth: .infinity)`
+- L545: `.tint(AppColors.accent)`
+- L546: `.padding(.vertical, 18)`
+- L590: `.tint(AppColors.accent)`
+- L591: `.padding(.top, 52)`
+- L596: `.padding(.top, 42)`
+- L599: `.padding(.top, 54)`
+- L618: `.tint(AppColors.accent)`
+- L619: `.padding(.vertical, 16)`
+- L622: `.padding(16)`
+- L629: `.font(.system(size: 30, weight: .semibold))`
+- L630: `.foregroundColor(AppColors.warningColor)`
+- L633: `.font(.system(size: 14, weight: .medium))`
+- L634: `.foregroundColor(AppColors.secondaryText)`
+- L638: `.font(.system(size: 14, weight: .bold))`
+- L639: `.foregroundColor(AppColors.accent)`
+- L641: `.frame(maxWidth: .infinity)`
+- L642: `.padding(.horizontal, 24)`
+- L648: `.font(.system(size: 34, weight: .semibold))`
+- L649: `.foregroundColor(AppColors.tertiaryText)`
+- L652: `.font(.system(size: 15, weight: .semibold))`
+- L653: `.foregroundColor(AppColors.secondaryText)`
+- L655: `.frame(maxWidth: .infinity)`
+- L702: `.font(.system(size: 34, weight: .semibold))`
+- L703: `.foregroundColor(AppColors.primaryText)`
+- L706: `.font(.system(size: 16, weight: .bold))`
+- L707: `.foregroundColor(AppColors.primaryText)`
+- L710: `.font(.system(size: 14))`
+- L711: `.foregroundColor(AppColors.secondaryText)`
+- L713: `.padding(.horizontal, 36)`
+- L715: `.frame(maxWidth: .infinity)`
+- L716: `.padding(.top, 54)`
+- L722: `.font(.system(size: 38, weight: .semibold))`
+- L723: `.foregroundColor(AppColors.tertiaryText)`
+- L726: `.font(.system(size: 15, weight: .semibold))`
+- L727: `.foregroundColor(AppColors.secondaryText)`
+- L729: `.frame(maxWidth: .infinity)`
+- L743: `.font(.system(size: 17, weight: .bold))`
+- L744: `.foregroundColor(.black)`
+- L748: `.font(.system(size: 12))`
+- L749: `.foregroundColor(.black)`
+- L753: `.frame(maxWidth: .infinity, alignment: isLeading ? .leading : .center)`
+- L897: `.font(.system(size: 12, weight: .semibold))`
+- L898: `.foregroundColor(AppColors.primaryText)`
+- L902: `.font(.system(size: 10))`
+- L903: `.foregroundColor(AppColors.secondaryText)`
+- L907: `.frame(maxWidth: .infinity)`
+- L913: `.font(.system(size: 12, weight: .bold))`
+- L914: `.foregroundColor(user.followedByMe ? AppColors.primaryText : .white)`
+- L915: `.frame(maxWidth: .infinity)`
+- L916: `.frame(height: 28)`
+- L917: `.background(`
+- L925: `.padding(.horizontal, 8)`
+- L926: `.padding(.top, 12)`
+- L927: `.padding(.bottom, 8)`
+- L928: `.frame(width: 106, height: 136)`
+- L929: `.background(`
+- L933: `.overlay(`
+- L937: `.overlay(alignment: .topTrailing) {`
+- L940: `.font(.system(size: 10, weight: .semibold))`
+- L941: `.foregroundColor(AppColors.primaryText)`
+- L942: `.frame(width: 24, height: 24)`
+- L992: `.font(.system(size: 16, weight: .semibold))`
+- L993: `.foregroundColor(AppColors.primaryText)`
+- L999: `.font(.system(size: 13))`
+- L1000: `.foregroundColor(AppColors.secondaryText)`
+- L1006: `.font(.system(size: 11, weight: .medium))`
+- L1007: `.foregroundColor(AppColors.accent)`
+- L1017: `.tint(AppColors.accent)`
+- L1020: `.font(.system(size: 14, weight: .semibold))`
+- L1021: `.foregroundColor(AppColors.accent)`
+- L1022: `.frame(width: 34, height: 34)`
+- L1023: `.background(Circle().fill(AppColors.accentLight))`
+- L1026: `.padding(14)`
+- L1027: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1028: `.background(AppColors.cardBackground)`
+- L1029: `.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))`
+- L1030: `.overlay(`
+- L1091: `Color.black.opacity(isSheetVisible ? 0.06 : 0)`
+- L1092: `.ignoresSafeArea()`
+- L1094: `.animation(.easeOut(duration: 0.12), value: isSheetVisible)`
+- L1098: `.fill(AppColors.tertiaryText.opacity(0.42))`
+- L1099: `.frame(width: 36, height: 4)`
+- L1100: `.padding(.top, 9)`
+- L1101: `.padding(.bottom, 5)`
+- L1107: `.frame(height: 8)`
+- L1111: `Color(.systemBackground)`
+- L1112: `.frame(height: max(proxy.safeAreaInsets.bottom, 0))`
+- L1114: `.frame(maxWidth: .infinity)`
+- L1115: `.background(`
+- L1117: `.fill(Color(.systemBackground))`
+- L1118: `.shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: -2)`
+- L1120: `.offset(y: isSheetVisible ? 0 : proxy.size.height)`
+- L1121: `.animation(.spring(response: 0.24, dampingFraction: 0.92), value: isSheetVisible)`
+- L1123: `.frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)`
+- L1143: `.font(.system(size: 17, weight: .semibold))`
+- L1144: `.frame(width: 24)`
+- L1147: `.font(.system(size: 15, weight: .semibold))`
+- L1153: `.foregroundColor(action.isDestructive ? AppColors.errorColor : AppColors.primaryText)`
+- L1154: `.frame(height: 46)`
+- L1155: `.padding(.horizontal, 22)`
+- L1162: `.padding(.leading, 60)`
+- L1188: `.frame(width: 64, height: 64)`
+- L1189: `.overlay(`
+- L1195: `.font(.system(size: 12, weight: .medium))`
+- L1196: `.foregroundColor(AppColors.primaryText)`
+- L1198: `.frame(width: 72)`
+- L1220: `.clipShape(Circle())`
+- L1223: `.tint(AppColors.accent)`
+- L1224: `.scaleEffect(0.58)`
+- L1227: `.font(.system(size: 20, weight: .semibold))`
+- L1228: `.foregroundColor(AppColors.secondaryText)`
+- L1231: `.clipShape(Circle())`
+- L1307: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1320: `.font(.system(size: 13, weight: .bold))`
+- L1321: `.foregroundColor(.white)`
+- L1322: `.shadow(color: .black.opacity(0.45), radius: 4, x: 0, y: 1)`
+- L1323: `.padding(7)`
+- L1325: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1410: `.frame(width: size.width, height: size.height)`
+- L1414: `.overlay(ProgressView().tint(AppColors.accent).scaleEffect(0.65))`
+- L1418: `.overlay(`
+- L1420: `.font(.system(size: 24, weight: .semibold))`
+- L1421: `.foregroundColor(AppColors.secondaryText)`
+- L1425: `.frame(width: size.width, height: size.height)`
+
+交互 modifier：
+
+- L69: `.task(id: viewModel.userID) {`
+- L77: `.task(id: selectedTab) {`
+- L80: `.fullScreenCover(item: $videoPreviewItem) { item in`
+- L122: `.refreshable {`
+- L489: `.onAppear {`
+- L533: `.onAppear {`
+- L610: `.onAppear {`
+- L1093: `.onTapGesture(perform: onDismiss)`
+- L1125: `.onAppear {`
+- L1232: `.onAppear {`
+- L1238: `.task(id: url) {`
+- L1429: `.onAppear {`
+- L1435: `.task(id: url) {`
+
+### BWChat/Views/VideoPlayerView.swift
+
+视觉 modifier：
+
+- L35: `Color.black`
+- L36: `.ignoresSafeArea()`
+- L37: `.opacity(backgroundOpacity)`
+- L41: `.ignoresSafeArea()`
+- L42: `.scaleEffect(mediaScale, anchor: .center)`
+- L43: `.offset(`
+- L47: `.scaleEffect(dismissScale)`
+- L70: `.font(.system(size: 40))`
+- L71: `.foregroundColor(.gray)`
+- L73: `.foregroundColor(.gray)`
+- L84: `.font(.system(size: 28))`
+- L85: `.foregroundColor(.white.opacity(0.8))`
+- L87: `.padding()`
+- L91: `.opacity(verticalDrag == 0 ? 1 : 0)`
+- L186: `mediaOffset = LocationAwareZoomMath.offset(`
+
+交互 modifier：
+
+- L48: `.onAppear {`
+- L60: `.simultaneousGesture(dismissDragGesture)`
+- L61: `.simultaneousGesture(`
+- L102: `.task {`
+- L105: `.onDisappear {`
+
+### BWChat/Views/WalletView.swift
+
+视觉 modifier：
+
+- L96: `Color.white`
+- L97: `.frame(height: 60)`
+- L98: `.frame(maxHeight: .infinity, alignment: .bottom)`
+- L99: `.ignoresSafeArea(.container, edges: .bottom)`
+- L107: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`
+- L124: `.toolbarBackground(isWithdrawalFormFocused ? Color.white.opacity(0.96) : Color.clear, for: .navigationBar)`
+- L160: `.background(`
+- L179: `Spacer().frame(height: topPadding)`
+- L183: `.padding(.top, compact ? 0 : 2)`
+- L193: `.padding(.horizontal, 20)`
+- L194: `.padding(.bottom, compact ? 10 : 14)`
+- L202: `.frame(width: geo.size.width)`
+- L203: `.frame(minHeight: geo.size.height, alignment: .top)`
+- L222: `Spacer().frame(height: topGap)`
+- L226: `.frame(height: cardHeight)`
+- L227: `.padding(.horizontal, 20)`
+- L228: `.transition(.opacity)`
+- L230: `Spacer().frame(height: normalPanelGap)`
+- L240: `.frame(width: geo.size.width)`
+- L241: `.frame(minHeight: geo.size.height, alignment: .top)`
+- L242: `.animation(walletKeyboardTransitionAnimation, value: isWithdrawalFormFocused)`
+- L254: `.frame(width: 246)`
+- L255: `.layoutPriority(10)`
+- L269: `.font(.system(size: 18, weight: selectedTab == index ? .semibold : .medium))`
+- L270: `.foregroundColor(selectedTab == index ? .black : .black.opacity(0.58))`
+- L275: `.fill(selectedTab == index ? Color.black : Color.clear)`
+- L276: `.frame(width: 32, height: 4)`
+- L278: `.frame(width: 114)`
+- L291: `.frame(maxWidth: 240)`
+- L297: `.frame(maxWidth: .infinity)`
+- L298: `.padding(.horizontal, compact ? 16 : 24)`
+- L309: `.font(.system(size: compact ? 11 : 13, weight: .semibold))`
+- L310: `.foregroundColor(.black.opacity(0.66))`
+- L314: `.font(.system(size: isLoading ? (compact ? 13 : 15) : (compact ? 23 : 28), weight: .bold))`
+- L315: `.foregroundColor(.black)`
+- L320: `.frame(maxWidth: .infinity)`
+- L329: `.font(.system(size: compact ? 10 : 11, weight: .bold))`
+- L331: `.font(.system(size: compact ? 12 : 13, weight: .medium))`
+- L332: `.foregroundColor(.black.opacity(0.48))`
+- L338: `.font(.system(size: 15))`
+- L339: `.foregroundColor(.black.opacity(0.7))`
+- L342: `.font(.system(size: isEarningsBalanceLoading ? 24 : 42, weight: .bold))`
+- L343: `.foregroundColor(.black)`
+- L357: `.frame(width: size, height: size)`
+- L359: `.frame(height: containerHeight)`
+- L365: `.font(.system(size: 13))`
+- L366: `.foregroundColor(.white)`
+- L367: `.offset(x: -48, y: -30)`
+- L370: `.font(.system(size: 10))`
+- L371: `.foregroundColor(.white)`
+- L372: `.offset(x: 46, y: -34)`
+- L375: `.font(.system(size: 68))`
+- L376: `.foregroundStyle(`
+- L378: `colors: [Color(hex: "FFD54A"), Color(hex: "F0A020")],`
+- L383: `.shadow(color: Color(hex: "F0A020").opacity(0.35), radius: 6, y: 3)`
+- L385: `.frame(height: 100)`
+- L396: `.padding(.vertical, 2)`
+- L397: `.padding(.horizontal, 16)`
+- L404: `.fill(Color(hex: "FFD54A").opacity(0.2))`
+- L405: `.frame(width: 36, height: 36)`
+- L407: `.font(.system(size: 14, weight: .semibold))`
+- L408: `.foregroundColor(Color(hex: "C98300"))`
+- L412: `.font(.system(size: 15, weight: .medium))`
+- L413: `.foregroundColor(.black.opacity(0.72))`
+- L416: `.fixedSize(horizontal: false, vertical: true)`
+- L421: `.font(.system(size: 20, weight: .bold))`
+- L422: `.foregroundColor(.black)`
+- L426: `.padding(.horizontal, 14)`
+- L427: `.padding(.vertical, 12)`
+- L428: `.frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)`
+- L493: `.font(.system(size: 12))`
+- L494: `.foregroundColor(Color(hex: "9A6A00"))`
+- L495: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L496: `.padding(.horizontal, 18)`
+- L506: `.frame(width: contentWidth)`
+- L514: `.tint(.black)`
+- L517: `.font(.system(size: compact ? 16 : 19, weight: .bold))`
+- L522: `.foregroundColor(.black)`
+- L523: `.frame(maxWidth: .infinity)`
+- L524: `.frame(height: compact ? 42 : 52)`
+- L525: `.background(`
+- L527: `.fill(Color(hex: "FFE500"))`
+- L531: `.opacity(walletStore.isPurchasing || walletStore.isLoadingProducts ? 0.72 : 1)`
+- L532: `.padding(.horizontal, 18)`
+- L533: `.padding(.top, cardVerticalSpacing)`
+- L540: `.foregroundColor(agreedToTerms ? Color(hex: "F0A020") : Color.gray.opacity(0.45))`
+- L541: `.font(.system(size: compact ? 12 : 14))`
+- L544: `.font(.system(size: compact ? 10 : 12))`
+- L545: `.foregroundColor(.black.opacity(0.6))`
+- L551: `.font(.system(size: compact ? 10 : 12))`
+- L552: `.foregroundColor(.black.opacity(0.82))`
+- L557: `.frame(maxWidth: .infinity)`
+- L559: `.padding(.top, compact ? 6 : 8)`
+- L560: `.padding(.bottom, compact ? 2 : 4)`
+- L562: `.padding(.top, compact ? 10 : 12)`
+- L563: `.padding(.bottom, bottomPadding)`
+- L564: `.frame(width: availableWidth, alignment: .top)`
+- L565: `.background(Color.white)`
+- L566: `.clipShape(WalletTopRoundedShape(radius: 30))`
+- L567: `.ignoresSafeArea(.container, edges: .bottom)`
+- L586: `.fill(Color.black.opacity(0.08))`
+- L587: `.frame(width: 1, height: compact ? 46 : 52)`
+- L588: `.padding(.horizontal, compact ? 6 : 8)`
+- L597: `.font(.system(size: compact ? 15 : 17, weight: .bold))`
+- L598: `.foregroundColor(Color(hex: "B58A00").opacity(0.74))`
+- L599: `.frame(width: compact ? 22 : 26, alignment: .center)`
+- L607: `.frame(height: compact ? 60 : 68)`
+- L612: `.opacity(0.28)`
+- L613: `.padding(.horizontal, compact ? 4 : 6)`
+- L616: `.frame(height: compact ? 23 : 25)`
+- L617: `.padding(.top, compact ? 5 : 6)`
+- L619: `.padding(.horizontal, compact ? 26 : 34)`
+- L620: `.padding(.top, compact ? 17 : 21)`
+- L621: `.padding(.bottom, compact ? 9 : 11)`
+- L622: `.frame(maxWidth: .infinity, minHeight: compact ? 130 : 148, alignment: .center)`
+- L623: `.background(`
+- L625: `.fill(Color.white)`
+- L627: `.shadow(color: Color.black.opacity(0.035), radius: 12, x: 0, y: 4)`
+- L637: `.font(.system(size: compact ? 11 : 12, weight: .semibold))`
+- L638: `.foregroundColor(.black.opacity(0.66))`
+- L644: `.font(.system(size: compact ? 23 : 27, weight: .bold))`
+- L646: `.foregroundColor(.black)`
+- L651: `.frame(maxWidth: .infinity)`
+- L657: `.font(.system(size: compact ? 11 : 12, weight: .medium))`
+- L658: `.foregroundColor(.black.opacity(0.42))`
+- L672: `.font(.system(size: compact ? 11 : 12, weight: .medium))`
+- L674: `.font(.system(size: compact ? 9 : 10, weight: .semibold))`
+- L676: `.foregroundColor(.black.opacity(0.42))`
+- L683: `.padding(.horizontal, compact ? 8 : 10)`
+- L684: `.frame(maxWidth: .infinity)`
+- L694: `.font(.system(size: compact ? 14 : 16, weight: .semibold))`
+- L695: `.foregroundColor(.black)`
+- L708: `.font(.system(size: compact ? 11 : 13, weight: .semibold))`
+- L709: `.foregroundColor(Color(hex: "D19A00").opacity(0.82))`
+- L710: `.frame(width: compact ? 18 : 20, height: compact ? 18 : 20)`
+- L714: `.overlay(alignment: .top) {`
+- L717: `.font(.system(size: compact ? 10 : 11, weight: .semibold))`
+- L718: `.foregroundColor(.black.opacity(0.82))`
+- L720: `.padding(.horizontal, compact ? 8 : 10)`
+- L721: `.padding(.vertical, compact ? 5 : 6)`
+- L722: `.background(`
+- L724: `.fill(Color.white)`
+- L725: `.shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)`
+- L727: `.overlay(`
+- L729: `.stroke(Color(hex: "FFD800").opacity(0.5), lineWidth: 1)`
+- L731: `.fixedSize()`
+- L732: `.offset(x: compact ? -38 : -42, y: compact ? -32 : -36)`
+- L733: `.transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))`
+- L734: `.zIndex(4)`
+- L739: `.frame(maxWidth: .infinity, alignment: .center)`
+- L740: `.zIndex(isUSDTInfoBubbleVisible && showsInfo ? 4 : 0)`
+- L745: `.font(.system(size: compact ? 29 : 34, weight: .bold))`
+- L747: `.foregroundColor(.black)`
+- L751: `.frame(maxWidth: .infinity, alignment: .center)`
+- L782: `.tint(.black)`
+- L786: `.font(.system(size: compact ? 16 : 19, weight: .bold))`
+- L791: `.foregroundColor(.black)`
+- L792: `.frame(maxWidth: .infinity)`
+- L793: `.frame(height: compact ? 42 : 52)`
+- L794: `.background(`
+- L796: `.fill(Color(hex: "FFE500"))`
+- L800: `.opacity(!hasWithdrawableUSDTAmount || walletStore.isSubmittingWithdrawal ? 0.58 : 1)`
+- L801: `.padding(.bottom, buttonBottomPadding)`
+- L803: `.padding(.horizontal, 18)`
+- L804: `.padding(.top, compact ? 22 : 26)`
+- L805: `.frame(width: availableWidth, alignment: .top)`
+- L806: `.background(Color.white)`
+- L807: `.clipShape(WalletTopRoundedShape(radius: 30))`
+- L808: `.ignoresSafeArea(.container, edges: .bottom)`
+- L821: `.font(.system(size: compact ? 13 : 14, weight: .semibold))`
+- L822: `.foregroundColor(.black.opacity(0.62))`
+- L828: `.font(.system(size: compact ? 15 : 16, weight: .semibold))`
+- L829: `.foregroundColor(Color(hex: "D19A00"))`
+- L830: `.frame(width: 22)`
+- L837: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
+- L838: `.foregroundColor(.black.opacity(0.86))`
+- L841: `.frame(maxHeight: .infinity)`
+- L843: `.padding(.horizontal, compact ? 15 : 16)`
+- L844: `.frame(height: compact ? 62 : 68)`
+- L845: `.background(Color(hex: "F7F7F7"))`
+- L846: `.cornerRadius(18)`
+- L859: `.font(.system(size: compact ? 13 : 14, weight: .semibold))`
+- L860: `.foregroundColor(.black.opacity(0.62))`
+- L866: `.font(.system(size: compact ? 15 : 16, weight: .semibold))`
+- L867: `.foregroundColor(Color(hex: "D19A00"))`
+- L868: `.frame(width: 22)`
+- L875: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
+- L876: `.foregroundColor(.black.opacity(0.86))`
+- L879: `.layoutPriority(1)`
+- L880: `.frame(maxHeight: .infinity)`
+- L886: `.font(.system(size: compact ? 12 : 13, weight: .semibold))`
+- L887: `.foregroundColor(Color(hex: "D19A00"))`
+- L891: `.frame(width: compact ? 66 : 78, alignment: .trailing)`
+- L895: `.opacity(hasWithdrawableUSDTAmount ? 1 : 0.45)`
+- L897: `.padding(.horizontal, compact ? 15 : 16)`
+- L898: `.frame(height: compact ? 62 : 68)`
+- L899: `.background(Color(hex: "F7F7F7"))`
+- L900: `.cornerRadius(18)`
+- L913: `.font(.system(size: compact ? 13 : 14, weight: .semibold))`
+- L914: `.foregroundColor(.black.opacity(0.62))`
+- L930: `.overlay(alignment: .topTrailing) {`
+- L933: `.frame(width: compact ? 158 : 176)`
+- L934: `.offset(y: compact ? 70 : 76)`
+- L935: `.transition(.scale(scale: 0.96, anchor: .topTrailing).combined(with: .opacity))`
+- L936: `.zIndex(5)`
+- L939: `.frame(maxWidth: .infinity, alignment: .trailing)`
+- L941: `.zIndex(isWithdrawalNetworkPickerLayerRaised ? 5 : 0)`
+- L954: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
+- L955: `.foregroundColor(.black.opacity(0.86))`
+- L961: `.font(.system(size: compact ? 12 : 13, weight: .semibold))`
+- L962: `.foregroundColor(.black.opacity(0.78))`
+- L965: `.frame(height: compact ? 44 : 48)`
+- L966: `.padding(.horizontal, 14)`
+- L967: `.background(withdrawalNetwork == network ? Color.black.opacity(0.035) : Color.clear)`
+- L974: `.padding(.leading, 14)`
+- L975: `.opacity(0.58)`
+- L979: `.padding(.vertical, compact ? 4 : 5)`
+- L980: `.background(Color.white)`
+- L981: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
+- L982: `.overlay(`
+- L984: `.stroke(Color.black.opacity(0.08), lineWidth: 1)`
+- L986: `.shadow(color: Color.black.opacity(0.10), radius: 14, x: 0, y: 8)`
+- L992: `.font(.system(size: compact ? 15 : 16, weight: .semibold))`
+- L993: `.foregroundColor(Color(hex: "D19A00"))`
+- L994: `.frame(width: 22)`
+- L997: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
+- L998: `.foregroundColor(withdrawalNetwork.isBlank ? .black.opacity(0.36) : .black.opacity(0.86))`
+- L1005: `.font(.system(size: 13, weight: .bold))`
+- L1006: `.foregroundColor(.black.opacity(0.36))`
+- L1007: `.rotationEffect(.degrees(isWithdrawalNetworkPickerExpanded ? 180 : 0))`
+- L1009: `.padding(.horizontal, compact ? 15 : 16)`
+- L1010: `.frame(maxWidth: .infinity)`
+- L1011: `.frame(height: compact ? 62 : 68)`
+- L1012: `.background(Color(hex: "F7F7F7"))`
+- L1013: `.clipShape(RoundedRectangle(cornerRadius: 18))`
+- L1015: `.overlay(`
+- L1018: `isWithdrawalNetworkPickerExpanded ? Color.black.opacity(0.08) : Color.clear,`
+- L1204: `.frame(width: compact ? 21 : 28, height: compact ? 21 : 28)`
+- L1206: `.font(.system(size: compact ? 14 : 17, weight: .bold))`
+- L1207: `.foregroundColor(.black)`
+- L1212: `.font(.system(size: compact ? 12 : 14, weight: .medium))`
+- L1213: `.foregroundColor(.black.opacity(0.48))`
+- L1218: `.frame(maxWidth: .infinity)`
+- L1219: `.frame(height: compact ? 66 : 78)`
+- L1220: `.background(`
+- L1222: `.fill(selected ? Color.white : Color(hex: "F2F2F2"))`
+- L1223: `.overlay(`
+- L1225: `.stroke(selected ? Color(hex: "FFE200") : Color.clear, lineWidth: compact ? 2.5 : 3)`
+- L1323: `.opacity(isBusy || !adRewardService.hasRemainingViews ? 0.62 : 1)`
+- L1348: `.fill(Color(hex: "FFD400"))`
+- L1349: `.frame(width: compact ? 20 : 24, height: compact ? 20 : 24)`
+- L1354: `.tint(.white)`
+- L1357: `.font(.system(size: 9, weight: .bold))`
+- L1358: `.foregroundColor(.white)`
+- L1359: `.offset(x: 1)`
+- L1364: `.font(.system(size: compact ? 13 : 14, weight: .medium))`
+- L1365: `.foregroundColor(.black.opacity(0.68))`
+- L1369: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L1372: `.font(.system(size: compact ? 15 : 18, weight: .semibold))`
+- L1373: `.foregroundColor(.black.opacity(0.5))`
+- L1375: `.padding(.horizontal, compact ? 13 : 18)`
+- L1376: `.frame(height: compact ? 46 : 54)`
+- L1377: `.background(`
+- L1381: `.fill(Color(hex: "FFF3B5").opacity(0.96))`
+- L1382: `.overlay(`
+- L1384: `.stroke(Color.white.opacity(0.74), lineWidth: 1)`
+- L1387: `.shadow(color: Color(hex: "C99A10").opacity(0.1), radius: 8, x: 0, y: 4)`
+- L1452: `Color.white.ignoresSafeArea()`
+- L1460: `.tint(AppColors.accent)`
+- L1461: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1466: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1469: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1478: `.padding(.horizontal, 16)`
+- L1479: `.padding(.vertical, 12)`
+- L1484: `.background(Color(hex: "F7F7F7"))`
+- L1501: `.frame(width: 78, alignment: .leading)`
+- L1507: `.frame(maxWidth: .infinity)`
+- L1509: `Color.clear`
+- L1510: `.frame(width: 78, height: 36)`
+- L1512: `.padding(.horizontal, 14)`
+- L1513: `.padding(.top, 14)`
+- L1514: `.padding(.bottom, 18)`
+- L1515: `.background(Color.white)`
+- L1524: `.font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))`
+- L1525: `.foregroundColor(selectedTab == tab ? .black : .black.opacity(0.56))`
+- L1529: `.fill(selectedTab == tab ? Color.black : Color.clear)`
+- L1530: `.frame(width: 31, height: 3)`
+- L1566: `Color.white.ignoresSafeArea()`
+- L1574: `.tint(AppColors.accent)`
+- L1575: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1578: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1581: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L1594: `.padding(.horizontal, 16)`
+- L1595: `.padding(.vertical, 12)`
+- L1597: `.background(Color(hex: "F7F7F7"))`
+- L1622: `.frame(width: 78, alignment: .leading)`
+- L1625: `.font(.system(size: 20, weight: .semibold))`
+- L1626: `.foregroundColor(.black)`
+- L1627: `.frame(maxWidth: .infinity)`
+- L1629: `Color.clear`
+- L1630: `.frame(width: 78, height: 36)`
+- L1632: `.padding(.horizontal, 14)`
+- L1633: `.padding(.top, 14)`
+- L1634: `.padding(.bottom, 18)`
+- L1635: `.background(Color.white)`
+- L1658: `.tint(AppColors.accent)`
+- L1664: `.font(.system(size: 34))`
+- L1665: `.foregroundColor(AppColors.tertiaryText)`
+- L1667: `.font(.system(size: 14))`
+- L1668: `.foregroundColor(AppColors.secondaryText)`
+- L1673: `.font(.system(size: 34))`
+- L1674: `.foregroundColor(AppColors.tertiaryText)`
+- L1676: `.font(.system(size: 15, weight: .medium))`
+- L1677: `.foregroundColor(AppColors.secondaryText)`
+- L1687: `.padding(.horizontal, 16)`
+- L1688: `.padding(.vertical, 12)`
+- L1690: `.background(AppColors.secondaryBackground)`
+- L1726: `.font(.system(size: 13))`
+- L1727: `.foregroundColor(AppColors.secondaryText)`
+- L1732: `.font(.system(size: 14, weight: .semibold))`
+- L1734: `.frame(maxWidth: .infinity)`
+- L1735: `.padding(.vertical, 12)`
+- L1738: `.tint(AppColors.accent)`
+- L1739: `.frame(maxWidth: .infinity)`
+- L1740: `.padding(.vertical, 12)`
+- L1759: `.tint(AppColors.accent)`
+- L1763: `.font(.system(size: 34))`
+- L1764: `.foregroundColor(AppColors.tertiaryText)`
+- L1766: `.font(.system(size: 14))`
+- L1767: `.foregroundColor(AppColors.secondaryText)`
+- L1769: `.padding(.horizontal, 24)`
+- L1774: `.font(.system(size: 34))`
+- L1775: `.foregroundColor(AppColors.tertiaryText)`
+- L1777: `.font(.system(size: 15, weight: .medium))`
+- L1778: `.foregroundColor(AppColors.secondaryText)`
+- L1792: `.padding(.horizontal, 16)`
+- L1793: `.padding(.vertical, 12)`
+- L1795: `.background(AppColors.secondaryBackground)`
+- L1845: `return (transaction.signedAmountValue ?? 0) < 0 ? AppColors.errorColor : Color(hex: "2FAE88")`
+- L1866: `.fill(amountColor.opacity(0.12))`
+- L1867: `.frame(width: 36, height: 36)`
+- L1869: `.font(.system(size: 15, weight: .semibold))`
+- L1870: `.foregroundColor(amountColor)`
+- L1875: `.font(.system(size: 15, weight: .semibold))`
+- L1876: `.foregroundColor(AppColors.primaryText)`
+- L1878: `.font(.system(size: 12))`
+- L1879: `.foregroundColor(AppColors.secondaryText)`
+- L1883: `.font(.system(size: 11))`
+- L1884: `.foregroundColor(AppColors.tertiaryText)`
+- L1891: `.font(.system(size: 15, weight: .bold))`
+- L1892: `.foregroundColor(amountColor)`
+- L1896: `.padding(.horizontal, 12)`
+- L1897: `.padding(.vertical, 10)`
+- L1898: `.background(AppColors.cardBackground)`
+- L1899: `.cornerRadius(12)`
+- L1912: `.fill(Color(hex: "FFD54A").opacity(0.18))`
+- L1913: `.frame(width: 36, height: 36)`
+- L1917: `.frame(width: 24, height: 24)`
+- L1922: `.font(.system(size: 15, weight: .semibold))`
+- L1923: `.foregroundColor(AppColors.primaryText)`
+- L1927: `.font(.system(size: 12, weight: .medium))`
+- L1928: `.foregroundColor(Color(hex: "A76500"))`
+- L1933: `.font(.system(size: 11, weight: .medium))`
+- L1934: `.foregroundColor(AppColors.secondaryText)`
+- L1940: `.font(.system(size: 12))`
+- L1941: `.foregroundColor(AppColors.secondaryText)`
+- L1944: `.font(.system(size: 11))`
+- L1945: `.foregroundColor(AppColors.tertiaryText)`
+- L1950: `.font(.system(size: 11))`
+- L1951: `.foregroundColor(AppColors.tertiaryText)`
+- L1961: `.font(.system(size: 12, weight: .semibold))`
+- L1962: `.foregroundColor(Color(hex: "C98300"))`
+- L1963: `.padding(.horizontal, 10)`
+- L1964: `.padding(.vertical, 6)`
+- L1965: `.background(Color(hex: "FFF4C9"))`
+- L1966: `.cornerRadius(12)`
+- L1971: `.padding(.horizontal, 12)`
+- L1972: `.padding(.vertical, 10)`
+- L1973: `.background(Color(hex: "FFF8DE"))`
+- L1974: `.cornerRadius(12)`
+- L1985: `.frame(width: geo.size.width, height: geo.size.height)`
+- L1988: `.ignoresSafeArea()`
+- L2026: `.font(.system(size: 20, weight: .semibold))`
+- L2027: `.foregroundColor(.black)`
+- L2034: `.font(.system(size: 16, weight: .regular))`
+- L2035: `.foregroundColor(.black.opacity(0.42))`
+- L2042: `.padding(.horizontal, 24)`
+- L2051: `.frame(width: 154, height: 142)`
+
+交互 modifier：
+
+- L126: `.task {`
+- L136: `.onChange(of: packages.map(\.productID)) { _ in`
+- L140: `.onChange(of: scenePhase) { phase in`
+- L146: `.onDisappear {`
+- L150: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+- L848: `.onTapGesture {`
+- L902: `.onTapGesture {`
+- L1324: `.task(id: isConfigured) {`
+- L1327: `.onChange(of: scenePhase) { phase in`
+- L1332: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+- L1481: `.refreshable {`
+- L1491: `.task {`
+- L1604: `.task {`
+- L1607: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+- L1708: `.task {`
+- L1741: `.task(id: cursor) {`
+- L1813: `.task {`
+- L1816: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+
+### BWChat/Views/Web/InAppWebView.swift
+
+视觉 modifier：
+
+- L79: `.ignoresSafeArea(edges: .bottom)`
+- L86: `.tint(AppColors.accent)`
+- L87: `.scaleEffect(1.1)`
+- L92: `Color.black.opacity(0.36).ignoresSafeArea()`
+- L93: `ProgressView().tint(.white).scaleEffect(1.15)`
+- L95: `.zIndex(3)`
+- L214: `.font(.system(size: 38, weight: .semibold))`
+- L215: `.foregroundColor(AppColors.tertiaryText)`
+- L218: `.font(.system(size: 15, weight: .medium))`
+- L219: `.foregroundColor(AppColors.secondaryText)`
+- L221: `.padding(.horizontal, 28)`
+- L229: `.font(.system(size: 14, weight: .semibold))`
+- L230: `.foregroundColor(.white)`
+- L231: `.padding(.horizontal, 18)`
+- L232: `.padding(.vertical, 10)`
+- L233: `.background(AppColors.accentGradient)`
+- L234: `.cornerRadius(12)`
+- L238: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L239: `.background(AppColors.secondaryBackground)`
+
+交互 modifier：
+
+- L62: `case .alert(let alert):`
+- L106: `.alert(item: $routeAlert) { alert in`
+- L113: `.task(id: url) {`

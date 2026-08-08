@@ -1,0 +1,167 @@
+diff --git a/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm b/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm
+index 23741e702252dcf50cb8d33051d74b1d162e0d42..b2dbd66e6ab6a9fa3f213af167ff78d895b0dfb6 100644
+--- a/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm
++++ b/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm
+@@ -179,6 +179,25 @@ - (void)showWithRequestId:(int)requestId
+     return;
+   }
+ 
++  // A rewarded ad may be preloaded before the game supplies its signed SSV
++  // identity. Bind that request-specific identity at the last safe moment,
++  // matching GADRewardedAd's native show-time configuration semantics.
++  NSDictionary *serverSideVerificationOptions =
++      showOptions[@"serverSideVerificationOptions"];
++  if (serverSideVerificationOptions &&
++      ([ad isKindOfClass:[GADRewardedAd class]] ||
++       [ad isKindOfClass:[GADRewardedInterstitialAd class]])) {
++    GADServerSideVerificationOptions *options =
++        [[GADServerSideVerificationOptions alloc] init];
++    options.userIdentifier = serverSideVerificationOptions[@"userId"];
++    options.customRewardString = serverSideVerificationOptions[@"customData"];
++    if ([ad isKindOfClass:[GADRewardedAd class]]) {
++      [(GADRewardedAd *)ad setServerSideVerificationOptions:options];
++    } else {
++      [(GADRewardedInterstitialAd *)ad setServerSideVerificationOptions:options];
++    }
++  }
++
+   if ([ad isKindOfClass:[GADAppOpenAd class]]) {
+     [(GADAppOpenAd *)ad presentFromRootViewController:viewController];
+   } else if ([ad isKindOfClass:[GADInterstitialAd class]]) {
+diff --git a/lib/commonjs/validateAdShowOptions.js b/lib/commonjs/validateAdShowOptions.js
+index 8a9e701bbcba646b1ace50cbf5615a0837656846..237450862ecb8b092b83cd4d5dce67015a75042b 100644
+--- a/lib/commonjs/validateAdShowOptions.js
++++ b/lib/commonjs/validateAdShowOptions.js
+@@ -36,6 +36,19 @@ function validateAdShowOptions(options) {
+     }
+     out.immersiveModeEnabled = options.immersiveModeEnabled;
+   }
++  if ((0, _common.isPropertySet)(options, 'serverSideVerificationOptions')) {
++    if (!(0, _common.isObject)(options.serverSideVerificationOptions)) {
++      throw new Error("'options.serverSideVerificationOptions' expected an object of key/value pairs");
++    }
++    const ssvOptions = options.serverSideVerificationOptions;
++    if ((0, _common.isPropertySet)(ssvOptions, 'userId') && !(0, _common.isString)(ssvOptions.userId)) {
++      throw new Error("'options.serverSideVerificationOptions.userId' expected a string value");
++    }
++    if ((0, _common.isPropertySet)(ssvOptions, 'customData') && !(0, _common.isString)(ssvOptions.customData)) {
++      throw new Error("'options.serverSideVerificationOptions.customData' expected a string value");
++    }
++    out.serverSideVerificationOptions = ssvOptions;
++  }
+   return out;
+ }
+ //# sourceMappingURL=validateAdShowOptions.js.map
+diff --git a/lib/module/validateAdShowOptions.js b/lib/module/validateAdShowOptions.js
+index 271054d0d74cea0e7c75010a96832510b16dec9b..dfe6c54928738e45b8d00a2b36329c60d9c02e3d 100644
+--- a/lib/module/validateAdShowOptions.js
++++ b/lib/module/validateAdShowOptions.js
+@@ -17,7 +17,7 @@
+  *
+  */
+ 
+-import { isPropertySet, isBoolean, isObject, isUndefined } from './common';
++import { isPropertySet, isBoolean, isObject, isString, isUndefined } from './common';
+ export function validateAdShowOptions(options) {
+   const out = {};
+   if (isUndefined(options)) {
+@@ -32,6 +32,19 @@ export function validateAdShowOptions(options) {
+     }
+     out.immersiveModeEnabled = options.immersiveModeEnabled;
+   }
++  if (isPropertySet(options, 'serverSideVerificationOptions')) {
++    if (!isObject(options.serverSideVerificationOptions)) {
++      throw new Error("'options.serverSideVerificationOptions' expected an object of key/value pairs");
++    }
++    const ssvOptions = options.serverSideVerificationOptions;
++    if (isPropertySet(ssvOptions, 'userId') && !isString(ssvOptions.userId)) {
++      throw new Error("'options.serverSideVerificationOptions.userId' expected a string value");
++    }
++    if (isPropertySet(ssvOptions, 'customData') && !isString(ssvOptions.customData)) {
++      throw new Error("'options.serverSideVerificationOptions.customData' expected a string value");
++    }
++    out.serverSideVerificationOptions = ssvOptions;
++  }
+   return out;
+ }
+ //# sourceMappingURL=validateAdShowOptions.js.map
+diff --git a/lib/typescript/types/AdShowOptions.d.ts b/lib/typescript/types/AdShowOptions.d.ts
+index 7bd5f365e6bb1105ed113ac04bb0f99e61b53e57..e6b845aac7b8c1f35ea929c0f48a795972785319 100644
+--- a/lib/typescript/types/AdShowOptions.d.ts
++++ b/lib/typescript/types/AdShowOptions.d.ts
+@@ -1,3 +1,4 @@
++import type { ServerSideVerificationOptions } from './RequestOptions';
+ /**
+  * A `AdShowOptions` interface used when showing an ad.
+  */
+@@ -9,5 +10,12 @@ export interface AdShowOptions {
+      * @android
+      */
+     immersiveModeEnabled?: boolean;
++    /**
++     * Applies request-specific server-side verification data immediately before
++     * presenting a preloaded rewarded ad.
++     *
++     * @ios
++     */
++    serverSideVerificationOptions?: ServerSideVerificationOptions;
+ }
+ //# sourceMappingURL=AdShowOptions.d.ts.map
+diff --git a/src/types/AdShowOptions.ts b/src/types/AdShowOptions.ts
+index 4e199cedf65aaa358494921f892f0e2ad456d3aa..36186f95f2f98c572b812e7109e45927c3c8d345 100644
+--- a/src/types/AdShowOptions.ts
++++ b/src/types/AdShowOptions.ts
+@@ -1,3 +1,5 @@
++import type { ServerSideVerificationOptions } from './RequestOptions';
++
+ /**
+  * A `AdShowOptions` interface used when showing an ad.
+  */
+@@ -9,4 +11,12 @@ export interface AdShowOptions {
+    * @android
+    */
+   immersiveModeEnabled?: boolean;
++
++  /**
++   * Applies request-specific server-side verification data immediately before
++   * presenting a preloaded rewarded ad.
++   *
++   * @ios
++   */
++  serverSideVerificationOptions?: ServerSideVerificationOptions;
+ }
+diff --git a/src/validateAdShowOptions.ts b/src/validateAdShowOptions.ts
+index 54983edb1cd6a44f15560ed93d6e93a967d1bfa8..7662d197663c6122b37eef1659f1fdfb0c4bc1d3 100644
+--- a/src/validateAdShowOptions.ts
++++ b/src/validateAdShowOptions.ts
+@@ -15,7 +15,7 @@
+  *
+  */
+ 
+-import { isPropertySet, isBoolean, isObject, isUndefined } from './common';
++import { isPropertySet, isBoolean, isObject, isString, isUndefined } from './common';
+ import { AdShowOptions } from './types/AdShowOptions';
+ 
+ export function validateAdShowOptions(options?: AdShowOptions) {
+@@ -37,5 +37,21 @@ export function validateAdShowOptions(options?: AdShowOptions) {
+     out.immersiveModeEnabled = options.immersiveModeEnabled;
+   }
+ 
++  if (isPropertySet(options, 'serverSideVerificationOptions')) {
++    if (!isObject(options.serverSideVerificationOptions)) {
++      throw new Error(
++        "'options.serverSideVerificationOptions' expected an object of key/value pairs",
++      );
++    }
++    const ssvOptions = options.serverSideVerificationOptions;
++    if (isPropertySet(ssvOptions, 'userId') && !isString(ssvOptions.userId)) {
++      throw new Error("'options.serverSideVerificationOptions.userId' expected a string value");
++    }
++    if (isPropertySet(ssvOptions, 'customData') && !isString(ssvOptions.customData)) {
++      throw new Error("'options.serverSideVerificationOptions.customData' expected a string value");
++    }
++    out.serverSideVerificationOptions = ssvOptions;
++  }
++
+   return out;
+ }

@@ -1,0 +1,5420 @@
+{
+  "generatedAt": "2026-08-08T02:26:36.153Z",
+  "nativeSource": "../BWChat/Services/APIService.swift",
+  "warning": "静态 method/auth/idempotency/cache 推断只用于发现候选差异；通过不证明 body、envelope、错误、分页、账号隔离、生命周期或状态回写完整。",
+  "totals": {
+    "nativeContracts": 211,
+    "nativeMethodsKnown": 211,
+    "methodCandidatesPresent": 211,
+    "contractCandidatesPresent": 211,
+    "methodCandidatesMissing": 0,
+    "contractFlagReview": 0,
+    "needsMethodReview": 0
+  },
+  "candidates": [],
+  "contracts": [
+    {
+      "function": "login",
+      "route": "/auth/login",
+      "method": "POST",
+      "auth": false,
+      "idempotency": false,
+      "noCache": false,
+      "line": 808,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/auth/login",
+          "method": "POST",
+          "auth": false,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 177
+        }
+      ]
+    },
+    {
+      "function": "register",
+      "route": "/auth/register",
+      "method": "POST",
+      "auth": false,
+      "idempotency": false,
+      "noCache": false,
+      "line": 846,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/auth/register",
+          "method": "POST",
+          "auth": false,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 194
+        }
+      ]
+    },
+    {
+      "function": "verifyToken",
+      "route": "/auth/verify",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 859,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/auth/verify",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 212
+        }
+      ]
+    },
+    {
+      "function": "logout",
+      "route": "/auth/logout",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 867,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/auth/logout",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 237
+        }
+      ]
+    },
+    {
+      "function": "changePassword",
+      "route": "/auth/change-password",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 875,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/auth/change-password",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2335
+        }
+      ]
+    },
+    {
+      "function": "refreshTokens",
+      "route": "/auth/refresh",
+      "method": "POST",
+      "auth": false,
+      "idempotency": false,
+      "noCache": false,
+      "line": 899,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/auth/refresh",
+          "method": "POST",
+          "auth": false,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 226
+        },
+        {
+          "route": "/auth/refresh",
+          "method": "POST",
+          "auth": false,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/client.ts",
+          "line": 304
+        }
+      ]
+    },
+    {
+      "function": "fetchDiscoverConfig",
+      "route": "/app/discover-config",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 912,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/app/discover-config",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/discover/DiscoverConfigRepository.ts",
+          "line": 28
+        }
+      ]
+    },
+    {
+      "function": "fetchAppRemoteConfig",
+      "route": "/app/config",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 948,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/app/config",
+          "method": "GET",
+          "file": "src/services/remote-config/RemoteConfigService.ts",
+          "noCache": true,
+          "auth": true,
+          "idempotency": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "fetchDynamicScreen",
+      "route": "/app/screens/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 977,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/app/screens/:param",
+          "method": "GET",
+          "file": "src/services/dynamic-screen/DynamicScreenRepository.ts",
+          "noCache": true,
+          "auth": true,
+          "idempotency": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "getContacts",
+      "route": "/chat/contacts",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1047,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/contacts",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 274
+        }
+      ]
+    },
+    {
+      "function": "getConversationSyncSnapshot",
+      "route": "/chat/conversations",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 1057,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/conversations",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/api/bwchat.ts",
+          "line": 260
+        }
+      ]
+    },
+    {
+      "function": "getMessages",
+      "route": "/chat/messages/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1086,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/text",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 928
+        },
+        {
+          "route": "/chat/messages/sticker",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 946
+        },
+        {
+          "route": "/chat/messages/gift",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 964
+        },
+        {
+          "route": "/chat/messages/image",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1063
+        },
+        {
+          "route": "/chat/messages/video",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1104
+        },
+        {
+          "route": "/chat/messages/voice",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1143
+        }
+      ]
+    },
+    {
+      "function": "clearDirectMessageHistory",
+      "route": "/chat/messages/:param/history",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 1095,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param/history",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1220
+        }
+      ]
+    },
+    {
+      "function": "getMessageContext",
+      "route": "/chat/messages/:param/:param/context",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1124,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param/:param/context",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 909
+        }
+      ]
+    },
+    {
+      "function": "recallMessage",
+      "route": "/chat/messages/:param/:param/recall",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1135,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param/:param/recall",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 917
+        }
+      ]
+    },
+    {
+      "function": "markMessagesAsRead",
+      "route": "/chat/messages/:param/read",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 1149,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param/read",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 707
+        }
+      ]
+    },
+    {
+      "function": "markGroupMessagesAsRead",
+      "route": "/groups/:param/messages/read",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 1163,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/read",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 725
+        }
+      ]
+    },
+    {
+      "function": "sendTextMessage",
+      "route": "/chat/messages/text",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1186,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/text",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 928
+        }
+      ]
+    },
+    {
+      "function": "sendStickerMessage",
+      "route": "/chat/messages/sticker",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1212,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/sticker",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 946
+        }
+      ]
+    },
+    {
+      "function": "getGiftCatalog",
+      "route": "/wallet/gifts/catalog",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1220,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/gifts/catalog",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2204
+        }
+      ]
+    },
+    {
+      "function": "sendGiftMessage",
+      "route": "/chat/messages/gift",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 1236,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/gift",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 964
+        }
+      ]
+    },
+    {
+      "function": "sendImageMessage",
+      "route": "/chat/messages/image",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1361,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/image",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1063
+        }
+      ]
+    },
+    {
+      "function": "sendImageMessage",
+      "route": "/chat/messages/image",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1387,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/image",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1063
+        }
+      ]
+    },
+    {
+      "function": "sendVideoMessage",
+      "route": "/chat/messages/video",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1420,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/video",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1104
+        }
+      ]
+    },
+    {
+      "function": "sendVideoMessage",
+      "route": "/chat/messages/video",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1442,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/video",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1104
+        }
+      ]
+    },
+    {
+      "function": "sendVoiceMessage",
+      "route": "/chat/messages/voice",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1469,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/messages/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 894
+        },
+        {
+          "route": "/chat/messages/voice",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1143
+        }
+      ]
+    },
+    {
+      "function": "searchUsers",
+      "route": "/friends/search",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1497,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/friends/search",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 283
+        }
+      ]
+    },
+    {
+      "function": "getFriendList",
+      "route": "/friends/list",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1508,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/friends/list",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 294
+        }
+      ]
+    },
+    {
+      "function": "getFriendRequests",
+      "route": "/friends/requests",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1517,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/friends/requests",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 305
+        }
+      ]
+    },
+    {
+      "function": "sendFriendRequest",
+      "route": "/friends/request",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1523,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/friends/request",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 174
+        }
+      ]
+    },
+    {
+      "function": "acceptFriendRequest",
+      "route": "/friends/requests/:param/accept",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1529,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/friends/requests/:param/accept",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 853
+        }
+      ]
+    },
+    {
+      "function": "rejectFriendRequest",
+      "route": "/friends/requests/:param/reject",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1536,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/friends/requests/:param/reject",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 861
+        }
+      ]
+    },
+    {
+      "function": "getMapPresence",
+      "route": "/map/me",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 1545,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/me",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 96
+        }
+      ]
+    },
+    {
+      "function": "updateMapLocation",
+      "route": "/map/me/location",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1574,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/me/location",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapLocationService.ts",
+          "line": 198
+        }
+      ]
+    },
+    {
+      "function": "updateMapSettings",
+      "route": "/map/me/settings",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1600,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/me/settings",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 104
+        }
+      ]
+    },
+    {
+      "function": "disableMapPresence",
+      "route": "/map/me/disable",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1614,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/me/disable",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 115
+        }
+      ]
+    },
+    {
+      "function": "getNearbyMapUsers",
+      "route": "/map/nearby",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 1653,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/nearby",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 154
+        }
+      ]
+    },
+    {
+      "function": "getAllMapUsers",
+      "route": "/map/users",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 1677,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/users",
+          "method": "GET",
+          "file": "src/services/location/MapDatingRepository.ts",
+          "noCache": true,
+          "auth": true,
+          "idempotency": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "getFriendMapUsers",
+      "route": "/map/friends",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 1706,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/friends",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 172
+        }
+      ]
+    },
+    {
+      "function": "getMapUserDetail",
+      "route": "/map/users/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 1727,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/users/:param",
+          "method": "GET",
+          "file": "src/services/location/MapDatingRepository.ts",
+          "noCache": true,
+          "auth": true,
+          "idempotency": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "blockMapUser",
+      "route": "/map/users/:param/block",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1764,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/users/:param/block",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 198
+        },
+        {
+          "route": "/map/users/:param/block",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 206
+        }
+      ]
+    },
+    {
+      "function": "unblockMapUser",
+      "route": "/map/users/:param/block",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1770,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/users/:param/block",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 198
+        },
+        {
+          "route": "/map/users/:param/block",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 206
+        }
+      ]
+    },
+    {
+      "function": "reportMapUser",
+      "route": "/map/users/:param/report",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1791,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/map/users/:param/report",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/location/MapDatingRepository.ts",
+          "line": 226
+        }
+      ]
+    },
+    {
+      "function": "getGroups",
+      "route": "/groups/list",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1803,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/list",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 316
+        },
+        {
+          "route": "/groups/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 340
+        }
+      ]
+    },
+    {
+      "function": "createGroup",
+      "route": "/groups/create",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1813,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/create",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 331
+        },
+        {
+          "route": "/groups/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 340
+        }
+      ]
+    },
+    {
+      "function": "getGroupMessages",
+      "route": "/groups/:param/messages",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1837,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 538
+        }
+      ]
+    },
+    {
+      "function": "getGroupMessageContext",
+      "route": "/groups/:param/messages/:param/context",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1854,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/:param/context",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 748
+        }
+      ]
+    },
+    {
+      "function": "recallGroupMessage",
+      "route": "/groups/:param/messages/:param/recall",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1865,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/:param/recall",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 785
+        }
+      ]
+    },
+    {
+      "function": "sendGroupText",
+      "route": "/groups/:param/messages/text",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1894,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/text",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 802
+        }
+      ]
+    },
+    {
+      "function": "sendGroupSticker",
+      "route": "/groups/:param/messages/sticker",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1922,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/sticker",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 821
+        }
+      ]
+    },
+    {
+      "function": "sendGroupGift",
+      "route": "/groups/:param/messages/gift",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 1944,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/gift",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 839
+        }
+      ]
+    },
+    {
+      "function": "sendGroupImage",
+      "route": "/groups/:param/messages/image",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1972,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/image",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1080
+        }
+      ]
+    },
+    {
+      "function": "sendGroupImage",
+      "route": "/groups/:param/messages/image",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 1994,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/image",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1080
+        }
+      ]
+    },
+    {
+      "function": "sendGroupVideo",
+      "route": "/groups/:param/messages/video",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2024,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/video",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1127
+        }
+      ]
+    },
+    {
+      "function": "sendGroupVideo",
+      "route": "/groups/:param/messages/video",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2046,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/video",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1127
+        }
+      ]
+    },
+    {
+      "function": "sendGroupVoice",
+      "route": "/groups/:param/messages/voice",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2070,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/voice",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1158
+        }
+      ]
+    },
+    {
+      "function": "getGroupDetail",
+      "route": "/groups/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2090,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/list",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 316
+        },
+        {
+          "route": "/groups/create",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 331
+        },
+        {
+          "route": "/groups/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 340
+        }
+      ]
+    },
+    {
+      "function": "getGroupNotificationSettings",
+      "route": "/groups/:param/notification-settings",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2099,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/notification-settings",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 144
+        },
+        {
+          "route": "/groups/:param/notification-settings",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 170
+        }
+      ]
+    },
+    {
+      "function": "updateGroupNotificationSettings",
+      "route": "/groups/:param/notification-settings",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2122,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/notification-settings",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 144
+        },
+        {
+          "route": "/groups/:param/notification-settings",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 170
+        }
+      ]
+    },
+    {
+      "function": "updateGroupViewerSettings",
+      "route": "/groups/:param/viewer-settings",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2140,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/viewer-settings",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 192
+        }
+      ]
+    },
+    {
+      "function": "updateMyGroupNickname",
+      "route": "/groups/:param/members/me",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2148,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/members/me",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 207
+        }
+      ]
+    },
+    {
+      "function": "updateGroupAnnouncement",
+      "route": "/groups/:param/announcement",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2160,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/announcement",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 222
+        }
+      ]
+    },
+    {
+      "function": "createGroupInvite",
+      "route": "/groups/:param/invites",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2168,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/invites",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 234
+        }
+      ]
+    },
+    {
+      "function": "revokeGroupInvite",
+      "route": "/groups/:param/invites/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2177,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/invites/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 245
+        }
+      ]
+    },
+    {
+      "function": "getGroupInvitePreview",
+      "route": "/group-invites/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2189,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/group-invites/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 253
+        }
+      ]
+    },
+    {
+      "function": "acceptGroupInvite",
+      "route": "/group-invites/:param/accept",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2197,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/group-invites/:param/accept",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 262
+        }
+      ]
+    },
+    {
+      "function": "searchGroupMessages",
+      "route": "/groups/:param/messages/search",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2231,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/search",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/api/bwchat.ts",
+          "line": 774
+        }
+      ]
+    },
+    {
+      "function": "clearGroupMessageHistory",
+      "route": "/groups/:param/messages/history",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2239,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/messages/history",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 460
+        }
+      ]
+    },
+    {
+      "function": "reportGroup",
+      "route": "/groups/:param/reports",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2254,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/reports",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/groups/GroupInfoV2Repository.ts",
+          "line": 274
+        }
+      ]
+    },
+    {
+      "function": "updateConversationPreference",
+      "route": "/chat/conversations/:param/:param/preferences",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2266,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/conversations/:param/:param/preferences",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 477
+        },
+        {
+          "route": "/chat/conversations/:param/:param/preferences",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 493
+        }
+      ]
+    },
+    {
+      "function": "hideConversation",
+      "route": "/chat/conversations/:param/:param/preferences",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2274,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/conversations/:param/:param/preferences",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 477
+        },
+        {
+          "route": "/chat/conversations/:param/:param/preferences",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 493
+        }
+      ]
+    },
+    {
+      "function": "addGroupMembers",
+      "route": "/groups/:param/members/add",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2283,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/members/add",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 452
+        }
+      ]
+    },
+    {
+      "function": "removeGroupMember",
+      "route": "/groups/:param/members/remove",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2291,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/members/remove",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 441
+        }
+      ]
+    },
+    {
+      "function": "renameGroup",
+      "route": "/groups/:param/rename",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2299,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/rename",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 348
+        }
+      ]
+    },
+    {
+      "function": "updateGroupVisibility",
+      "route": "/groups/:param/visibility",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2307,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/visibility",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 355
+        }
+      ]
+    },
+    {
+      "function": "leaveGroup",
+      "route": "/groups/:param/leave",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2314,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/leave",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 362
+        }
+      ]
+    },
+    {
+      "function": "dismissGroup",
+      "route": "/groups/:param/dismiss",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2321,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/groups/:param/dismiss",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 366
+        }
+      ]
+    },
+    {
+      "function": "startCall",
+      "route": "/call/start",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2330,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/start",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 374
+        }
+      ]
+    },
+    {
+      "function": "joinCall",
+      "route": "/call/join",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2339,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/join",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 383
+        }
+      ]
+    },
+    {
+      "function": "endCall",
+      "route": "/call/:param/end",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2351,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/:param/end",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 391
+        }
+      ]
+    },
+    {
+      "function": "rejectCall",
+      "route": "/call/:param/reject",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2358,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/:param/reject",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 398
+        }
+      ]
+    },
+    {
+      "function": "markCallBusy",
+      "route": "/call/:param/busy",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2365,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/:param/busy",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 405
+        }
+      ]
+    },
+    {
+      "function": "getOneToOneLiveSlots",
+      "route": "/one-to-one-live/slots",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2384,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/slots",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 21
+        },
+        {
+          "route": "/one-to-one-live/slots",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 55
+        }
+      ]
+    },
+    {
+      "function": "getCurrentOneToOneLiveSlot",
+      "route": "/one-to-one-live/slots/me/current",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2406,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/slots/me/current",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 28
+        }
+      ]
+    },
+    {
+      "function": "createOneToOneLiveSlot",
+      "route": "/one-to-one-live/slots",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2428,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/slots",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 21
+        },
+        {
+          "route": "/one-to-one-live/slots",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 55
+        }
+      ]
+    },
+    {
+      "function": "uploadOneToOneLiveAvatar",
+      "route": "/one-to-one-live/assets/avatar",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2446,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/assets/avatar",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 36
+        }
+      ]
+    },
+    {
+      "function": "deleteOneToOneLiveSlot",
+      "route": "/one-to-one-live/slots/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2464,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/slots/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 73
+        }
+      ]
+    },
+    {
+      "function": "heartbeatOneToOneLiveSlot",
+      "route": "/one-to-one-live/slots/:param/heartbeat",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2476,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/slots/:param/heartbeat",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 81
+        }
+      ]
+    },
+    {
+      "function": "requestOneToOneLiveCall",
+      "route": "/one-to-one-live/slots/:param/invite",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2493,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/slots/:param/invite",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 90
+        }
+      ]
+    },
+    {
+      "function": "acceptOneToOneLiveCall",
+      "route": "/one-to-one-live/calls/:param/accept",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2505,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/calls/:param/accept",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 103
+        }
+      ]
+    },
+    {
+      "function": "joinAcceptedOneToOneLiveCall",
+      "route": "/one-to-one-live/calls/:param/join",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2516,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/calls/:param/join",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 106
+        }
+      ]
+    },
+    {
+      "function": "getOneToOneLiveCallState",
+      "route": "/one-to-one-live/calls/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2527,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/calls/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 109
+        }
+      ]
+    },
+    {
+      "function": "rejectOneToOneLiveCall",
+      "route": "/one-to-one-live/calls/:param/reject",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2535,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/calls/:param/reject",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 114
+        }
+      ]
+    },
+    {
+      "function": "cancelOneToOneLiveCall",
+      "route": "/one-to-one-live/calls/:param/cancel",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2542,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/calls/:param/cancel",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 117
+        }
+      ]
+    },
+    {
+      "function": "startAgentOneToOneLiveMatch",
+      "route": "/one-to-one-live/matches",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2553,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/matches",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 125
+        }
+      ]
+    },
+    {
+      "function": "cancelAgentOneToOneLiveMatch",
+      "route": "/one-to-one-live/matches/:param/cancel",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2568,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/one-to-one-live/matches/:param/cancel",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/live/LiveLobbyRepository.ts",
+          "line": 137
+        }
+      ]
+    },
+    {
+      "function": "reportCallQuality",
+      "route": "/call/:param/quality-report",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2575,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/:param/quality-report",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2039
+        }
+      ]
+    },
+    {
+      "function": "startGroupCall",
+      "route": "/call/group/:param/start",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2582,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/group/:param/start",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 416
+        }
+      ]
+    },
+    {
+      "function": "leaveGroupCall",
+      "route": "/call/group/:param/leave",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2593,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/group/:param/leave",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 427
+        }
+      ]
+    },
+    {
+      "function": "getGroupCallStatus",
+      "route": "/call/group/:param/status",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2597,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/call/group/:param/status",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 437
+        }
+      ]
+    },
+    {
+      "function": "forwardMessages",
+      "route": "/chat/forwards",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2609,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/forwards",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 978
+        }
+      ]
+    },
+    {
+      "function": "getForwardBundle",
+      "route": "/chat/forward-bundles/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2618,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/forward-bundles/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1024
+        }
+      ]
+    },
+    {
+      "function": "registerDeviceToken",
+      "route": "/push/device-token",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2627,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/push/device-token",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/push/PushService.ts",
+          "line": 257
+        }
+      ]
+    },
+    {
+      "function": "getMyProfile",
+      "route": "/profile/me",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2636,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/profile/me",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1232
+        },
+        {
+          "route": "/profile/me",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1249
+        }
+      ]
+    },
+    {
+      "function": "updateProfile",
+      "route": "/profile/me",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2654,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/profile/me",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1232
+        },
+        {
+          "route": "/profile/me",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1249
+        }
+      ]
+    },
+    {
+      "function": "updateUsername",
+      "route": "/profile/username",
+      "method": "PUT",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2667,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/profile/username",
+          "method": "PUT",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2318
+        }
+      ]
+    },
+    {
+      "function": "uploadAvatar",
+      "route": "/profile/avatar",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2684,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/profile/avatar",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1274
+        }
+      ]
+    },
+    {
+      "function": "getPublicProfile",
+      "route": "/profile/public/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2700,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/profile/public/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1289
+        }
+      ]
+    },
+    {
+      "function": "followUser",
+      "route": "/follows/:param",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2710,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/follows/:param",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 869
+        },
+        {
+          "route": "/follows/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 878
+        },
+        {
+          "route": "/follows/following",
+          "method": "GET",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        },
+        {
+          "route": "/follows/followers",
+          "method": "GET",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "unfollowUser",
+      "route": "/follows/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2718,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/follows/:param",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 869
+        },
+        {
+          "route": "/follows/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 878
+        },
+        {
+          "route": "/follows/following",
+          "method": "GET",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        },
+        {
+          "route": "/follows/followers",
+          "method": "GET",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "getFollowRelationship",
+      "route": "/follows/:param/relationship",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2731,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/follows/:param/relationship",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/friends/FollowRelationshipRepository.ts",
+          "line": 9
+        }
+      ]
+    },
+    {
+      "function": "getRecommendedUsers",
+      "route": "/users/recommended",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2745,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/users/recommended",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 521
+        }
+      ]
+    },
+    {
+      "function": "getFollowing",
+      "route": "/follows/following",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2760,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/follows/:param",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 869
+        },
+        {
+          "route": "/follows/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 878
+        },
+        {
+          "route": "/follows/following",
+          "method": "GET",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "getFollowers",
+      "route": "/follows/followers",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2775,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/follows/:param",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 869
+        },
+        {
+          "route": "/follows/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 878
+        },
+        {
+          "route": "/follows/followers",
+          "method": "GET",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "getChatBackgrounds",
+      "route": "/chat/backgrounds",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2788,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/backgrounds",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/chat-appearance/ChatAppearanceService.ts",
+          "line": 53
+        }
+      ]
+    },
+    {
+      "function": "uploadChatBackground",
+      "route": "/chat/backgrounds/:param/:param",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2810,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/backgrounds/:param/:param",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/chat-appearance/ChatAppearanceService.ts",
+          "line": 73
+        },
+        {
+          "route": "/chat/backgrounds/:param/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/chat-appearance/ChatAppearanceService.ts",
+          "line": 107
+        }
+      ]
+    },
+    {
+      "function": "deleteChatBackground",
+      "route": "/chat/backgrounds/:param/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2832,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/chat/backgrounds/:param/:param",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/chat-appearance/ChatAppearanceService.ts",
+          "line": 73
+        },
+        {
+          "route": "/chat/backgrounds/:param/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/chat-appearance/ChatAppearanceService.ts",
+          "line": 107
+        }
+      ]
+    },
+    {
+      "function": "getWalletBalance",
+      "route": "/wallet/balance",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2846,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/balance",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2078
+        }
+      ]
+    },
+    {
+      "function": "getPropBag",
+      "route": "/me/prop-bag",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2855,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/me/prop-bag",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/props/PropInventoryRepository.ts",
+          "line": 5
+        }
+      ]
+    },
+    {
+      "function": "getWalletTransactionPage",
+      "route": "/wallet/transactions",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2872,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/transactions",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/api/bwchat.ts",
+          "line": 2097
+        }
+      ]
+    },
+    {
+      "function": "getActivityCatFoodTransactions",
+      "route": "/wallet/activity-cat-food/transactions",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2890,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/activity-cat-food/transactions",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/api/bwchat.ts",
+          "line": 2114
+        }
+      ]
+    },
+    {
+      "function": "getWalletAdRewardStatus",
+      "route": "/wallet/ad-rewards/status",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2899,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/ad-rewards/status",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2157
+        }
+      ]
+    },
+    {
+      "function": "createWalletAdRewardSession",
+      "route": "/wallet/ad-rewards/sessions",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2906,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/ad-rewards/sessions",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2165
+        }
+      ]
+    },
+    {
+      "function": "getActivityCenter",
+      "route": "/activity-center",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": true,
+      "line": 2920,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": true,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 41
+        }
+      ]
+    },
+    {
+      "function": "claimActivityCheckIn",
+      "route": "/activity-center/check-in/claim",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2928,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/check-in/claim",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 53
+        }
+      ]
+    },
+    {
+      "function": "claimActivityMeal",
+      "route": "/activity-center/meals/:param/claim",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2940,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/meals/:param/claim",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 64
+        }
+      ]
+    },
+    {
+      "function": "spinActivityWheel",
+      "route": "/activity-center/wheel/spins",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2953,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/wheel/spins",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 79
+        }
+      ]
+    },
+    {
+      "function": "createActivityContactDiscoverySession",
+      "route": "/activity-center/contact-discovery/sessions",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2965,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/contact-discovery/sessions",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 89
+        }
+      ]
+    },
+    {
+      "function": "matchActivityContacts",
+      "route": "/activity-center/contact-discovery/sessions/:param/match",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 2979,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/contact-discovery/sessions/:param/match",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 102
+        }
+      ]
+    },
+    {
+      "function": "createActivityInviteShareSession",
+      "route": "/activity-center/invite-share-sessions",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 2992,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/invite-share-sessions",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 113
+        }
+      ]
+    },
+    {
+      "function": "completeActivityInviteShareSession",
+      "route": "/activity-center/invite-share-sessions/:param/complete",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3004,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/invite-share-sessions/:param/complete",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 124
+        }
+      ]
+    },
+    {
+      "function": "redeemActivityInvite",
+      "route": "/activity-center/invites/redeem",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3017,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/activity-center/invites/redeem",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 139
+        }
+      ]
+    },
+    {
+      "function": "createActivityPhoneVerificationSession",
+      "route": "/account/phone/verification-sessions",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3029,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/account/phone/verification-sessions",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 152
+        }
+      ]
+    },
+    {
+      "function": "verifyActivityPhone",
+      "route": "/account/phone/verify",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3042,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/account/phone/verify",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/activity/ActivityCenterRepository.ts",
+          "line": 164
+        }
+      ]
+    },
+    {
+      "function": "getChatMoneyConfiguration",
+      "route": "/wallet/chat-money/config",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3057,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/chat-money/config",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2210
+        },
+        {
+          "route": "/wallet/chat-money/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2278
+        }
+      ]
+    },
+    {
+      "function": "createRedPacket",
+      "route": "/wallet/red-packets",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3078,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/red-packets",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2229
+        }
+      ]
+    },
+    {
+      "function": "createTransfer",
+      "route": "/wallet/transfers",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3097,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/transfers",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2260
+        }
+      ]
+    },
+    {
+      "function": "getChatMoneyDetail",
+      "route": "/wallet/chat-money/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3105,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/chat-money/config",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2210
+        },
+        {
+          "route": "/wallet/chat-money/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2278
+        }
+      ]
+    },
+    {
+      "function": "claimRedPacket",
+      "route": "/wallet/red-packets/:param/claim",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3112,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/red-packets/:param/claim",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2286
+        }
+      ]
+    },
+    {
+      "function": "acceptTransfer",
+      "route": "/wallet/transfers/:param/accept",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3120,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/transfers/:param/accept",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2297
+        }
+      ]
+    },
+    {
+      "function": "returnTransfer",
+      "route": "/wallet/transfers/:param/return",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3128,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/transfers/:param/return",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2308
+        }
+      ]
+    },
+    {
+      "function": "confirmWalletIAPPurchase",
+      "route": "/wallet/ios-iap/confirm",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3157,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/ios-iap/confirm",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2186
+        }
+      ]
+    },
+    {
+      "function": "createWalletWithdrawal",
+      "route": "/wallet/withdrawals",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3191,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/withdrawals",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2121
+        },
+        {
+          "route": "/wallet/withdrawals",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2130
+        }
+      ]
+    },
+    {
+      "function": "getWalletWithdrawals",
+      "route": "/wallet/withdrawals",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3198,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/withdrawals",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2121
+        },
+        {
+          "route": "/wallet/withdrawals",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2130
+        }
+      ]
+    },
+    {
+      "function": "cancelWalletWithdrawal",
+      "route": "/wallet/withdrawals/:param/cancel",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3204,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/wallet/withdrawals/:param/cancel",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2147
+        }
+      ]
+    },
+    {
+      "function": "getScriptCategories",
+      "route": "/scripts/categories",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3213,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts/categories",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 555
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 560
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 580
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 590
+        }
+      ]
+    },
+    {
+      "function": "getScripts",
+      "route": "/scripts",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3236,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 566
+        },
+        {
+          "route": "/scripts",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 662
+        }
+      ]
+    },
+    {
+      "function": "getScript",
+      "route": "/scripts/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3244,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts/categories",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 555
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 560
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 580
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 590
+        },
+        {
+          "route": "/scripts/assets",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 607
+        }
+      ]
+    },
+    {
+      "function": "createScript",
+      "route": "/scripts",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3251,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 566
+        },
+        {
+          "route": "/scripts",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 662
+        }
+      ]
+    },
+    {
+      "function": "updateScript",
+      "route": "/scripts/:param",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3259,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts/categories",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 555
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 560
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 580
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 590
+        },
+        {
+          "route": "/scripts/assets",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 607
+        }
+      ]
+    },
+    {
+      "function": "deleteScript",
+      "route": "/scripts/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3266,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts/categories",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 555
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 560
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 580
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 590
+        },
+        {
+          "route": "/scripts/assets",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 607
+        }
+      ]
+    },
+    {
+      "function": "uploadScriptAsset",
+      "route": "/scripts/assets",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3280,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 560
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 580
+        },
+        {
+          "route": "/scripts/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 590
+        },
+        {
+          "route": "/scripts/assets",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 607
+        }
+      ]
+    },
+    {
+      "function": "createScriptRoom",
+      "route": "/scripts/:param/rooms",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3318,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/scripts/:param/rooms",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 634
+        }
+      ]
+    },
+    {
+      "function": "getScriptRoom",
+      "route": "/script-rooms/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3333,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/script-rooms/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 547
+        }
+      ]
+    },
+    {
+      "function": "submitScriptTurn",
+      "route": "/script-rooms/:param/turns",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3344,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/script-rooms/:param/turns",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 671
+        }
+      ]
+    },
+    {
+      "function": "retryScriptTurn",
+      "route": "/script-rooms/:param/turns/:param/retry",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3355,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/script-rooms/:param/turns/:param/retry",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 683
+        }
+      ]
+    },
+    {
+      "function": "endScriptRoom",
+      "route": "/script-rooms/:param/end",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3363,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/script-rooms/:param/end",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 695
+        }
+      ]
+    },
+    {
+      "function": "getAgentRuntimeConfig",
+      "route": "/agents/runtime-config",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3371,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/runtime-config",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1472
+        },
+        {
+          "route": "/agents/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1482
+        }
+      ]
+    },
+    {
+      "function": "getPublicAgentsPage",
+      "route": "/agents/public",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3393,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/public",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1467
+        },
+        {
+          "route": "/agents/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1482
+        }
+      ]
+    },
+    {
+      "function": "getInstalledAgents",
+      "route": "/agents/installed",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3417,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1482
+        },
+        {
+          "route": "/agents/installed",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1610
+        }
+      ]
+    },
+    {
+      "function": "getAgent",
+      "route": "/agents/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3423,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/public",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1467
+        },
+        {
+          "route": "/agents/runtime-config",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1472
+        },
+        {
+          "route": "/agents/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1482
+        },
+        {
+          "route": "/agents/installed",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1610
+        }
+      ]
+    },
+    {
+      "function": "installAgent",
+      "route": "/agents/:param/install",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3430,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/:param/install",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1620
+        },
+        {
+          "route": "/agents/:param/install",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1630
+        }
+      ]
+    },
+    {
+      "function": "uninstallAgent",
+      "route": "/agents/:param/install",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3437,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/:param/install",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1620
+        },
+        {
+          "route": "/agents/:param/install",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1630
+        }
+      ]
+    },
+    {
+      "function": "createAgentConversation",
+      "route": "/agent-conversations",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3453,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-conversations",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1638
+        },
+        {
+          "route": "/agent-conversations",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1655
+        }
+      ]
+    },
+    {
+      "function": "getAgentConversations",
+      "route": "/agent-conversations",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3477,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-conversations",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1638
+        },
+        {
+          "route": "/agent-conversations",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1655
+        }
+      ]
+    },
+    {
+      "function": "getAgentConversation",
+      "route": "/agent-conversations/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3483,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-conversations/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/agents/AgentConversationRepository.ts",
+          "line": 6
+        }
+      ]
+    },
+    {
+      "function": "getAgentMessages",
+      "route": "/agent-conversations/:param/messages",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3508,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-conversations/:param/messages",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1704
+        }
+      ]
+    },
+    {
+      "function": "uploadAgentChatImage",
+      "route": "/agent-assets/images",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3522,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-assets/images",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1534
+        }
+      ]
+    },
+    {
+      "function": "uploadAgentReference",
+      "route": "/agent-assets/reference-images",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3543,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-assets/reference-images",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1499
+        }
+      ]
+    },
+    {
+      "function": "createAgent",
+      "route": "/agents",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3557,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1553
+        }
+      ]
+    },
+    {
+      "function": "updateAgentDraft",
+      "route": "/agents/:param/draft",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3572,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/:param/draft",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1570
+        }
+      ]
+    },
+    {
+      "function": "publishAgent",
+      "route": "/agents/:param/publish",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3583,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agents/:param/publish",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1580
+        }
+      ]
+    },
+    {
+      "function": "createAgentTurn",
+      "route": "/agent-conversations/:param/turns",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3605,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-conversations/:param/turns",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1722
+        }
+      ]
+    },
+    {
+      "function": "getAgentTurn",
+      "route": "/agent-turns/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 3615,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-turns/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1745
+        }
+      ]
+    },
+    {
+      "function": "unlockAgentMedia",
+      "route": "/agent-media/:param/unlock",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 3627,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/agent-media/:param/unlock",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1764
+        }
+      ]
+    },
+    {
+      "function": "getRecommendedGames",
+      "route": "/games/recommended",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4191,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/games/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/games/GameRepository.ts",
+          "line": 160
+        }
+      ]
+    },
+    {
+      "function": "getPlayedGames",
+      "route": "/games/played",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4206,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/games/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/services/games/GameRepository.ts",
+          "line": 160
+        }
+      ]
+    },
+    {
+      "function": "createGameLobbySession",
+      "route": "/games/:param/sessions",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 4220,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/games/:param/sessions",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/games/GameRepository.ts",
+          "line": 58
+        }
+      ]
+    },
+    {
+      "function": "startGameRound",
+      "route": "/games/:param/sessions/:param/rounds",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 4243,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/games/:param/sessions/:param/rounds",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/services/games/GameRepository.ts",
+          "line": 75
+        }
+      ]
+    },
+    {
+      "function": "getShortDramaSeriesFeed",
+      "route": "/short-drama/series",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4270,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1790
+        },
+        {
+          "route": "/short-drama/series",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1814
+        },
+        {
+          "route": "/short-drama/series",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1886
+        }
+      ]
+    },
+    {
+      "function": "getUserShortDramaSeries",
+      "route": "/short-drama/series",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4290,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1790
+        },
+        {
+          "route": "/short-drama/series",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1814
+        },
+        {
+          "route": "/short-drama/series",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1886
+        }
+      ]
+    },
+    {
+      "function": "getShortDramaFeed",
+      "route": "/short-drama/feed",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4303,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/feed",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1824
+        }
+      ]
+    },
+    {
+      "function": "getMyShortDramaSeries",
+      "route": "/short-drama/mine",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4316,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/mine",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1800
+        }
+      ]
+    },
+    {
+      "function": "createShortDramaSeries",
+      "route": "/short-drama/series",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4329,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1790
+        },
+        {
+          "route": "/short-drama/series",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1814
+        },
+        {
+          "route": "/short-drama/series",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1886
+        }
+      ]
+    },
+    {
+      "function": "updateShortDramaSeries",
+      "route": "/short-drama/series/:param",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4369,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1871
+        },
+        {
+          "route": "/short-drama/series/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1910
+        }
+      ]
+    },
+    {
+      "function": "getShortDramaSeriesDetail",
+      "route": "/short-drama/series/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4386,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1871
+        },
+        {
+          "route": "/short-drama/series/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1910
+        }
+      ]
+    },
+    {
+      "function": "uploadShortDramaEpisode",
+      "route": "/short-drama/series/:param/episodes",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4414,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series/:param/episodes",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1946
+        }
+      ]
+    },
+    {
+      "function": "uploadShortDramaEpisode",
+      "route": "/short-drama/series/:param/episodes",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4464,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series/:param/episodes",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1946
+        }
+      ]
+    },
+    {
+      "function": "updateShortDramaEpisode",
+      "route": "/short-drama/videos/:param",
+      "method": "PATCH",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4495,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1962
+        },
+        {
+          "route": "/short-drama/videos/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1975
+        }
+      ]
+    },
+    {
+      "function": "submitShortDramaSeries",
+      "route": "/short-drama/series/:param/submit",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4513,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/series/:param/submit",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1985
+        }
+      ]
+    },
+    {
+      "function": "unlockShortDramaEpisode",
+      "route": "/short-drama/videos/:param/unlock",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 4527,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param/unlock",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2026
+        }
+      ]
+    },
+    {
+      "function": "deleteShortDramaEpisode",
+      "route": "/short-drama/videos/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4538,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param",
+          "method": "PATCH",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1962
+        },
+        {
+          "route": "/short-drama/videos/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1975
+        }
+      ]
+    },
+    {
+      "function": "setShortDramaLiked",
+      "route": "/short-drama/videos/:param/like",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4548,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param/like",
+          "method": "POST",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        },
+        {
+          "route": "/short-drama/videos/:param/like",
+          "method": "DELETE",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        }
+      ]
+    },
+    {
+      "function": "getShortDramaComments",
+      "route": "/short-drama/videos/:param/comments",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4574,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param/comments",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1849
+        },
+        {
+          "route": "/short-drama/videos/:param/comments",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1860
+        }
+      ]
+    },
+    {
+      "function": "sendShortDramaComment",
+      "route": "/short-drama/videos/:param/comments",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4582,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param/comments",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1849
+        },
+        {
+          "route": "/short-drama/videos/:param/comments",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1860
+        }
+      ]
+    },
+    {
+      "function": "reportShortDramaProgress",
+      "route": "/short-drama/videos/:param/progress",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4603,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param/progress",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 2008
+        }
+      ]
+    },
+    {
+      "function": "getMomentsFollowing",
+      "route": "/moments/feed",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4690,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/feed",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1319
+        },
+        {
+          "route": "/moments/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1356
+        }
+      ]
+    },
+    {
+      "function": "getMomentsWorld",
+      "route": "/moments/world",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4698,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/world",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1311
+        },
+        {
+          "route": "/moments/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1356
+        }
+      ]
+    },
+    {
+      "function": "createMoment",
+      "route": "/moments/create",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4722,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/create",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1347
+        },
+        {
+          "route": "/moments/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1356
+        }
+      ]
+    },
+    {
+      "function": "createMoment",
+      "route": "/moments/create",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4776,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/create",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1347
+        },
+        {
+          "route": "/moments/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1356
+        }
+      ]
+    },
+    {
+      "function": "unlockMoment",
+      "route": "/moments/:param/unlock",
+      "method": "POST",
+      "auth": true,
+      "idempotency": true,
+      "noCache": false,
+      "line": 4870,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/user/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1302
+        },
+        {
+          "route": "/moments/detail/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1408
+        },
+        {
+          "route": "/moments/:param/unlock",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1446
+        }
+      ]
+    },
+    {
+      "function": "getUserMoments",
+      "route": "/moments/user/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4881,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/user/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1302
+        },
+        {
+          "route": "/moments/:param/like",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1390
+        },
+        {
+          "route": "/moments/:param/comment",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1432
+        },
+        {
+          "route": "/moments/:param/unlock",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1446
+        }
+      ]
+    },
+    {
+      "function": "toggleMomentLike",
+      "route": "/moments/:param/like",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4890,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/user/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1302
+        },
+        {
+          "route": "/moments/:param/like",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1390
+        },
+        {
+          "route": "/moments/detail/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1408
+        }
+      ]
+    },
+    {
+      "function": "addMomentComment",
+      "route": "/moments/:param/comment",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4895,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/user/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1302
+        },
+        {
+          "route": "/moments/detail/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1408
+        },
+        {
+          "route": "/moments/:param/comment",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1432
+        }
+      ]
+    },
+    {
+      "function": "deleteMoment",
+      "route": "/moments/:param",
+      "method": "DELETE",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4934,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/world",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1311
+        },
+        {
+          "route": "/moments/feed",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1319
+        },
+        {
+          "route": "/moments/create",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1347
+        },
+        {
+          "route": "/moments/:param",
+          "method": "DELETE",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1356
+        }
+      ]
+    },
+    {
+      "function": "getMomentsUnreadInfo",
+      "route": "/moments/notifications/unread",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4952,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/notifications/unread",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1361
+        }
+      ]
+    },
+    {
+      "function": "getMomentsNotifications",
+      "route": "/moments/notifications/list",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4961,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/notifications/list",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1371
+        }
+      ]
+    },
+    {
+      "function": "markMomentsNotificationsRead",
+      "route": "/moments/notifications/read",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4966,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/notifications/read",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1376
+        }
+      ]
+    },
+    {
+      "function": "markMomentsFeedViewed",
+      "route": "/moments/feed/viewed",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4970,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/feed/viewed",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1383
+        }
+      ]
+    },
+    {
+      "function": "getMomentDetail",
+      "route": "/moments/detail/:param",
+      "method": "GET",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4974,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/moments/:param/like",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1390
+        },
+        {
+          "route": "/moments/detail/:param",
+          "method": "GET",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1408
+        },
+        {
+          "route": "/moments/:param/comment",
+          "method": "POST",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1432
+        },
+        {
+          "route": "/moments/:param/unlock",
+          "method": "POST",
+          "auth": true,
+          "idempotency": true,
+          "noCache": false,
+          "file": "src/api/bwchat.ts",
+          "line": 1446
+        }
+      ]
+    },
+    {
+      "function": "setShortDramaLiked",
+      "route": "/short-drama/videos/:param/like",
+      "method": "POST",
+      "auth": true,
+      "idempotency": false,
+      "noCache": false,
+      "line": 4547,
+      "status": "contract_candidate_present",
+      "expoCandidates": [
+        {
+          "route": "/short-drama/videos/:param/like",
+          "method": "POST",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        },
+        {
+          "route": "/short-drama/videos/:param/like",
+          "method": "DELETE",
+          "file": "src/api/bwchat.ts",
+          "auth": true,
+          "idempotency": false,
+          "noCache": false,
+          "line": 0
+        }
+      ]
+    }
+  ]
+}
