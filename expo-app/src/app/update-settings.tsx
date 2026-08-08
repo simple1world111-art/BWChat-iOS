@@ -22,6 +22,8 @@ import {
 } from "@/services/update/UpdateService";
 import { colors, radius, spacing } from "@/theme";
 
+const previewOtaAcceptanceMarker = "OTA-PREVIEW-20260809-01";
+
 export default function UpdateSettingsScreen() {
   const update = useAppUpdate();
   const remote = useRemoteConfig();
@@ -65,10 +67,11 @@ export default function UpdateSettingsScreen() {
       {
         text: copy.applyNow,
         style: "destructive",
-        onPress: () => void update.reload().catch((error: unknown) => {
-          captureException(error, { operation: "ota_manual_reload" });
-          Alert.alert("EAS Update", copy.operationFailed);
-        }),
+        onPress: () =>
+          void update.reload().catch((error: unknown) => {
+            captureException(error, { operation: "ota_manual_reload" });
+            Alert.alert("EAS Update", copy.operationFailed);
+          }),
       },
     ]);
   };
@@ -143,6 +146,12 @@ export default function UpdateSettingsScreen() {
         timeStyle: "short",
       }).format(new Date(lastCheck.checkedAt))} · ${lastResultLabels[lastCheck.result]}`
     : copy.neverChecked;
+  const currentSourceValue =
+    env.environment === "preview" && !metadata.isEmbeddedLaunch
+      ? `${copy.otaSource} · ${previewOtaAcceptanceMarker}`
+      : metadata.isEmbeddedLaunch
+        ? copy.embeddedSource
+        : copy.otaSource;
 
   return (
     <>
@@ -155,10 +164,7 @@ export default function UpdateSettingsScreen() {
           />
           <InfoRow label={copy.runtime} value={metadata.runtimeVersion} mono />
           <InfoRow label={copy.updateId} value={metadata.updateId} mono />
-          <InfoRow
-            label={copy.currentSource}
-            value={metadata.isEmbeddedLaunch ? copy.embeddedSource : copy.otaSource}
-          />
+          <InfoRow label={copy.currentSource} value={currentSourceValue} />
           <InfoRow label={copy.lastCheck} value={lastCheckValue} />
           <ActionRow
             title={update.isChecking ? copy.checking : copy.check}
@@ -228,14 +234,30 @@ function InfoRow({ label, value, mono = false }: { label: string; value: string;
   return (
     <View style={styles.row}>
       <Text style={styles.label}>{label}</Text>
-      <Text style={[styles.value, mono && styles.mono]} numberOfLines={2}>{value}</Text>
+      <Text style={[styles.value, mono && styles.mono]} numberOfLines={2}>
+        {value}
+      </Text>
     </View>
   );
 }
 
-function ActionRow({ title, onPress, disabled = false, emphasized = false }: { title: string; onPress: () => void; disabled?: boolean; emphasized?: boolean }) {
+function ActionRow({
+  title,
+  onPress,
+  disabled = false,
+  emphasized = false,
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+  emphasized?: boolean;
+}) {
   return (
-    <Pressable style={[styles.action, disabled && styles.disabled]} onPress={onPress} disabled={disabled}>
+    <Pressable
+      style={[styles.action, disabled && styles.disabled]}
+      onPress={onPress}
+      disabled={disabled}
+    >
       <Text style={[styles.actionText, emphasized && styles.emphasized]}>{title}</Text>
       <Text style={styles.chevron}>›</Text>
     </Pressable>
@@ -245,13 +267,34 @@ function ActionRow({ title, onPress, disabled = false, emphasized = false }: { t
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, gap: spacing.xl },
   sectionWrap: { gap: spacing.sm },
-  sectionTitle: { color: colors.secondaryText, fontSize: 13, fontWeight: "700", marginLeft: spacing.sm },
+  sectionTitle: {
+    color: colors.secondaryText,
+    fontSize: 13,
+    fontWeight: "700",
+    marginLeft: spacing.sm,
+  },
   section: { borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.card },
-  row: { minHeight: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.lg, paddingHorizontal: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  row: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.separator,
+  },
   label: { color: colors.text, fontWeight: "600" },
   value: { flex: 1, color: colors.secondaryText, textAlign: "right" },
   mono: { fontSize: 11, fontFamily: "Menlo" },
-  action: { minHeight: 54, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.separator },
+  action: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.separator,
+  },
   actionText: { flex: 1, color: colors.accent, fontWeight: "700" },
   emphasized: { color: colors.success },
   chevron: { color: colors.secondaryText, fontSize: 25 },

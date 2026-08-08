@@ -1,3 +1,16 @@
+diff --git a/package.json b/package.json
+index d66cf22..d36f9c7 100644
+--- a/package.json
++++ b/package.json
+@@ -51,7 +51,7 @@
+       "targetSdk": 34,
+       "compileSdk": 34,
+       "buildTools": "34.0.0",
+-      "googleMobileAds": "25.4.0",
++      "googleMobileAds": "25.0.0",
+       "googleUmp": "4.0.0"
+     }
+   },
 diff --git a/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm b/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm
 index 23741e702252dcf50cb8d33051d74b1d162e0d42..b2dbd66e6ab6a9fa3f213af167ff78d895b0dfb6 100644
 --- a/ios/RNGoogleMobileAds/RNGoogleMobileAdsFullScreenAd.mm
