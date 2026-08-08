@@ -14,8 +14,12 @@ on:
         description: Preview message, or Production VERIFIED evidence
         required: true
         type: string
-      preview_group_id:
-        description: Required only for Production; verified Preview group UUID for commit validation
+      preview_ios_group_id:
+        description: Required only for Production; verified Preview iOS group UUID
+        required: false
+        type: string
+      preview_android_group_id:
+        description: Required only for Production; verified Preview Android group UUID from the same publish batch
         required: false
         type: string
 
@@ -88,6 +92,7 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
           EXPO_OWNER: ${{ vars.EXPO_OWNER }}
-          PREVIEW_GROUP_ID: ${{ inputs.preview_group_id }}
+          PREVIEW_IOS_GROUP_ID: ${{ inputs.preview_ios_group_id }}
+          PREVIEW_ANDROID_GROUP_ID: ${{ inputs.preview_android_group_id }}
           VERIFICATION_EVIDENCE: ${{ inputs.message }}
-        run: pnpm update:production -- "$PREVIEW_GROUP_ID" "$VERIFICATION_EVIDENCE"
+        run: pnpm update:production -- "$PREVIEW_IOS_GROUP_ID" "$PREVIEW_ANDROID_GROUP_ID" "$VERIFICATION_EVIDENCE"

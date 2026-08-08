@@ -2,11 +2,13 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  parseAndValidatePreviewGroup,
+  parseAndValidatePreviewPlatformGroup,
   previewGroupGitCommitHash,
   previewPublishArgs,
   productionPublishArgs,
@@ -16,14 +18,20 @@ import {
   requireCleanMatchingCommit,
   requirePreviewGroupId,
   requirePreviewVerification,
+  requirePlatform,
   requireProductionGroupId,
   requireRolloutApproval,
   requireRolloutPercentage,
+  validatePreviewBatch,
 } from "./eas-release-policy.mjs";
+import { withResolvableExpoCli } from "./ensure-expo-cli-resolvable.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const groupId = "123e4567-e89b-42d3-a456-426614174000";
+const androidGroupId = "223e4567-e89b-42d3-a456-426614174001";
 const gitCommitHash = "0123456789abcdef0123456789abcdef01234567";
+const createdAt = "2026-08-08T18:56:51.744Z";
+const message = "preview release for both platforms";
 const fixtureUpdates = [
   {
     group: groupId,
@@ -31,16 +39,21 @@ const fixtureUpdates = [
     platform: "ios",
     runtimeVersion: "ios-runtime",
     gitCommitHash,
+    createdAt,
+    message,
   },
   {
-    group: groupId,
+    group: androidGroupId,
     branch: "preview",
     platform: "android",
     runtimeVersion: "android-runtime",
     gitCommitHash,
+    createdAt,
+    message,
   },
 ];
-const fixture = JSON.stringify(fixtureUpdates);
+const iosFixture = JSON.stringify([fixtureUpdates[0]]);
+const androidFixture = JSON.stringify([fixtureUpdates[1]]);
 let caseCount = 0;
 
 check("accepts a UUID Preview group", () => assert.equal(requirePreviewGroupId(groupId), groupId));
@@ -49,6 +62,12 @@ check("rejects a non-UUID Preview group", () =>
 );
 check("normalizes a Production group UUID", () =>
   assert.equal(requireProductionGroupId(groupId.toUpperCase()), groupId),
+);
+check("accepts only platform-specific group platforms", () =>
+  assert.deepEqual([requirePlatform("iOS"), requirePlatform("android")], ["ios", "android"]),
+);
+check("rejects all-platform rollback targeting", () =>
+  assert.throws(() => requirePlatform("all"), /ios or android/),
 );
 check("accepts explicit device verification evidence", () =>
   assert.equal(
@@ -59,40 +78,60 @@ check("accepts explicit device verification evidence", () =>
 check("rejects missing Preview evidence", () =>
   assert.throws(() => requirePreviewVerification("not verified"), /VERIFIED:/),
 );
-check("accepts the exact two-platform Preview group", () =>
-  assert.equal(parseAndValidatePreviewGroup(fixture, groupId).length, 2),
-);
-check("locks the Preview group to one Git commit", () =>
+check("accepts the two platform-specific fingerprint Preview groups", () => {
+  const updates = validatePreviewBatch(
+    parseAndValidatePreviewPlatformGroup(iosFixture, groupId, "ios"),
+    parseAndValidatePreviewPlatformGroup(androidFixture, androidGroupId, "android"),
+  );
+  assert.equal(updates.length, 2);
+});
+check("exposes transitive Expo CLI only for the EAS callback", () => {
+  const rootCliPath = path.join(projectRoot, "node_modules", "@expo", "cli");
+  const existedBefore = existsSync(rootCliPath);
+  withResolvableExpoCli(projectRoot, () => {
+    const projectRequire = createRequire(path.join(projectRoot, "package.json"));
+    assert.match(projectRequire.resolve("@expo/cli/package.json"), /@expo\/cli\/package\.json$/);
+  });
+  assert.equal(existsSync(rootCliPath), existedBefore);
+});
+check("locks the Preview batch to one Git commit", () =>
   assert.equal(previewGroupGitCommitHash(fixtureUpdates), gitCommitHash),
 );
 check("rejects a non-Preview source branch", () =>
   assert.throws(
-    () => parseAndValidatePreviewGroup(fixture.replaceAll('"preview"', '"production"'), groupId),
+    () =>
+      parseAndValidatePreviewPlatformGroup(
+        iosFixture.replaceAll('"preview"', '"production"'),
+        groupId,
+        "ios",
+      ),
     /preview branch/,
   ),
 );
-check("rejects a missing platform", () =>
+check("rejects a mismatched platform group", () =>
   assert.throws(
-    () => parseAndValidatePreviewGroup(JSON.stringify(fixtureUpdates.slice(0, 1)), groupId),
-    /exactly one iOS and one Android/,
+    () => parseAndValidatePreviewPlatformGroup(iosFixture, groupId, "android"),
+    /expected android/,
   ),
 );
 check("rejects duplicate platform rows", () =>
   assert.throws(
     () =>
-      parseAndValidatePreviewGroup(
+      parseAndValidatePreviewPlatformGroup(
         JSON.stringify([fixtureUpdates[0], { ...fixtureUpdates[0] }]),
         groupId,
+        "ios",
       ),
-    /exactly one iOS and one Android/,
+    /exactly one platform update/,
   ),
 );
 check("rejects a blank runtime version", () =>
   assert.throws(
     () =>
-      parseAndValidatePreviewGroup(
-        JSON.stringify([fixtureUpdates[0], { ...fixtureUpdates[1], runtimeVersion: "  " }]),
+      parseAndValidatePreviewPlatformGroup(
+        JSON.stringify([{ ...fixtureUpdates[0], runtimeVersion: "  " }]),
         groupId,
+        "ios",
       ),
     /runtime version/,
   ),
@@ -100,17 +139,58 @@ check("rejects a blank runtime version", () =>
 check("rejects mixed Preview commits", () =>
   assert.throws(
     () =>
-      parseAndValidatePreviewGroup(
-        JSON.stringify([
-          fixtureUpdates[0],
-          {
-            ...fixtureUpdates[1],
-            gitCommitHash: "fedcba9876543210fedcba9876543210fedcba98",
-          },
-        ]),
-        groupId,
-      ),
+      validatePreviewBatch(fixtureUpdates[0], {
+        ...fixtureUpdates[1],
+        gitCommitHash: "fedcba9876543210fedcba9876543210fedcba98",
+      }),
     /shared Git commit/,
+  ),
+);
+check("rejects Preview groups from separate publish timestamps", () =>
+  assert.throws(
+    () =>
+      validatePreviewBatch(fixtureUpdates[0], {
+        ...fixtureUpdates[1],
+        createdAt: "2026-08-08T18:57:51.744Z",
+      }),
+    /same EAS publish timestamp/,
+  ),
+);
+check("rejects Preview groups with different messages", () =>
+  assert.throws(
+    () =>
+      validatePreviewBatch(fixtureUpdates[0], {
+        ...fixtureUpdates[1],
+        message: "different Preview publish",
+      }),
+    /share one descriptive publish message/,
+  ),
+);
+check("rejects one group ID reused for both Preview platforms", () =>
+  assert.throws(
+    () =>
+      validatePreviewBatch(fixtureUpdates[0], {
+        ...fixtureUpdates[1],
+        group: groupId,
+      }),
+    /distinct iOS and Android Preview group IDs/,
+  ),
+);
+check("rejects invalid JSON from a Preview platform lookup", () =>
+  assert.throws(
+    () => parseAndValidatePreviewPlatformGroup("not json", groupId, "ios"),
+    /invalid JSON/,
+  ),
+);
+check("rejects a Preview lookup returning another group", () =>
+  assert.throws(
+    () =>
+      parseAndValidatePreviewPlatformGroup(
+        JSON.stringify([{ ...fixtureUpdates[0], group: androidGroupId }]),
+        groupId,
+        "ios",
+      ),
+    /requested Preview update group/,
   ),
 );
 check("locks Preview channel/environment/all-platform args", () =>
@@ -196,14 +276,14 @@ check("locks group-scoped rollout reversion", () =>
     ],
   ),
 );
-check("locks group-scoped Production rollback", () =>
-  assert.deepEqual(productionRollbackArgs(groupId, "INCIDENT: login regression confirmed"), [
+check("locks platform-specific Production rollback", () =>
+  assert.deepEqual(productionRollbackArgs(groupId, "ios", "INCIDENT: login regression confirmed"), [
     "update:rollback",
     groupId,
     "--message",
     "INCIDENT: login regression confirmed",
     "--platform",
-    "all",
+    "ios",
     "--json",
     "--non-interactive",
   ]),
@@ -224,15 +304,17 @@ check("Production dry-run validates Preview then rebuilds for Production", () =>
     "production",
     "--dry-run",
     groupId,
+    androidGroupId,
     "VERIFIED: both device cold starts passed",
   ]);
   assert.equal(result.status, 0);
   const plan = JSON.parse(result.stdout);
   assert.equal(plan.steps[0].command[3], "update:view");
-  assert.equal(plan.steps[1].blockedUntilPreviousStepPasses, true);
-  assert.equal(plan.steps[1].command[3], "update");
-  assert.ok(plan.steps[1].command.includes("10"));
-  assert.equal(plan.steps[1].environmentSource, "EAS --environment production");
+  assert.equal(plan.steps[1].command[3], "update:view");
+  assert.equal(plan.steps[2].blockedUntilPreviousStepPasses, true);
+  assert.equal(plan.steps[2].command[3], "update");
+  assert.ok(plan.steps[2].command.includes("10"));
+  assert.equal(plan.steps[2].environmentSource, "EAS --environment production");
   assert.ok(!result.stdout.includes("update:republish"));
   assert.ok(!result.stdout.includes("--destination-channel"));
 });
@@ -266,9 +348,34 @@ check("rollout management dry-run is exact and side-effect free", () => {
   ]);
 });
 check("rollback management rejects unlabelled reasons before EAS", () => {
-  const result = runScript("manage-update.mjs", ["rollback", groupId, "bad release"]);
+  const result = runScript("manage-update.mjs", ["rollback", groupId, "ios", "bad release"]);
   assert.equal(result.status, 2);
   assert.match(result.stderr, /INCIDENT:/);
+});
+check("pnpm-style standalone separators are ignored", () => {
+  const result = runScript("manage-update.mjs", [
+    "rollout",
+    "--",
+    "--dry-run",
+    groupId,
+    "30",
+    "APPROVED: platform metrics stayed stable",
+  ]);
+  assert.equal(result.status, 0);
+  assert.equal(JSON.parse(result.stdout).command[4], groupId);
+});
+check("GitHub Production workflow forwards both Preview platform groups", () => {
+  const workflow = readFileSync(
+    path.resolve(projectRoot, "..", ".github", "workflows", "eas-update.yml"),
+    "utf8",
+  );
+  assert.match(workflow, /preview_ios_group_id:/);
+  assert.match(workflow, /preview_android_group_id:/);
+  assert.match(
+    workflow,
+    /update:production -- \"\$PREVIEW_IOS_GROUP_ID\" \"\$PREVIEW_ANDROID_GROUP_ID\"/,
+  );
+  assert.doesNotMatch(workflow, /preview_group_id:/);
 });
 
 process.stdout.write(`EAS release policy tests passed: ${caseCount} cases.\n`);

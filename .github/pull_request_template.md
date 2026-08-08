@@ -15,7 +15,7 @@
 
 ## 发布
 
-- [ ] Production 已校验 Preview 双平台 group 的同一 `gitCommitHash` 与 clean HEAD，再用 production environment 重新生成 10% 更新（禁止跨 runtime republish Preview bundle）
+- [ ] Production 已校验 Preview iOS/Android 两个 fingerprint group 的同一 timestamp/message/`gitCommitHash` 与 clean HEAD，再用 production environment 重新生成 10% 更新（禁止跨 runtime republish Preview bundle）
 - [ ] 扩量只按 30% → 50% → 100%，并附 `APPROVED:` 监控证据
-- [ ] 回退/回滚已记录坏 group UUID、`INCIDENT:` 原因、操作者与验证结果
+- [ ] 回退/回滚已记录坏 group UUID、对应 `ios|android`、`INCIDENT:` 原因、操作者与验证结果
 - [ ] 没有提交 Token、私钥、证书或密码

@@ -10,7 +10,7 @@
 
 ## 1. Expo 项目绑定
 
-源码已经绑定 Expo owner `wegpt` 与 EAS Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c`；这些是公开项目标识，不是密钥。当前机器仍未登录 Expo，因此这里只能验证本地配置，不能把源码绑定误写成账号访问或真实发布已经通过。先在 `expo-app` 目录执行只读检查：
+源码已经绑定 Expo owner `wegpt` 与 EAS Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c`；这些是公开项目标识，不是密钥。当前机器已登录 Owner `wegpt`，三套 Environment 与三个 Channel/Branch 均已在云端读取确认。可在 `expo-app` 目录执行只读检查：
 
 ```bash
 pnpm eas:whoami
@@ -65,9 +65,9 @@ pnpm update:preview -- "修复消息列表空状态与登录猫咪动效"
 pnpm update:list
 ```
 
-`update:preview:dry-run` 只输出将执行的参数数组，不登录 Expo、不读取云端、不发布。确认 dry-run 后再运行 `update:preview`；它会以 JSON 输出同时包含 iOS/Android 的 update group ID，必须保留这个 UUID。Preview 发布脚本不会设置 rollout。
+`update:preview:dry-run` 只输出将执行的参数数组，不登录 Expo、不读取云端、不发布。确认 dry-run 后再运行 `update:preview`。fingerprint runtime 在 iOS/Android 上不同，因此一次 `--platform all` 发布会返回两个同批次 group UUID（各含一个平台），必须同时保留。Preview 发布脚本不会设置 rollout。
 
-发布脚本会清除调用者 shell 中的 `APP_ENV`/`BWCHAT_EXPECTED_APP_ENV`，让 EAS CLI 第一次动态配置解析使用仓库内可用的 development 默认值；随后由明确的 `--environment preview|production` 加载服务端完整环境变量并再次解析。
+发布脚本会清除调用者 shell 中的 `APP_ENV`/`BWCHAT_EXPECTED_APP_ENV`，让 EAS CLI 第一次动态配置解析使用仓库内可用的 development 默认值；随后由明确的 `--environment preview|production` 加载服务端完整环境变量并再次解析。pnpm 严格布局下，脚本会在 EAS 导出期间临时暴露 Expo 自带的 CLI，并在成功或失败后只删除自己创建的链接；无需手工创建 symlink，也不会改变 fingerprint。
 
 在已安装 Preview 包上执行以下两轮：
 
@@ -81,28 +81,26 @@ pnpm update:list
 Production 脚本固定从 10% rollout 开始，不能直接全量：
 
 ```bash
-pnpm update:production:dry-run -- <Preview update group UUID> \
+pnpm update:production:dry-run -- <Preview iOS group UUID> <Preview Android group UUID> \
   "VERIFIED: iOS/Android 两次冷启动、断网与改动页面均通过"
-pnpm update:production -- <Preview update group UUID> \
+pnpm update:production -- <Preview iOS group UUID> <Preview Android group UUID> \
   "VERIFIED: iOS/Android 两次冷启动、断网与改动页面均通过"
 ```
 
 Preview 与 Production 的 `APP_ENV`、API/Web endpoint、APNs entitlement 等配置会进入 fingerprint，因此两套 runtime 正常情况下不同。禁止把 Preview update group 直接 `republish --destination-channel production`：这样会保留 Preview runtime 和 Preview 环境 bundle，Production 二进制不会命中，且即使误命中也会带错环境配置。
 
-Production 脚本会先在线读取 Preview group，硬性确认它来自 `preview` branch、恰好包含 iOS/Android、两条 runtimeVersion 都非空且共享同一个有效 `gitCommitHash`；随后要求本地 HEAD 等于该 Preview commit 且整个 Git worktree clean。全部通过后，才从同一提交重新执行 `eas update --channel production --environment production --rollout-percentage 10`，生成 Production 自己的 bundle/fingerprint/runtime。缺少有效 UUID、`VERIFIED:` 验收说明、任一平台、commit 一致性或 clean worktree 都会拒绝。
+Production 脚本会分别在线读取 Preview iOS/Android group，硬性确认它们来自 `preview` branch、平台各一、group 不同、runtimeVersion 非空，并共享同一 EAS 发布时间、发布说明与有效 `gitCommitHash`；随后要求本地 HEAD 等于该 Preview commit 且整个 Git worktree clean。全部通过后，才从同一提交重新执行 `eas update --channel production --environment production --rollout-percentage 10`，生成 Production 自己的双端 bundle/fingerprint/runtime。缺少有效 UUID、`VERIFIED:` 验收说明、任一平台、批次/commit 一致性或 clean worktree 都会拒绝。
 
 观察启动成功率、错误率、登录、消息同步和本次改动至少一个完整使用周期后，再用：
 
 ```bash
-pnpm update:rollout -- <Production rollout group UUID> 30 \
+pnpm update:rollout -- <Production iOS rollout group UUID> 30 \
   "APPROVED: crash/API/login metrics stable for one cycle"
-pnpm update:rollout -- <Production rollout group UUID> 50 \
-  "APPROVED: 30 percent metrics stable for one cycle"
-pnpm update:rollout -- <Production rollout group UUID> 100 \
-  "APPROVED: 50 percent metrics stable for one cycle"
+pnpm update:rollout -- <Production Android rollout group UUID> 30 \
+  "APPROVED: crash/API/login metrics stable for one cycle"
 ```
 
-脚本只接受 30、50、100 三个扩量点，要求有效 group UUID 和不少于 8 字的 `APPROVED:` 监控证据，并用 group-scoped、non-interactive 的 `eas update:edit`。不要在已有 rollout 未完成时发布下一条 Production update；先完成、回退或取消当前 rollout。
+然后对两个平台 group 分别重复 50% 和 100%。脚本只接受 30、50、100 三个扩量点，要求有效 group UUID 和不少于 8 字的 `APPROVED:` 监控证据，并用 group-scoped、non-interactive 的 `eas update:edit`。不要在同一平台/runtime 的已有 rollout 未完成时发布下一条 Production update；先完成、回退或取消当前 rollout。
 
 ## 5. 回退
 
@@ -116,11 +114,13 @@ pnpm update:revert-rollout -- <异常 rollout group UUID> \
 需要让 channel 回到先前稳定 Update 时：
 
 ```bash
-pnpm update:rollback -- <最新异常 Production group UUID> \
+pnpm update:rollback -- <最新异常 Production iOS group UUID> ios \
+  "INCIDENT: login regression confirmed on Production"
+pnpm update:rollback -- <最新异常 Production Android group UUID> android \
   "INCIDENT: login regression confirmed on Production"
 ```
 
-两条脚本都要求有效 group UUID、`INCIDENT:` 原因，并固定 JSON/non-interactive。`update:revert-rollout` 用于撤销仍在进行的 rollout；`update:rollback` 要求输入该 branch/runtime 最新的异常 group，由 EAS republish 前一稳定 update，若没有前一条则回到 embedded update。可先给任一命令添加 `--dry-run` 检查参数而不访问云端。
+两条脚本都要求有效 group UUID、`INCIDENT:` 原因，并固定 JSON/non-interactive。`update:revert-rollout` 用于撤销仍在进行的 rollout；`update:rollback` 还必须显式给出与 group 匹配的 `ios|android`，要求输入该 branch/runtime 最新的异常 group，由 EAS republish 前一稳定 update，若没有前一条则回到 embedded update。可先给任一命令添加 `--dry-run` 检查参数而不访问云端。
 
 回退后必须在 Preview/Production 对应二进制上再做两次冷启动，并确认 Update ID、runtimeVersion 和 channel；重新验证登录、消息、地图、发现、我的与事故页面，并记录新 rollback group ID。服务端 Remote Config 的 kill switch 可临时阻止进入业务，但不能代替 OTA 回退。
 
@@ -146,8 +146,8 @@ pnpm update:rollback -- <最新异常 Production group UUID> \
 | 字段       | 必填内容                                                              |
 | ---------- | --------------------------------------------------------------------- |
 | Commit     | 完整 Git SHA                                                          |
-| Preview    | group UUID、双平台 runtime、真机两次冷启动与断网证据                  |
-| Production | 同 commit 新生成的 Production group UUID、10% 发布时间、操作者/审批人 |
+| Preview    | iOS/Android group UUID、双平台 runtime、真机两次冷启动与断网证据      |
+| Production | 同 commit 新生成的双端 Production group UUID、10% 时间、操作者/审批人 |
 | 放量       | 10/30/50/100 各阶段时间、指标摘要、`APPROVED:` 证据                   |
 | 事故       | 异常 group UUID、`INCIDENT:` 原因、revert/rollback group UUID         |
 | 终验       | 回退或全量后的双平台核心流程和 Update metadata                        |
@@ -160,7 +160,7 @@ pnpm update:rollback -- <最新异常 Production group UUID> \
 - `EXPO_TOKEN` 只保存在 GitHub `preview`/`production` Environment Secret 或 EAS Secret。Production Environment 应使用独立、最小权限 token，并按组织策略轮换。
 - `EAS_PROJECT_ID`、`EXPO_OWNER` 不是秘密，源码已提供当前项目默认值；GitHub Environment Variable 可作为显式镜像或迁移覆盖值，但必须与源码绑定一致。`APP_ENV` 和全部 `EXPO_PUBLIC_*` 业务配置仍必须存在于对应 EAS Environment。
 - Preview 发布人是获准使用 `preview` Environment 的成员；Production 发布/扩量/回滚人是 `production` Required reviewers 与获准操作者。具体人员姓名尚待仓库管理员登记，未登记前不得声称权限验收完成。
-- CI 不会在 `push` 后自动发布 OTA；Production 永远需要人工选择 target、提供 Preview group UUID 和 `VERIFIED:` 证据，通过 Preview commit/clean worktree 门禁，并经过 Environment 审批。Production 会从同 commit 在 production environment 重新生成更新，绝不跨 runtime republish Preview bundle。
+- CI 不会在 `push` 后自动发布 OTA；Production 永远需要人工选择 target、提供 Preview iOS/Android 两个 group UUID 和 `VERIFIED:` 证据，通过 Preview batch/commit/clean worktree 门禁，并经过 Environment 审批。Production 会从同 commit 在 production environment 重新生成更新，绝不跨 runtime republish Preview bundle。
 
 ## 9. 密钥防护
 
@@ -174,11 +174,12 @@ pnpm update:rollback -- <最新异常 Production group UUID> \
 
 当前账号和项目已经真实接通：`eas whoami` 返回 Owner `wegpt`，`eas project:info` 返回 `@wegpt/bbchat` 与 Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c`。development/preview/production 三套 EAS Environment 已登记对应 `APP_ENV`、API/Web/WebSocket/Remote Config、双端 AdMob 与公开项目绑定；三个同名 Channel/Branch 已创建并读取确认。raw EAS config 的 development/preview/production × iOS/Android 六组合全部通过。
 
-本地客户端已通过设置页十语言更新入口、后台/手动检查、15 分钟限流、并发 single-flight、下载后选择重启、缓存读写失败非阻断、最近检查结果、最低 Build/App Version 商店升级 Gate、监控标签与无敏感信息诊断复制。当前整仓为 **293 suites / 1905 tests**，发布策略 **28 cases**，密钥扫描 **1177 个文本文件**；45 个原数字资产与 10×1,138 本地化继续通过。诊断路径为“我的 → 设置 → 更新与诊断”。
+本地客户端已通过设置页十语言更新入口、后台/手动检查、15 分钟限流、并发 single-flight、下载后选择重启、缓存读写失败非阻断、最近检查结果、最低 Build/App Version 商店升级 Gate、监控标签与无敏感信息诊断复制。最近完整门禁为 **296 suites / 1912 tests**，当前发布策略扩充为 **38 cases**；45 个原数字资产与 10×1,138 本地化继续通过。诊断路径为“我的 → 设置 → 更新与诊断”。
+
+真实云端验收已经完成：Preview Android Build `b2a6a640-ed3e-4bdf-aa53-22e6a78d1119`、iOS Simulator Build `8b4e9e02-e9c4-4865-88da-704433659673` 均为 `FINISHED`；Preview iOS 两次冷启动已从 embedded update 切换到 Update `019fe2bc-3020-7dac-b8ec-2f4c6edbf9b4`，证明首启后台下载且不打断、下次冷启应用。Production 双端已真实完成 10%→30%→50%、进行中 rollout 撤销、恢复到 100%、全量 `update:rollback`，并最终重新 10%→30%→50%→100%。当前最终稳定 group 为 iOS `a2b703fe-5775-417a-a607-a07521258972`、Android `ab2dd7d6-97ba-4f11-8c48-20a9d3266434`，对应 runtime `610f9a3e005a9939903c424963e89631d7be538f` / `141af77e63b25016ffb0edb39594e365ba31c193` 和 commit `b62c319328acef81b14d26fbb7e7d4e0f668f6b1`。
 
 仍未完成并且不得提前声称完成：
 
-- Apple Distribution/Provisioning、App Store Connect 提交权限与可选 Sentry project/DSN/source map 上传尚未验收；Android Production Submit 仍需 Google Play service account/track。
+- Android Production Store Build `4f2e2e67-2ab9-43e7-b87f-4c458a72c24d` 已发起，等待 EAS 完成。iOS Production Build 已通过代码/runtime 配置但被 EAS 拒绝在签名阶段：尚未配置 Apple Distribution Certificate 与 Provisioning Profile，需 Apple Developer 账号交互配置后重试；App Store Connect 提交权限与可选 Sentry project/DSN/source map 上传也尚未验收。Android Production Submit 仍需 Google Play service account/track。
 - GitHub `preview`/`production` Environments、Production Required reviewers、实际发布/回滚人员名单与 `EXPO_TOKEN` Secret 尚未由仓库管理员配置。
-- 尚未完成真实 Preview/Production Build、安装、Preview 两次冷启动/断网 OTA、Production 10% 灰度、30/50/100 扩量、撤销灰度和 rollback。
-- 因此账号、项目、环境、通道与本地发布门已完成，但“朋友安装一次新包后持续收到 OTA”仍需后续真实安装包和 OTA 证据才能最终验收。
+- Preview 双端构建、iOS Preview OTA、Production OTA/灰度/撤销/rollback 已完成；没有保留一台可安装 Production iOS Store 包前，iPhone 朋友端的“一次安装后持续收到 Production OTA”仍受 Apple 签名这一外部门槛阻塞。Android 可先使用已完成的 Preview APK 做内部安装与同 runtime 的 Preview OTA。

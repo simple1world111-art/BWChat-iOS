@@ -2,6 +2,15 @@
 
 本日志只记录有源码证据和验证证据的进展。自 2026-08-08 起，前端样式/组件采用 **95–98% 视觉还原**标准，不再要求逐像素零差异；功能、交互、状态和全部后端契约仍必须与原版 **100% 一一对应**。页面未满足 `migration-status.md` 的四级完成条件时统一记录为“部分完成”，不会用入口、占位页或单独视觉通过冒充完成。下文早于新口径的 exact `FAIL` 是历史指标，需按新门禁重新判定，但不会自动证明功能完成。
 
+## 2026-08-09：Preview/Production OTA、灰度撤销与 rollback 云端验收完成
+
+- **Preview 构建/安装**：Android Build `b2a6a640-ed3e-4bdf-aa53-22e6a78d1119`、iOS Simulator Build `8b4e9e02-e9c4-4865-88da-704433659673` 均 `FINISHED`，来自 clean commit `b62c319328acef81b14d26fbb7e7d4e0f668f6b1`。Android APK 已下载核对四种 ABI 后清理；iOS 使用唯一固定模拟器安装验收，未创建额外模拟器。
+- **Preview OTA**：首次冷启仍使用 embedded Update `0081774e-a1a0-4c37-8063-cf200342465e`，页面显示更新已下载且 App 未自动重启；第二次真实 terminate/launch 冷启切换到 OTA Update `019fe2bc-3020-7dac-b8ec-2f4c6edbf9b4`。最终只保留 embedded/OTA 两张诊断证据；临时 bundle、`dist`、Expo CLI symlink 已精确删除，模拟器与 Simulator.app 均关闭。
+- **Production 演练**：双端 Production runtime 固定为 iOS `610f9a3e005a9939903c424963e89631d7be538f`、Android `141af77e63b25016ffb0edb39594e365ba31c193`。真实完成首次 10%→30%→50%、rollout 撤销到 embedded、恢复批次 10%→30%→50%→100%、全量 `update:rollback`，再把最终稳定批次 10%→30%→50%→100%。最终 group 为 iOS `a2b703fe-5775-417a-a607-a07521258972`、Android `ab2dd7d6-97ba-4f11-8c48-20a9d3266434`，最新云端记录均非 rollback 且无 rolloutPercentage，表示全量完成。
+- **工具纠错**：fingerprint runtime 的双端发布实际返回两个 platform group，不是一个双平台 group。Production 门现分别读取 Preview iOS/Android group，要求同 timestamp/message/commit；`update:rollback` 显式要求 `ios|android`。pnpm 严格布局所需 Expo CLI link 由脚本临时创建并在成功/失败后只清理自有 link；`pnpm fingerprint:generate -- all` 的参数兼容也已修复。发布策略 **38 cases PASS**，改动后 Production fingerprint 与已发布 runtime 完全不变。
+- **Production Build**：Android Store Build `4f2e2e67-2ab9-43e7-b87f-4c458a72c24d` 已发起且 runtime/commit 匹配，等待 EAS 完成。iOS Production Store Build 已通过代码/runtime 阶段，但 EAS 因尚无 Apple Distribution Certificate / Provisioning Profile 拒绝非交互签名；这是 Apple Developer 外部门槛，不是代码或 Expo OTA 失败。
+- **整体进度**：页面复刻仍为 **47/47（100%）**；EAS 云端 OTA/灰度/撤销/rollback 已完成。最后阶段仅剩 Android Production 构建结果、最终全仓验证/文档提交，以及需要用户 Apple Developer 凭据才能完成的 iOS Production Store 签名包。
+
 ## 2026-08-09：EAS 第二阶段完成账号、项目、环境与通道绑定
 
 - **真实云端状态**：Expo Owner `wegpt` 已登录；`@wegpt/bbchat` 与 Project ID `f623eda4-1a5f-4227-9890-1a2eb5a6df2c` 已创建并由 `project:info` 读取确认。development/preview/production 三套 EAS Environment 均已登记对应 APP_ENV 与公开业务配置，三个同名 Channel/Branch 已创建且互相隔离。

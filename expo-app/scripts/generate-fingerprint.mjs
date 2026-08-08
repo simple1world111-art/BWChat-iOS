@@ -10,7 +10,7 @@ const defaultEasProjectId = "f623eda4-1a5f-4227-9890-1a2eb5a6df2c";
 const nodeDirectory = path.dirname(process.execPath);
 process.env.PATH = [nodeDirectory, process.env.PATH].filter(Boolean).join(path.delimiter);
 
-const requestedPlatform = process.argv[2] ?? "all";
+const requestedPlatform = process.argv.slice(2).find((value) => value !== "--") ?? "all";
 const platforms =
   requestedPlatform === "all"
     ? ["ios", "android"]

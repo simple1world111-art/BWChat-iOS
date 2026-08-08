@@ -24,6 +24,14 @@ export function requireProductionGroupId(groupId) {
   return requireGroupId(groupId, "Production");
 }
 
+export function requirePlatform(platform) {
+  const normalized = platform.trim().toLowerCase();
+  if (normalized !== "ios" && normalized !== "android") {
+    throw new Error("A platform of ios or android is required for a platform-specific group.");
+  }
+  return normalized;
+}
+
 function requireGroupId(groupId, environment) {
   const normalized = groupId.trim();
   if (!UUID_PATTERN.test(normalized)) {
@@ -71,17 +79,15 @@ export function requireRolloutPercentage(value) {
   return percentage;
 }
 
-export function parseAndValidatePreviewGroup(json, expectedGroupId) {
+export function parseAndValidatePreviewPlatformGroup(json, expectedGroupId, expectedPlatform) {
   let updates;
   try {
     updates = JSON.parse(json);
   } catch {
     throw new Error("EAS returned invalid JSON while checking the Preview update group.");
   }
-  if (!Array.isArray(updates) || updates.length !== 2) {
-    throw new Error(
-      "The Preview update group must contain exactly one iOS and one Android update.",
-    );
+  if (!Array.isArray(updates) || updates.length !== 1) {
+    throw new Error("A fingerprint Preview group must contain exactly one platform update.");
   }
   if (updates.some((update) => !update || typeof update !== "object" || Array.isArray(update))) {
     throw new Error("The Preview update group contains no platform updates.");
@@ -102,14 +108,9 @@ export function parseAndValidatePreviewGroup(json, expectedGroupId) {
     throw new Error("Production verification requires an update group from the preview branch.");
   }
 
-  const platformCounts = updates.reduce((counts, update) => {
-    counts.set(update.platform, (counts.get(update.platform) ?? 0) + 1);
-    return counts;
-  }, new Map());
-  if (platformCounts.get("ios") !== 1 || platformCounts.get("android") !== 1) {
-    throw new Error(
-      "The Preview update group must contain exactly one iOS and one Android update.",
-    );
+  const platform = requirePlatform(expectedPlatform);
+  if (updates[0].platform !== platform) {
+    throw new Error(`The requested Preview group is not the expected ${platform} update.`);
   }
 
   if (
@@ -121,8 +122,33 @@ export function parseAndValidatePreviewGroup(json, expectedGroupId) {
     throw new Error("The Preview update group is missing a runtime version.");
   }
 
-  previewGroupGitCommitHash(updates);
+  return updates[0];
+}
 
+export function validatePreviewBatch(iosUpdate, androidUpdate) {
+  const updates = [iosUpdate, androidUpdate];
+  if (iosUpdate.platform !== "ios" || androidUpdate.platform !== "android") {
+    throw new Error("The Preview batch must contain one iOS group and one Android group.");
+  }
+  if (iosUpdate.group.toLowerCase() === androidUpdate.group.toLowerCase()) {
+    throw new Error("Fingerprint runtimes require distinct iOS and Android Preview group IDs.");
+  }
+
+  const timestamps = new Set(updates.map((update) => update.createdAt));
+  if (
+    timestamps.size !== 1 ||
+    typeof iosUpdate.createdAt !== "string" ||
+    Number.isNaN(Date.parse(iosUpdate.createdAt))
+  ) {
+    throw new Error("The two Preview groups must come from the same EAS publish timestamp.");
+  }
+
+  const messages = new Set(updates.map((update) => update.message));
+  if (messages.size !== 1 || typeof iosUpdate.message !== "string" || !iosUpdate.message.trim()) {
+    throw new Error("The two Preview groups must share one descriptive publish message.");
+  }
+
+  previewGroupGitCommitHash(updates);
   return updates;
 }
 
@@ -213,14 +239,14 @@ export function productionRevertRolloutArgs(groupId, incidentMessage) {
   ];
 }
 
-export function productionRollbackArgs(groupId, incidentMessage) {
+export function productionRollbackArgs(groupId, platform, incidentMessage) {
   return [
     "update:rollback",
     requireProductionGroupId(groupId),
     "--message",
     requireIncidentMessage(incidentMessage),
     "--platform",
-    "all",
+    requirePlatform(platform),
     "--json",
     "--non-interactive",
   ];
