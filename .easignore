@@ -1,0 +1,47 @@
+# The EAS archive is created from this Git repository root even when the
+# command is run inside expo-app. Upload only the standalone Expo application;
+# the original Swift replica, design inputs, documentation, and local evidence
+# stay on this Mac and are not part of the cloud build context.
+/*
+!/.easignore
+!/expo-app/
+
+# Dependencies and local Expo state are recreated by EAS Build.
+/expo-app/node_modules/
+/expo-app/.expo/
+/expo-app/.vscode/
+
+# Generated bundles and native projects are recreated from app.config.ts.
+/expo-app/dist/
+/expo-app/dist-*/
+/expo-app/web-build/
+/expo-app/ios/
+/expo-app/android/
+/expo-app/.kotlin/
+
+# Local validation inputs and evidence are retained locally only.
+/expo-app/artifacts/
+/expo-app/docs/
+/expo-app/tests/
+/expo-app/coverage/
+/expo-app/*.tsbuildinfo
+
+# Local environments and credentials must never enter an EAS archive.
+/expo-app/.env
+/expo-app/.env.*
+!/expo-app/.env.example
+/expo-app/*.jks
+/expo-app/*.p8
+/expo-app/*.p12
+/expo-app/*.key
+/expo-app/*.pem
+/expo-app/*.mobileprovision
+/expo-app/credentials.json
+/expo-app/service-account*.json
+/expo-app/*.keystore
+
+# OS and package-manager logs.
+/expo-app/.DS_Store
+/expo-app/npm-debug.*
+/expo-app/yarn-debug.*
+/expo-app/yarn-error.*
