@@ -48,7 +48,7 @@
 
 ## 剩余外部动作
 
-1. 使用有效 Apple Developer 账号在交互式 EAS credentials 流程创建/选择 Apple Distribution Certificate 与 Provisioning Profile，然后重跑 `pnpm build:prod:ios`；若朋友通过 TestFlight 安装，还需 App Store Connect 权限与 `pnpm submit:prod:ios`。
+1. EAS credentials 当前没有 iOS 凭据。可使用有效 Apple Developer 账号在交互式流程自动创建/选择凭据，然后重跑 `pnpm build:prod:ios`；也可由用户自行安全导出本机现有 `Apple Distribution: BANANAWORLD K.K. (A5U93R249R)` 与匹配 `com.bwchat.app`、到期 2027-03-17 的 Store Profile 后手工上传。Codex 只读确认了它们存在，没有擅自导出私钥。若朋友通过 TestFlight 安装，还需 App Store Connect 权限与 `pnpm submit:prod:ios`。
 2. 若通过 Google Play 分发已完成的 Android AAB，需要 Play service account/track。内部朋友也可先安装已完成的 Preview APK，以后接收 Preview channel OTA。
 3. 若要启用真实错误平台，配置 Sentry DSN/org/project/token，移除 `SENTRY_DISABLE_AUTO_UPLOAD` 后重新 Build 并验证 source map/dSYM。
 4. 若要从 GitHub 发布而不是本机发布，在远端创建 `preview`/`production` Environments、Required reviewers、`EXPO_TOKEN` Secret 和匹配的公开 Variables。
