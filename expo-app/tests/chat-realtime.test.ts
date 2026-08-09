@@ -221,6 +221,15 @@ describe("native WebSocket event contracts", () => {
     expect(parseChatRealtimeEnvelope({ type: "friend_request", data: {} })).toEqual([
       { type: "refresh_conversations", reason: "friend_request" },
     ]);
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "group_contact_update",
+        data: { groupId: 7, lastMessageId: 52 },
+      }),
+    ).toEqual([
+      { type: "refresh_conversations", reason: "group_contact_update" },
+      { type: "group_message_hint", group_id: 7, message_id: 52 },
+    ]);
     expect(parseChatRealtimeEnvelope({ type: "pong" })).toEqual([]);
   });
 

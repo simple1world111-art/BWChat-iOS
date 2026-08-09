@@ -243,6 +243,7 @@ export default function GroupChatScreen() {
     name?: string;
     memberCount?: string;
     messageId?: string;
+    latestMessageId?: string;
   }>();
   const groupId = Number(params.id);
   const initialMemberCount = Number(params.memberCount ?? "0");
@@ -523,6 +524,27 @@ export default function GroupChatScreen() {
       });
       if (!isCurrent()) return;
       fetched.push(...recent.messages);
+      const latestMessageId = Number(params.latestMessageId);
+      const timelineHasLatestMessage = [...cached.messages, ...fetched].some(
+        (message) => message.id === latestMessageId,
+      );
+      if (
+        Number.isSafeInteger(latestMessageId) &&
+        latestMessageId > 0 &&
+        !timelineHasLatestMessage
+      ) {
+        try {
+          // The conversation summary and message history are separate server
+          // projections. Reconcile by the summary's canonical message ID when
+          // the latest history page has not caught up yet.
+          const context = await getGroupMessageContext(groupId, latestMessageId);
+          if (!isCurrent()) return;
+          fetched.push(...context);
+        } catch {
+          // Keep the cached/recent timeline usable. A focus, foreground or
+          // realtime refresh will retry this reconciliation.
+        }
+      }
       await saveGroupChatMessages(ownerId, groupId, fetched);
       if (!isCurrent()) return;
       const serverVisible = filterLocallyHiddenChatMessages(
@@ -564,7 +586,7 @@ export default function GroupChatScreen() {
     // The delivery/backfill functions are session-keyed and use this render
     // closure. Listing them would recreate `load` on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, ownerId, sessionKey, t]);
+  }, [groupId, ownerId, params.latestMessageId, sessionKey, t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1650,6 +1672,20 @@ export default function GroupChatScreen() {
     initialPushMessageHandledRef.current = params.messageId ?? null;
     void scrollToMessage(target);
   }, [isLoading, params.messageId, scrollToMessage]);
+
+  useEffect(() => {
+    if (!ownerId || groupId <= 0) return;
+    return chatRealtimeService.subscribe((event) => {
+      if (
+        event.type !== "group_message_hint" ||
+        event.group_id !== groupId ||
+        !screenActiveRef.current
+      ) {
+        return;
+      }
+      void scrollToMessage(event.message_id);
+    });
+  }, [groupId, ownerId, scrollToMessage]);
 
   useEffect(
     () => subscribeGroupMessageLocation(groupId, (messageId) => void scrollToMessage(messageId)),

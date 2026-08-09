@@ -43,6 +43,7 @@ import { readAccessToken } from "@/storage/tokenStorage";
 export type ChatRealtimeEvent =
   | { type: "direct_message"; message: Message }
   | { type: "group_message"; message: GroupMessage }
+  | { type: "group_message_hint"; group_id: number; message_id: number }
   | { type: "conversation_read"; receipt: ConversationReadReceipt }
   | { type: "group_history_cleared"; receipt: GroupHistoryClearReceipt }
   | { type: "conversation_preference"; preference: ConversationPreference }
@@ -128,7 +129,7 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
         return receipt.conversation_id ? [{ type: "conversation_read", receipt }] : [];
       }
       case "group_history_cleared": {
-        const groupId = flexInt(payload.group_id, payload.groupID) ?? 0;
+        const groupId = flexInt(payload.group_id, payload.groupId, payload.groupID) ?? 0;
         return groupId > 0
           ? [
               {
@@ -166,7 +167,7 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
           : [];
       }
       case "group_removed": {
-        const groupId = flexInt(payload.group_id, payload.groupID) ?? 0;
+        const groupId = flexInt(payload.group_id, payload.groupId, payload.groupID) ?? 0;
         return groupId > 0 ? [{ type: "group_removed", group_id: groupId }] : [];
       }
       case "group_renamed": {
@@ -182,9 +183,24 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
         const state = normalizeScriptTurnState(envelope.data);
         return state.room_id ? [{ type: "script_turn_state", state }] : [];
       }
+      case "group_contact_update": {
+        const events: ChatRealtimeEvent[] = [{ type: "refresh_conversations", reason: type }];
+        const groupId = flexInt(payload.group_id, payload.groupId, payload.groupID) ?? 0;
+        const messageId =
+          flexInt(
+            payload.message_id,
+            payload.messageId,
+            payload.last_message_id,
+            payload.lastMessageId,
+            payload.lastMessageID,
+          ) ?? 0;
+        if (groupId > 0 && messageId > 0) {
+          events.push({ type: "group_message_hint", group_id: groupId, message_id: messageId });
+        }
+        return events;
+      }
       case "group_created":
       case "contact_update":
-      case "group_contact_update":
       case "friend_request":
       case "friend_accepted":
       case "chat_reset":

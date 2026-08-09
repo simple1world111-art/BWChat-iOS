@@ -29,6 +29,21 @@ describe("group chat lifecycle and state source parity", () => {
       expect(source).toContain(fact);
   });
 
+  it("reconciles a conversation-list preview whose canonical message is absent from history", () => {
+    const conversationSource = fs.readFileSync(
+      path.join(process.cwd(), "src/app/(tabs)/conversations.tsx"),
+      "utf8",
+    );
+    expect(conversationSource).toContain("latestMessageId: String(conversation.last_message_id)");
+    expect(conversationSource).toContain('event.type === "group_message_hint"');
+    expect(conversationSource).toContain("last_message_id: event.message_id");
+    expect(source).toContain("const latestMessageId = Number(params.latestMessageId)");
+    expect(source).toContain("!timelineHasLatestMessage");
+    expect(source).toContain("getGroupMessageContext(groupId, latestMessageId)");
+    expect(source).toContain('event.type !== "group_message_hint"');
+    expect(source).toContain("void scrollToMessage(event.message_id)");
+  });
+
   it("keeps realtime, read, draft, foreground and outbox callbacks session-fenced", () => {
     expect(source).toContain('chatRealtimeService.setActiveConversation("group", String(groupId))');
     expect(source).toContain("message.mentions?.includes(ownerId) || message.mention_all");

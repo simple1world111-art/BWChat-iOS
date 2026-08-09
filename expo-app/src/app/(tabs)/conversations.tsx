@@ -636,6 +636,13 @@ export default function ConversationsScreen() {
               },
             ];
           }
+          if (event.type === "group_message_hint") {
+            const groupId = resolvedGroupId(conversation);
+            if (groupId !== event.group_id) return [conversation];
+            found = true;
+            if ((conversation.last_message_id ?? 0) >= event.message_id) return [conversation];
+            return [{ ...conversation, last_message_id: event.message_id }];
+          }
           if (event.type === "group_renamed" && resolvedGroupId(conversation) === event.group_id) {
             found = true;
             return [{ ...conversation, name: event.name }];
@@ -885,6 +892,9 @@ export default function ConversationsScreen() {
             name: conversation.name,
             avatar: conversation.avatar_url,
             memberCount: String(conversation.member_count ?? 0),
+            ...(conversation.last_message_id !== undefined
+              ? { latestMessageId: String(conversation.last_message_id) }
+              : {}),
           },
         });
       } else {
