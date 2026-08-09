@@ -53,7 +53,6 @@ export async function prepareVideoPlaybackSource(
   const headers = await prepareVideoAuthorizationHeaders(uri, apiBaseUrl, "auto", signal);
   return {
     uri,
-    useCaching: true,
     ...(headers ? { headers } : {}),
     ...(uri.toLowerCase().includes(".m3u8") ? { contentType: "hls" as const } : {}),
   };

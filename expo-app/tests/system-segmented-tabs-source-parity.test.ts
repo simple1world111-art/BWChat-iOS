@@ -52,7 +52,9 @@ describe("native SystemSegmentedTabs parity", () => {
     expect(activity).toContain('fontWeight="semibold"');
     expect(activity).toContain("width={228}");
     expect(moments).toContain('fontWeight="bold"');
-    expect(moments).toContain('backgroundColor={coverChrome ? "rgba(0,0,0,0.16)" : undefined}');
+    expect(moments).toContain('backgroundColor="rgba(0,0,0,0.16)"');
+    expect(moments).toContain('colorScheme="dark"');
+    expect(moments).not.toContain("coverChrome");
     expect(live).toContain('fontWeight="medium"');
   });
 });

@@ -54,14 +54,31 @@ export function VideoPlayerOverlay({
 }) {
   const { user } = useAuth();
   const ownerId = trimFoundationWhitespacesAndNewlines(user?.user_id ?? "");
+  if (!videoUrl) return null;
+  return (
+    <VideoPlayerModal key={videoUrl} onClose={onClose} ownerId={ownerId} videoUrl={videoUrl} />
+  );
+}
+
+function VideoPlayerModal({
+  onClose,
+  ownerId,
+  videoUrl,
+}: {
+  onClose: () => void;
+  ownerId: string;
+  videoUrl: string;
+}) {
+  const [isPresented, setPresented] = useState(false);
   return (
     <Modal
       animationType="slide"
+      onShow={() => setPresented(true)}
       onRequestClose={onClose}
       presentationStyle="fullScreen"
-      visible={videoUrl !== null}
+      visible
     >
-      {videoUrl ? (
+      {isPresented ? (
         <VideoPlayerPresentation
           key={videoUrl}
           onClose={onClose}
@@ -116,6 +133,7 @@ function VideoPlayerContent({
   const preparedSource = sourceState?.identity === sourceIdentity ? sourceState.source : null;
   const sourceError =
     !playbackUrl || (sourceState?.identity === sourceIdentity && sourceState.error);
+  const [activationErrorIdentity, setActivationErrorIdentity] = useState<string | null>(null);
   const scheduledCacheCancellation = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -147,10 +165,10 @@ function VideoPlayerContent({
     };
   }, [mediaId, ownerId, playbackUrl, sourceIdentity]);
 
-  const player = useVideoPlayer(preparedSource, (instance) => {
+  const player = useVideoPlayer(null, (instance) => {
     instance.audioMixingMode = "doNotMix";
     instance.keepScreenOnWhilePlaying = true;
-    instance.staysActiveInBackground = true;
+    instance.staysActiveInBackground = false;
     instance.bufferOptions = {
       preferredForwardBufferDuration: 2,
       waitsToMinimizeStalling: true,
@@ -170,10 +188,19 @@ function VideoPlayerContent({
   const pinching = useSharedValue(0);
 
   useEffect(() => {
+    if (!preparedSource) return;
+    let active = true;
+    void player.replaceAsync(preparedSource).catch(() => {
+      if (active) setActivationErrorIdentity(sourceIdentity);
+    });
+    return () => {
+      active = false;
+    };
+  }, [player, preparedSource, sourceIdentity]);
+
+  useEffect(() => {
     if (status === "readyToPlay") playVideoPlayer(player);
   }, [player, status]);
-
-  useEffect(() => () => pauseVideoPlayer(player), [player]);
 
   useEffect(() => {
     if (
@@ -346,7 +373,7 @@ function VideoPlayerContent({
         <Animated.View style={[styles.playerSurface, mediaStyle]}>
           {preparedSource && status === "readyToPlay" ? (
             <VideoView contentFit="contain" nativeControls player={player} style={styles.player} />
-          ) : sourceError || status === "error" || !playbackUrl ? (
+          ) : sourceError || activationErrorIdentity === sourceIdentity || status === "error" ? (
             <View style={styles.state}>
               <SymbolView name="exclamationmark.triangle" size={40} tintColor="#8E8E93" />
               <Text style={styles.errorText}>{t("video.loadFailed")}</Text>

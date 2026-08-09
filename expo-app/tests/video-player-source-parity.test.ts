@@ -85,19 +85,25 @@ describe("native VideoPlayerView parity", () => {
     expect(expo("src/app/moment-detail.tsx")).toContain("<MediaViewer");
   });
 
-  it("preserves full-screen chrome, prepared autoplay, exit pause and buffering", () => {
+  it("waits for full-screen presentation and keeps one player through async source activation", () => {
     const player = expo("src/components/media/VideoPlayerOverlay.tsx");
     const config = expo("app.config.ts");
     expect(player).toContain('presentationStyle="fullScreen"');
+    expect(player).toContain("onShow={() => setPresented(true)}");
+    expect(player).toContain("if (!videoUrl) return null");
+    expect(player).toContain("{isPresented ? (");
     expect(player).toContain("<StatusBar hidden />");
     expect(player).toContain('backdrop: { backgroundColor: "#000000" }');
+    expect(player).toContain("useVideoPlayer(null");
+    expect(player).toContain("player.replaceAsync(preparedSource)");
     expect(player).toContain('status === "readyToPlay"');
     expect(player).toContain("playVideoPlayer(player)");
     expect(player).toContain("pauseVideoPlayer(player)");
+    expect(player).not.toContain("useEffect(() => () => pauseVideoPlayer(player)");
     expect(player).toContain("preferredForwardBufferDuration: 2");
     expect(player).toContain("waitsToMinimizeStalling: true");
     expect(player).toContain("keepScreenOnWhilePlaying = true");
-    expect(player).toContain("staysActiveInBackground = true");
+    expect(player).toContain("staysActiveInBackground = false");
     expect(player).toContain('audioMixingMode = "doNotMix"');
     expect(config).toContain('UIBackgroundModes: ["remote-notification", "audio"]');
     expect(config).toContain('["expo-video", { supportsBackgroundPlayback: true }]');
@@ -214,7 +220,6 @@ describe("native VideoPlayerView parity", () => {
       prepareVideoPlaybackSource(uri, "https://api.example.com/api/v1"),
     ).resolves.toEqual({
       uri,
-      useCaching: true,
       headers: { Authorization: "Bearer fresh-access-token" },
     });
     expect(resourceRequest).toHaveBeenCalledWith(uri, {
@@ -256,7 +261,6 @@ describe("native VideoPlayerView parity", () => {
     ]) {
       await expect(prepareVideoPlaybackSource(uri, api)).resolves.toEqual({
         uri,
-        useCaching: true,
       });
     }
     expect(resourceRequest).not.toHaveBeenCalled();
@@ -271,7 +275,6 @@ describe("native VideoPlayerView parity", () => {
       prepareVideoPlaybackSource(uri, "https://api.example.com/api/v1"),
     ).resolves.toEqual({
       uri,
-      useCaching: true,
       contentType: "hls",
       headers: { Authorization: "Bearer hls-token" },
     });
