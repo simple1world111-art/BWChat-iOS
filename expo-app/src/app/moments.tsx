@@ -210,7 +210,7 @@ function MomentsAccountScreen({
       updateTab(tab, (state) => ({
         ...state,
         error: null,
-        isLoading: reset && state.moments.length === 0 && !forceRefresh,
+        isLoading: false,
         isRefreshing: reset && forceRefresh,
         isLoadingMore: !reset,
       }));
@@ -226,8 +226,12 @@ function MomentsAccountScreen({
               moments: cached.moments,
               hasMore: cached.has_more,
               isLoading: false,
-              isShowingCachedData: true,
+              isShowingCachedData: false,
             }));
+          }
+          loadedRef.current[tab] = true;
+          if (!cached && feedsRef.current[tab].moments.length === 0) {
+            updateTab(tab, (state) => ({ ...state, isLoading: true }));
           }
         }
         const stateBeforeRequest = feedsRef.current[tab];

@@ -10,20 +10,21 @@ describe("Preview UI entrypoints", () => {
     expect(conversations).not.toContain('perform("scan")');
   });
 
-  it("adds a working filter control to the top-left of Map", () => {
+  it("keeps the working Map filter control at the top-right", () => {
     const map = source("src/app/(tabs)/map.tsx");
     expect(map).toContain('testID="map-filter-button"');
-    expect(map).toContain("left: 16");
+    expect(map).toContain("right: 16");
+    expect(map).not.toContain('filterButton: {\n    position: "absolute",\n    left: 16');
     expect(map).toContain("setMapFilter(selected.key)");
     expect(map).toContain('mapFilter === "online"');
     expect(map).toContain('mapFilter === "friends"');
   });
 
-  it("keeps a standalone test card visible on Discover", () => {
+  it("removes the standalone test entry from Discover", () => {
     const discover = source("src/app/(tabs)/discover.tsx");
-    expect(discover).toContain('testID="discover-test-card"');
-    expect(discover).toContain('"zh-Hans": "测试"');
-    expect(discover).toContain("onPress={() => void open(TEST_DISCOVER_ITEM)}");
+    expect(discover).not.toContain('testID="discover-test-card"');
+    expect(discover).not.toContain("TEST_DISCOVER_ITEM");
+    expect(discover).not.toContain('id: "test_entry"');
   });
 
   it("removes the ID capsule beside the profile nickname", () => {

@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   filterButton: {
     position: "absolute",
-    left: 16,
+    right: 16,
     minHeight: 40,
     paddingHorizontal: 13,
     borderRadius: 20,

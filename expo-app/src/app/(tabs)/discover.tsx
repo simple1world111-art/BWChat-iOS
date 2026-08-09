@@ -41,25 +41,6 @@ import { publishMomentsUnread } from "@/services/moments/MomentsUnreadStore";
 import { openDynamicRoute } from "@/services/web/DynamicRouteNavigator";
 import { palette } from "@/theme";
 
-const TEST_DISCOVER_ITEM: DiscoverItem = {
-  id: "test_entry",
-  titleI18n: {
-    de: "Test",
-    en: "Test",
-    es: "Prueba",
-    fr: "Test",
-    ja: "テスト",
-    ko: "테스트",
-    "pt-BR": "Teste",
-    ru: "Тест",
-    "zh-Hans": "测试",
-    "zh-Hant": "測試",
-  },
-  systemImage: "star.fill",
-  colors: ["FF9500", "FFCC00"],
-  route: { type: "coming_soon" },
-};
-
 export default function DiscoverScreen() {
   const scheme = useColorScheme();
   const theme = palette(scheme);
@@ -263,16 +244,6 @@ export default function DiscoverScreen() {
             ))}
           </View>
         ))}
-        <View style={[styles.card, { backgroundColor: theme.card }]} testID="discover-test-card">
-          <DiscoverRow
-            item={TEST_DISCOVER_ITEM}
-            last
-            onPress={() => void open(TEST_DISCOVER_ITEM)}
-            showsDot={false}
-            theme={theme}
-            title={discoverItemTitle(TEST_DISCOVER_ITEM, activeLanguage, t)}
-          />
-        </View>
       </View>
     </ScrollView>
   );

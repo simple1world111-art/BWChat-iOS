@@ -42,6 +42,19 @@ describe("Moments account lifecycle isolation", () => {
     expect(queue).toContain("subscribeMomentUploads(ownerId: string, listener: Listener)");
   });
 
+  it("hydrates cached feeds before showing automatic loading feedback", () => {
+    const feed = read("src/app/moments.tsx");
+    const cacheRead = feed.indexOf("await readCachedMomentFeed(ownerId, tab)");
+    const initialLoading = feed.indexOf(
+      "if (!cached && feedsRef.current[tab].moments.length === 0)",
+    );
+
+    expect(cacheRead).toBeGreaterThan(-1);
+    expect(initialLoading).toBeGreaterThan(cacheRead);
+    expect(feed).toContain("isLoading: false,\n        isRefreshing: reset && forceRefresh");
+    expect(feed).toContain("isShowingCachedData: false");
+  });
+
   it("matches the original account ownership guards", () => {
     const native = read("../BWChat/ViewModels/MomentsViewModel.swift");
     expect(native).toContain("ownerID == AuthManager.shared.currentUser?.userID");
