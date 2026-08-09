@@ -34,6 +34,8 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 
@@ -188,10 +190,6 @@ export function ImageGallerySource({
       );
     const open = (sourceFrame?: GalleryFrame) => {
       if (!isCurrentOpen()) return;
-      // Hide the thumbnail before mounting the transparent Modal. Waiting for
-      // the gallery effect leaves one committed frame where the source and
-      // the moving Hero are both visible.
-      setActiveSourceId(scopedSourceId);
       onOpen({
         ...selection,
         naturalSize,
@@ -251,22 +249,39 @@ export function ImageGallery({
 }) {
   const { user } = useAuth();
   const ownerId = user?.user_id ?? "";
+  if (!selection) return null;
+  return (
+    <ImageGalleryModal
+      key={selection.sourceId ?? selection.media.id}
+      ownerId={ownerId}
+      onClose={onClose}
+      selection={selection}
+    />
+  );
+}
+
+function ImageGalleryModal({
+  selection,
+  onClose,
+  ownerId,
+}: {
+  selection: ImageGallerySelection;
+  onClose: () => void;
+  ownerId: string;
+}) {
+  const [isPresented, setPresented] = useState(false);
   return (
     <Modal
       animationType="none"
       onRequestClose={onClose}
+      onShow={() => setPresented(true)}
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
-      visible={selection !== null}
+      visible
     >
-      {selection ? (
-        <ImageGalleryPresentation
-          key={selection.sourceId ?? selection.media.id}
-          ownerId={ownerId}
-          onClose={onClose}
-          selection={selection}
-        />
+      {isPresented ? (
+        <ImageGalleryPresentation ownerId={ownerId} onClose={onClose} selection={selection} />
       ) : null}
     </Modal>
   );
@@ -390,28 +405,40 @@ function ImageGalleryContent({
   }, [currentIndex, pageIndex, pageOffset, width]);
 
   useEffect(() => {
-    setActiveSourceId(selection.sourceId ?? null);
-    openProgress.value = withTiming(
-      1,
-      {
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
-      },
-      (finished) => {
-        if (!finished || !sourceFrame) return;
-        // The full-size page must stay hidden until the Hero reaches the same
-        // frame; otherwise it reads as a second, static image behind the zoom.
-        contentOpacity.value = 1;
-        heroOpacity.value = 0;
-      },
-    );
-    if (!sourceFrame) {
-      contentOpacity.value = withTiming(1, {
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
+    // The source remains painted until iOS confirms the transparent Modal is
+    // on screen. The stationary Hero is already covering this exact frame
+    // when the source is hidden, so the feed never exposes a white tile.
+    setActiveSourceId(sourceFrame ? (selection.sourceId ?? null) : null);
+    const animationFrame = requestAnimationFrame(() => {
+      const duration = 320;
+      const handoffDuration = 88;
+      const handoffDelay = duration - handoffDuration;
+      openProgress.value = withTiming(1, {
+        duration,
+        easing: Easing.inOut(Easing.cubic),
       });
-    }
-    return () => setActiveSourceId(null);
+      if (sourceFrame) {
+        // Crossfade near the destination instead of swapping two decoded
+        // image layers in one frame, which looked like a sudden scale jump.
+        contentOpacity.value = withDelay(
+          handoffDelay,
+          withTiming(1, { duration: handoffDuration, easing: Easing.inOut(Easing.cubic) }),
+        );
+        heroOpacity.value = withDelay(
+          handoffDelay,
+          withTiming(0, { duration: handoffDuration, easing: Easing.inOut(Easing.cubic) }),
+        );
+      } else {
+        contentOpacity.value = withTiming(1, {
+          duration,
+          easing: Easing.inOut(Easing.cubic),
+        });
+      }
+    });
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      setActiveSourceId(null);
+    };
   }, [contentOpacity, heroOpacity, openProgress, selection.sourceId, sourceFrame]);
 
   useEffect(() => {
@@ -534,21 +561,29 @@ function ImageGalleryContent({
       currentIndex === initialIndex &&
       scale.value <= GALLERY_REST_SCALE_LIMIT;
     if (canReturnToSource) {
-      // Both layers are at the same fitted frame here, so swapping them in
-      // one UI-thread frame avoids a duplicate image and a React commit pop.
-      heroOpacity.value = 1;
-      contentOpacity.value = 0;
-      openProgress.value = withTiming(
-        0,
-        {
-          duration: 240,
-          easing: Easing.inOut(Easing.cubic),
-        },
-        (finished) => {
-          if (finished) {
-            runOnJS(finishClose)(requestedOwnerId, requestedGeneration, requestedOperation);
-          }
-        },
+      const handoffDuration = 64;
+      heroOpacity.value = withTiming(1, {
+        duration: handoffDuration,
+        easing: Easing.inOut(Easing.cubic),
+      });
+      contentOpacity.value = withTiming(0, {
+        duration: handoffDuration,
+        easing: Easing.inOut(Easing.cubic),
+      });
+      openProgress.value = withDelay(
+        32,
+        withTiming(
+          0,
+          {
+            duration: 288,
+            easing: Easing.inOut(Easing.cubic),
+          },
+          (finished) => {
+            if (finished) {
+              runOnJS(finishClose)(requestedOwnerId, requestedGeneration, requestedOperation);
+            }
+          },
+        ),
       );
       return;
     }
@@ -763,23 +798,24 @@ function ImageGalleryContent({
               // runOnJS(beginDismiss) handoff left the image parked for a frame
               // after the finger lifted, which read as a hitch on iOS.
               runOnJS(prepareSwipeDismiss)();
-              const duration = 220;
               const targetY = decision < 0 ? -height : height;
-              verticalDrag.value = withTiming(targetY, {
-                duration,
-                easing: Easing.out(Easing.cubic),
-              });
-              openProgress.value = withTiming(0, {
-                duration,
-                easing: Easing.out(Easing.cubic),
-              });
-              contentOpacity.value = withTiming(
-                0,
-                { duration, easing: Easing.out(Easing.cubic) },
+              verticalDrag.value = withSpring(
+                targetY,
+                {
+                  damping: 24,
+                  stiffness: 150,
+                  mass: 1,
+                  velocity: Math.max(-2400, Math.min(event.velocityY, 2400)),
+                  overshootClamping: true,
+                },
                 (finished) => {
                   if (finished) runOnJS(finishSwipeDismiss)();
                 },
               );
+              openProgress.value = withTiming(0, {
+                duration: 280,
+                easing: Easing.inOut(Easing.cubic),
+              });
             } else
               verticalDrag.value = withTiming(0, {
                 duration: 160,
@@ -829,7 +865,6 @@ function ImageGalleryContent({
         }),
     [
       commitPage,
-      contentOpacity,
       finishSwipeDismiss,
       height,
       images.length,
@@ -919,10 +954,21 @@ function ImageGalleryContent({
     transform: [{ translateX: pageOffset.value }],
   }));
   const currentImageStyle = useAnimatedStyle(() => {
-    const dragScale =
-      Math.abs(verticalDrag.value) < 8 ? 1 : Math.max(1 - Math.abs(verticalDrag.value) / 900, 0.55);
+    const dragDistance = Math.abs(verticalDrag.value);
+    const dragScale = interpolate(
+      dragDistance,
+      [0, 32, Math.max(height, 33)],
+      [1, 1, 0.78],
+      Extrapolation.CLAMP,
+    );
+    const dragOpacity = interpolate(
+      dragDistance,
+      [0, 40, Math.max(height * 0.72, 41)],
+      [1, 1, 0],
+      Extrapolation.CLAMP,
+    );
     return {
-      opacity: contentOpacity.value,
+      opacity: contentOpacity.value * dragOpacity,
       transform: [
         { translateX: offsetX.value },
         { translateY: offsetY.value + verticalDrag.value },

@@ -77,15 +77,20 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).toMatch(/const duration = 180;\s+openProgress\.value = withTiming\(0,/u);
   });
 
-  it("hands Hero visibility over on the UI thread and keeps swipe dismissal continuous", () => {
+  it("waits for the native Modal before hiding the source and starting the Hero", () => {
     const gallery = source();
-    expect(gallery).toMatch(/setActiveSourceId\(scopedSourceId\);\s+onOpen\(\{/u);
+    expect(gallery).not.toMatch(/setActiveSourceId\(scopedSourceId\);\s+onOpen\(\{/u);
+    expect(gallery).toContain("onShow={() => setPresented(true)}");
+    expect(gallery).toContain("{isPresented ? (");
+    expect(gallery).toMatch(
+      /setActiveSourceId\(sourceFrame \? \(selection\.sourceId \?\? null\) : null\);\s+const animationFrame = requestAnimationFrame\(\(\) => \{/u,
+    );
     expect(gallery).toContain("const heroOpacity = useSharedValue(sourceFrame ? 1 : 0)");
     expect(gallery).toMatch(
-      /if \(!finished \|\| !sourceFrame\) return;[\s\S]*?contentOpacity\.value = 1;\s+heroOpacity\.value = 0;/u,
+      /contentOpacity\.value = withDelay\([\s\S]*?heroOpacity\.value = withDelay\(/u,
     );
     expect(gallery).toMatch(
-      /const canReturnToSource =\s+Boolean\(sourceFrame\)[\s\S]*?heroOpacity\.value = 1;\s+contentOpacity\.value = 0;/u,
+      /const canReturnToSource =\s+Boolean\(sourceFrame\)[\s\S]*?heroOpacity\.value = withTiming\(1,[\s\S]*?contentOpacity\.value = withTiming\(0,/u,
     );
     expect(gallery).not.toContain("verticalDrag.value = withTiming(0, { duration: 70 })");
   });
@@ -95,10 +100,10 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).not.toContain("runOnJS(beginDismiss)(decision)");
     expect(gallery).toContain("runOnJS(prepareSwipeDismiss)()");
     expect(gallery).toMatch(
-      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withTiming\(targetY,[\s\S]*?runOnJS\(finishSwipeDismiss\)\(\)/u,
+      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withSpring\([\s\S]*?runOnJS\(finishSwipeDismiss\)\(\)/u,
     );
     expect(gallery).toMatch(
-      /const stripStyle = useAnimatedStyle\(\(\) => \(\{\s+transform: \[\{ translateX: pageOffset\.value \}\],[\s\S]*?const currentImageStyle[\s\S]*?opacity: contentOpacity\.value,/u,
+      /const stripStyle = useAnimatedStyle\(\(\) => \(\{\s+transform: \[\{ translateX: pageOffset\.value \}\],[\s\S]*?const currentImageStyle[\s\S]*?opacity: contentOpacity\.value \* dragOpacity,/u,
     );
     expect(gallery).toMatch(/setActiveSourceId\(null\);\s+requestAnimationFrame\(\(\) => \{/u);
   });
