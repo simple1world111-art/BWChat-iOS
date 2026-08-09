@@ -36,6 +36,8 @@ import {
   normalizeGroupMemberUpdateEvent,
   normalizeGroupNotificationSettings,
 } from "@/services/groups/GroupInfoV2Repository";
+import { saveDirectChatMessages } from "@/services/messages/DirectChatHistoryRepository";
+import { saveGroupChatMessages } from "@/services/messages/GroupChatHistoryRepository";
 import { readAccessToken } from "@/storage/tokenStorage";
 
 export type ChatRealtimeEvent =
@@ -216,6 +218,7 @@ class ChatRealtimeService {
   private status: ChatRealtimeStatus = "disconnected";
   private activeDirectId: string | null = null;
   private activeGroupId: number | null = null;
+  private incomingEventDispatch: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<EventListener>();
   private readonly statusListeners = new Set<StatusListener>();
 
@@ -315,14 +318,12 @@ class ChatRealtimeService {
     };
     socket.onmessage = (event) => {
       if (this.socket !== socket || !this.ownerId) return;
+      const ownerId = this.ownerId;
       this.lastMessageAt = Date.now();
       this.reconnectAttempt = 0;
       this.refreshAttempted = false;
       this.setStatus("connected");
-      for (const parsed of parseChatRealtimeEnvelope(event.data)) {
-        void this.applySideEffects(this.ownerId, parsed);
-        for (const listener of this.listeners) listener(parsed);
-      }
+      this.enqueueIncomingEvents(socket, ownerId, parseChatRealtimeEnvelope(event.data));
     };
     socket.onerror = () => {
       // The close callback owns reconnect scheduling on React Native.
@@ -377,7 +378,9 @@ class ChatRealtimeService {
   }
 
   private async applySideEffects(ownerId: string, event: ChatRealtimeEvent): Promise<void> {
-    if (event.type === "conversation_read") {
+    if (event.type === "direct_message" || event.type === "group_message") {
+      await persistChatRealtimeMessage(ownerId, event);
+    } else if (event.type === "conversation_read") {
       await applyConversationReadReceipt(ownerId, event.receipt);
     } else if (event.type === "group_history_cleared") {
       await applyGroupHistoryClear(ownerId, event.receipt);
@@ -388,6 +391,31 @@ class ChatRealtimeService {
     } else if (event.type === "group_announcement_updated") {
       await applyGroupAnnouncementUpdate(ownerId, event.announcement);
     }
+  }
+
+  private enqueueIncomingEvents(
+    socket: WebSocket,
+    ownerId: string,
+    events: readonly ChatRealtimeEvent[],
+  ): void {
+    if (events.length === 0) return;
+    this.incomingEventDispatch = this.incomingEventDispatch
+      .catch(() => undefined)
+      .then(async () => {
+        for (const event of events) {
+          if (this.socket !== socket || this.ownerId !== ownerId) return;
+          try {
+            // Keep the list preview and the timeline on one ordered source of
+            // truth: a user can only tap a newly broadcast preview after its
+            // corresponding message is durable in the account-scoped cache.
+            await this.applySideEffects(ownerId, event);
+          } catch (error) {
+            reportRealtimeError(error, "realtime_event_side_effect");
+          }
+          if (this.socket !== socket || this.ownerId !== ownerId) return;
+          for (const listener of this.listeners) listener(event);
+        }
+      });
   }
 
   private teardownSocket(code?: number, reason?: string): void {
@@ -420,6 +448,28 @@ class ChatRealtimeService {
 }
 
 export const chatRealtimeService = new ChatRealtimeService();
+
+export function directMessageContactId(ownerId: string, message: Message): string | null {
+  const owner = ownerId.trim();
+  if (!owner) return null;
+  if (message.sender_id === owner) return message.receiver_id.trim() || null;
+  if (message.receiver_id === owner) return message.sender_id.trim() || null;
+  return null;
+}
+
+export async function persistChatRealtimeMessage(
+  ownerId: string,
+  event: Extract<ChatRealtimeEvent, { type: "direct_message" | "group_message" }>,
+): Promise<void> {
+  const owner = ownerId.trim();
+  if (!owner || event.message.id <= 0) return;
+  if (event.type === "direct_message") {
+    const contactId = directMessageContactId(owner, event.message);
+    if (contactId) await saveDirectChatMessages(owner, contactId, [event.message]);
+    return;
+  }
+  await saveGroupChatMessages(owner, event.message.group_id, [event.message]);
+}
 
 function parseEnvelope(value: unknown): Record<string, unknown> | null {
   if (isRecord(value)) return value;

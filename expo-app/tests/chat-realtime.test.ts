@@ -1,9 +1,15 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import {
   chatRealtimeService,
   chatRealtimeReconnectDelay,
+  directMessageContactId,
   makeChatWebSocketURL,
   parseChatRealtimeEnvelope,
+  persistChatRealtimeMessage,
 } from "@/services/realtime/ChatRealtimeService";
+import { readDirectChatCachedMessages } from "@/services/messages/DirectChatHistoryRepository";
+import { readGroupChatCachedMessages } from "@/services/messages/GroupChatHistoryRepository";
 
 describe("native WebSocket event contracts", () => {
   it("builds the exact token query without retaining a stale token", () => {
@@ -56,6 +62,47 @@ describe("native WebSocket event contracts", () => {
         type: "group_message",
         message: { id: 51, group_id: 7, sender_id: "u2", msg_type: "image" },
       },
+    ]);
+  });
+
+  it("resolves only account-scoped direct-message cache identities", () => {
+    expect(directMessageContactId("me", directMessage(1))).toBe("u1");
+    expect(
+      directMessageContactId("me", {
+        ...directMessage(2),
+        sender_id: "u1",
+        receiver_id: "me",
+      }),
+    ).toBe("u1");
+    expect(
+      directMessageContactId("me", {
+        ...directMessage(3),
+        sender_id: "u1",
+        receiver_id: "u2",
+      }),
+    ).toBeNull();
+  });
+
+  it("persists direct and group events before pages consume their broadcasts", async () => {
+    await AsyncStorage.clear();
+    await persistChatRealtimeMessage("me", {
+      type: "direct_message",
+      message: {
+        ...directMessage(10),
+        sender_id: "u1",
+        receiver_id: "me",
+      },
+    });
+    await persistChatRealtimeMessage("me", {
+      type: "group_message",
+      message: groupMessage(11),
+    });
+
+    await expect(readDirectChatCachedMessages("me", "u1")).resolves.toEqual([
+      expect.objectContaining({ id: 10, content: "{}" }),
+    ]);
+    await expect(readGroupChatCachedMessages("me", 7)).resolves.toEqual([
+      expect.objectContaining({ id: 11, content: "{}" }),
     ]);
   });
 
@@ -250,6 +297,7 @@ function directMessage(id: number) {
     msg_type: "chat_money",
     content: "{}",
     timestamp: "2026-08-06T10:00:00Z",
+    version: 1,
   };
 }
 
