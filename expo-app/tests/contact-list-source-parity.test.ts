@@ -148,11 +148,12 @@ describe("ContactList source parity", () => {
       "fontSize: 12",
       'backgroundColor: "#F0A020"',
       'backgroundColor: "#E5484D"',
-      'symbol="qrcode.viewfinder"',
       'symbol="person.crop.circle.badge.plus"',
     ]) {
       expect(page).toContain(contract);
     }
+    expect(page).not.toContain('symbol="qrcode.viewfinder"');
+    expect(page).not.toContain('title={t("messages.scan")}');
   });
 
   it("uses dynamic original avatars and remote covers without introducing page bitmap assets", () => {

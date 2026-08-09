@@ -1369,11 +1369,10 @@ function MessageActionsModal({
   t: Translate;
 }) {
   const { styles } = useConversationTheme();
-  const perform = (action: "group" | "friend" | "scan" | "agent") => {
+  const perform = (action: "group" | "friend" | "agent") => {
     onClose();
     requestAnimationFrame(() => {
       if (action === "friend") router.push("/add-friend");
-      else if (action === "scan") Alert.alert(t("messages.scan"), t("common.comingSoonMessage"));
       else if (action === "group") router.push("/create-group");
       else router.push("/agent-creator");
     });
@@ -1391,11 +1390,6 @@ function MessageActionsModal({
             title={t("messages.addFriend")}
             symbol="person.badge.plus"
             onPress={() => perform("friend")}
-          />
-          <ActionMenuRow
-            title={t("messages.scan")}
-            symbol="qrcode.viewfinder"
-            onPress={() => perform("scan")}
           />
           <ActionMenuRow
             title={t("messages.createBot")}

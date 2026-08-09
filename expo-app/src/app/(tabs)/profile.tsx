@@ -255,7 +255,6 @@ export default function ProfileScreen() {
           username={username}
           userId={userId}
           bio={bio}
-          idMissing={t("profile.idMissing")}
           postsTitle={t("profile.posts")}
           followersTitle={t("follow.followers")}
           followingTitle={t("follow.following")}
@@ -352,7 +351,6 @@ function ProfileHero({
   username,
   userId,
   bio,
-  idMissing,
   postsTitle,
   followersTitle,
   followingTitle,
@@ -365,7 +363,6 @@ function ProfileHero({
   username: string;
   userId: string;
   bio: string;
-  idMissing: string;
   postsTitle: string;
   followersTitle: string;
   followingTitle: string;
@@ -395,16 +392,6 @@ function ProfileHero({
             >
               {username}
             </Text>
-            <View style={styles.idCapsule}>
-              <Text
-                adjustsFontSizeToFit
-                minimumFontScale={0.75}
-                numberOfLines={1}
-                style={styles.idText}
-              >
-                {userId ? `ID: ${userId}` : idMissing}
-              </Text>
-            </View>
           </View>
 
           <View style={styles.stats}>
@@ -819,15 +806,6 @@ function createProfileStyles(theme: ReturnType<typeof palette>) {
       columnGap: 8,
     },
     name: { flexShrink: 1, color: theme.text, fontSize: 24, fontWeight: "700" },
-    idCapsule: {
-      height: 22,
-      maxWidth: 110,
-      paddingHorizontal: 8,
-      justifyContent: "center",
-      borderRadius: 11,
-      backgroundColor: theme.background,
-    },
-    idText: { color: theme.secondaryText, fontSize: 12, fontWeight: "700" },
     stats: { width: "100%", flexDirection: "row", alignItems: "flex-start", columnGap: 8 },
     statContent: { width: 48, minHeight: 40, alignItems: "center", rowGap: 1 },
     statValue: {

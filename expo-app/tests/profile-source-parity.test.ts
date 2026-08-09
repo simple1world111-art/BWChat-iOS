@@ -26,7 +26,7 @@ describe("Profile source parity", () => {
     }
   });
 
-  it("keeps the original profile and share-sheet geometry and typography", () => {
+  it("keeps the profile and share-sheet geometry while omitting the nickname ID capsule", () => {
     const screen = expo("src/app/(tabs)/profile.tsx");
     for (const contract of [
       "contentGap: 14",
@@ -38,7 +38,6 @@ describe("Profile source parity", () => {
       "bioLineHeight: 20",
       "bioVerticalCompensation: -1.5",
       "fontSize: 24",
-      "height: 22",
       "fontSize: 22",
       "actionHeight: 42",
       "rowMinHeight: 50",
@@ -58,6 +57,13 @@ describe("Profile source parity", () => {
     expect(screen).toContain("borderColor: `${theme.separator}B3`");
     expect(screen).toContain("<View style={styles.dividerLine} />");
     expect(screen).not.toContain("marginTop: 10");
+    const hero = screen.slice(
+      screen.indexOf("function ProfileHero"),
+      screen.indexOf("function ProfileStat"),
+    );
+    expect(hero).not.toContain("styles.idCapsule");
+    expect(hero).not.toContain("styles.idText");
+    expect(hero).not.toContain("`ID: ${userId}`");
   });
 
   it("keeps strict profile/wallet API calls and the original lifecycle refreshes", () => {

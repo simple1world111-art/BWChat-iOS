@@ -1,12 +1,18 @@
 import { randomUUID } from "expo-crypto";
 import { router } from "expo-router";
+import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
+  Alert,
+  type AlertButton,
   AppState,
   type AppStateStatus,
   Platform,
+  Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import MapView, { Marker, type Region } from "react-native-maps";
@@ -68,6 +74,8 @@ const MAP_VISUAL_ACCEPTANCE_USERS: readonly MapDatingUser[] = [
 const MAP_VISUAL_ACCEPTANCE_REGION =
   viewerMapRegion(MAP_VISUAL_ACCEPTANCE_VIEWER) ?? TOKYO_STATION_REGION;
 
+type MapFilter = "nearby" | "online" | "friends";
+
 export default function MapScreen() {
   const { user } = useAuth();
   const { activeLanguage, t } = useLocalization();
@@ -84,10 +92,9 @@ export default function MapScreen() {
   const [mapUsers, setMapUsers] = useState<MapDatingUser[]>(() =>
     mapVisualAcceptanceEnabled ? [...MAP_VISUAL_ACCEPTANCE_USERS] : [],
   );
-  const [isLoading, setIsLoading] = useState(
-    mapVisualAcceptanceEnabled ? false : Boolean(ownerId),
-  );
+  const [isLoading, setIsLoading] = useState(mapVisualAcceptanceEnabled ? false : Boolean(ownerId));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [mapFilter, setMapFilter] = useState<MapFilter>("nearby");
 
   useEffect(() => {
     let active = true;
@@ -178,7 +185,8 @@ export default function MapScreen() {
           now,
           force,
         )
-      ) return;
+      )
+        return;
       try {
         const response = await uploadMapLocation(location, "foreground_update", randomUUID());
         if (!active) return;
@@ -295,10 +303,14 @@ export default function MapScreen() {
     };
   }, [missingCoordinates, operationFailed, ownerId]);
 
-  const mappableUsers = useMemo(
-    () => mapUsers.flatMap((candidate) => (mapUserCoordinate(candidate) ? [candidate] : [])),
-    [mapUsers],
-  );
+  const mappableUsers = useMemo(() => {
+    const filtered = mapUsers.filter((candidate) => {
+      if (mapFilter === "online") return candidate.onlineStatus === "online";
+      if (mapFilter === "friends") return isFriendMapUser(candidate);
+      return true;
+    });
+    return filtered.flatMap((candidate) => (mapUserCoordinate(candidate) ? [candidate] : []));
+  }, [mapFilter, mapUsers]);
   const nativeMapMarkers = useMemo<BWChatNativeMapMarker[]>(() => {
     const markers: BWChatNativeMapMarker[] = [];
     if (viewerCoordinate) {
@@ -329,6 +341,34 @@ export default function MapScreen() {
     return markers;
   }, [mappableUsers, t, user?.avatar_url, viewerCoordinate]);
 
+  const showFilterMenu = () => {
+    const filters: readonly { key: MapFilter; title: string }[] = [
+      { key: "nearby", title: t("map.mode.nearby") },
+      { key: "online", title: t("map.online") },
+      { key: "friends", title: t("map.mode.friends") },
+    ];
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...filters.map((filter) => filter.title), t("common.cancel")],
+          cancelButtonIndex: filters.length,
+          title: t("group.search.filters"),
+        },
+        (index) => {
+          const selected = filters[index];
+          if (selected) setMapFilter(selected.key);
+        },
+      );
+      return;
+    }
+    const buttons: AlertButton[] = filters.map((filter) => ({
+      text: filter.title,
+      onPress: () => setMapFilter(filter.key),
+    }));
+    buttons.push({ text: t("common.cancel"), style: "cancel" });
+    Alert.alert(t("group.search.filters"), undefined, buttons);
+  };
+
   return (
     <View style={styles.screen}>
       {Platform.OS === "ios" ? (
@@ -343,11 +383,7 @@ export default function MapScreen() {
           style={StyleSheet.absoluteFill}
         />
       ) : (
-        <MapView
-          onRegionChangeComplete={setRegion}
-          region={region}
-          style={StyleSheet.absoluteFill}
-        >
+        <MapView onRegionChangeComplete={setRegion} region={region} style={StyleSheet.absoluteFill}>
           {viewerCoordinate ? (
             <Marker
               accessibilityLabel={t("map.myLocation")}
@@ -386,6 +422,25 @@ export default function MapScreen() {
           })}
         </MapView>
       )}
+      <Pressable
+        accessibilityLabel={t("group.search.filters")}
+        accessibilityRole="button"
+        onPress={showFilterMenu}
+        style={({ pressed }) => [
+          styles.filterButton,
+          { top: insets.top + 8 },
+          pressed && styles.filterButtonPressed,
+        ]}
+        testID="map-filter-button"
+      >
+        <SymbolView
+          name="line.3.horizontal.decrease"
+          size={15}
+          tintColor={colors.text}
+          weight="semibold"
+        />
+        <Text style={styles.filterButtonText}>{t("group.search.filters")}</Text>
+      </Pressable>
       {isLoading ? (
         <View style={[styles.loadingBubble, { top: insets.top + 8 }]}>
           <ActivityIndicator color={colors.accent} />
@@ -496,12 +551,35 @@ function coordinateFromLocation(location: MapDeviceLocation): MapCoordinate {
   };
 }
 
+function isFriendMapUser(user: MapDatingUser): boolean {
+  const relation = user.relation?.trim().toLocaleLowerCase().replaceAll("-", "_") ?? "";
+  return ["friend", "friends", "mutual_friend", "mutual_friends"].includes(relation);
+}
+
 function errorMessageFor(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  filterButton: {
+    position: "absolute",
+    left: 16,
+    minHeight: 40,
+    paddingHorizontal: 13,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    columnGap: 6,
+    backgroundColor: colors.card,
+    shadowColor: "#000000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  filterButtonPressed: { opacity: 0.72 },
+  filterButtonText: { color: colors.text, fontSize: 14, fontWeight: "600" },
   loadingBubble: {
     position: "absolute",
     alignSelf: "center",
