@@ -1,6 +1,6 @@
 import { LinearGradient } from "expo-linear-gradient";
 import type { ImageLoadEventData } from "expo-image";
-import { router, Stack, useFocusEffect } from "expo-router";
+import { router, Stack, useFocusEffect, type NativeStackNavigationOptions } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -41,6 +41,7 @@ import {
 import { palette } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 import { rememberScriptForNavigation } from "@/services/scripts/ScriptNavigationStore";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 
 const skeletons = Array.from({ length: scriptCenterMetrics.skeletonCount }, (_, index) => ({
   script_id: `placeholder-${index}`,
@@ -381,15 +382,12 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       skipNextSelectionEffectRef.current = false;
       return;
     }
-    let active = true;
-    queueMicrotask(() => {
-      if (active) void loadSelection({ reloadCategories: categories.length === 0 });
-    });
+    const cancel = runAfterNavigationInteractions(
+      () => void loadSelection({ reloadCategories: categories.length === 0 }),
+    );
     // Categories are intentionally not a dependency: a cache/remote category write
     // must not restart the selected-page request.
-    return () => {
-      active = false;
-    };
+    return cancel;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId, scope, selectedCategoryId]);
 
@@ -414,42 +412,44 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
 
   const displayedScripts = isLoading && scripts.length === 0 ? skeletons : scripts;
   const showSkeletons = isLoading && scripts.length === 0;
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: "",
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: theme.background },
+      headerBackTitle: t("common.back"),
+      headerBackButtonDisplayMode: "minimal",
+      headerTintColor: "#1A1A2E",
+      headerTitle: () => (
+        <SystemSegmentedTabs<ScriptScope>
+          accessibilityIdentifier="script.center.top.tabs"
+          colorScheme="light"
+          items={[
+            { value: "public", title: text("公开剧本", "Public") },
+            { value: "mine", title: text("我的剧本", "Mine") },
+          ]}
+          onSelectionChange={selectScope}
+          selection={scope}
+        />
+      ),
+      headerRight: () => (
+        <Pressable
+          accessibilityLabel={text("创建剧本", "Create script")}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => router.push("/script-editor")}
+          style={styles.createButton}
+        >
+          <SymbolView name="plus" size={18} weight="semibold" tintColor={theme.text} />
+        </Pressable>
+      ),
+    }),
+    [scope, selectScope, styles.createButton, t, text, theme.background, theme.text],
+  );
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title: "",
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: theme.background },
-          headerBackTitle: t("common.back"),
-          headerBackButtonDisplayMode: "minimal",
-          headerTintColor: "#1A1A2E",
-          headerTitle: () => (
-            <SystemSegmentedTabs<ScriptScope>
-              accessibilityIdentifier="script.center.top.tabs"
-              colorScheme="light"
-              items={[
-                { value: "public", title: text("公开剧本", "Public") },
-                { value: "mine", title: text("我的剧本", "Mine") },
-              ]}
-              onSelectionChange={selectScope}
-              selection={scope}
-            />
-          ),
-          headerRight: () => (
-            <Pressable
-              accessibilityLabel={text("创建剧本", "Create script")}
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => router.push("/script-editor")}
-              style={styles.createButton}
-            >
-              <SymbolView name="plus" size={18} weight="semibold" tintColor={theme.text} />
-            </Pressable>
-          ),
-        }}
-      />
+      <Stack.Screen options={headerOptions} />
 
       <ScrollView
         contentContainerStyle={styles.categories}

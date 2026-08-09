@@ -1,5 +1,5 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { router, Stack, useFocusEffect } from "expo-router";
+import { router, Stack, useFocusEffect, type NativeStackNavigationOptions } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -60,6 +60,7 @@ import {
 } from "@/services/short-drama/shortDramaSeriesPolicy";
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 
 interface FilterState {
   series: ShortDramaSeries[];
@@ -286,13 +287,7 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    queueMicrotask(() => {
-      if (active) void load(filter, true, false);
-    });
-    return () => {
-      active = false;
-    };
+    return runAfterNavigationInteractions(() => void load(filter, true, false));
   }, [filter, load, ownerId]);
 
   useEffect(
@@ -316,7 +311,7 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
 
   useFocusEffect(
     useCallback(() => {
-      void applyHistory();
+      return runAfterNavigationInteractions(() => void applyHistory());
     }, [applyHistory]),
   );
 
@@ -332,59 +327,61 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
       },
     });
   }, []);
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: "",
+      headerBackVisible: false,
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: secondarySystemBackground },
+      headerTintColor: colors.text,
+      headerTitleAlign: "center",
+      headerLeft: () => (
+        <Pressable
+          accessibilityLabel={t("common.back")}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
+          <SymbolView name="chevron.left" size={17} weight="semibold" tintColor={colors.text} />
+        </Pressable>
+      ),
+      headerTitle: () => (
+        <SystemSegmentedTabs<ShortDramaSeriesFilter>
+          accessibilityIdentifier="shortDrama.top.tabs"
+          colorScheme="light"
+          items={[
+            { value: "recommended", title: t("shortDrama.tab.recommended") },
+            { value: "watched", title: t("shortDrama.tab.watched") },
+          ]}
+          onSelectionChange={setFilter}
+          selection={filter}
+          width={shortDramaSeriesMetrics.segmentedWidth}
+        />
+      ),
+      headerRight: () => (
+        <Pressable
+          accessibilityLabel={t("shortDrama.series.create")}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => router.push("/short-drama-editor")}
+          style={styles.createButton}
+        >
+          <SymbolView
+            name="plus"
+            size={shortDramaSeriesMetrics.createSymbolSize}
+            weight="semibold"
+            tintColor={colors.text}
+          />
+        </Pressable>
+      ),
+    }),
+    [filter, styles.backButton, styles.createButton, t],
+  );
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title: "",
-          headerBackVisible: false,
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: secondarySystemBackground },
-          headerTintColor: colors.text,
-          headerTitleAlign: "center",
-          headerLeft: () => (
-            <Pressable
-              accessibilityLabel={t("common.back")}
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => router.back()}
-              style={styles.backButton}
-            >
-              <SymbolView name="chevron.left" size={17} weight="semibold" tintColor={colors.text} />
-            </Pressable>
-          ),
-          headerTitle: () => (
-            <SystemSegmentedTabs<ShortDramaSeriesFilter>
-              accessibilityIdentifier="shortDrama.top.tabs"
-              colorScheme="light"
-              items={[
-                { value: "recommended", title: t("shortDrama.tab.recommended") },
-                { value: "watched", title: t("shortDrama.tab.watched") },
-              ]}
-              onSelectionChange={setFilter}
-              selection={filter}
-              width={shortDramaSeriesMetrics.segmentedWidth}
-            />
-          ),
-          headerRight: () => (
-            <Pressable
-              accessibilityLabel={t("shortDrama.series.create")}
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => router.push("/short-drama-editor")}
-              style={styles.createButton}
-            >
-              <SymbolView
-                name="plus"
-                size={shortDramaSeriesMetrics.createSymbolSize}
-                weight="semibold"
-                tintColor={colors.text}
-              />
-            </Pressable>
-          ),
-        }}
-      />
+      <Stack.Screen options={headerOptions} />
 
       <FlatList
         contentContainerStyle={[styles.list, current.series.length === 0 && styles.emptyList]}

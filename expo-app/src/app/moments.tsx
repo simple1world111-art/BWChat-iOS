@@ -1,5 +1,10 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import {
+  router,
+  Stack,
+  useLocalSearchParams,
+  type NativeStackNavigationOptions,
+} from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -59,6 +64,7 @@ import {
   shouldAcceptMomentFeedFirstPage,
   upsertMomentInFeed,
 } from "@/services/moments/MomentFeedRepository";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 import {
   publishMomentMutation,
   subscribeMomentMutation,
@@ -295,24 +301,26 @@ function MomentsAccountScreen({
 
   useEffect(() => {
     didBeginScrollingRef.current = false;
-    const timer = setTimeout(() => void loadFeed(selectedTab, true), 0);
-    return () => clearTimeout(timer);
+    return runAfterNavigationInteractions(() => void loadFeed(selectedTab, true));
   }, [loadFeed, selectedTab]);
 
   useEffect(() => {
     if (!ownerId || isMyMoments) return;
     let active = true;
-    void getMomentsUnreadInfo()
-      .then((info) => {
-        if (active) {
-          setUnreadCount(info.unread_count);
-          publishMomentsUnread(ownerId, info.unread_count);
-        }
-      })
-      .catch(() => undefined);
-    void markMomentsFeedViewed().catch(() => undefined);
+    const cancel = runAfterNavigationInteractions(() => {
+      void getMomentsUnreadInfo()
+        .then((info) => {
+          if (active) {
+            setUnreadCount(info.unread_count);
+            publishMomentsUnread(ownerId, info.unread_count);
+          }
+        })
+        .catch(() => undefined);
+      void markMomentsFeedViewed().catch(() => undefined);
+    });
     return () => {
       active = false;
+      cancel();
     };
   }, [isMyMoments, ownerId]);
 
@@ -347,8 +355,11 @@ function MomentsAccountScreen({
         [status.clientRequestId]: status,
       }));
     });
-    void resumeMomentUploads(ownerId);
-    return unsubscribe;
+    const cancelResume = runAfterNavigationInteractions(() => void resumeMomentUploads(ownerId));
+    return () => {
+      cancelResume();
+      unsubscribe();
+    };
   }, [ownerId]);
 
   const mutateMomentEverywhere = useCallback(
@@ -508,6 +519,63 @@ function MomentsAccountScreen({
     if (next !== coverChrome) setCoverChrome(next);
   };
 
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      headerBackVisible: false,
+      headerTransparent: true,
+      headerShadowVisible: !coverChrome,
+      headerBackground: () => (coverChrome ? null : <View style={styles.navigationBackground} />),
+      headerTintColor: coverChrome ? colors.white : colors.text,
+      headerLeft: () => (
+        <Pressable
+          accessibilityLabel={t("common.back")}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => router.back()}
+          style={styles.headerButton}
+        >
+          <SymbolView
+            name="chevron.left"
+            resizeMode="center"
+            size={17}
+            weight="semibold"
+            tintColor={coverChrome ? colors.white : colors.text}
+          />
+        </Pressable>
+      ),
+      headerTitle: () =>
+        isMyMoments ? (
+          <Text style={[styles.myMomentsTitle, coverChrome && styles.myMomentsTitleCover]}>
+            {t("profile.moments")}
+          </Text>
+        ) : (
+          <FeedSegmentedControl
+            coverChrome={coverChrome}
+            onChange={(tab) => {
+              setActiveComment(null);
+              setSelectedTab(tab);
+            }}
+            selected={selectedTab}
+          />
+        ),
+      headerRight: () => (
+        <Pressable
+          accessibilityLabel={t("moment.create.title")}
+          onPress={() => router.push("/create-moment")}
+          style={styles.headerButton}
+        >
+          <SymbolView
+            name="camera.fill"
+            resizeMode="center"
+            size={16}
+            tintColor={coverChrome ? colors.white : colors.text}
+          />
+        </Pressable>
+      ),
+    }),
+    [coverChrome, isMyMoments, selectedTab, t],
+  );
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -515,62 +583,7 @@ function MomentsAccountScreen({
       style={styles.screen}
     >
       <StatusBar style={coverChrome ? "light" : "dark"} />
-      <Stack.Screen
-        options={{
-          headerBackVisible: false,
-          headerTransparent: true,
-          headerShadowVisible: !coverChrome,
-          headerBackground: () =>
-            coverChrome ? null : <View style={styles.navigationBackground} />,
-          headerTintColor: coverChrome ? colors.white : colors.text,
-          headerLeft: () => (
-            <Pressable
-              accessibilityLabel={t("common.back")}
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={() => router.back()}
-              style={styles.headerButton}
-            >
-              <SymbolView
-                name="chevron.left"
-                resizeMode="center"
-                size={17}
-                weight="semibold"
-                tintColor={coverChrome ? colors.white : colors.text}
-              />
-            </Pressable>
-          ),
-          headerTitle: () =>
-            isMyMoments ? (
-              <Text style={[styles.myMomentsTitle, coverChrome && styles.myMomentsTitleCover]}>
-                {t("profile.moments")}
-              </Text>
-            ) : (
-              <FeedSegmentedControl
-                coverChrome={coverChrome}
-                onChange={(tab) => {
-                  setActiveComment(null);
-                  setSelectedTab(tab);
-                }}
-                selected={selectedTab}
-              />
-            ),
-          headerRight: () => (
-            <Pressable
-              accessibilityLabel={t("moment.create.title")}
-              onPress={() => router.push("/create-moment")}
-              style={styles.headerButton}
-            >
-              <SymbolView
-                name="camera.fill"
-                resizeMode="center"
-                size={16}
-                tintColor={coverChrome ? colors.white : colors.text}
-              />
-            </Pressable>
-          ),
-        }}
-      />
+      <Stack.Screen options={headerOptions} />
       <FlatList
         contentContainerStyle={[styles.listContent, activeComment && styles.listWithComposer]}
         contentInsetAdjustmentBehavior="never"

@@ -2,7 +2,7 @@
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams, type NativeStackNavigationOptions } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -162,18 +162,20 @@ export default function ActivityCenterScreen() {
   }, [params.inviteDelivery, params.inviteToken, redeemActivityInvite, user?.user_id]);
 
   const initialLoading = state.isLoading && !state.snapshot;
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: "",
+      headerBackTitle: t("common.back"),
+      headerBackButtonDisplayMode: "minimal",
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: scheme === "dark" ? "#1C1C1E" : "#F2F2F7" },
+      headerTitle: () => <ActivityTabs selection={selectedTab} onChange={chooseTab} />,
+    }),
+    [chooseTab, scheme, selectedTab, t],
+  );
   return (
     <View style={[styles.screen, { backgroundColor: scheme === "dark" ? "#1C1C1E" : "#F2F2F7" }]}>
-      <Stack.Screen
-        options={{
-          title: "",
-          headerBackTitle: t("common.back"),
-          headerBackButtonDisplayMode: "minimal",
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: scheme === "dark" ? "#1C1C1E" : "#F2F2F7" },
-          headerTitle: () => <ActivityTabs selection={selectedTab} onChange={chooseTab} />,
-        }}
-      />
+      <Stack.Screen options={headerOptions} />
       {initialLoading ? (
         <View style={styles.loadingState}>
           <ActivityIndicator color={colors.accent} />

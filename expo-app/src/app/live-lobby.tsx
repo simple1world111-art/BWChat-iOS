@@ -5,9 +5,9 @@ import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
-import { router, Stack, useFocusEffect } from "expo-router";
+import { router, Stack, useFocusEffect, type NativeStackNavigationOptions } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import {
   ActivityIndicator,
@@ -38,6 +38,7 @@ import { Avatar } from "@/components/Avatar";
 import { SystemSegmentedTabs } from "@/components/SystemSegmentedTabs";
 import type { CallType } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 import { useCall } from "@/providers/CallProvider";
 import { useLiveCall } from "@/providers/LiveCallProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -98,9 +99,15 @@ function LiveLobbyAccountScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void refreshLobby(tab);
-      const poll = setInterval(() => void refreshLobby(tab), 10_000);
-      return () => clearInterval(poll);
+      let poll: ReturnType<typeof setInterval> | undefined;
+      const cancel = runAfterNavigationInteractions(() => {
+        void refreshLobby(tab);
+        poll = setInterval(() => void refreshLobby(tab), 10_000);
+      });
+      return () => {
+        cancel();
+        if (poll) clearInterval(poll);
+      };
     }, [refreshLobby, tab]),
   );
 
@@ -129,44 +136,46 @@ function LiveLobbyAccountScreen() {
     tab === "chatted"
       ? lobby.participants.filter((participant) => participant.hasChatted)
       : lobby.participants;
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: "",
+      headerBackVisible: false,
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: theme.background },
+      headerLeft: () => (
+        <Pressable
+          accessibilityLabel="返回"
+          onPress={() => router.back()}
+          style={styles.headerButton}
+        >
+          <SymbolView name="chevron.left" size={17} weight="semibold" tintColor={colors.text} />
+        </Pressable>
+      ),
+      headerTitle: () => <LiveTabs selected={tab} onSelect={setTab} />,
+      headerRight: () =>
+        isCurrentUserLive ? (
+          <Pressable
+            accessibilityLabel="退出直播"
+            onPress={() => setDialog({ type: "exit" })}
+            style={styles.exitHeader}
+          >
+            <Text style={styles.exitHeaderText}>退出</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            accessibilityLabel="挂上直播"
+            onPress={() => setDialog({ type: "start" })}
+            style={styles.headerButton}
+          >
+            <SymbolView name="plus" size={18} weight="semibold" tintColor={colors.text} />
+          </Pressable>
+        ),
+    }),
+    [isCurrentUserLive, tab, theme.background],
+  );
   return (
     <View style={[styles.screen, { backgroundColor: theme.background }]}>
-      <Stack.Screen
-        options={{
-          title: "",
-          headerBackVisible: false,
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: theme.background },
-          headerLeft: () => (
-            <Pressable
-              accessibilityLabel="返回"
-              onPress={() => router.back()}
-              style={styles.headerButton}
-            >
-              <SymbolView name="chevron.left" size={17} weight="semibold" tintColor={colors.text} />
-            </Pressable>
-          ),
-          headerTitle: () => <LiveTabs selected={tab} onSelect={setTab} />,
-          headerRight: () =>
-            isCurrentUserLive ? (
-              <Pressable
-                accessibilityLabel="退出直播"
-                onPress={() => setDialog({ type: "exit" })}
-                style={styles.exitHeader}
-              >
-                <Text style={styles.exitHeaderText}>退出</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                accessibilityLabel="挂上直播"
-                onPress={() => setDialog({ type: "start" })}
-                style={styles.headerButton}
-              >
-                <SymbolView name="plus" size={18} weight="semibold" tintColor={colors.text} />
-              </Pressable>
-            ),
-        }}
-      />
+      <Stack.Screen options={headerOptions} />
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={

@@ -34,6 +34,7 @@ import {
   spinActivityWheel,
   verifyActivityPhone,
 } from "@/services/activity/ActivityCenterRepository";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 
 export interface ActivityRewardCelebration {
   id: string;
@@ -155,7 +156,7 @@ export function useActivityCenter(ownerID: string | undefined): ActivityCenterSt
       deviceTimeAnchorRef.current = undefined;
       publishSnapshot(undefined);
       publishCached(false);
-      setIsLoading(false);
+      setIsLoading(nextScope !== "anonymous");
       setMatchedUsers([]);
       setPhoneVerificationSession(undefined);
       setRewardCelebration(undefined);
@@ -225,8 +226,11 @@ export function useActivityCenter(ownerID: string | undefined): ActivityCenterSt
     // This reset is the account-isolation boundary: stale private state must not survive one render.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     resetForScope(scopeID);
-    void loadForScope(scopeID, generation, true);
+    const cancelInitialLoad = runAfterNavigationInteractions(
+      () => void loadForScope(scopeID, generation, true),
+    );
     return () => {
+      cancelInitialLoad();
       if (generationRef.current !== generation) return;
       generationRef.current += 1;
       loadingAuthorityRef.current = undefined;

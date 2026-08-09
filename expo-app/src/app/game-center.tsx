@@ -1,5 +1,11 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { router, Stack, useFocusEffect, type Href } from "expo-router";
+import {
+  router,
+  Stack,
+  useFocusEffect,
+  type Href,
+  type NativeStackNavigationOptions,
+} from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -47,6 +53,10 @@ import {
 } from "@/services/games/GameRewardedAdService";
 import { gameCenterMetrics, gameCenterPolicy } from "@/services/games/GameCenterPolicy";
 import { gameLaunchPolicy } from "@/services/web/WebViewPolicy";
+import {
+  runAfterNavigationInteractions,
+  useNavigationInteractionsSettled,
+} from "@/services/navigation/NavigationWorkScheduler";
 import { createIdempotencyKey } from "@/api/bwchat";
 import { colors } from "@/theme";
 
@@ -74,6 +84,7 @@ export default function GameCenterScreen() {
   const [launchingGameID, setLaunchingGameID] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
   const [listViewportHeight, setListViewportHeight] = useState(0);
+  const navigationInteractionsSettled = useNavigationInteractionsSettled();
   const didInitialLoadRef = useRef(false);
   const playedRevisionRef = useRef(readGamePlayedRevision(ownerId));
   const requestedCursorsRef = useRef(new Set<string>());
@@ -166,18 +177,20 @@ export default function GameCenterScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!didInitialLoadRef.current) {
-        didInitialLoadRef.current = true;
-        void Promise.all([loadRecommended(), loadPlayed()]);
-      } else if (playedRevisionRef.current !== readGamePlayedRevision(ownerId)) {
-        playedRevisionRef.current = readGamePlayedRevision(ownerId);
-        void loadPlayed(true);
-      }
+      return runAfterNavigationInteractions(() => {
+        if (!didInitialLoadRef.current) {
+          didInitialLoadRef.current = true;
+          void Promise.all([loadRecommended(), loadPlayed()]);
+        } else if (playedRevisionRef.current !== readGamePlayedRevision(ownerId)) {
+          playedRevisionRef.current = readGamePlayedRevision(ownerId);
+          void loadPlayed(true);
+        }
+      });
     }, [loadPlayed, loadRecommended, ownerId]),
   );
 
   useEffect(() => {
-    void prepareGameRewardedAds(gameRewardedAdUnitIDs);
+    return runAfterNavigationInteractions(() => void prepareGameRewardedAds(gameRewardedAdUnitIDs));
   }, [gameRewardedAdUnitIDs]);
 
   const refreshSelected = useCallback(async () => {
@@ -294,20 +307,22 @@ export default function GameCenterScreen() {
     selectedTab === "recommended"
       ? t("gameCenter.recommended.empty")
       : t("gameCenter.played.empty");
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: "",
+      headerBackButtonDisplayMode: "minimal",
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: "transparent" },
+      headerTintColor: colors.text,
+      headerTitle: () => <GameCenterTabs selection={selectedTab} onChange={setSelectedTab} />,
+    }),
+    [selectedTab],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: scheme === "dark" ? "#1C1C1E" : "#F2F2F7" }]}>
-      <Stack.Screen
-        options={{
-          title: "",
-          headerBackButtonDisplayMode: "minimal",
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: "transparent" },
-          headerTintColor: colors.text,
-          headerTitle: () => <GameCenterTabs selection={selectedTab} onChange={setSelectedTab} />,
-        }}
-      />
-      <GameWebViewPrewarmer />
+      <Stack.Screen options={headerOptions} />
+      {navigationInteractionsSettled ? <GameWebViewPrewarmer /> : null}
       {data.length === 0 ? (
         <ScrollView
           alwaysBounceVertical

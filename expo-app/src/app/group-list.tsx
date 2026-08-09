@@ -1,4 +1,10 @@
-import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
+import {
+  router,
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+  type NativeStackNavigationOptions,
+} from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -17,6 +23,7 @@ import {
 } from "@/services/conversations/ConversationListPolicy";
 import { useConversationUnreadCount } from "@/services/conversations/ConversationUnreadStore";
 import { loadGroupsWithNativeCache } from "@/services/groups/GroupRepository";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 import { colors } from "@/theme";
 
 type GroupListMode = "public" | "mine";
@@ -76,8 +83,9 @@ export default function GroupListScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      const cancel = runAfterNavigationInteractions(() => void load());
       return () => {
+        cancel();
         loadGenerationRef.current += 1;
       };
     }, [load]),
@@ -87,32 +95,34 @@ export default function GroupListScreen() {
     mode === "public" ? t("groups.empty.title") : t("contacts.myGroups.emptyTitle");
   const emptySubtitle =
     mode === "public" ? t("groups.empty.subtitle") : t("contacts.myGroups.emptySubtitle");
+  const headerOptions = useMemo<NativeStackNavigationOptions>(
+    () => ({
+      title: "",
+      headerTitle: () => <GroupModePicker mode={mode} onChange={setMode} />,
+      headerRight: () => (
+        <Pressable
+          accessibilityLabel={t("group.create.title")}
+          hitSlop={5}
+          onPress={() =>
+            router.push({
+              pathname: "/create-group",
+              params: {
+                isPublic: mode === "public" ? "true" : "false",
+              },
+            })
+          }
+          style={styles.addButton}
+        >
+          <SymbolView name="plus" size={18} weight="semibold" tintColor={colors.text} />
+        </Pressable>
+      ),
+    }),
+    [mode, t],
+  );
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title: "",
-          headerTitle: () => <GroupModePicker mode={mode} onChange={setMode} />,
-          headerRight: () => (
-            <Pressable
-              accessibilityLabel={t("group.create.title")}
-              hitSlop={5}
-              onPress={() =>
-                router.push({
-                  pathname: "/create-group",
-                  params: {
-                    isPublic: mode === "public" ? "true" : "false",
-                  },
-                })
-              }
-              style={styles.addButton}
-            >
-              <SymbolView name="plus" size={18} weight="semibold" tintColor={colors.text} />
-            </Pressable>
-          ),
-        }}
-      />
+      <Stack.Screen options={headerOptions} />
 
       {displayedGroups.length === 0 && !isLoading ? (
         <View style={styles.emptyState}>

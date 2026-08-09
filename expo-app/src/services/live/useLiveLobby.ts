@@ -10,6 +10,7 @@ import {
   getLiveLobbySlots,
   uploadLiveAvatar,
 } from "@/services/live/LiveLobbyRepository";
+import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 import { liveLobbyHeartbeatService } from "@/services/live/LiveLobbyHeartbeatService";
 import {
   acquireLiveLobbyUpdate,
@@ -205,9 +206,7 @@ export function useLiveLobby(
 
   useEffect(() => {
     if (scopeRef.current === scope) return;
-    let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
+    const cancel = runAfterNavigationInteractions(() => {
       liveLobbyHeartbeatService.stop(scopeRef.current);
       scopeRef.current = scope;
       refreshGenerationRef.current += 1;
@@ -230,9 +229,7 @@ export function useLiveLobby(
       setErrorMessage(undefined);
       if (scope !== "anonymous") void refresh(activeTabRef.current);
     });
-    return () => {
-      active = false;
-    };
+    return cancel;
   }, [refresh, scope]);
 
   const recoverCurrent = useCallback(
