@@ -75,7 +75,22 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).toContain("const openProgress = useSharedValue(0)");
     expect(gallery).toContain("const contentOpacity = useSharedValue(0)");
     expect(gallery).toMatch(
-      /const targetY = direction === 0 \? 0 : direction < 0 \? -900 : 900;\s+const duration = direction === 0 \? 180 : 260;[\s\S]*?openProgress\.value = withTiming\(0,/u,
+      /const targetY = direction === 0 \? 0 : direction < 0 \? -height : height;\s+const duration = direction === 0 \? 180 : 260;[\s\S]*?openProgress\.value = withTiming\(0,/u,
     );
+  });
+
+  it("hands Hero visibility over on the UI thread and keeps swipe dismissal continuous", () => {
+    const gallery = source();
+    expect(gallery).toMatch(
+      /setActiveSourceId\(scopedSourceId\);\s+onOpen\(\{/u,
+    );
+    expect(gallery).toContain("const heroOpacity = useSharedValue(sourceFrame ? 1 : 0)");
+    expect(gallery).toMatch(
+      /if \(!finished \|\| !sourceFrame\) return;[\s\S]*?contentOpacity\.value = 1;\s+heroOpacity\.value = 0;/u,
+    );
+    expect(gallery).toMatch(
+      /const canReturnToSource =\s+direction === 0[\s\S]*?heroOpacity\.value = 1;\s+contentOpacity\.value = 0;/u,
+    );
+    expect(gallery).not.toContain("verticalDrag.value = withTiming(0, { duration: 70 })");
   });
 });

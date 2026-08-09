@@ -188,6 +188,10 @@ export function ImageGallerySource({
       );
     const open = (sourceFrame?: GalleryFrame) => {
       if (!isCurrentOpen()) return;
+      // Hide the thumbnail before mounting the transparent Modal. Waiting for
+      // the gallery effect leaves one committed frame where the source and
+      // the moving Hero are both visible.
+      setActiveSourceId(scopedSourceId);
       onOpen({
         ...selection,
         naturalSize,
@@ -308,7 +312,6 @@ function ImageGalleryContent({
   );
   const [images, setImages] = useState(initialImages);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [heroVisible, setHeroVisible] = useState(Boolean(selection.sourceFrame));
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const loadMoreBusy = useRef(false);
   const hasMoreOlder = useRef(Boolean(loadMoreOlder));
@@ -320,6 +323,7 @@ function ImageGalleryContent({
   const paginationOperationRef = useRef(0);
   const saveOperationRef = useRef(0);
   const dismissOperationRef = useRef(0);
+  const sourceFrame = selection.sourceFrame;
 
   const scale = useSharedValue(1);
   const scaleAtStart = useSharedValue(1);
@@ -340,6 +344,9 @@ function ImageGalleryContent({
   // fallback gallery on fully formed.
   const openProgress = useSharedValue(0);
   const contentOpacity = useSharedValue(0);
+  // Keep the Hero mounted and hand visibility between it and the gallery on
+  // the UI thread. A React-state handoff can miss a frame during dismissal.
+  const heroOpacity = useSharedValue(sourceFrame ? 1 : 0);
 
   useEffect(
     () => () => {
@@ -361,7 +368,6 @@ function ImageGalleryContent({
     latestPageIndexRef.current = currentIndex;
   }, [currentIndex]);
 
-  const sourceFrame = selection.sourceFrame;
   const naturalSize =
     selection.naturalSize ??
     (sourceFrame ? { width: sourceFrame.width, height: sourceFrame.height } : { width, height });
@@ -386,15 +392,21 @@ function ImageGalleryContent({
         easing: Easing.out(Easing.cubic),
       },
       (finished) => {
-        if (finished && sourceFrame) runOnJS(setHeroVisible)(false);
+        if (!finished || !sourceFrame) return;
+        // The full-size page must stay hidden until the Hero reaches the same
+        // frame; otherwise it reads as a second, static image behind the zoom.
+        contentOpacity.value = 1;
+        heroOpacity.value = 0;
       },
     );
-    contentOpacity.value = withTiming(1, {
-      duration: sourceFrame ? 240 : 220,
-      easing: Easing.out(Easing.cubic),
-    });
+    if (!sourceFrame) {
+      contentOpacity.value = withTiming(1, {
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+      });
+    }
     return () => setActiveSourceId(null);
-  }, [contentOpacity, openProgress, selection.sourceId, sourceFrame]);
+  }, [contentOpacity, heroOpacity, openProgress, selection.sourceId, sourceFrame]);
 
   useEffect(() => {
     if (!loadMoreOlder || currentIndex > 1 || loadMoreBusy.current || !hasMoreOlder.current) return;
@@ -495,14 +507,19 @@ function ImageGalleryContent({
       const requestedGeneration = lifecycleGenerationRef.current;
       const requestedOperation = dismissOperationRef.current + 1;
       dismissOperationRef.current = requestedOperation;
-      const canReturnToSource = Boolean(sourceFrame) && currentIndex === initialIndex;
+      // Reveal the source while it is still covered by the modal so it is
+      // already painted when the transparent presentation unmounts.
+      setActiveSourceId(null);
+      const canReturnToSource =
+        direction === 0 &&
+        Boolean(sourceFrame) &&
+        currentIndex === initialIndex &&
+        scale.value <= GALLERY_REST_SCALE_LIMIT;
       if (canReturnToSource) {
-        setHeroVisible(true);
-        contentOpacity.value = withTiming(0, { duration: 70 });
-        verticalDrag.value = withTiming(0, { duration: 70 });
-        scale.value = withTiming(1, { duration: 70 });
-        offsetX.value = withTiming(0, { duration: 70 });
-        offsetY.value = withTiming(0, { duration: 70 });
+        // Both layers are at the same fitted frame here, so swapping them in
+        // one UI-thread frame avoids a duplicate image and a React commit pop.
+        heroOpacity.value = 1;
+        contentOpacity.value = 0;
         openProgress.value = withTiming(
           0,
           {
@@ -517,7 +534,9 @@ function ImageGalleryContent({
         );
         return;
       }
-      const targetY = direction === 0 ? 0 : direction < 0 ? -900 : 900;
+      // A swipe dismissal continues from the current drag instead of first
+      // snapping verticalDrag back to zero and switching to the Hero layer.
+      const targetY = direction === 0 ? 0 : direction < 0 ? -height : height;
       const duration = direction === 0 ? 180 : 260;
       verticalDrag.value = withTiming(targetY, {
         duration,
@@ -548,9 +567,9 @@ function ImageGalleryContent({
       contentOpacity,
       currentIndex,
       finishClose,
+      height,
+      heroOpacity,
       initialIndex,
-      offsetX,
-      offsetY,
       openProgress,
       ownerId,
       scale,
@@ -871,6 +890,7 @@ function ImageGalleryContent({
       interpolate(Math.abs(verticalDrag.value), [0, 1], [1, 0], Extrapolation.CLAMP),
   }));
   const heroStyle = useAnimatedStyle(() => ({
+    opacity: heroOpacity.value,
     borderRadius: interpolate(openProgress.value, [0, 1], [selection.sourceCornerRadius ?? 14, 14]),
     height: interpolate(
       openProgress.value,
@@ -933,7 +953,7 @@ function ImageGalleryContent({
           </Text>
         </Animated.View>
       ) : null}
-      {heroVisible && sourceFrame ? (
+      {sourceFrame ? (
         <Animated.View pointerEvents="none" style={[styles.hero, heroStyle]}>
           <AuthenticatedImage
             contentFit="cover"
