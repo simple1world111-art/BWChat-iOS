@@ -76,9 +76,9 @@ describe("native VideoPlayerView parity", () => {
     }
 
     const profile = expo("src/components/profile/PublicProfileContent.tsx");
-    expect(profile).toContain(
-      "return <VideoPlayerOverlay onClose={onClose} videoUrl={selection.media.url} />;",
-    );
+    expect(profile).toContain("<VideoPlayerOverlay");
+    expect(profile).toContain("posterUrl={selection.sourceUri}");
+    expect(profile).toContain("videoUrl={selection.media.url}");
     expect(profile).not.toContain("function MomentVideo");
     expect(expo("src/app/user-profile.tsx")).toContain("<PublicProfileContent");
     expect(expo("src/app/moments.tsx")).toContain("<MediaViewer");
@@ -96,7 +96,11 @@ describe("native VideoPlayerView parity", () => {
     expect(player).toContain('backdrop: { backgroundColor: "#000000" }');
     expect(player).toContain("useVideoPlayer(null");
     expect(player).toContain("player.replaceAsync(preparedSource)");
-    expect(player).toContain('status === "readyToPlay"');
+    expect(player).toContain("preparedSource && !didFail");
+    expect(player).toContain("onFirstFrameRender={() => setHasRenderedFirstFrame(true)}");
+    expect(player).toContain("<VideoOpeningPlaceholder posterUrl={posterUrl} />");
+    expect(player).toContain("<VideoPoster posterUrl={posterUrl} />");
+    expect(player).toContain('status !== "readyToPlay"');
     expect(player).toContain("playVideoPlayer(player)");
     expect(player).toContain("pauseVideoPlayer(player)");
     expect(player).not.toContain("useEffect(() => () => pauseVideoPlayer(player)");
@@ -244,6 +248,7 @@ describe("native VideoPlayerView parity", () => {
     ).resolves.toEqual({
       uri,
       headers: { Authorization: "Bearer fresh-access-token" },
+      useCaching: true,
     });
     expect(resourceRequest).toHaveBeenCalledWith(uri, {
       headers: { Range: "bytes=0-0" },
@@ -275,18 +280,21 @@ describe("native VideoPlayerView parity", () => {
     expect(player).toContain("controller.abort()");
   });
 
-  it("leaves public, cross-origin and local playback header-free", async () => {
+  it("leaves public and cross-origin playback header-free while enabling streaming cache", async () => {
     const api = "https://api.example.com/api/v1";
     for (const uri of [
       "https://api.example.com/api/v1/public/images/a.mp4",
       "https://api.example.com/api/v1/moments/image/u005/a.mov",
       "https://cdn.example.com/a.mp4",
-      "file:///cache/a.mp4",
     ]) {
       await expect(prepareVideoPlaybackSource(uri, api)).resolves.toEqual({
         uri,
+        useCaching: true,
       });
     }
+    await expect(prepareVideoPlaybackSource("file:///cache/a.mp4", api)).resolves.toEqual({
+      uri: "file:///cache/a.mp4",
+    });
     expect(resourceRequest).not.toHaveBeenCalled();
     expect(accessToken).not.toHaveBeenCalled();
   });
@@ -304,7 +312,7 @@ describe("native VideoPlayerView parity", () => {
     });
   });
 
-  it("uses the same refreshed authorization helper for delayed disk caching", () => {
+  it("starts persistent disk warm-up immediately while retaining the global cache policy", () => {
     const cache = expo("src/services/cache/MediaCacheService.ts");
     const player = expo("src/components/media/VideoPlayerOverlay.tsx");
     expect(cache).toContain(
@@ -315,11 +323,12 @@ describe("native VideoPlayerView parity", () => {
     expect(cache).toContain("minimumFreeSpaceBytes: 2 * 1_024 * 1_024 * 1_024");
     expect(cache).toContain("staleAgeMilliseconds: 30 * 24 * 60 * 60 * 1_000");
     expect(cache).toContain("adaptiveBudgetFraction: 0.15");
-    expect(player).toContain(
-      "const cancellation = scheduleMediaCache({ ownerId, mediaId, remoteUrl: playbackUrl })",
-    );
-    expect(player).toContain("scheduledCacheCancellation.current?.()");
-    expect(player).toContain("scheduledCacheCancellation.current = null");
+    expect(player).toContain("void scheduleMediaCache({");
+    expect(player).toContain("remoteUrl: playbackUrl");
+    expect(player).toContain("delayMilliseconds: 0");
+    expect(player).toContain("the background download should outlive the viewer");
+    expect(player).not.toContain("scheduledCacheCancellation");
+    expect(player).not.toContain("video_player_cache_cancel");
   });
 
   it("implements the native background MP4 and offline HLS movpkg cache instead of claiming online HLS caching", () => {

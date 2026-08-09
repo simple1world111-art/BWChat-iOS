@@ -118,6 +118,24 @@ describe("Apple native media cache bridge", () => {
     expect(mockNativeStart).not.toHaveBeenCalled();
   });
 
+  it("can start an explicitly opened video's persistent warm-up immediately", async () => {
+    scheduleMediaCache({
+      ownerId: "owner",
+      mediaId: "video",
+      remoteUrl: "https://cdn.test/video.mp4",
+      delayMilliseconds: 0,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(mockNativeStart).toHaveBeenCalledWith({
+      ownerId: "owner",
+      mediaId: "video",
+      remoteUrl: "https://cdn.test/video.mp4",
+      authorizationHeaders: { Authorization: "Bearer refreshed" },
+    });
+  });
+
   it("keeps the same media ID isolated by owner when starting native HLS downloads", async () => {
     scheduleMediaCache({
       ownerId: "owner-a",

@@ -60,9 +60,21 @@ export async function prepareVideoPlaybackSource(
   signal?: AbortSignal,
 ): Promise<VideoSource> {
   const headers = await prepareVideoAuthorizationHeaders(uri, apiBaseUrl, "auto", signal);
+  const isHls = uri.toLowerCase().includes(".m3u8");
+  const usesStreamingCache = isRemoteVideoUri(uri) && !isHls;
   return {
     uri,
     ...(headers ? { headers } : {}),
-    ...(uri.toLowerCase().includes(".m3u8") ? { contentType: "hls" as const } : {}),
+    ...(usesStreamingCache ? { useCaching: true } : {}),
+    ...(isHls ? { contentType: "hls" as const } : {}),
   };
+}
+
+function isRemoteVideoUri(uri: string): boolean {
+  try {
+    const protocol = new URL(uri).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }

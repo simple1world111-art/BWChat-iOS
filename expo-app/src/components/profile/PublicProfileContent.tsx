@@ -767,6 +767,7 @@ function MomentMediaTile({
     media: item,
     images: imageUrls,
     index: Math.max(0, imageUrls.indexOf(item.url)),
+    ...(item.type === "video" && resolvedUrl ? { sourceUri: resolvedUrl } : {}),
   } satisfies MediaSelection;
   if (resolvedUrl && item.type === "image" && !locked) {
     return (
@@ -1243,7 +1244,13 @@ export function MediaViewer({
   onClose: () => void;
 }) {
   if (selection?.media.type === "video") {
-    return <VideoPlayerOverlay onClose={onClose} videoUrl={selection.media.url} />;
+    return (
+      <VideoPlayerOverlay
+        onClose={onClose}
+        posterUrl={selection.sourceUri}
+        videoUrl={selection.media.url}
+      />
+    );
   }
   return <ImageGallery onClose={onClose} selection={selection} />;
 }

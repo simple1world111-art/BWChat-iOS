@@ -2,10 +2,11 @@ import { useEvent } from "expo";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
 import { useVideoPlayer, VideoView, type VideoSource } from "expo-video";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { trimFoundationWhitespacesAndNewlines } from "@/api/normalizers";
+import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { resolveChatVideoPlaybackUrl } from "@/components/media/videoPlayerMath";
 import { env } from "@/config/env";
 import { useAuth } from "@/providers/AuthProvider";
@@ -29,26 +30,36 @@ function reportVideoPlayerFailure(error: unknown, operation: string): void {
 
 export function VideoPlayerOverlay({
   onClose,
+  posterUrl,
   videoUrl,
 }: {
   onClose: () => void;
+  posterUrl?: string | null | undefined;
   videoUrl: string | null;
 }) {
   const { user } = useAuth();
   const ownerId = trimFoundationWhitespacesAndNewlines(user?.user_id ?? "");
   if (!videoUrl) return null;
   return (
-    <VideoPlayerModal key={videoUrl} onClose={onClose} ownerId={ownerId} videoUrl={videoUrl} />
+    <VideoPlayerModal
+      key={videoUrl}
+      onClose={onClose}
+      ownerId={ownerId}
+      posterUrl={posterUrl}
+      videoUrl={videoUrl}
+    />
   );
 }
 
 function VideoPlayerModal({
   onClose,
   ownerId,
+  posterUrl,
   videoUrl,
 }: {
   onClose: () => void;
   ownerId: string;
+  posterUrl?: string | null | undefined;
   videoUrl: string;
 }) {
   const [isPresented, setPresented] = useState(false);
@@ -65,9 +76,12 @@ function VideoPlayerModal({
           key={videoUrl}
           onClose={onClose}
           ownerId={ownerId}
+          posterUrl={posterUrl}
           videoUrl={videoUrl}
         />
-      ) : null}
+      ) : (
+        <VideoOpeningPlaceholder posterUrl={posterUrl} />
+      )}
     </Modal>
   );
 }
@@ -75,10 +89,12 @@ function VideoPlayerModal({
 function VideoPlayerPresentation({
   onClose,
   ownerId,
+  posterUrl,
   videoUrl,
 }: {
   onClose: () => void;
   ownerId: string;
+  posterUrl?: string | null | undefined;
   videoUrl: string;
 }) {
   const [ownerAtOpen] = useState(ownerId);
@@ -87,16 +103,25 @@ function VideoPlayerPresentation({
     if (!isCurrentOwner) onClose();
   }, [isCurrentOwner, onClose]);
   if (!isCurrentOwner) return null;
-  return <VideoPlayerContent onClose={onClose} ownerId={ownerAtOpen} videoUrl={videoUrl} />;
+  return (
+    <VideoPlayerContent
+      onClose={onClose}
+      ownerId={ownerAtOpen}
+      posterUrl={posterUrl}
+      videoUrl={videoUrl}
+    />
+  );
 }
 
 function VideoPlayerContent({
   onClose,
   ownerId,
+  posterUrl,
   videoUrl,
 }: {
   onClose: () => void;
   ownerId: string;
+  posterUrl?: string | null | undefined;
   videoUrl: string;
 }) {
   const { t } = useLocalization();
@@ -115,7 +140,7 @@ function VideoPlayerContent({
   const sourceError =
     !playbackUrl || (sourceState?.identity === sourceIdentity && sourceState.error);
   const [activationErrorIdentity, setActivationErrorIdentity] = useState<string | null>(null);
-  const scheduledCacheCancellation = useRef<(() => void) | null>(null);
+  const [hasRenderedFirstFrame, setHasRenderedFirstFrame] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -145,6 +170,23 @@ function VideoPlayerContent({
       controller.abort();
     };
   }, [mediaId, ownerId, playbackUrl, sourceIdentity]);
+
+  useEffect(() => {
+    if (!ownerId || !mediaId || !playbackUrl) return;
+    try {
+      // This is an intentional persistent warm-up. Once a user opens a video,
+      // the background download should outlive the viewer instead of being
+      // cancelled when the modal closes a few seconds later.
+      void scheduleMediaCache({
+        ownerId,
+        mediaId,
+        remoteUrl: playbackUrl,
+        delayMilliseconds: 0,
+      });
+    } catch (error) {
+      reportVideoPlayerFailure(error, "video_player_cache_schedule");
+    }
+  }, [mediaId, ownerId, playbackUrl]);
 
   const player = useVideoPlayer(null, (instance) => {
     try {
@@ -200,35 +242,6 @@ function VideoPlayerContent({
     };
   }, [player, sourceIdentity, status]);
 
-  useEffect(() => {
-    if (
-      status !== "readyToPlay" ||
-      !ownerId ||
-      !mediaId ||
-      !playbackUrl ||
-      scheduledCacheCancellation.current
-    )
-      return;
-    try {
-      const cancellation = scheduleMediaCache({ ownerId, mediaId, remoteUrl: playbackUrl });
-      scheduledCacheCancellation.current = cancellation;
-    } catch (error) {
-      reportVideoPlayerFailure(error, "video_player_cache_schedule");
-    }
-  }, [mediaId, ownerId, playbackUrl, status]);
-
-  useEffect(
-    () => () => {
-      try {
-        scheduledCacheCancellation.current?.();
-      } catch (error) {
-        reportVideoPlayerFailure(error, "video_player_cache_cancel");
-      }
-      scheduledCacheCancellation.current = null;
-    },
-    [],
-  );
-
   const dismiss = useCallback(() => {
     try {
       pauseVideoPlayer(player);
@@ -239,32 +252,39 @@ function VideoPlayerContent({
     }
   }, [onClose, player]);
 
+  const didFail = sourceError || activationErrorIdentity === sourceIdentity || status === "error";
+
   return (
     <View accessibilityViewIsModal onAccessibilityEscape={dismiss} style={styles.root}>
       <StatusBar hidden />
       <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.backdrop]} />
       <View style={styles.playerSurface}>
-        {preparedSource && status === "readyToPlay" ? (
+        {preparedSource && !didFail ? (
           <VideoView
             allowsPictureInPicture={false}
             allowsVideoFrameAnalysis={false}
             contentFit="contain"
             fullscreenOptions={{ enable: false }}
             nativeControls
+            onFirstFrameRender={() => setHasRenderedFirstFrame(true)}
             player={player}
             startsPictureInPictureAutomatically={false}
             style={styles.player}
           />
-        ) : sourceError || activationErrorIdentity === sourceIdentity || status === "error" ? (
+        ) : null}
+        {!didFail && !hasRenderedFirstFrame && posterUrl ? (
+          <VideoPoster posterUrl={posterUrl} />
+        ) : null}
+        {didFail ? (
           <View style={styles.state}>
             <SymbolView name="exclamationmark.triangle" size={40} tintColor="#8E8E93" />
             <Text style={styles.errorText}>{t("video.loadFailed")}</Text>
           </View>
-        ) : (
+        ) : !posterUrl && !hasRenderedFirstFrame ? (
           <View style={styles.state}>
             <ActivityIndicator color="#FFFFFF" />
           </View>
-        )}
+        ) : null}
       </View>
       <View style={styles.closeSlot}>
         <Pressable
@@ -276,6 +296,30 @@ function VideoPlayerContent({
           <SymbolView name="xmark.circle.fill" size={28} tintColor="rgba(255,255,255,0.8)" />
         </Pressable>
       </View>
+    </View>
+  );
+}
+
+function VideoOpeningPlaceholder({ posterUrl }: { posterUrl?: string | null | undefined }) {
+  return (
+    <View style={styles.root}>
+      <StatusBar hidden />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.backdrop]} />
+      {posterUrl ? <VideoPoster posterUrl={posterUrl} /> : null}
+    </View>
+  );
+}
+
+function VideoPoster({ posterUrl }: { posterUrl: string }) {
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <AuthenticatedImage
+        contentFit="contain"
+        loadingFallback={<View style={[StyleSheet.absoluteFill, styles.backdrop]} />}
+        style={StyleSheet.absoluteFill}
+        transition={0}
+        uri={posterUrl}
+      />
     </View>
   );
 }

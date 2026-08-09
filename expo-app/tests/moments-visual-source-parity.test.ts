@@ -85,6 +85,8 @@ describe("Moments visual source parity", () => {
     expect(content).toContain("<AuthenticatedImage");
     expect(content).toContain("<ImageGallerySource");
     expect(content).toContain("<VideoPlayerOverlay");
+    expect(content).toContain('item.type === "video" && resolvedUrl');
+    expect(content).toContain("posterUrl={selection.sourceUri}");
   });
 });
 

@@ -64,7 +64,9 @@ describe("native cache manager source parity", () => {
     const settings = expo("src/services/cache/AppCacheService.ts");
     const outbox = expo("src/services/messages/ChatVideoOutbox.ts");
     expect(player).toContain("getCachedMediaUri(ownerId, mediaId)");
-    expect(player).toContain("scheduleMediaCache({ ownerId, mediaId, remoteUrl: playbackUrl })");
+    expect(player).toContain("void scheduleMediaCache({");
+    expect(player).toContain("delayMilliseconds: 0");
+    expect(player).not.toContain("scheduledCacheCancellation");
     expect(settings).toContain("clearMediaCacheForAccount(ownerId)");
     expect(settings).toContain("clearAllMediaCache()");
     expect(outbox).toContain("await adoptConfirmedVideo(uploading, response)");
