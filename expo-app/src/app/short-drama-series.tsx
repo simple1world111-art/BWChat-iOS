@@ -61,6 +61,10 @@ import {
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 
 interface FilterState {
   series: ShortDramaSeries[];
@@ -68,15 +72,41 @@ interface FilterState {
   nextCursor?: string | undefined;
   isLoading: boolean;
   isLoadingMore: boolean;
+  isRefreshing: boolean;
   error?: string | undefined;
 }
 
 type FilterStates = Record<ShortDramaSeriesFilter, FilterState>;
 
+interface ShortDramaNavigationSnapshot {
+  filter: ShortDramaSeriesFilter;
+  states: FilterStates;
+}
+
 const initialFilterStates: FilterStates = {
-  recommended: { series: [], hasMore: true, isLoading: false, isLoadingMore: false },
-  watched: { series: [], hasMore: true, isLoading: false, isLoadingMore: false },
+  recommended: {
+    series: [],
+    hasMore: true,
+    isLoading: false,
+    isLoadingMore: false,
+    isRefreshing: false,
+  },
+  watched: {
+    series: [],
+    hasMore: true,
+    isLoading: false,
+    isLoadingMore: false,
+    isRefreshing: false,
+  },
 };
+
+const settledFilterSnapshot = (state: FilterState): FilterState => ({
+  ...state,
+  isLoading: false,
+  isLoadingMore: false,
+  isRefreshing: false,
+  error: undefined,
+});
 
 const secondarySystemBackground = PlatformColor("secondarySystemBackgroundColor");
 const systemBackground = PlatformColor("systemBackgroundColor");
@@ -90,8 +120,15 @@ export default function ShortDramaSeriesScreen() {
 function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
   const { t } = useLocalization();
   const styles = useMemo(() => makeStyles(), []);
-  const [filter, setFilter] = useState<ShortDramaSeriesFilter>("recommended");
-  const [states, setStates] = useState<FilterStates>(initialFilterStates);
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<ShortDramaNavigationSnapshot>("short-drama-series", ownerId),
+  );
+  const [filter, setFilter] = useState<ShortDramaSeriesFilter>(
+    navigationSnapshot?.filter ?? "recommended",
+  );
+  const [states, setStates] = useState<FilterStates>(
+    navigationSnapshot?.states ?? initialFilterStates,
+  );
   const statesRef = useRef(states);
   const loadedRef = useRef(new Set<ShortDramaSeriesFilter>());
   const busyRef = useRef(new Set<ShortDramaSeriesFilter>());
@@ -202,7 +239,12 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
   );
 
   const load = useCallback(
-    async (target: ShortDramaSeriesFilter, reset: boolean, force: boolean) => {
+    async (
+      target: ShortDramaSeriesFilter,
+      reset: boolean,
+      force: boolean,
+      showRefreshIndicator = false,
+    ) => {
       if (!ownerId || busyRef.current.has(target)) return;
       if (reset && !force && loadedRef.current.has(target)) {
         await applyHistory();
@@ -224,7 +266,12 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
       commit(target, (state) => ({
         ...state,
         ...(reset
-          ? { isLoading: true, hasMore: true, nextCursor: undefined }
+          ? {
+              isLoading: state.series.length === 0,
+              isRefreshing: showRefreshIndicator,
+              hasMore: true,
+              nextCursor: undefined,
+            }
           : { isLoadingMore: true }),
         error: undefined,
       }));
@@ -266,6 +313,7 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
             ...state,
             isLoading: false,
             isLoadingMore: false,
+            isRefreshing: false,
           }));
         }
       }
@@ -285,6 +333,16 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
       busyFilters.clear();
     };
   }, []);
+
+  useEffect(() => {
+    writeNavigationSnapshot<ShortDramaNavigationSnapshot>("short-drama-series", ownerId, {
+      filter,
+      states: {
+        recommended: settledFilterSnapshot(states.recommended),
+        watched: settledFilterSnapshot(states.watched),
+      },
+    });
+  }, [filter, ownerId, states]);
 
   useEffect(() => {
     return runAfterNavigationInteractions(() => void load(filter, true, false));
@@ -406,8 +464,8 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
         onEndReachedThreshold={0.1}
         refreshControl={
           <RefreshControl
-            onRefresh={() => void load(filter, true, true)}
-            refreshing={current.isLoading && current.series.length > 0}
+            onRefresh={() => void load(filter, true, true, true)}
+            refreshing={current.isRefreshing}
             tintColor={colors.accent}
           />
         }

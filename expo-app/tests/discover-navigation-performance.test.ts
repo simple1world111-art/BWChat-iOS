@@ -41,4 +41,21 @@ describe("Discover destination navigation performance", () => {
     expect(gameCenter).toContain("useNavigationInteractionsSettled");
     expect(gameCenter).toContain("navigationInteractionsSettled ? <GameWebViewPrewarmer /> : null");
   });
+
+  it("restores account-scoped display snapshots before background revalidation", () => {
+    for (const relativePath of destinations) {
+      expect(source(relativePath)).toContain("NavigationSnapshotCache");
+    }
+    expect(source("src/services/activity/useActivityCenter.ts")).toContain(
+      "NavigationSnapshotCache",
+    );
+    expect(source("src/services/live/useLiveLobby.ts")).toContain("NavigationSnapshotCache");
+  });
+
+  it("keeps automatic short-drama revalidation out of the pull-to-refresh indicator", () => {
+    const shortDrama = source("src/app/short-drama-series.tsx");
+    expect(shortDrama).toContain("isLoading: state.series.length === 0");
+    expect(shortDrama).toContain("refreshing={current.isRefreshing}");
+    expect(shortDrama).toContain("load(filter, true, true, true)");
+  });
 });

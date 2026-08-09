@@ -60,6 +60,10 @@ import {
 } from "@/services/live/LiveAvatarCrop";
 import { type LiveLobbyTab, useLiveLobby } from "@/services/live/useLiveLobby";
 import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
+import {
   liveExperienceMinutes,
   type LiveExperienceCardKind,
 } from "@/services/props/PropInventoryModels";
@@ -79,7 +83,10 @@ function LiveLobbyAccountScreen() {
   const { session: activeCall } = useCall();
   const scheme = useColorScheme();
   const theme = liveLobbyPalette(scheme);
-  const [tab, setTab] = useState<LiveLobbyTab>("recommended");
+  const ownerId = user?.user_id ?? "";
+  const [tab, setTab] = useState<LiveLobbyTab>(
+    () => readNavigationSnapshot<LiveLobbyTab>("live-lobby-tab", ownerId) ?? "recommended",
+  );
   const [dialog, setDialog] = useState<PresentedDialog>();
   const [newParticipantId, setNewParticipantId] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
@@ -87,6 +94,10 @@ function LiveLobbyAccountScreen() {
   const lobby = useLiveLobby(user?.user_id, tab);
   const refreshLobby = lobby.refresh;
   const isCurrentUserLive = lobby.currentSlot !== null;
+
+  useEffect(() => {
+    writeNavigationSnapshot("live-lobby-tab", ownerId, tab);
+  }, [ownerId, tab]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);

@@ -11,6 +11,7 @@ import {
   readCachedGamePage,
 } from "@/services/games/GameRepository";
 import type { GameCatalogItem, GameCatalogPage } from "@/services/games/GameModels";
+import { clearNavigationSnapshots } from "@/services/navigation/NavigationSnapshotCache";
 
 let mockAuthUser: User | null = { user_id: "owner-a" } as User;
 let mockFocusCallback: (() => void | (() => void)) | undefined;
@@ -121,6 +122,7 @@ const playedGame = game("played", "Played");
 
 describe("GameCenter screen state machine", () => {
   beforeEach(() => {
+    clearNavigationSnapshots();
     jest.clearAllMocks();
     mockAuthUser = { user_id: "owner-a" } as User;
     mockFocusCallback = undefined;
@@ -156,6 +158,17 @@ describe("GameCenter screen state machine", () => {
     await fireEvent.press(view.getByText("gameCenter.tab.played"));
     expect(view.getByText("Played")).toBeTruthy();
     expect(mockLoadPlayed).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the last visible cards synchronously after the native screen remounts", async () => {
+    const first = await render(<GameCenterScreen />);
+    await waitFor(() => expect(first.getByText("Recommended")).toBeTruthy());
+    await first.unmount();
+
+    const restored = await render(<GameCenterScreen />);
+
+    expect(restored.getByText("Recommended")).toBeTruthy();
+    await restored.unmount();
   });
 
   it("seeds an arbitrarily old native-style snapshot before a failed refresh", async () => {

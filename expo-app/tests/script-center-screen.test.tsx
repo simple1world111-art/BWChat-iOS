@@ -8,6 +8,7 @@ import {
   clearPendingScriptForNavigation,
   pendingScriptForNavigation,
 } from "@/services/scripts/ScriptNavigationStore";
+import { clearNavigationSnapshots } from "@/services/navigation/NavigationSnapshotCache";
 
 let mockUser: User | null = { user_id: "owner-a" } as User;
 const mockPush = jest.fn();
@@ -119,6 +120,7 @@ const mockGetScripts = jest.mocked(getScripts);
 
 describe("Script Center screen interactions", () => {
   beforeEach(() => {
+    clearNavigationSnapshots();
     jest.clearAllMocks();
     mockUser = { user_id: "owner-a" } as User;
     mockLoadCategories.mockResolvedValue(null);

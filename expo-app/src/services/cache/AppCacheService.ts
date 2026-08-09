@@ -19,6 +19,10 @@ import {
 import { resetFollowListRepositoryMemoryForAccount } from "@/services/friends/FollowListRepository";
 import { resetGroupRepositoryForAccount } from "@/services/groups/GroupRepository";
 import { resetChatMoneyMemoryForAccount } from "@/services/messages/ChatMoneyRepository";
+import {
+  clearNavigationSnapshots,
+  clearNavigationSnapshotsForOwner,
+} from "@/services/navigation/NavigationSnapshotCache";
 import { resetShortDramaFeedRepositoryMemoryForAccount } from "@/services/short-drama/ShortDramaFeedRepository";
 import { resetShortDramaHistoryRepositoryMemoryForAccount } from "@/services/short-drama/ShortDramaHistoryRepository";
 import { resetShortDramaSeriesRepositoryMemoryForAccount } from "@/services/short-drama/ShortDramaSeriesRepository";
@@ -119,6 +123,7 @@ export async function clearAllAccountData(currentOwnerId?: string): Promise<void
     resetAccountMemory(currentOwner);
     await resetGroupRepositoryForAccount(currentOwner).catch(() => undefined);
   }
+  clearNavigationSnapshots();
   await waitForAllFriendRepositoryPersistence().catch(() => undefined);
   await removeAllAccountStorageKeys().catch(() => undefined);
   const outbox = new Directory(Paths.document, "bwchat-outbox");
@@ -127,6 +132,7 @@ export async function clearAllAccountData(currentOwnerId?: string): Promise<void
 }
 
 function resetAccountMemory(ownerId: string): void {
+  clearNavigationSnapshotsForOwner(ownerId);
   resetAgentConversationMemoryForAccount(ownerId);
   resetConversationReadSubmissionForAccount(ownerId);
   resetFriendRepositoryMemoryForAccount(ownerId);

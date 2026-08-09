@@ -4,6 +4,7 @@ import { APIError } from "@/api/client";
 import { normalizeActivityCenterSnapshot } from "@/services/activity/ActivityModels";
 import * as repository from "@/services/activity/ActivityCenterRepository";
 import { useActivityCenter } from "@/services/activity/useActivityCenter";
+import { clearNavigationSnapshots } from "@/services/navigation/NavigationSnapshotCache";
 import { activitySnapshotWire } from "./fixtures/activityCenterFixture";
 
 jest.mock("@/services/activity/ActivityCenterRepository", () => ({
@@ -93,6 +94,7 @@ describe("useActivityCenter operation authority", () => {
   });
 
   beforeEach(() => {
+    clearNavigationSnapshots();
     jest.clearAllMocks();
     jest.mocked(repository.loadCachedActivitySnapshot).mockResolvedValue(undefined);
     jest.mocked(repository.getActivityCenter).mockResolvedValue(snapshot);
@@ -144,6 +146,18 @@ describe("useActivityCenter operation authority", () => {
     );
     expect(repository.getActivityCenter).toHaveBeenCalledTimes(1);
     expect(repository.saveCachedActivitySnapshot).toHaveBeenCalledWith("owner", snapshot);
+  });
+
+  it("restores the last activity snapshot before the remount refresh resolves", async () => {
+    const first = await renderHook(() => useActivityCenter("owner"));
+    await waitFor(() => expect(first.result.current.snapshot).toEqual(snapshot));
+    await first.unmount();
+
+    const restored = await renderHook(() => useActivityCenter("owner"));
+
+    expect(restored.result.current.snapshot).toEqual(snapshot);
+    expect(restored.result.current.isLoading).toBe(false);
+    await restored.unmount();
   });
 
   it("shows an optimistic check-in immediately and keeps it on an ambiguous 5xx", async () => {

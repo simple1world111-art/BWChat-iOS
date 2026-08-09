@@ -89,7 +89,8 @@ describe("GameCenterView source parity", () => {
 
   it("invalidates late list, paging, launch and round completions across account switches", () => {
     expect(screen).toContain("new GameAccountScope(ownerId)");
-    expect(screen).toContain("accountScopeRef.current.updateOwner(ownerId)");
+    expect(screen).toContain('key={ownerId || "signed-out"}');
+    expect(screen).toContain('accountScopeRef.current.updateOwner("")');
     expect(screen).toContain("accountScopeRef.current.isCurrent(ticket)");
     expect(screen).toContain("ownerID: ticket.ownerId");
     expect(screen).toContain("repositoryGuard(accountScopeRef.current, ticket)");

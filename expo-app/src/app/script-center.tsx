@@ -42,6 +42,10 @@ import { palette } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 import { rememberScriptForNavigation } from "@/services/scripts/ScriptNavigationStore";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 
 const skeletons = Array.from({ length: scriptCenterMetrics.skeletonCount }, (_, index) => ({
   script_id: `placeholder-${index}`,
@@ -56,6 +60,15 @@ const skeletons = Array.from({ length: scriptCenterMetrics.skeletonCount }, (_, 
   is_admin_hidden: false,
 }));
 
+interface ScriptCenterNavigationSnapshot {
+  scope: ScriptScope;
+  selectedCategoryId?: string | undefined;
+  categories: ScriptCategory[];
+  scripts: InteractiveScript[];
+  nextCursor?: string | undefined;
+  hasMore: boolean;
+}
+
 export default function ScriptCenterScreen() {
   const { user } = useAuth();
   const ownerId = trimFoundationWhitespacesAndNewlines(user?.user_id ?? "");
@@ -67,12 +80,19 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
   const scheme = useColorScheme();
   const theme = palette(scheme);
   const styles = useMemo(() => makeStyles(scheme), [scheme]);
-  const [scope, setScope] = useState<ScriptScope>("public");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>();
-  const [categories, setCategories] = useState<ScriptCategory[]>([]);
-  const [scripts, setScripts] = useState<InteractiveScript[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | undefined>();
-  const [hasMore, setHasMore] = useState(false);
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<ScriptCenterNavigationSnapshot>("script-center", ownerId),
+  );
+  const [scope, setScope] = useState<ScriptScope>(navigationSnapshot?.scope ?? "public");
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(
+    navigationSnapshot?.selectedCategoryId,
+  );
+  const [categories, setCategories] = useState<ScriptCategory[]>(
+    navigationSnapshot?.categories ?? [],
+  );
+  const [scripts, setScripts] = useState<InteractiveScript[]>(navigationSnapshot?.scripts ?? []);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(navigationSnapshot?.nextCursor);
+  const [hasMore, setHasMore] = useState(navigationSnapshot?.hasMore ?? false);
   const [isLoading, setLoading] = useState(false);
   const [isLoadingMore, setLoadingMore] = useState(false);
   const [isManualRefreshing, setManualRefreshing] = useState(false);
@@ -110,6 +130,16 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
   useEffect(() => {
     selectionRef.current = { ownerId, scope, categoryId: selectedCategoryId };
   }, [ownerId, scope, selectedCategoryId]);
+  useEffect(() => {
+    writeNavigationSnapshot<ScriptCenterNavigationSnapshot>("script-center", ownerId, {
+      scope,
+      selectedCategoryId,
+      categories,
+      scripts,
+      nextCursor,
+      hasMore,
+    });
+  }, [categories, hasMore, nextCursor, ownerId, scope, scripts, selectedCategoryId]);
 
   const text = useCallback(
     (chinese: string, english: string) => scriptText(selectedLanguage, chinese, english),

@@ -66,6 +66,10 @@ import {
 } from "@/services/moments/MomentFeedRepository";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
+import {
   publishMomentMutation,
   subscribeMomentMutation,
 } from "@/services/moments/MomentMutationStore";
@@ -102,6 +106,11 @@ interface ActiveComment {
   target: MomentCommentTarget;
 }
 
+interface MomentsNavigationSnapshot {
+  selectedTab: MomentFeedTab;
+  feeds: Record<MomentFeedTab, FeedState>;
+}
+
 const emptyFeed = (): FeedState => ({
   moments: [],
   hasMore: true,
@@ -110,6 +119,14 @@ const emptyFeed = (): FeedState => ({
   isRefreshing: false,
   error: null,
   isShowingCachedData: false,
+});
+
+const settledFeedSnapshot = (state: FeedState): FeedState => ({
+  ...state,
+  isLoading: false,
+  isLoadingMore: false,
+  isRefreshing: false,
+  error: null,
 });
 
 export default function MomentsScreen() {
@@ -142,11 +159,19 @@ function MomentsAccountScreen({
   const { applyMediaConsumption } = usePropInventory();
   const { applyBalance, refreshBalance } = useWallet();
   const activeRef = useRef(true);
-  const [selectedTab, setSelectedTab] = useState<MomentFeedTab>("recommended");
-  const [feeds, setFeedsState] = useState<Record<MomentFeedTab, FeedState>>({
-    recommended: emptyFeed(),
-    following: emptyFeed(),
-  });
+  const snapshotVariant = isMyMoments ? "mine" : "feed";
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<MomentsNavigationSnapshot>("moments", ownerId, snapshotVariant),
+  );
+  const [selectedTab, setSelectedTab] = useState<MomentFeedTab>(
+    navigationSnapshot?.selectedTab ?? "recommended",
+  );
+  const [feeds, setFeedsState] = useState<Record<MomentFeedTab, FeedState>>(
+    navigationSnapshot?.feeds ?? {
+      recommended: emptyFeed(),
+      following: emptyFeed(),
+    },
+  );
   const feedsRef = useRef(feeds);
   const busyRef = useRef<Record<MomentFeedTab, boolean>>({
     recommended: false,
@@ -171,6 +196,21 @@ function MomentsAccountScreen({
       activeRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    writeNavigationSnapshot<MomentsNavigationSnapshot>(
+      "moments",
+      ownerId,
+      {
+        selectedTab,
+        feeds: {
+          recommended: settledFeedSnapshot(feeds.recommended),
+          following: settledFeedSnapshot(feeds.following),
+        },
+      },
+      snapshotVariant,
+    );
+  }, [feeds, ownerId, selectedTab, snapshotVariant]);
 
   const setFeeds = useCallback(
     (update: (current: Record<MomentFeedTab, FeedState>) => Record<MomentFeedTab, FeedState>) => {

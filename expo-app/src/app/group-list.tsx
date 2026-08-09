@@ -24,6 +24,10 @@ import {
 import { useConversationUnreadCount } from "@/services/conversations/ConversationUnreadStore";
 import { loadGroupsWithNativeCache } from "@/services/groups/GroupRepository";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 import { colors } from "@/theme";
 
 type GroupListMode = "public" | "mine";
@@ -34,12 +38,14 @@ export default function GroupListScreen() {
   const { activeLanguage, t } = useLocalization();
   const ownerId = user?.user_id ?? "";
   const [mode, setMode] = useState<GroupListMode>(params.mode === "mine" ? "mine" : "public");
-  const [listState, setListState] = useState<GroupListState>(emptyGroupListState);
+  const [listState, setListState] = useState<GroupListState>(() => restoredGroupListState(ownerId));
   const activeOwnerRef = useRef(ownerId);
   const loadGenerationRef = useRef(0);
   useEffect(() => {
+    if (activeOwnerRef.current === ownerId) return;
     activeOwnerRef.current = ownerId;
     loadGenerationRef.current += 1;
+    setListState(restoredGroupListState(ownerId));
   }, [ownerId]);
   const ownerStateIsCurrent = listState.ownerId === ownerId;
   const isLoading = ownerStateIsCurrent ? listState.isLoading : Boolean(ownerId);
@@ -64,6 +70,7 @@ export default function GroupListScreen() {
       try {
         const fetched = await loadGroupsWithNativeCache(ownerId, getGroups, { forceRefresh });
         if (isCurrent()) {
+          writeNavigationSnapshot("group-list", ownerId, fetched);
           setListState({ ownerId, groups: fetched, isLoading: false, isRefreshing: false });
         }
       } catch {
@@ -173,6 +180,13 @@ const emptyGroupListState: GroupListState = {
   isLoading: true,
   isRefreshing: false,
 };
+
+function restoredGroupListState(ownerId: string): GroupListState {
+  const groups = readNavigationSnapshot<ChatGroup[]>("group-list", ownerId);
+  return groups
+    ? { ownerId, groups, isLoading: false, isRefreshing: false }
+    : { ...emptyGroupListState, ownerId, isLoading: Boolean(ownerId) };
+}
 
 function GroupListRow({
   activeLanguage,

@@ -35,6 +35,10 @@ import {
   verifyActivityPhone,
 } from "@/services/activity/ActivityCenterRepository";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 
 export interface ActivityRewardCelebration {
   id: string;
@@ -75,10 +79,13 @@ interface ActivityOperationAuthority {
 
 export function useActivityCenter(ownerID: string | undefined): ActivityCenterState {
   const scopeID = ownerID?.trim() || "anonymous";
+  const [initialSnapshot] = useState(() =>
+    readNavigationSnapshot<ActivityCenterSnapshot>("activity-center", scopeID),
+  );
   const scopeRef = useRef(scopeID);
   const generationRef = useRef(0);
   const tokenSequenceRef = useRef(0);
-  const snapshotRef = useRef<ActivityCenterSnapshot | undefined>(undefined);
+  const snapshotRef = useRef<ActivityCenterSnapshot | undefined>(initialSnapshot);
   const cachedRef = useRef(false);
   const loadingAuthorityRef = useRef<ActivityOperationAuthority | undefined>(undefined);
   const operationsRef = useRef(new Map<string, ActivityOperationAuthority>());
@@ -86,10 +93,15 @@ export function useActivityCenter(ownerID: string | undefined): ActivityCenterSt
   const deferredSpinAuthorityRef = useRef<ActivityOperationAuthority | undefined>(undefined);
   const shareSessionAuthoritiesRef = useRef(new Map<string, ActivityOperationAuthority>());
   const phoneSessionAuthorityRef = useRef<ActivityOperationAuthority | undefined>(undefined);
-  const serverTimeAnchorRef = useRef<Date | undefined>(undefined);
-  const deviceTimeAnchorRef = useRef<Date | undefined>(undefined);
-  const [snapshot, setSnapshot] = useState<ActivityCenterSnapshot | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState(false);
+  const initialServerAnchor = initialSnapshot ? new Date(initialSnapshot.serverTime) : undefined;
+  const serverTimeAnchorRef = useRef<Date | undefined>(
+    initialServerAnchor && !Number.isNaN(initialServerAnchor.getTime())
+      ? initialServerAnchor
+      : undefined,
+  );
+  const deviceTimeAnchorRef = useRef<Date | undefined>(initialSnapshot ? new Date() : undefined);
+  const [snapshot, setSnapshot] = useState<ActivityCenterSnapshot | undefined>(initialSnapshot);
+  const [isLoading, setIsLoading] = useState(scopeID !== "anonymous" && !initialSnapshot);
   const [isShowingCachedData, setIsShowingCachedData] = useState(false);
   const [matchedUsers, setMatchedUsers] = useState<ActivityMatchedUser[]>([]);
   const [phoneVerificationSession, setPhoneVerificationSession] = useState<
@@ -116,6 +128,7 @@ export function useActivityCenter(ownerID: string | undefined): ActivityCenterSt
   const publishSnapshot = useCallback((next: ActivityCenterSnapshot | undefined) => {
     snapshotRef.current = next;
     setSnapshot(next);
+    if (next) writeNavigationSnapshot("activity-center", scopeRef.current, next);
   }, []);
 
   const publishCached = useCallback((next: boolean) => {
@@ -145,6 +158,7 @@ export function useActivityCenter(ownerID: string | undefined): ActivityCenterSt
 
   const resetForScope = useCallback(
     (nextScope: string) => {
+      const restored = readNavigationSnapshot<ActivityCenterSnapshot>("activity-center", nextScope);
       scopeRef.current = nextScope;
       loadingAuthorityRef.current = undefined;
       operationsRef.current.clear();
@@ -152,11 +166,13 @@ export function useActivityCenter(ownerID: string | undefined): ActivityCenterSt
       deferredSpinAuthorityRef.current = undefined;
       shareSessionAuthoritiesRef.current.clear();
       phoneSessionAuthorityRef.current = undefined;
-      serverTimeAnchorRef.current = undefined;
-      deviceTimeAnchorRef.current = undefined;
-      publishSnapshot(undefined);
+      const serverAnchor = restored ? new Date(restored.serverTime) : undefined;
+      serverTimeAnchorRef.current =
+        serverAnchor && !Number.isNaN(serverAnchor.getTime()) ? serverAnchor : undefined;
+      deviceTimeAnchorRef.current = restored ? new Date() : undefined;
+      publishSnapshot(restored);
       publishCached(false);
-      setIsLoading(nextScope !== "anonymous");
+      setIsLoading(nextScope !== "anonymous" && !restored);
       setMatchedUsers([]);
       setPhoneVerificationSession(undefined);
       setRewardCelebration(undefined);

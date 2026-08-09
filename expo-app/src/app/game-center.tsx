@@ -7,7 +7,7 @@ import {
   type NativeStackNavigationOptions,
 } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -57,14 +57,28 @@ import {
   runAfterNavigationInteractions,
   useNavigationInteractionsSettled,
 } from "@/services/navigation/NavigationWorkScheduler";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 import { createIdempotencyKey } from "@/api/bwchat";
 import { colors } from "@/theme";
 
 type GameCenterTab = "recommended" | "played";
 
+interface GameCenterNavigationSnapshot {
+  selectedTab: GameCenterTab;
+  recommended: GameCatalogPage;
+  played: GameCatalogItem[];
+}
+
 export default function GameCenterScreen() {
   const { user } = useAuth();
   const ownerId = user?.user_id ?? "";
+  return <GameCenterAccountScreen key={ownerId || "signed-out"} ownerId={ownerId} />;
+}
+
+function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
   const { t } = useLocalization();
   const { config } = useRemoteConfig();
   const scheme = useColorScheme();
@@ -73,12 +87,21 @@ export default function GameCenterScreen() {
     () => gameRewardedAdUnitAllowlist(config.wallet, __DEV__),
     [config.wallet],
   );
-  const [selectedTab, setSelectedTab] = useState<GameCenterTab>("recommended");
-  const [recommended, setRecommended] = useState<GameCatalogPage>({ items: [] });
-  const [played, setPlayed] = useState<GameCatalogItem[]>([]);
-  const [recommendedLoading, setRecommendedLoading] = useState(Boolean(ownerId));
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<GameCenterNavigationSnapshot>("game-center", ownerId),
+  );
+  const [selectedTab, setSelectedTab] = useState<GameCenterTab>(
+    navigationSnapshot?.selectedTab ?? "recommended",
+  );
+  const [recommended, setRecommended] = useState<GameCatalogPage>(
+    navigationSnapshot?.recommended ?? { items: [] },
+  );
+  const [played, setPlayed] = useState<GameCatalogItem[]>(navigationSnapshot?.played ?? []);
+  const [recommendedLoading, setRecommendedLoading] = useState(
+    Boolean(ownerId && !navigationSnapshot),
+  );
   const [recommendedLoadingMore, setRecommendedLoadingMore] = useState(false);
-  const [playedLoading, setPlayedLoading] = useState(Boolean(ownerId));
+  const [playedLoading, setPlayedLoading] = useState(Boolean(ownerId && !navigationSnapshot));
   const [recommendedFailed, setRecommendedFailed] = useState(false);
   const [playedFailed, setPlayedFailed] = useState(false);
   const [launchingGameID, setLaunchingGameID] = useState<string>();
@@ -94,25 +117,20 @@ export default function GameCenterScreen() {
   const playedLoadRef = useRef(false);
   const accountScopeRef = useRef(new GameAccountScope(ownerId));
 
-  useLayoutEffect(() => {
-    if (!accountScopeRef.current.updateOwner(ownerId)) return;
-    didInitialLoadRef.current = false;
-    playedRevisionRef.current = readGamePlayedRevision(ownerId);
-    launchGateRef.current = false;
-    recommendedLoadRef.current = false;
-    recommendedMoreRef.current = false;
-    playedLoadRef.current = false;
-    requestedCursorsRef.current.clear();
-    setRecommended({ items: [] });
-    setPlayed([]);
-    setRecommendedFailed(false);
-    setPlayedFailed(false);
-    setRecommendedLoading(Boolean(ownerId));
-    setRecommendedLoadingMore(false);
-    setPlayedLoading(Boolean(ownerId));
-    setLaunchingGameID(undefined);
-    setRefreshing(false);
-  }, [ownerId]);
+  useEffect(
+    () => () => {
+      accountScopeRef.current.updateOwner("");
+    },
+    [],
+  );
+
+  useEffect(() => {
+    writeNavigationSnapshot<GameCenterNavigationSnapshot>("game-center", ownerId, {
+      selectedTab,
+      recommended,
+      played,
+    });
+  }, [ownerId, played, recommended, selectedTab]);
 
   const loadRecommended = useCallback(
     async (force = false) => {

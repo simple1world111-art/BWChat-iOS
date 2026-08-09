@@ -11,6 +11,10 @@ import {
   uploadLiveAvatar,
 } from "@/services/live/LiveLobbyRepository";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 import { liveLobbyHeartbeatService } from "@/services/live/LiveLobbyHeartbeatService";
 import {
   acquireLiveLobbyUpdate,
@@ -31,6 +35,14 @@ import {
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 
 export type LiveLobbyTab = "recommended" | "chatted";
+
+interface LiveLobbyNavigationSnapshot {
+  slots: OneToOneLiveSlot[];
+  currentSlot: OneToOneLiveSlot | null;
+  billingPolicy: LiveBillingPolicy;
+  supportedCallTypes: CallType[];
+  liveAvatarUploadSupported: boolean;
+}
 
 export interface LiveLobbyController {
   participants: LiveLobbyParticipant[];
@@ -58,10 +70,18 @@ export function useLiveLobby(
   activeTab: LiveLobbyTab,
 ): LiveLobbyController {
   const scope = ownerId?.trim() || "anonymous";
+  const [initialSnapshot] = useState(() =>
+    readNavigationSnapshot<LiveLobbyNavigationSnapshot>("live-lobby", scope, activeTab),
+  );
   const scopeRef = useRef(scope);
   const activeTabRef = useRef(activeTab);
-  const slotsRef = useRef<OneToOneLiveSlot[]>([]);
-  const currentSlotRef = useRef<OneToOneLiveSlot | null>(null);
+  const slotsRef = useRef<OneToOneLiveSlot[]>(initialSnapshot?.slots ?? []);
+  const currentSlotRef = useRef<OneToOneLiveSlot | null>(initialSnapshot?.currentSlot ?? null);
+  const billingPolicyRef = useRef(initialSnapshot?.billingPolicy ?? fallbackLiveBillingPolicy);
+  const supportedCallTypesRef = useRef<CallType[]>(
+    initialSnapshot?.supportedCallTypes ?? ["video"],
+  );
+  const liveAvatarUploadSupportedRef = useRef(initialSnapshot?.liveAvatarUploadSupported ?? false);
   const mutationSequenceRef = useRef(0);
   const ownMutationSequenceRef = useRef(0);
   const slotMutationsRef = useRef(new Map<string, number>());
@@ -69,36 +89,66 @@ export function useLiveLobby(
   const currentEndpointSupportedRef = useRef(true);
   const eventCursorRef = useRef(new LiveLobbyEventCursor());
   const updatingRef = useRef(false);
-  const [slots, setSlots] = useState<OneToOneLiveSlot[]>([]);
+  const [slots, setSlots] = useState<OneToOneLiveSlot[]>(initialSnapshot?.slots ?? []);
   const [participantTab, setParticipantTab] = useState<LiveLobbyTab>(activeTab);
-  const [currentSlot, setCurrentSlotState] = useState<OneToOneLiveSlot | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const [currentSlot, setCurrentSlotState] = useState<OneToOneLiveSlot | null>(
+    initialSnapshot?.currentSlot ?? null,
+  );
+  const [hasLoaded, setHasLoaded] = useState(Boolean(initialSnapshot));
   const [isUpdating, setUpdating] = useState(false);
-  const [billingPolicy, setBillingPolicy] = useState(fallbackLiveBillingPolicy);
-  const [supportedCallTypes, setSupportedCallTypes] = useState<CallType[]>(["video"]);
-  const [liveAvatarUploadSupported, setLiveAvatarUploadSupported] = useState(false);
+  const [billingPolicy, setBillingPolicy] = useState(
+    initialSnapshot?.billingPolicy ?? fallbackLiveBillingPolicy,
+  );
+  const [supportedCallTypes, setSupportedCallTypes] = useState<CallType[]>(
+    initialSnapshot?.supportedCallTypes ?? ["video"],
+  );
+  const [liveAvatarUploadSupported, setLiveAvatarUploadSupported] = useState(
+    initialSnapshot?.liveAvatarUploadSupported ?? false,
+  );
   const [errorMessage, setErrorMessage] = useState<string>();
   const clearError = useCallback(() => setErrorMessage(undefined), []);
 
-  const publishSlots = useCallback((value: OneToOneLiveSlot[]) => {
-    const next = sortLiveSlots(value.filter(isVisibleLiveSlot));
-    slotsRef.current = next;
-    setSlots(next);
+  const persistNavigationSnapshot = useCallback(() => {
+    writeNavigationSnapshot<LiveLobbyNavigationSnapshot>(
+      "live-lobby",
+      scopeRef.current,
+      {
+        slots: slotsRef.current,
+        currentSlot: currentSlotRef.current,
+        billingPolicy: billingPolicyRef.current,
+        supportedCallTypes: supportedCallTypesRef.current,
+        liveAvatarUploadSupported: liveAvatarUploadSupportedRef.current,
+      },
+      activeTabRef.current,
+    );
   }, []);
-  const publishCurrent = useCallback((value: OneToOneLiveSlot | null, recordsMutation: boolean) => {
-    currentSlotRef.current = value;
-    setCurrentSlotState(value);
-    if (value && isVisibleLiveSlot(value)) {
-      liveLobbyHeartbeatService.start(scopeRef.current, value.id);
-    } else {
-      liveLobbyHeartbeatService.stop(scopeRef.current);
-    }
-    if (recordsMutation) {
-      mutationSequenceRef.current += 1;
-      ownMutationSequenceRef.current = mutationSequenceRef.current;
-      if (value?.id) slotMutationsRef.current.set(value.id, mutationSequenceRef.current);
-    }
-  }, []);
+  const publishSlots = useCallback(
+    (value: OneToOneLiveSlot[]) => {
+      const next = sortLiveSlots(value.filter(isVisibleLiveSlot));
+      slotsRef.current = next;
+      setSlots(next);
+      persistNavigationSnapshot();
+    },
+    [persistNavigationSnapshot],
+  );
+  const publishCurrent = useCallback(
+    (value: OneToOneLiveSlot | null, recordsMutation: boolean) => {
+      currentSlotRef.current = value;
+      setCurrentSlotState(value);
+      if (value && isVisibleLiveSlot(value)) {
+        liveLobbyHeartbeatService.start(scopeRef.current, value.id);
+      } else {
+        liveLobbyHeartbeatService.stop(scopeRef.current);
+      }
+      if (recordsMutation) {
+        mutationSequenceRef.current += 1;
+        ownMutationSequenceRef.current = mutationSequenceRef.current;
+        if (value?.id) slotMutationsRef.current.set(value.id, mutationSequenceRef.current);
+      }
+      persistNavigationSnapshot();
+    },
+    [persistNavigationSnapshot],
+  );
   const recordMutation = useCallback((slotId?: string) => {
     mutationSequenceRef.current += 1;
     if (slotId) slotMutationsRef.current.set(slotId, mutationSequenceRef.current);
@@ -138,6 +188,7 @@ export function useLiveLobby(
     async (tab: LiveLobbyTab) => {
       const owner = scopeRef.current;
       if (owner === "anonymous") return;
+      activeTabRef.current = tab;
       const generation = ++refreshGenerationRef.current;
       const mutationAtStart = mutationSequenceRef.current;
       const ownMutationAtStart = ownMutationSequenceRef.current;
@@ -147,6 +198,9 @@ export function useLiveLobby(
       ]);
       if (scopeRef.current !== owner || generation !== refreshGenerationRef.current) return;
       if (pageResult.status === "fulfilled") {
+        billingPolicyRef.current = pageResult.value.billingPolicy;
+        supportedCallTypesRef.current = pageResult.value.supportedCallTypes;
+        liveAvatarUploadSupportedRef.current = pageResult.value.liveAvatarUploadSupported;
         setBillingPolicy(pageResult.value.billingPolicy);
         setSupportedCallTypes(pageResult.value.supportedCallTypes);
         setLiveAvatarUploadSupported(pageResult.value.liveAvatarUploadSupported);
@@ -189,8 +243,9 @@ export function useLiveLobby(
       if (currentSlotRef.current && isVisibleLiveSlot(currentSlotRef.current))
         upsert(currentSlotRef.current, false);
       setParticipantTab(tab);
+      persistNavigationSnapshot();
     },
-    [publishCurrent, publishSlots, upsert],
+    [persistNavigationSnapshot, publishCurrent, publishSlots, upsert],
   );
 
   useEffect(
@@ -209,23 +264,31 @@ export function useLiveLobby(
     const cancel = runAfterNavigationInteractions(() => {
       liveLobbyHeartbeatService.stop(scopeRef.current);
       scopeRef.current = scope;
+      const restored = readNavigationSnapshot<LiveLobbyNavigationSnapshot>(
+        "live-lobby",
+        scope,
+        activeTabRef.current,
+      );
       refreshGenerationRef.current += 1;
-      slotsRef.current = [];
-      currentSlotRef.current = null;
+      slotsRef.current = restored?.slots ?? [];
+      currentSlotRef.current = restored?.currentSlot ?? null;
+      billingPolicyRef.current = restored?.billingPolicy ?? fallbackLiveBillingPolicy;
+      supportedCallTypesRef.current = restored?.supportedCallTypes ?? ["video"];
+      liveAvatarUploadSupportedRef.current = restored?.liveAvatarUploadSupported ?? false;
       mutationSequenceRef.current = 0;
       ownMutationSequenceRef.current = 0;
       slotMutationsRef.current.clear();
       currentEndpointSupportedRef.current = true;
       eventCursorRef.current.reset();
       updatingRef.current = false;
-      setSlots([]);
+      setSlots(slotsRef.current);
       setParticipantTab(activeTabRef.current);
-      setCurrentSlotState(null);
-      setHasLoaded(false);
+      setCurrentSlotState(currentSlotRef.current);
+      setHasLoaded(Boolean(restored));
       setUpdating(false);
-      setBillingPolicy(fallbackLiveBillingPolicy);
-      setSupportedCallTypes(["video"]);
-      setLiveAvatarUploadSupported(false);
+      setBillingPolicy(billingPolicyRef.current);
+      setSupportedCallTypes(supportedCallTypesRef.current);
+      setLiveAvatarUploadSupported(liveAvatarUploadSupportedRef.current);
       setErrorMessage(undefined);
       if (scope !== "anonymous") void refresh(activeTabRef.current);
     });

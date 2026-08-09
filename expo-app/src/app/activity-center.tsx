@@ -61,6 +61,10 @@ import {
   activityCenterPreviewWheelResult,
 } from "@/services/activity/ActivityCenterPreviewSupport";
 import { type ActivityCenterState, useActivityCenter } from "@/services/activity/useActivityCenter";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 import { colors, palette } from "@/theme";
 
 type ActivityTab = "benefits" | "wheel";
@@ -69,6 +73,7 @@ type ActivityPreviewVariant =
 
 export default function ActivityCenterScreen() {
   const { user } = useAuth();
+  const ownerId = user?.user_id?.trim() ?? "";
   const { t } = useLocalization();
   const params = useLocalSearchParams<{
     inviteToken?: string | string[];
@@ -93,7 +98,11 @@ export default function ActivityCenterScreen() {
   const clearActivityError = state.clearError;
   const redeemActivityInvite = state.redeemInvite;
   const [selectedTab, setSelectedTab] = useState<ActivityTab>(() =>
-    previewVariant === "wheel" || previewVariant === "wheel-result" ? "wheel" : "benefits",
+    previewVariant === "wheel" || previewVariant === "wheel-result"
+      ? "wheel"
+      : previewVariant
+        ? "benefits"
+        : (readNavigationSnapshot<ActivityTab>("activity-center-tab", ownerId) ?? "benefits"),
   );
   const [phoneVisible, setPhoneVisible] = useState(previewVariant === "phone");
   const [matchesVisible, setMatchesVisible] = useState(previewVariant === "matches");
@@ -104,6 +113,10 @@ export default function ActivityCenterScreen() {
   const pagesRef = useRef<ScrollView>(null);
   const redeemedDeliveryRef = useRef<string | undefined>(undefined);
   const presentedOwnerRef = useRef(user?.user_id?.trim() || "anonymous");
+
+  useEffect(() => {
+    if (!previewVariant) writeNavigationSnapshot("activity-center-tab", ownerId, selectedTab);
+  }, [ownerId, previewVariant, selectedTab]);
 
   const chooseTab = useCallback(
     (tab: ActivityTab) => {
@@ -357,10 +370,7 @@ function BenefitsPane({
   }, [state]);
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.benefitsContent}
-      showsVerticalScrollIndicator={false}
-    >
+    <ScrollView contentContainerStyle={styles.benefitsContent} showsVerticalScrollIndicator={false}>
       {!snapshot.configVersion ? (
         <ActivityCard>
           <UnavailableState
@@ -880,10 +890,7 @@ function WheelPane({
     );
   }
   return (
-    <ScrollView
-      contentContainerStyle={styles.wheelContent}
-      showsVerticalScrollIndicator={false}
-    >
+    <ScrollView contentContainerStyle={styles.wheelContent} showsVerticalScrollIndicator={false}>
       <View style={styles.balanceCard} accessible>
         <Image
           source={nativeAssets.walletGoldCoinBadge}

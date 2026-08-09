@@ -2,6 +2,7 @@ import { act, cleanup, renderHook } from "@testing-library/react-native";
 
 import type { OneToOneLiveSlotPage } from "@/services/live/LiveLobbyModels";
 import { useLiveLobby } from "@/services/live/useLiveLobby";
+import { clearNavigationSnapshots } from "@/services/navigation/NavigationSnapshotCache";
 
 const mockGetSlots = jest.fn();
 const mockGetCurrent = jest.fn();
@@ -37,6 +38,7 @@ jest.mock("@/services/realtime/ChatRealtimeService", () => ({
 
 describe("useLiveLobby account and tab lifecycle", () => {
   beforeEach(() => {
+    clearNavigationSnapshots();
     jest.clearAllMocks();
     mockGetCurrent.mockResolvedValue(null);
     mockGetSlots.mockResolvedValue(page("recommended-slot", "recommended-user"));
@@ -75,6 +77,20 @@ describe("useLiveLobby account and tab lifecycle", () => {
     expect(hook.result.current.participants).toEqual([
       expect.objectContaining({ id: "chatted-slot", hasChatted: true }),
     ]);
+  });
+
+  it("restores the last lobby grid synchronously after the account screen remounts", async () => {
+    const first = await renderHook(() => useLiveLobby("owner-a", "recommended"));
+    await act(async () => first.result.current.refresh("recommended"));
+    await first.unmount();
+
+    const restored = await renderHook(() => useLiveLobby("owner-a", "recommended"));
+
+    expect(restored.result.current.hasLoaded).toBe(true);
+    expect(restored.result.current.participants).toEqual([
+      expect.objectContaining({ id: "recommended-slot", hasChatted: false }),
+    ]);
+    await restored.unmount();
   });
 
   it("invalidates a pending start mutation and heartbeat when its account screen unmounts", async () => {
