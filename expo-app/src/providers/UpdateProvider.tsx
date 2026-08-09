@@ -1,4 +1,4 @@
-import { Alert, AppState, InteractionManager } from "react-native";
+import { AppState, InteractionManager } from "react-native";
 import {
   createContext,
   useCallback,
@@ -9,8 +9,6 @@ import {
   useState,
 } from "react";
 
-import { updateCopy } from "@/localization/updateCopy";
-import { useLocalization } from "@/providers/LocalizationProvider";
 import {
   checkAndDownloadUpdate,
   reloadToApplyUpdate,
@@ -27,12 +25,9 @@ interface UpdateContextValue {
 const UpdateContext = createContext<UpdateContextValue | null>(null);
 
 export function UpdateProvider({ children }: { children: React.ReactNode }) {
-  const { activeLanguage } = useLocalization();
-  const copy = updateCopy(activeLanguage);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const appStateRef = useRef(AppState.currentState);
-  const promptedUpdateIdsRef = useRef(new Set<string>());
 
   const check = useCallback(async (force = false) => {
     setIsChecking(true);
@@ -45,36 +40,11 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const promptForDownloadedUpdate = useCallback(
-    (downloaded: Extract<UpdateCheckResult, { status: "downloaded" }>) => {
-      const promptKey = downloaded.updateId ?? `downloaded:${downloaded.checkedAt}`;
-      if (promptedUpdateIdsRef.current.has(promptKey)) return;
-      promptedUpdateIdsRef.current.add(promptKey);
-      Alert.alert(
-        copy.applyTitle,
-        copy.statusDownloaded,
-        [
-          { text: copy.later, style: "cancel" },
-          {
-            text: copy.applyNow,
-            onPress: () =>
-              void reloadToApplyUpdate().catch(() => {
-                Alert.alert(copy.applyTitle, copy.operationFailed);
-              }),
-          },
-        ],
-        { cancelable: false },
-      );
-    },
-    [copy.applyNow, copy.applyTitle, copy.later, copy.operationFailed, copy.statusDownloaded],
-  );
-
   const runAutomaticCheck = useCallback(
     async (force: boolean) => {
-      const next = await check(force);
-      if (next.status === "downloaded") promptForDownloadedUpdate(next);
+      await check(force);
     },
-    [check, promptForDownloadedUpdate],
+    [check],
   );
 
   useEffect(() => {

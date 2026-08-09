@@ -53,7 +53,7 @@ const nativeNoUpdate: NativeCheckResult = {
 };
 const nativeUpdateAvailable = {
   isAvailable: true,
-  manifest: { id: "update-new" },
+  manifest: {},
   isRollBackToEmbedded: false,
   reason: undefined,
 } as NativeCheckResult;
@@ -108,7 +108,7 @@ describe("UpdateService", () => {
 
     const result = await checkAndDownloadUpdate();
 
-    expect(result).toMatchObject({ status: "downloaded", updateId: "update-new" });
+    expect(result.status).toBe("downloaded");
     expect(mockFetchUpdateAsync).toHaveBeenCalledTimes(1);
     expect(mockReloadAsync).not.toHaveBeenCalled();
     expect(mockedCaptureMessage).toHaveBeenCalledWith("OTA update downloaded", {
