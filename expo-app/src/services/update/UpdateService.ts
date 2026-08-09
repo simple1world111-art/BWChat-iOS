@@ -87,6 +87,14 @@ async function performUpdateCheck(force: boolean): Promise<UpdateCheckResult> {
     await Updates.fetchUpdateAsync();
     await persist("downloaded", now);
     captureMessage("OTA update downloaded", { channel: Updates.channel ?? "unknown" });
+
+    // Apply a successfully downloaded OTA immediately. If the native reload fails,
+    // keep the downloaded state so the existing manual action can retry it.
+    try {
+      await reloadToApplyUpdate();
+    } catch {
+      return { status: "downloaded", checkedAt: now };
+    }
     return { status: "downloaded", checkedAt: now };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown update error";
