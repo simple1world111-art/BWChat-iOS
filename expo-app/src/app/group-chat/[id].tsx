@@ -61,6 +61,10 @@ import {
   ChatComposerPanelToggleButton,
   ChatComposerSurfaceBackground,
 } from "@/components/messages/ChatComposerSurface";
+import {
+  chatComposerInputMetrics,
+  useChatComposerInputHeight,
+} from "@/components/messages/ChatComposerInputHeight";
 import { ChatStickerPanel } from "@/components/messages/ChatStickerPanel";
 import { ChatVideoBubble } from "@/components/messages/ChatVideoBubble";
 import { ChatVoiceBubble } from "@/components/messages/ChatVoiceBubble";
@@ -2691,6 +2695,7 @@ function Composer({
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const selectionRef = useRef<ComposerTextSelection>({ start: draft.length, end: draft.length });
   const composerDraftRef = useRef<string | null>(null);
+  const { inputHeight, resetInputHeight, updateInputHeight } = useChatComposerInputHeight(draft);
   useEffect(() => {
     if (composerDraftRef.current !== draft) {
       selectionRef.current = {
@@ -2709,6 +2714,10 @@ function Composer({
   }, [focusRequest]);
   const canSend = draft.trim().length > 0;
   const showsMic = !isVoiceMode && !isFocused && !panel && !draft;
+  const submitDraft = () => {
+    resetInputHeight();
+    onSend();
+  };
   return (
     <View style={styles.composerSurface}>
       <ChatComposerSurfaceBackground showsStickerPanel={panel === "stickers"} />
@@ -2752,6 +2761,9 @@ function Composer({
                 composerDraftRef.current = value;
                 onDraftChange(value);
               }}
+              onContentSizeChange={({ nativeEvent }) => {
+                updateInputHeight(nativeEvent.contentSize.height);
+              }}
               onFocus={() => {
                 onPanelChange(null);
                 onFocusChange(true);
@@ -2763,13 +2775,18 @@ function Composer({
                   length: nativeEvent.selection.end - nativeEvent.selection.start,
                 });
               }}
-              onSubmitEditing={onSend}
+              onSubmitEditing={submitDraft}
               placeholder={t("chat.input.placeholder")}
               placeholderTextColor={colors.tertiaryText}
               returnKeyType="send"
               submitBehavior="submit"
               selection={{ start: selection.location, end: selection.location + selection.length }}
-              style={[styles.composerInput, showsMic && styles.inputWithMic]}
+              scrollEnabled={inputHeight >= chatComposerInputMetrics.maximum}
+              style={[
+                styles.composerInput,
+                { height: inputHeight },
+                showsMic && styles.inputWithMic,
+              ]}
               value={draft}
             />
           </View>
@@ -2791,7 +2808,7 @@ function Composer({
           />
         ) : null}
         {!isVoiceMode && canSend ? (
-          <Pressable onPress={onSend} style={styles.iconButton}>
+          <Pressable onPress={submitDraft} style={styles.iconButton}>
             <LinearGradient
               colors={[colors.accent, colors.accentDark]}
               end={{ x: 1, y: 1 }}
