@@ -7,12 +7,19 @@ import { readAccessToken } from "@/storage/tokenStorage";
 export const videoRangeProbeHeader = "bytes=0-0";
 export type VideoAuthorizationPolicy = "auto" | "required" | "none";
 
+function isPublicVideoPlaybackPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/api/v1/public/") ||
+    pathname.startsWith("/api/v1/moments/image/")
+  );
+}
+
 export function videoPlaybackRequiresAuthorization(uri: string, apiBaseUrl: string): boolean {
   try {
     const source = new URL(uri);
     const api = new URL(apiBaseUrl);
     if (source.origin !== api.origin) return false;
-    return !source.pathname.startsWith("/api/v1/public/");
+    return !isPublicVideoPlaybackPath(source.pathname);
   } catch {
     return false;
   }
@@ -20,8 +27,10 @@ export function videoPlaybackRequiresAuthorization(uri: string, apiBaseUrl: stri
 
 /**
  * Refreshes same-origin credentials with a one-byte Range request before the
- * native player starts its own metadata/scrubbing Range sequence. Public,
- * cross-origin and local sources intentionally receive no Authorization header.
+ * native player starts its own metadata/scrubbing Range sequence. Public
+ * images, public Moments media, cross-origin and local sources intentionally
+ * receive no Authorization header. AVPlayer does not reliably preserve custom
+ * headers across every Range request made for public Moments QuickTime files.
  */
 export async function prepareVideoAuthorizationHeaders(
   uri: string,

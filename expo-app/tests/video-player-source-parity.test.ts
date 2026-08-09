@@ -206,6 +206,12 @@ describe("native VideoPlayerView parity", () => {
     expect(
       videoPlaybackRequiresAuthorization("https://api.example.com/api/v1/public/images/a.mp4", api),
     ).toBe(false);
+    expect(
+      videoPlaybackRequiresAuthorization(
+        "https://api.example.com/api/v1/moments/image/u005/a.mov",
+        api,
+      ),
+    ).toBe(false);
     expect(videoPlaybackRequiresAuthorization("https://cdn.example.com/a.mp4", api)).toBe(false);
     expect(videoPlaybackRequiresAuthorization("file:///cache/a.mp4", api)).toBe(false);
   });
@@ -256,6 +262,7 @@ describe("native VideoPlayerView parity", () => {
     const api = "https://api.example.com/api/v1";
     for (const uri of [
       "https://api.example.com/api/v1/public/images/a.mp4",
+      "https://api.example.com/api/v1/moments/image/u005/a.mov",
       "https://cdn.example.com/a.mp4",
       "file:///cache/a.mp4",
     ]) {
