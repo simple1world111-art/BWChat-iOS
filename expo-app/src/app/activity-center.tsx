@@ -184,14 +184,6 @@ export default function ActivityCenterScreen() {
         </View>
       ) : state.snapshot ? (
         <View style={styles.pageArea}>
-          {state.isShowingCachedData ? (
-            <View style={styles.cachedBanner} accessibilityRole="text">
-              <SymbolView name="wifi.slash" size={13} tintColor={theme.secondaryText} />
-              <Text style={[styles.cachedText, { color: theme.secondaryText }]}>
-                {t("activityCenter.cached")}
-              </Text>
-            </View>
-          ) : null}
           <ScrollView
             ref={pagesRef}
             horizontal
@@ -1712,16 +1704,6 @@ const styles = StyleSheet.create({
   pageArea: { flex: 1 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14 },
   loadingText: { fontSize: 15 },
-  cachedBanner: {
-    minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 6,
-    backgroundColor: "rgba(255,255,255,0.72)",
-  },
-  cachedText: { fontSize: 12 },
   benefitsContent: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 32, gap: 12 },
   card: {
     padding: 18,

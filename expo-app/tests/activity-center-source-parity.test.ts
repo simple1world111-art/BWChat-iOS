@@ -146,5 +146,7 @@ describe("ActivityCenter source and asset parity guards", () => {
     expect(page).toContain('if (next === "active") void loadActivity(true)');
     expect(page).not.toContain("RefreshControl");
     expect(page).not.toContain("isManualRefreshing");
+    expect(page).not.toContain('t("activityCenter.cached")');
+    expect(page).not.toContain("cachedBanner");
   });
 });
