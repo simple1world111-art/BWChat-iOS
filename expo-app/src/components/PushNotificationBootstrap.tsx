@@ -11,6 +11,7 @@ import {
   applyPushSideEffects,
   beginNativePushUploadSession,
   cacheNativePushToken,
+  dismissCachedReadConversationNotifications,
   ensureNativePushTokenUploaded,
   markPushEventProcessed,
   pushOpenTarget,
@@ -32,6 +33,13 @@ export function PushNotificationBootstrap() {
       (error) => captureException(error, { operation: "application_badge_sync" }),
     );
   }, [conversationUnread, momentsUnread, ownerId]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    void dismissCachedReadConversationNotifications(ownerId).catch((error) =>
+      captureException(error, { operation: "cached_read_notification_bootstrap" }),
+    );
+  }, [ownerId]);
 
   const consumePending = useCallback(async () => {
     if (!user?.user_id) return;

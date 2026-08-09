@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 
 import { apiRequest } from "@/api/client";
+import { reconcileConversationSnapshot } from "@/services/conversations/ConversationRepository";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import {
   activateMomentsUnreadOwner,
@@ -11,6 +12,7 @@ import {
 import {
   applyPushSideEffects,
   beginNativePushUploadSession,
+  dismissCachedReadConversationNotifications,
   dismissReadConversationNotifications,
   dismissReadMomentsNotifications,
   ensureNativePushTokenUploaded,
@@ -241,6 +243,35 @@ describe("native push service", () => {
     expect(dismissNotification).toHaveBeenCalledWith("moment-2");
   });
 
+  it("cleans notifications already covered by cached zero-unread conversations on startup", async () => {
+    await reconcileConversationSnapshot("owner", {
+      conversations: [
+        conversation({ id: "u1", last_message_id: 42, unread_count: 0 }),
+        conversation({ id: "u2", last_message_id: 7, unread_count: 1 }),
+        conversation({
+          type: "group",
+          id: "group-9",
+          group_id: 9,
+          read_through_message_id: 12,
+          unread_count: 0,
+        }),
+      ],
+      revision: 1,
+      snapshot_complete: true,
+    });
+    getPresented.mockResolvedValue([
+      presented("read-dm", { sender_id: "u1", message_id: 42 }),
+      presented("newer-dm", { sender_id: "u1", message_id: 43 }),
+      presented("unread-dm", { sender_id: "u2", message_id: 7 }),
+      presented("read-group", { group_id: 9, message_id: 12 }),
+    ]);
+
+    await expect(dismissCachedReadConversationNotifications("owner")).resolves.toBe(2);
+    expect(dismissNotification).toHaveBeenCalledTimes(2);
+    expect(dismissNotification).toHaveBeenCalledWith("read-dm");
+    expect(dismissNotification).toHaveBeenCalledWith("read-group");
+  });
+
   it("persists cold-open targets and caps processed delivery identity", async () => {
     const target = pushOpenTarget({ sender_id: "u1", message_id: 3 }, "n1");
     expect(target).not.toBeNull();
@@ -267,6 +298,18 @@ function presented(identifier: string, data: Record<string, unknown>): Notificat
     date: Date.now(),
     request: { identifier, content: { data } },
   } as Notifications.Notification;
+}
+
+function conversation(overrides: Partial<import("@/models").Conversation> = {}) {
+  return {
+    type: "dm",
+    id: "u1",
+    name: "Alice",
+    avatar_url: "",
+    unread_count: 0,
+    is_muted: false,
+    ...overrides,
+  };
 }
 
 function permission(granted: boolean): Notifications.NotificationPermissionsStatus {

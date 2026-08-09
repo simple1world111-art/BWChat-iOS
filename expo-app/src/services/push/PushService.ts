@@ -3,6 +3,8 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import { apiRequest } from "@/api/client";
+import { conversationListIdentity } from "@/services/conversations/ConversationListPolicy";
+import { loadCachedConversationSnapshot } from "@/services/conversations/ConversationRepository";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { incrementMomentsUnread } from "@/services/moments/MomentsUnreadStore";
 import {
@@ -311,17 +313,40 @@ export async function dismissReadConversationNotifications(
 ): Promise<number> {
   const normalizedId = conversationId.trim();
   if (!normalizedId || !Number.isInteger(throughMessageId) || throughMessageId < 0) return 0;
-  return dismissPresentedNotifications("chat_read_notification_cleanup", (notification) => {
-    const route = parseNotificationRoute(notification.request.content.data);
-    if (
-      !route ||
-      route.conversationType !== conversationType ||
-      route.conversationId !== normalizedId
-    ) {
-      return false;
-    }
-    return route.messageId !== undefined && route.messageId <= throughMessageId;
-  });
+  return dismissNotificationsCoveredByConversationReads([
+    { conversationId: normalizedId, conversationType, throughMessageId },
+  ]);
+}
+
+export async function dismissCachedReadConversationNotifications(ownerId: string): Promise<number> {
+  const owner = ownerId.trim();
+  if (!owner) return 0;
+  try {
+    const snapshot = await loadCachedConversationSnapshot(owner);
+    const watermarks = (snapshot?.conversations ?? []).flatMap((conversation) => {
+      if (conversation.unread_count !== 0) return [];
+      const identity = conversationListIdentity(conversation);
+      const separator = identity.indexOf(":");
+      const type = identity.slice(0, separator);
+      const conversationId = identity.slice(separator + 1);
+      if ((type !== "dm" && type !== "group") || !conversationId) return [];
+      const throughMessageId =
+        conversation.read_through_message_id ?? conversation.last_message_id ?? 0;
+      return throughMessageId > 0
+        ? [
+            {
+              conversationId,
+              conversationType: type,
+              throughMessageId,
+            } satisfies ConversationReadWatermark,
+          ]
+        : [];
+    });
+    return dismissNotificationsCoveredByConversationReads(watermarks);
+  } catch (error) {
+    captureException(error, { operation: "cached_read_notification_cleanup" });
+    return 0;
+  }
 }
 
 /** Moments read is an all-at-once server contract, so all delivered Moments pushes are covered. */
@@ -398,6 +423,34 @@ async function dismissPresentedNotifications(
     }),
   );
   return dismissed.filter(Boolean).length;
+}
+
+interface ConversationReadWatermark {
+  conversationType: NotificationConversationType;
+  conversationId: string;
+  throughMessageId: number;
+}
+
+async function dismissNotificationsCoveredByConversationReads(
+  watermarks: readonly ConversationReadWatermark[],
+): Promise<number> {
+  const maximumReadThrough = new Map<string, number>();
+  for (const watermark of watermarks) {
+    const key = `${watermark.conversationType}:${watermark.conversationId}`;
+    maximumReadThrough.set(
+      key,
+      Math.max(maximumReadThrough.get(key) ?? 0, watermark.throughMessageId),
+    );
+  }
+  if (maximumReadThrough.size === 0) return 0;
+  return dismissPresentedNotifications("chat_read_notification_cleanup", (notification) => {
+    const route = parseNotificationRoute(notification.request.content.data);
+    if (!route || route.messageId === undefined) return false;
+    const throughMessageId = maximumReadThrough.get(
+      `${route.conversationType}:${route.conversationId}`,
+    );
+    return throughMessageId !== undefined && route.messageId <= throughMessageId;
+  });
 }
 
 async function uploadTokenWithRetry(token: string, signal?: AbortSignal): Promise<void> {

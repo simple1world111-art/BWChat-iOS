@@ -19,6 +19,7 @@ import {
   applyPushSideEffects,
   beginNativePushUploadSession,
   cacheNativePushToken,
+  dismissCachedReadConversationNotifications,
   ensureNativePushTokenUploaded,
   markPushEventProcessed,
   pushOpenTarget,
@@ -49,6 +50,7 @@ jest.mock("@/services/push/PushService", () => ({
   applyPushSideEffects: jest.fn(),
   beginNativePushUploadSession: jest.fn(),
   cacheNativePushToken: jest.fn(),
+  dismissCachedReadConversationNotifications: jest.fn(),
   ensureNativePushTokenUploaded: jest.fn(),
   markPushEventProcessed: jest.fn(),
   pushOpenTarget: jest.fn(),
@@ -63,6 +65,7 @@ const requestPermission = jest.mocked(requestPushPermission);
 const beginUploadSession = jest.mocked(beginNativePushUploadSession);
 const uploadToken = jest.mocked(ensureNativePushTokenUploaded);
 const cacheToken = jest.mocked(cacheNativePushToken);
+const dismissCachedRead = jest.mocked(dismissCachedReadConversationNotifications);
 const applySideEffects = jest.mocked(applyPushSideEffects);
 const parseOpenTarget = jest.mocked(pushOpenTarget);
 const saveOpenTarget = jest.mocked(savePendingPushOpen);
@@ -106,6 +109,7 @@ describe("authenticated push bootstrap", () => {
     beginUploadSession.mockReturnValue(1);
     uploadToken.mockResolvedValue();
     cacheToken.mockResolvedValue("cached-token");
+    dismissCachedRead.mockResolvedValue(0);
     applySideEffects.mockResolvedValue();
     takeOpenTarget.mockResolvedValue(null);
     wasProcessed.mockResolvedValue(false);
