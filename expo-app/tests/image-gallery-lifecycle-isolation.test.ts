@@ -30,7 +30,7 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     });
   });
 
-  it("scopes source hiding and authenticated cache identities by owner", () => {
+  it("scopes source and authenticated cache identities by owner", () => {
     expect(galleryOwnerSourceId("owner/a", "message-1")).toBe("owner/a\u0000message-1");
     expect(galleryOwnerSourceId("owner/b", "message-1")).not.toBe(
       galleryOwnerSourceId("owner/a", "message-1"),
@@ -73,24 +73,31 @@ describe("ImagePreview owner and lifecycle isolation", () => {
   it("animates fallback open and every non-Hero close backdrop instead of flashing the modal", () => {
     const gallery = source();
     expect(gallery).toContain("const openProgress = useSharedValue(0)");
+    expect(gallery).toContain("const backdropOpacity = useSharedValue(0)");
     expect(gallery).toContain("const contentOpacity = useSharedValue(0)");
     expect(gallery).toMatch(/const duration = 180;\s+openProgress\.value = withTiming\(0,/u);
+    expect(gallery).toMatch(/backdropOpacity\.value = withTiming\(\s+0,/u);
   });
 
-  it("waits for the native Modal before hiding the source and starting the Hero", () => {
+  it("preserves the source and waits for a displayed page before handing off the Hero", () => {
     const gallery = source();
-    expect(gallery).not.toMatch(/setActiveSourceId\(scopedSourceId\);\s+onOpen\(\{/u);
+    expect(gallery).not.toContain("setActiveSourceId(");
+    expect(gallery).not.toContain("hiddenSource");
     expect(gallery).toContain("onShow={() => setPresented(true)}");
     expect(gallery).toContain("{isPresented ? (");
-    expect(gallery).toMatch(
-      /setActiveSourceId\(sourceFrame \? \(selection\.sourceId \?\? null\) : null\);\s+const animationFrame = requestAnimationFrame\(\(\) => \{/u,
+    expect(gallery).toContain("const initialPageReady = useSharedValue(0)");
+    expect(gallery).toContain("useAnimatedReaction(");
+    expect(gallery).toContain(
+      "onDisplay={item === initialImageUri ? markInitialPageReady : undefined}",
     );
+    expect(gallery).not.toContain("sourceMask");
     expect(gallery).toContain("const heroOpacity = useSharedValue(sourceFrame ? 1 : 0)");
-    expect(gallery).toMatch(
-      /contentOpacity\.value = withDelay\([\s\S]*?heroOpacity\.value = withDelay\(/u,
+    expect(gallery).toContain(
+      "borderRadius: interpolate(openProgress.value, [0, 1], [selection.sourceCornerRadius ?? 14, 14])",
     );
+    expect(gallery).toMatch(/contentOpacity\.value = 1;\s+heroOpacity\.value = withTiming\(0,/u);
     expect(gallery).toMatch(
-      /const canReturnToSource =\s+Boolean\(sourceFrame\)[\s\S]*?heroOpacity\.value = withTiming\(1,[\s\S]*?contentOpacity\.value = withTiming\(0,/u,
+      /const canReturnToSource =\s+Boolean\(sourceFrame\)[\s\S]*?heroOpacity\.value = 1;\s+contentOpacity\.value = withTiming\(0,/u,
     );
     expect(gallery).not.toContain("verticalDrag.value = withTiming(0, { duration: 70 })");
   });
@@ -100,11 +107,12 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).not.toContain("runOnJS(beginDismiss)(decision)");
     expect(gallery).toContain("runOnJS(prepareSwipeDismiss)()");
     expect(gallery).toMatch(
-      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withSpring\([\s\S]*?runOnJS\(finishSwipeDismiss\)\(\)/u,
+      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withSpring\([\s\S]*?runOnJS\(finishSwipeDismissPart\)\(\)/u,
     );
     expect(gallery).toMatch(
       /const stripStyle = useAnimatedStyle\(\(\) => \(\{\s+transform: \[\{ translateX: pageOffset\.value \}\],[\s\S]*?const currentImageStyle[\s\S]*?opacity: contentOpacity\.value \* dragOpacity,/u,
     );
-    expect(gallery).toMatch(/setActiveSourceId\(null\);\s+requestAnimationFrame\(\(\) => \{/u);
+    expect(gallery).toContain("if (swipeDismissCompletedPartsRef.current < 2) return");
+    expect(gallery).toMatch(/backdropOpacity\.value = withTiming\([\s\S]*?finishSwipeDismissPart/u);
   });
 });

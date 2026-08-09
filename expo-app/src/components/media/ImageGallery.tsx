@@ -2,15 +2,7 @@
 import type { ImageLoadEventData } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   ActionSheetIOS,
@@ -32,6 +24,7 @@ import Animated, {
   Extrapolation,
   interpolate,
   runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -104,28 +97,6 @@ interface ImageGallerySourceProps {
   uri: string;
 }
 
-let activeSourceId: string | null = null;
-const sourceListeners = new Set<() => void>();
-
-function setActiveSourceId(next: string | null) {
-  if (activeSourceId === next) return;
-  activeSourceId = next;
-  sourceListeners.forEach((listener) => listener());
-}
-
-function subscribeSource(listener: () => void) {
-  sourceListeners.add(listener);
-  return () => sourceListeners.delete(listener);
-}
-
-function useSourceIsHidden(sourceId: string) {
-  return useSyncExternalStore(
-    subscribeSource,
-    () => activeSourceId === sourceId,
-    () => false,
-  );
-}
-
 export function ImageGallerySource({
   accessibilityHint,
   accessibilityLabel,
@@ -150,7 +121,6 @@ export function ImageGallerySource({
   const sourceLifecycleGenerationRef = useRef(0);
   const sourceOpenOperationRef = useRef(0);
   const [naturalSize, setNaturalSize] = useState<GallerySize | undefined>();
-  const isHidden = useSourceIsHidden(scopedSourceId);
 
   useEffect(() => {
     sourceOwnerIdRef.current = ownerId;
@@ -224,7 +194,7 @@ export function ImageGallerySource({
       disabled={disabled}
       onPress={handleOpen}
       ref={sourceRef}
-      style={[style, isHidden && styles.hiddenSource]}
+      style={style}
     >
       <AuthenticatedImage
         contentFit={contentFit}
@@ -325,6 +295,7 @@ function ImageGalleryContent({
     () => initialGalleryIndex(selection.images, initialImages, selection.index),
     [initialImages, selection.images, selection.index],
   );
+  const initialImageUri = initialImages[initialIndex] ?? selection.media.url;
   const [images, setImages] = useState(initialImages);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -338,6 +309,7 @@ function ImageGalleryContent({
   const paginationOperationRef = useRef(0);
   const saveOperationRef = useRef(0);
   const dismissOperationRef = useRef(0);
+  const swipeDismissCompletedPartsRef = useRef(0);
   const swipeDismissRequestRef = useRef<{
     ownerId: string;
     generation: number;
@@ -363,7 +335,10 @@ function ImageGalleryContent({
   // zero preserves that 220 ms backdrop/content fade instead of flashing the
   // fallback gallery on fully formed.
   const openProgress = useSharedValue(0);
+  const backdropOpacity = useSharedValue(0);
   const contentOpacity = useSharedValue(0);
+  const initialPageReady = useSharedValue(0);
+  const isDismissing = useSharedValue(0);
   // Keep the Hero mounted and hand visibility between it and the gallery on
   // the UI thread. A React-state handoff can miss a frame during dismissal.
   const heroOpacity = useSharedValue(sourceFrame ? 1 : 0);
@@ -376,6 +351,7 @@ function ImageGalleryContent({
       saveOperationRef.current += 1;
       dismissOperationRef.current += 1;
       swipeDismissRequestRef.current = null;
+      swipeDismissCompletedPartsRef.current = 0;
       loadMoreBusy.current = false;
     },
     [],
@@ -399,47 +375,69 @@ function ImageGalleryContent({
     : { x: 0, y: 0, width, height };
   const targetFrame = aspectFitRect(naturalSize, { x: 0, y: 0, width, height });
 
+  useAnimatedReaction(
+    () =>
+      Boolean(sourceFrame) &&
+      isDismissing.value === 0 &&
+      openProgress.value >= 0.999 &&
+      initialPageReady.value >= 1,
+    (canRevealPage, wasReady) => {
+      if (!canRevealPage || wasReady) return;
+      // The ready full-size image is opaque underneath the Hero. Fading only
+      // the top layer keeps total opacity at one and prevents a dark/bright
+      // flash during the handoff.
+      contentOpacity.value = 1;
+      heroOpacity.value = withTiming(0, {
+        duration: 72,
+        easing: Easing.out(Easing.quad),
+      });
+    },
+  );
+
+  const markInitialPageReady = useCallback(() => {
+    initialPageReady.value = 1;
+  }, [initialPageReady]);
+
   useEffect(() => {
     pageIndex.value = currentIndex;
     pageOffset.value = -currentIndex * width;
   }, [currentIndex, pageIndex, pageOffset, width]);
 
   useEffect(() => {
-    // The source remains painted until iOS confirms the transparent Modal is
-    // on screen. The stationary Hero is already covering this exact frame
-    // when the source is hidden, so the feed never exposes a white tile.
-    setActiveSourceId(sourceFrame ? (selection.sourceId ?? null) : null);
     const animationFrame = requestAnimationFrame(() => {
-      const duration = 320;
-      const handoffDuration = 88;
-      const handoffDelay = duration - handoffDuration;
-      openProgress.value = withTiming(1, {
-        duration,
-        easing: Easing.inOut(Easing.cubic),
-      });
       if (sourceFrame) {
-        // Crossfade near the destination instead of swapping two decoded
-        // image layers in one frame, which looked like a sudden scale jump.
-        contentOpacity.value = withDelay(
-          handoffDelay,
-          withTiming(1, { duration: handoffDuration, easing: Easing.inOut(Easing.cubic) }),
-        );
-        heroOpacity.value = withDelay(
-          handoffDelay,
-          withTiming(0, { duration: handoffDuration, easing: Easing.inOut(Easing.cubic) }),
+        // Darken the complete feed first, then move the Hero. A local cover at
+        // the source frame always has to disappear later and makes that one
+        // tile look like it flashes. The full-screen fade has no local seam.
+        backdropOpacity.value = withTiming(1, {
+          duration: 96,
+          easing: Easing.out(Easing.cubic),
+        });
+        openProgress.value = withDelay(
+          72,
+          withTiming(1, {
+            duration: 320,
+            easing: Easing.inOut(Easing.cubic),
+          }),
         );
       } else {
+        const duration = 220;
+        backdropOpacity.value = withTiming(1, {
+          duration,
+          easing: Easing.inOut(Easing.cubic),
+        });
+        openProgress.value = withTiming(1, {
+          duration,
+          easing: Easing.inOut(Easing.cubic),
+        });
         contentOpacity.value = withTiming(1, {
           duration,
           easing: Easing.inOut(Easing.cubic),
         });
       }
     });
-    return () => {
-      cancelAnimationFrame(animationFrame);
-      setActiveSourceId(null);
-    };
-  }, [contentOpacity, heroOpacity, openProgress, selection.sourceId, sourceFrame]);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [backdropOpacity, contentOpacity, openProgress, sourceFrame]);
 
   useEffect(() => {
     if (!loadMoreOlder || currentIndex > 1 || loadMoreBusy.current || !hasMoreOlder.current) return;
@@ -526,24 +524,7 @@ function ImageGalleryContent({
           requestedOperation,
         )
       ) {
-        // Paint the source thumbnail under the now-transparent Modal, then
-        // unmount on the following frame. This avoids both an end flash and a
-        // React commit competing with the shrink animation.
-        setActiveSourceId(null);
-        requestAnimationFrame(() => {
-          if (
-            isCurrentGalleryOperation(
-              ownerIdRef.current,
-              requestedOwnerId,
-              lifecycleGenerationRef.current,
-              requestedGeneration,
-              dismissOperationRef.current,
-              requestedOperation,
-            )
-          ) {
-            onClose();
-          }
-        });
+        onClose();
       }
     },
     [onClose],
@@ -556,27 +537,27 @@ function ImageGalleryContent({
     const requestedGeneration = lifecycleGenerationRef.current;
     const requestedOperation = dismissOperationRef.current + 1;
     dismissOperationRef.current = requestedOperation;
+    isDismissing.value = 1;
     const canReturnToSource =
       Boolean(sourceFrame) &&
-      currentIndex === initialIndex &&
+      images[currentIndex] === initialImageUri &&
       scale.value <= GALLERY_REST_SCALE_LIMIT;
     if (canReturnToSource) {
       const handoffDuration = 64;
-      heroOpacity.value = withTiming(1, {
-        duration: handoffDuration,
-        easing: Easing.inOut(Easing.cubic),
-      });
+      // Put the opaque Hero underneath first, then fade only the page above
+      // it. The combined opacity never dips, so closing cannot flash.
+      heroOpacity.value = 1;
       contentOpacity.value = withTiming(0, {
         duration: handoffDuration,
         easing: Easing.inOut(Easing.cubic),
       });
-      openProgress.value = withDelay(
-        32,
+      backdropOpacity.value = withDelay(
+        224,
         withTiming(
           0,
           {
-            duration: 288,
-            easing: Easing.inOut(Easing.cubic),
+            duration: 96,
+            easing: Easing.out(Easing.cubic),
           },
           (finished) => {
             if (finished) {
@@ -585,6 +566,13 @@ function ImageGalleryContent({
           },
         ),
       );
+      openProgress.value = withDelay(
+        32,
+        withTiming(0, {
+          duration: 288,
+          easing: Easing.inOut(Easing.cubic),
+        }),
+      );
       return;
     }
     const duration = 180;
@@ -592,7 +580,11 @@ function ImageGalleryContent({
       duration,
       easing: Easing.out(Easing.cubic),
     });
-    contentOpacity.value = withTiming(
+    contentOpacity.value = withTiming(0, {
+      duration,
+      easing: Easing.out(Easing.cubic),
+    });
+    backdropOpacity.value = withTiming(
       0,
       {
         duration,
@@ -605,11 +597,14 @@ function ImageGalleryContent({
       },
     );
   }, [
+    backdropOpacity,
     contentOpacity,
     currentIndex,
     finishClose,
     heroOpacity,
-    initialIndex,
+    images,
+    initialImageUri,
+    isDismissing,
     openProgress,
     ownerId,
     scale,
@@ -621,6 +616,7 @@ function ImageGalleryContent({
     dismissing.current = true;
     const operation = dismissOperationRef.current + 1;
     dismissOperationRef.current = operation;
+    swipeDismissCompletedPartsRef.current = 0;
     swipeDismissRequestRef.current = {
       ownerId,
       generation: lifecycleGenerationRef.current,
@@ -628,10 +624,13 @@ function ImageGalleryContent({
     };
   }, [ownerId]);
 
-  const finishSwipeDismiss = useCallback(() => {
+  const finishSwipeDismissPart = useCallback(() => {
     const request = swipeDismissRequestRef.current;
     if (!request) return;
+    swipeDismissCompletedPartsRef.current += 1;
+    if (swipeDismissCompletedPartsRef.current < 2) return;
     swipeDismissRequestRef.current = null;
+    swipeDismissCompletedPartsRef.current = 0;
     finishClose(request.ownerId, request.generation, request.operation);
   }, [finishClose]);
 
@@ -797,6 +796,7 @@ function ImageGalleryContent({
               // Start the visual continuation before crossing to JS. The old
               // runOnJS(beginDismiss) handoff left the image parked for a frame
               // after the finger lifted, which read as a hitch on iOS.
+              isDismissing.value = 1;
               runOnJS(prepareSwipeDismiss)();
               const targetY = decision < 0 ? -height : height;
               verticalDrag.value = withSpring(
@@ -809,13 +809,23 @@ function ImageGalleryContent({
                   overshootClamping: true,
                 },
                 (finished) => {
-                  if (finished) runOnJS(finishSwipeDismiss)();
+                  if (finished) runOnJS(finishSwipeDismissPart)();
                 },
               );
               openProgress.value = withTiming(0, {
                 duration: 280,
                 easing: Easing.inOut(Easing.cubic),
               });
+              backdropOpacity.value = withTiming(
+                0,
+                {
+                  duration: 280,
+                  easing: Easing.inOut(Easing.cubic),
+                },
+                (finished) => {
+                  if (finished) runOnJS(finishSwipeDismissPart)();
+                },
+              );
             } else
               verticalDrag.value = withTiming(0, {
                 duration: 160,
@@ -865,9 +875,11 @@ function ImageGalleryContent({
         }),
     [
       commitPage,
-      finishSwipeDismiss,
+      backdropOpacity,
+      finishSwipeDismissPart,
       height,
       images.length,
+      isDismissing,
       offsetX,
       offsetXAtStart,
       offsetY,
@@ -948,7 +960,8 @@ function ImageGalleryContent({
 
   const backdropStyle = useAnimatedStyle(() => ({
     opacity:
-      openProgress.value * Math.max(0.25, 1 - Math.min(Math.abs(verticalDrag.value) / 320, 0.75)),
+      backdropOpacity.value *
+      Math.max(0.25, 1 - Math.min(Math.abs(verticalDrag.value) / 320, 0.75)),
   }));
   const stripStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: pageOffset.value }],
@@ -1028,7 +1041,11 @@ function ImageGalleryContent({
                 <View key={item} style={{ width, height }}>
                   <Animated.View style={[styles.page, index === currentIndex && currentImageStyle]}>
                     {resolved && shouldLoadGalleryPage(index, currentIndex) ? (
-                      <GalleryImage ownerId={ownerId} uri={resolved} />
+                      <GalleryImage
+                        onDisplay={item === initialImageUri ? markInitialPageReady : undefined}
+                        ownerId={ownerId}
+                        uri={resolved}
+                      />
                     ) : resolved ? null : (
                       <GalleryFailure />
                     )}
@@ -1079,12 +1096,21 @@ function ImageGalleryContent({
   );
 }
 
-function GalleryImage({ ownerId, uri }: { ownerId: string; uri: string }) {
+function GalleryImage({
+  ownerId,
+  uri,
+  onDisplay,
+}: {
+  ownerId: string;
+  uri: string;
+  onDisplay?: (() => void) | undefined;
+}) {
   return (
     <AuthenticatedImage
       contentFit="contain"
       errorFallback={<GalleryFailure />}
       loadingFallback={<GalleryLoading />}
+      {...(onDisplay ? { onDisplay } : {})}
       sourceCacheKey={galleryOwnerCacheKey(ownerId, uri)}
       style={styles.pageImage}
       transition={0}
@@ -1129,5 +1155,4 @@ const styles = StyleSheet.create({
   countText: { color: "rgba(255,255,255,0.9)", fontSize: 14, fontWeight: "500" },
   hero: { position: "absolute", overflow: "hidden", backgroundColor: "#000000" },
   heroImage: { width: "100%", height: "100%" },
-  hiddenSource: { opacity: 0 },
 });
