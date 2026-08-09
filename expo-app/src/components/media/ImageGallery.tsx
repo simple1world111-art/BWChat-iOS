@@ -62,6 +62,10 @@ import { env } from "@/config/env";
 
 export type { GalleryFrame, GallerySize } from "@/components/media/imageGalleryMath";
 
+const SOURCE_FRAME_MEASURE_FALLBACK_MS = 34;
+const HERO_OPEN_DURATION_MS = 280;
+const BACKDROP_OPEN_DURATION_MS = 120;
+
 export interface ImageGallerySelection {
   media: {
     id: string;
@@ -120,16 +124,22 @@ export function ImageGallerySource({
   const sourceOwnerIdRef = useRef(ownerId);
   const sourceLifecycleGenerationRef = useRef(0);
   const sourceOpenOperationRef = useRef(0);
+  const sourcePressGenerationRef = useRef(0);
+  const pressedSourceFrameRef = useRef<GalleryFrame | undefined>(undefined);
   const [naturalSize, setNaturalSize] = useState<GallerySize | undefined>();
 
   useEffect(() => {
     sourceOwnerIdRef.current = ownerId;
     sourceLifecycleGenerationRef.current += 1;
     sourceOpenOperationRef.current += 1;
+    sourcePressGenerationRef.current += 1;
+    pressedSourceFrameRef.current = undefined;
     return () => {
       sourceOwnerIdRef.current = "";
       sourceLifecycleGenerationRef.current += 1;
       sourceOpenOperationRef.current += 1;
+      sourcePressGenerationRef.current += 1;
+      pressedSourceFrameRef.current = undefined;
     };
   }, [ownerId]);
 
@@ -142,6 +152,17 @@ export function ImageGallerySource({
     },
     [onNaturalSize],
   );
+
+  const handlePressIn = useCallback(() => {
+    if (disabled) return;
+    const pressGeneration = sourcePressGenerationRef.current + 1;
+    sourcePressGenerationRef.current = pressGeneration;
+    pressedSourceFrameRef.current = undefined;
+    sourceRef.current?.measureInWindow((x, y, width, height) => {
+      if (sourcePressGenerationRef.current !== pressGeneration) return;
+      pressedSourceFrameRef.current = width > 1 && height > 1 ? { x, y, width, height } : undefined;
+    });
+  }, [disabled]);
 
   const handleOpen = useCallback(() => {
     if (disabled) return;
@@ -170,9 +191,34 @@ export function ImageGallerySource({
         sourceUri: uri,
       });
     };
-    sourceRef.current?.measureInWindow((x, y, width, height) => {
-      if (width > 1 && height > 1) open({ x, y, width, height });
-      else open();
+    // Press-in normally finishes this measurement before press-up. That makes
+    // the visible transition begin immediately instead of putting an async
+    // native measurement between the tap and opening the Modal.
+    const pressedSourceFrame = pressedSourceFrameRef.current;
+    sourcePressGenerationRef.current += 1;
+    pressedSourceFrameRef.current = undefined;
+    if (pressedSourceFrame) {
+      open(pressedSourceFrame);
+      return;
+    }
+
+    // A very short tap can beat the press-in measurement. Retry once, but
+    // never let a missing native callback swallow the first tap altogether.
+    const source = sourceRef.current;
+    if (!source) {
+      open();
+      return;
+    }
+    let didOpen = false;
+    const openOnce = (sourceFrame?: GalleryFrame) => {
+      if (didOpen) return;
+      didOpen = true;
+      clearTimeout(fallbackTimer);
+      open(sourceFrame);
+    };
+    const fallbackTimer = setTimeout(() => openOnce(), SOURCE_FRAME_MEASURE_FALLBACK_MS);
+    source.measureInWindow((x, y, width, height) => {
+      openOnce(width > 1 && height > 1 ? { x, y, width, height } : undefined);
     });
   }, [
     contentFit,
@@ -191,8 +237,10 @@ export function ImageGallerySource({
       accessibilityHint={accessibilityHint}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
+      collapsable={false}
       disabled={disabled}
       onPress={handleOpen}
+      onPressIn={handlePressIn}
       ref={sourceRef}
       style={style}
     >
@@ -250,18 +298,23 @@ function ImageGalleryModal({
       transparent
       visible
     >
-      {isPresented ? (
-        <ImageGalleryPresentation ownerId={ownerId} onClose={onClose} selection={selection} />
-      ) : null}
+      <ImageGalleryPresentation
+        isPresented={isPresented}
+        ownerId={ownerId}
+        onClose={onClose}
+        selection={selection}
+      />
     </Modal>
   );
 }
 
 function ImageGalleryPresentation({
+  isPresented,
   selection,
   onClose,
   ownerId,
 }: {
+  isPresented: boolean;
   selection: ImageGallerySelection;
   onClose: () => void;
   ownerId: string;
@@ -272,14 +325,23 @@ function ImageGalleryPresentation({
     if (!isCurrentOwner) onClose();
   }, [isCurrentOwner, onClose]);
   if (!isCurrentOwner) return null;
-  return <ImageGalleryContent onClose={onClose} ownerId={ownerAtOpen} selection={selection} />;
+  return (
+    <ImageGalleryContent
+      isPresented={isPresented}
+      onClose={onClose}
+      ownerId={ownerAtOpen}
+      selection={selection}
+    />
+  );
 }
 
 function ImageGalleryContent({
+  isPresented,
   selection,
   onClose,
   ownerId,
 }: {
+  isPresented: boolean;
   selection: ImageGallerySelection;
   onClose: () => void;
   ownerId: string;
@@ -404,40 +466,35 @@ function ImageGalleryContent({
   }, [currentIndex, pageIndex, pageOffset, width]);
 
   useEffect(() => {
-    const animationFrame = requestAnimationFrame(() => {
-      if (sourceFrame) {
-        // Darken the complete feed first, then move the Hero. A local cover at
-        // the source frame always has to disappear later and makes that one
-        // tile look like it flashes. The full-screen fade has no local seam.
-        backdropOpacity.value = withTiming(1, {
-          duration: 96,
-          easing: Easing.out(Easing.cubic),
-        });
-        openProgress.value = withDelay(
-          72,
-          withTiming(1, {
-            duration: 320,
-            easing: Easing.inOut(Easing.cubic),
-          }),
-        );
-      } else {
-        const duration = 220;
-        backdropOpacity.value = withTiming(1, {
-          duration,
-          easing: Easing.inOut(Easing.cubic),
-        });
-        openProgress.value = withTiming(1, {
-          duration,
-          easing: Easing.inOut(Easing.cubic),
-        });
-        contentOpacity.value = withTiming(1, {
-          duration,
-          easing: Easing.inOut(Easing.cubic),
-        });
-      }
-    });
-    return () => cancelAnimationFrame(animationFrame);
-  }, [backdropOpacity, contentOpacity, openProgress, sourceFrame]);
+    if (!isPresented) return;
+    if (sourceFrame) {
+      // The Modal has already rendered a closed Hero frame while iOS presents
+      // it. Start backdrop and geometry together as soon as onShow fires: the
+      // whole feed dims uniformly, with no delayed jump or local source mask.
+      backdropOpacity.value = withTiming(1, {
+        duration: BACKDROP_OPEN_DURATION_MS,
+        easing: Easing.out(Easing.cubic),
+      });
+      openProgress.value = withTiming(1, {
+        duration: HERO_OPEN_DURATION_MS,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      });
+    } else {
+      const duration = 180;
+      backdropOpacity.value = withTiming(1, {
+        duration,
+        easing: Easing.inOut(Easing.cubic),
+      });
+      openProgress.value = withTiming(1, {
+        duration,
+        easing: Easing.inOut(Easing.cubic),
+      });
+      contentOpacity.value = withTiming(1, {
+        duration,
+        easing: Easing.inOut(Easing.cubic),
+      });
+    }
+  }, [backdropOpacity, contentOpacity, isPresented, openProgress, sourceFrame]);
 
   useEffect(() => {
     if (!loadMoreOlder || currentIndex > 1 || loadMoreBusy.current || !hasMoreOlder.current) return;

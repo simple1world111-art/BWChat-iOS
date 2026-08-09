@@ -84,7 +84,7 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).not.toContain("setActiveSourceId(");
     expect(gallery).not.toContain("hiddenSource");
     expect(gallery).toContain("onShow={() => setPresented(true)}");
-    expect(gallery).toContain("{isPresented ? (");
+    expect(gallery).toContain("isPresented={isPresented}");
     expect(gallery).toContain("const initialPageReady = useSharedValue(0)");
     expect(gallery).toContain("useAnimatedReaction(");
     expect(gallery).toContain(
@@ -100,6 +100,22 @@ describe("ImagePreview owner and lifecycle isolation", () => {
       /const canReturnToSource =\s+Boolean\(sourceFrame\)[\s\S]*?heroOpacity\.value = 1;\s+contentOpacity\.value = withTiming\(0,/u,
     );
     expect(gallery).not.toContain("verticalDrag.value = withTiming(0, { duration: 70 })");
+  });
+
+  it("opens on the first tap without serial measurement or animation delays", () => {
+    const gallery = source();
+    expect(gallery).toContain("onPressIn={handlePressIn}");
+    expect(gallery).toContain("pressedSourceFrameRef.current");
+    expect(gallery).toContain("SOURCE_FRAME_MEASURE_FALLBACK_MS = 34");
+    expect(gallery).toContain("if (!source) {");
+    expect(gallery).toContain("open();");
+    expect(gallery).toContain("HERO_OPEN_DURATION_MS = 280");
+    expect(gallery).toContain("BACKDROP_OPEN_DURATION_MS = 120");
+    expect(gallery).toMatch(
+      /backdropOpacity\.value = withTiming\(1,[\s\S]*?openProgress\.value = withTiming\(1,/u,
+    );
+    expect(gallery).not.toMatch(/openProgress\.value = withDelay\(\s*72,/u);
+    expect(gallery).not.toContain("const animationFrame = requestAnimationFrame");
   });
 
   it("keeps the swipe continuation and current-page fade off the JS and wide-strip paths", () => {
