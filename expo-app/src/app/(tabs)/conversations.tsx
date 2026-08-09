@@ -151,6 +151,7 @@ export default function ConversationsScreen() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshControlRevision, setRefreshControlRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
@@ -406,9 +407,17 @@ export default function ConversationsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      Keyboard.dismiss();
+      const resetRefreshFrame = requestAnimationFrame(() => {
+        setIsRefreshing(false);
+        setRefreshControlRevision((current) => current + 1);
+      });
+      void load(itemsRef.current.length > 0 ? "background" : "initial");
       void refreshDrafts(itemsRef.current);
-      return () => closeOpenSwipe(openSwipeKey, swipeClosers);
+      return () => {
+        cancelAnimationFrame(resetRefreshFrame);
+        closeOpenSwipe(openSwipeKey, swipeClosers);
+      };
     }, [load, refreshDrafts]),
   );
 
@@ -976,6 +985,7 @@ export default function ConversationsScreen() {
         ListFooterComponent={<View style={styles.bottomClearance} />}
         refreshControl={
           <RefreshControl
+            key={`conversation-refresh-${refreshControlRevision}`}
             refreshing={isRefreshing}
             onRefresh={() => {
               closeOpenSwipe(openSwipeKey, swipeClosers);

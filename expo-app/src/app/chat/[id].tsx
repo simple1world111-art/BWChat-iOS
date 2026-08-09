@@ -9,8 +9,6 @@ import {
   AppState,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -40,6 +38,7 @@ import {
   ChatMessageDeliveryStatus,
   isPendingChatVoice,
 } from "@/components/messages/ChatMessageDeliveryStatus";
+import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
 import { ChatMoneyComposerModal } from "@/components/messages/ChatMoneyComposerViews";
 import { ChatMoneyDetailModal } from "@/components/messages/ChatMoneyDetailViews";
 import {
@@ -353,6 +352,7 @@ export default function ChatScreen() {
   useEffect(
     () =>
       navigation.addListener("beforeRemove", (event) => {
+        Keyboard.dismiss();
         if (selectionEntries === null) return;
         event.preventDefault();
         setSelectionEntries(null);
@@ -470,6 +470,7 @@ export default function ChatScreen() {
       chatRealtimeService.setActiveConversation("dm", id);
       void load();
       return () => {
+        Keyboard.dismiss();
         screenActiveRef.current = false;
         chatRealtimeService.setActiveConversation("dm", null);
         const snapshot = draftSnapshotsRef.current.get(sessionKey);
@@ -1627,11 +1628,7 @@ export default function ChatScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-    >
+    <ChatKeyboardAvoidingView style={styles.screen}>
       <View style={styles.timelineSurface}>
         <ChatBackgroundLayer background={chatBackground} style={styles.backgroundLayer} />
         {error && visibleMessages.length === 0 && !isLoading ? (
@@ -1883,7 +1880,7 @@ export default function ChatScreen() {
         onSelect={(action) => void handleMenuAction(action)}
       />
       <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
-    </KeyboardAvoidingView>
+    </ChatKeyboardAvoidingView>
   );
 }
 
@@ -2304,6 +2301,7 @@ function Composer({
               placeholder={t("chat.input.placeholder")}
               placeholderTextColor={colors.tertiaryText}
               returnKeyType="send"
+              submitBehavior="submit"
               style={[styles.composerInput, showMicrophone && styles.inputWithMic]}
               value={draft}
             />

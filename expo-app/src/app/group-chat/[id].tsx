@@ -9,8 +9,6 @@ import {
   AppState,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -42,6 +40,7 @@ import {
   ChatMessageDeliveryStatus,
   isPendingChatVoice,
 } from "@/components/messages/ChatMessageDeliveryStatus";
+import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
 import { ChatMoneyComposerModal } from "@/components/messages/ChatMoneyComposerViews";
 import { ChatMoneyDetailModal } from "@/components/messages/ChatMoneyDetailViews";
 import {
@@ -448,6 +447,7 @@ export default function GroupChatScreen() {
   useEffect(
     () =>
       navigation.addListener("beforeRemove", (event) => {
+        Keyboard.dismiss();
         if (selectionEntries === null) return;
         event.preventDefault();
         setSelectionEntries(null);
@@ -571,6 +571,7 @@ export default function GroupChatScreen() {
       chatRealtimeService.setActiveConversation("group", String(groupId));
       void load();
       return () => {
+        Keyboard.dismiss();
         screenActiveRef.current = false;
         chatRealtimeService.setActiveConversation("group", null);
         const snapshot = draftSnapshotsRef.current.get(sessionKey);
@@ -2059,11 +2060,7 @@ export default function GroupChatScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      style={styles.screen}
-    >
+    <ChatKeyboardAvoidingView style={styles.screen}>
       <View style={styles.timelineSurface}>
         <ChatBackgroundLayer background={background} style={styles.backgroundLayer} />
         {error && visibleMessages.length === 0 && !isLoading ? (
@@ -2341,7 +2338,7 @@ export default function GroupChatScreen() {
         onSelect={(action) => void handleMenuAction(action)}
       />
       <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
-    </KeyboardAvoidingView>
+    </ChatKeyboardAvoidingView>
   );
 }
 
@@ -2770,6 +2767,7 @@ function Composer({
               placeholder={t("chat.input.placeholder")}
               placeholderTextColor={colors.tertiaryText}
               returnKeyType="send"
+              submitBehavior="submit"
               selection={{ start: selection.location, end: selection.location + selection.length }}
               style={[styles.composerInput, showsMic && styles.inputWithMic]}
               value={draft}
