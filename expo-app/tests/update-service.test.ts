@@ -58,6 +58,12 @@ const nativeUpdateAvailable = {
   isRollBackToEmbedded: false,
   reason: undefined,
 } as NativeCheckResult;
+const nativeNewUpdateFetched = {
+  isNew: true,
+  manifest: {},
+  isRollBackToEmbedded: false,
+} as NativeFetchResult;
+
 describe("UpdateService", () => {
   beforeAll(() => {
     Object.defineProperty(globalThis, "__DEV__", { configurable: true, value: false });
@@ -103,19 +109,18 @@ describe("UpdateService", () => {
     expect(mockedRecordUpdateCheckState).toHaveBeenLastCalledWith("no-update", first.checkedAt);
   });
 
-  test("downloads a new update without interrupting the running app", async () => {
+  test("automatically reloads once after downloading a new update", async () => {
     mockCheckForUpdateAsync.mockResolvedValueOnce(nativeUpdateAvailable);
-    mockFetchUpdateAsync.mockResolvedValueOnce({
-      isNew: true,
-      manifest: {},
-      isRollBackToEmbedded: false,
-    } as NativeFetchResult);
+    mockFetchUpdateAsync.mockResolvedValueOnce(nativeNewUpdateFetched);
 
     const result = await checkAndDownloadUpdate();
 
     expect(result.status).toBe("downloaded");
     expect(mockFetchUpdateAsync).toHaveBeenCalledTimes(1);
-    expect(mockReloadAsync).not.toHaveBeenCalled();
+    expect(mockReloadAsync).toHaveBeenCalledTimes(1);
+    expect(mockFetchUpdateAsync.mock.invocationCallOrder[0]!).toBeLessThan(
+      mockReloadAsync.mock.invocationCallOrder[0]!,
+    );
     expect(mockedCaptureMessage).toHaveBeenCalledWith("OTA update downloaded", {
       channel: "preview",
     });
@@ -127,6 +132,19 @@ describe("UpdateService", () => {
     await expect(checkAndDownloadUpdate()).resolves.toMatchObject({ status: "downloaded" });
     expect(mockFetchUpdateAsync).toHaveBeenCalledTimes(1);
     expect(mockReloadAsync).not.toHaveBeenCalled();
+  });
+
+  test("keeps the downloaded state when the automatic reload fails", async () => {
+    mockCheckForUpdateAsync.mockResolvedValueOnce(nativeUpdateAvailable);
+    mockFetchUpdateAsync.mockResolvedValueOnce(nativeNewUpdateFetched);
+    mockReloadAsync.mockRejectedValueOnce(new Error("reload"));
+
+    await expect(checkAndDownloadUpdate()).resolves.toMatchObject({ status: "downloaded" });
+    await expect(getLastUpdateCheck()).resolves.toMatchObject({ result: "downloaded" });
+    expect(mockedCaptureException).toHaveBeenCalledWith(expect.any(Error), {
+      operation: "ota_reload",
+    });
+    expect(mockedRecordUpdateCheckState).not.toHaveBeenCalledWith("error", expect.any(Number));
   });
 
   test("force bypasses the persisted throttle but concurrent requests share one native check", async () => {
