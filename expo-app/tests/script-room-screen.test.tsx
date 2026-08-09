@@ -96,6 +96,10 @@ jest.mock("expo-router", () => {
 
 jest.mock("expo-crypto", () => ({ randomUUID: () => `uuid-${++mockUuidCounter}` }));
 
+jest.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 34, left: 0 }),
+}));
+
 jest.mock("expo-linear-gradient", () => ({
   LinearGradient: ({ children }: { children: ReactNode }) => {
     const { View: MockView } = jest.requireActual("react-native");
