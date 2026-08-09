@@ -21,15 +21,38 @@ describe("chat keyboard lifecycle", () => {
     expect(chatKeyboardInset(undefined, 874)).toBe(0);
   });
 
-  it("makes the visible send return key submit in direct and group chats", () => {
-    for (const path of ["src/app/chat/[id].tsx", "src/app/group-chat/[id].tsx"]) {
+  it("makes the visible send return key submit on every chat surface", () => {
+    for (const path of [
+      "src/app/chat/[id].tsx",
+      "src/app/group-chat/[id].tsx",
+      "src/app/agent-chat.tsx",
+      "src/app/script-room-chat.tsx",
+    ]) {
       const page = source(path);
       expect(page).toContain("<ChatKeyboardAvoidingView");
       expect(page).toContain('returnKeyType="send"');
       expect(page).toContain('submitBehavior="submit"');
-      expect(page).toContain("useChatComposerInputHeight(draft)");
+      expect(page).toContain("Keyboard.dismiss()");
+    }
+  });
+
+  it("resets multiline input height after sending on every chat surface", () => {
+    for (const path of [
+      "src/app/chat/[id].tsx",
+      "src/app/group-chat/[id].tsx",
+      "src/app/agent-chat.tsx",
+      "src/app/script-room-chat.tsx",
+    ]) {
+      const page = source(path);
+      expect(page).toContain("useChatComposerInputHeight(");
       expect(page).toContain("updateInputHeight(nativeEvent.contentSize.height)");
       expect(page).toContain("resetInputHeight();");
+    }
+  });
+
+  it("dismisses direct and group chat keyboards before native back navigation", () => {
+    for (const path of ["src/app/chat/[id].tsx", "src/app/group-chat/[id].tsx"]) {
+      const page = source(path);
       expect(page).toContain("onSubmitEditing={submitDraft}");
       expect(page).toContain("onPress={submitDraft}");
       expect(page).toContain('navigation.addListener("beforeRemove"');

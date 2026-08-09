@@ -9,8 +9,6 @@ import {
   Alert,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +29,11 @@ import {
 import { Avatar } from "@/components/Avatar";
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { TopToast } from "@/components/TopToast";
+import {
+  chatComposerInputMetrics,
+  useChatComposerInputHeight,
+} from "@/components/messages/ChatComposerInputHeight";
+import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
 import { env } from "@/config/env";
 import type { GroupMessage, ScriptRole, ScriptRoom, ScriptTurnState } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
@@ -85,6 +88,8 @@ export default function ScriptRoomChatScreen() {
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [turnState, setTurnState] = useState<ScriptTurnState | null>(null);
   const [inputText, setInputText] = useState("");
+  const { inputHeight, resetInputHeight, updateInputHeight } =
+    useChatComposerInputHeight(inputText);
   const [isLoading, setLoading] = useState(!initialRoom);
   const [isSending, setSending] = useState(false);
   const [hasAuthoritativeRoom, setAuthoritativeRoom] = useState(isCompleteScriptRoom(initialRoom));
@@ -532,6 +537,7 @@ export default function ScriptRoomChatScreen() {
         void markScriptRoomRead(ownerId, currentRoom.group_id);
       }
       return () => {
+        Keyboard.dismiss();
         visibleRef.current = false;
         initialLoadCompleteRef.current = false;
         const groupId = roomRef.current?.group_id;
@@ -568,6 +574,7 @@ export default function ScriptRoomChatScreen() {
     const requestedOwner = ownerId;
     const requestedRoomId = roomId;
     const requestedGeneration = sessionGenerationRef.current;
+    resetInputHeight();
     setInputText("");
     sendingRef.current = true;
     setSending(true);
@@ -638,7 +645,7 @@ export default function ScriptRoomChatScreen() {
         setSending(false);
       }
     }
-  }, [generating, inputText, ownerId, persistMessages, roomId, scrollToBottom]);
+  }, [generating, inputText, ownerId, persistMessages, resetInputHeight, roomId, scrollToBottom]);
 
   const retry = useCallback(async () => {
     if (turnState?.status !== "failed" || isSending || sendingRef.current) return;
@@ -783,11 +790,7 @@ export default function ScriptRoomChatScreen() {
   const orderedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      style={styles.screen}
-    >
+    <ChatKeyboardAvoidingView style={styles.screen}>
       <Stack.Screen
         options={{
           title: room?.script_snapshot.title || text("剧本房间", "Script Room"),
@@ -798,7 +801,10 @@ export default function ScriptRoomChatScreen() {
               accessibilityLabel={text("返回", "Back")}
               accessibilityRole="button"
               hitSlop={10}
-              onPress={() => router.back()}
+              onPress={() => {
+                Keyboard.dismiss();
+                router.back();
+              }}
             >
               <SymbolView name="chevron.left" size={17} weight="semibold" tintColor={theme.text} />
             </Pressable>
@@ -895,14 +901,20 @@ export default function ScriptRoomChatScreen() {
             editable={hasAuthoritativeRoom && room?.status === "active" && !generating}
             multiline
             onChangeText={(value) => setInputText(cappedScriptInput(value))}
+            onContentSizeChange={({ nativeEvent }) => {
+              updateInputHeight(nativeEvent.contentSize.height);
+            }}
+            onSubmitEditing={() => void send()}
             placeholder={
               room?.status === "ended"
                 ? text("剧情已结束", "Story ended")
                 : text("以角色身份推进剧情…", "Continue in character…")
             }
             placeholderTextColor={theme.tertiaryText}
-            scrollEnabled
-            style={styles.input}
+            returnKeyType="send"
+            scrollEnabled={inputHeight >= chatComposerInputMetrics.maximum}
+            style={[styles.input, { height: inputHeight }]}
+            submitBehavior="submit"
             testID="script-room-input"
             value={inputText}
           />
@@ -939,7 +951,7 @@ export default function ScriptRoomChatScreen() {
         message={errorMessage}
         onDismiss={() => setErrorMessage(null)}
       />
-    </KeyboardAvoidingView>
+    </ChatKeyboardAvoidingView>
   );
 }
 

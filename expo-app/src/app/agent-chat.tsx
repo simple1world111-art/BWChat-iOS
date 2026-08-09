@@ -10,8 +10,6 @@ import {
   AppState,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -42,6 +40,11 @@ import {
   type ImageGallerySelection,
 } from "@/components/media/ImageGallery";
 import { VideoPlayerOverlay } from "@/components/media/VideoPlayerOverlay";
+import {
+  chatComposerInputMetrics,
+  useChatComposerInputHeight,
+} from "@/components/messages/ChatComposerInputHeight";
+import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
 import { ChatMessageActionOverlay } from "@/components/messages/ChatReplyViews";
 import { TopToast } from "@/components/TopToast";
 import { env } from "@/config/env";
@@ -144,6 +147,7 @@ export default function AgentChatScreen() {
   const scopeGenerationRef = useRef(0);
   const loadPromiseRef = useRef<Promise<void> | null>(null);
   const [draft, setDraft] = useState("");
+  const { inputHeight, resetInputHeight, updateInputHeight } = useChatComposerInputHeight(draft);
   const [composerImage, setComposerImage] = useState<{ uri: string; filename: string } | null>(
     null,
   );
@@ -474,6 +478,7 @@ export default function AgentChatScreen() {
       setUnlockingMediaIds(new Set(unlockingMediaIdsRef.current));
       void load();
       return () => {
+        Keyboard.dismiss();
         pollGenerationRef.current += 1;
         unlockLifecycleRef.current += 1;
         unlockingMediaIdsRef.current.clear();
@@ -1261,6 +1266,7 @@ export default function AgentChatScreen() {
       if (!isCurrentSend()) return;
       setTimeline(mergeAgentMessages(messagesRef.current, [accepted.message]));
       setOptimisticText(null);
+      resetInputHeight();
       setDraft("");
       detachComposerImage();
       setTurnStatus(accepted.turn.status);
@@ -1334,11 +1340,7 @@ export default function AgentChatScreen() {
   }, [error, latestMessageIdentity, messages.length, presentedTurnStatus, turnNotice, turnStatus]);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      style={styles.screen}
-    >
+    <ChatKeyboardAvoidingView style={styles.screen}>
       <Stack.Screen
         options={{
           headerBackButtonDisplayMode: "minimal",
@@ -1531,13 +1533,18 @@ export default function AgentChatScreen() {
               multiline
               onBlur={() => setFocused(false)}
               onChangeText={setDraft}
+              onContentSizeChange={({ nativeEvent }) => {
+                updateInputHeight(nativeEvent.contentSize.height);
+              }}
               onFocus={() => setFocused(true)}
               onSubmitEditing={() => void send()}
               placeholder="输入消息..."
               placeholderTextColor={colors.tertiaryText}
               returnKeyType="send"
+              scrollEnabled={inputHeight >= chatComposerInputMetrics.maximum}
               ref={inputRef}
-              style={styles.input}
+              style={[styles.input, { height: inputHeight }]}
+              submitBehavior="submit"
               value={draft}
             />
           </View>
@@ -1637,7 +1644,7 @@ export default function AgentChatScreen() {
         />
       ) : null}
       <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
-    </KeyboardAvoidingView>
+    </ChatKeyboardAvoidingView>
   );
 }
 
