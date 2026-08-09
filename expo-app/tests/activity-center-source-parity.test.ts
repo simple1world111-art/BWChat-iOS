@@ -141,11 +141,10 @@ describe("ActivityCenter source and asset parity guards", () => {
     expect(preview).toContain('spinID: "wheel-result-preview"');
   });
 
-  it("keeps automatic activity sync separate from the manual pull-to-refresh indicator", () => {
+  it("keeps activity sync entirely in the background without a pull-to-refresh control", () => {
     const page = fs.readFileSync(path.join(root, "src/app/activity-center.tsx"), "utf8");
-    expect(page).toContain("const [isManualRefreshing, setIsManualRefreshing] = useState(false)");
-    expect(page).toContain("await loadActivity(true)");
-    expect(page).toContain("refreshing={isRefreshing}");
-    expect(page).not.toContain("refreshing={state.isLoading}");
+    expect(page).toContain('if (next === "active") void loadActivity(true)');
+    expect(page).not.toContain("RefreshControl");
+    expect(page).not.toContain("isManualRefreshing");
   });
 });

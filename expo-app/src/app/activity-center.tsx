@@ -12,7 +12,6 @@ import {
   AppState,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -93,7 +92,6 @@ export default function ActivityCenterScreen() {
   const activityError = state.errorMessage;
   const clearActivityError = state.clearError;
   const redeemActivityInvite = state.redeemInvite;
-  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
   const [selectedTab, setSelectedTab] = useState<ActivityTab>(() =>
     previewVariant === "wheel" || previewVariant === "wheel-result" ? "wheel" : "benefits",
   );
@@ -117,15 +115,6 @@ export default function ActivityCenterScreen() {
     },
     [reduceMotion, width],
   );
-
-  const refreshActivity = useCallback(async () => {
-    setIsManualRefreshing(true);
-    try {
-      await loadActivity(true);
-    } finally {
-      setIsManualRefreshing(false);
-    }
-  }, [loadActivity]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) => {
@@ -218,8 +207,6 @@ export default function ActivityCenterScreen() {
               <BenefitsPane
                 state={state}
                 snapshot={state.snapshot}
-                isRefreshing={isManualRefreshing}
-                onRefresh={refreshActivity}
                 onPhone={() => setPhoneVisible(true)}
                 onMatches={() => setMatchesVisible(true)}
                 onRedeem={() => setRedeemVisible(true)}
@@ -230,8 +217,6 @@ export default function ActivityCenterScreen() {
                 key={`activity-wheel-${user?.user_id?.trim() || "anonymous"}`}
                 state={state}
                 snapshot={state.snapshot}
-                isRefreshing={isManualRefreshing}
-                onRefresh={refreshActivity}
                 onResult={setWheelResult}
               />
             </View>
@@ -341,16 +326,12 @@ function ActivityTabs({
 function BenefitsPane({
   state,
   snapshot,
-  isRefreshing,
-  onRefresh,
   onPhone,
   onMatches,
   onRedeem,
 }: {
   state: ActivityCenterState;
   snapshot: ActivityCenterSnapshot;
-  isRefreshing: boolean;
-  onRefresh(): void;
   onPhone(): void;
   onMatches(): void;
   onRedeem(): void;
@@ -386,13 +367,6 @@ function BenefitsPane({
   return (
     <ScrollView
       contentContainerStyle={styles.benefitsContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          tintColor={colors.accent}
-          onRefresh={onRefresh}
-        />
-      }
       showsVerticalScrollIndicator={false}
     >
       {!snapshot.configVersion ? (
@@ -829,14 +803,10 @@ function InviteCard({
 function WheelPane({
   state,
   snapshot,
-  isRefreshing,
-  onRefresh,
   onResult,
 }: {
   state: ActivityCenterState;
   snapshot: ActivityCenterSnapshot;
-  isRefreshing: boolean;
-  onRefresh(): void;
   onResult(result: ActivityWheelSpinResult): void;
 }) {
   const { t } = useLocalization();
@@ -908,15 +878,7 @@ function WheelPane({
 
   if (!snapshot.configVersion || !tier.id || !hasValidWheelProbability(tier)) {
     return (
-      <ScrollView
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            tintColor={colors.accent}
-            onRefresh={onRefresh}
-          />
-        }
-      >
+      <ScrollView>
         <UnavailableState
           icon="giftcard"
           title={t("activityCenter.tab.wheel")}
@@ -928,13 +890,6 @@ function WheelPane({
   return (
     <ScrollView
       contentContainerStyle={styles.wheelContent}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          tintColor={colors.accent}
-          onRefresh={onRefresh}
-        />
-      }
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.balanceCard} accessible>

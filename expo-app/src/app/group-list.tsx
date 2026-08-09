@@ -98,6 +98,9 @@ export default function GroupListScreen() {
   const headerOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
       title: "",
+      headerShadowVisible: false,
+      headerStyle: { backgroundColor: colors.background },
+      headerTintColor: colors.text,
       headerTitle: () => <GroupModePicker mode={mode} onChange={setMode} />,
       headerRight: () => (
         <Pressable

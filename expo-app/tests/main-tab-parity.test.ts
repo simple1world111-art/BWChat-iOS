@@ -107,6 +107,9 @@ describe("MainTab source and contract parity", () => {
     expect(page).toContain("detail?.notification_settings.muted || group.is_muted");
     expect(page).toContain("conversationContentPreviewText(");
     expect(page).toContain("conversationSenderPrefixText(");
+    expect(page).toContain("headerShadowVisible: false");
+    expect(page).toContain("headerStyle: { backgroundColor: colors.background }");
+    expect(page).toContain("screen: { flex: 1, backgroundColor: colors.background }");
     expect(avatar).toContain("loadCachedGroupDetailSnapshot(ownerId, groupId)");
     expect(avatar).toContain("getGroupDetail(groupId)");
     expect(avatar).toContain("saveCachedGroupDetail(ownerId, detail, cacheGeneration)");
