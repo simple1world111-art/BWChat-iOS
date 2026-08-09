@@ -869,7 +869,7 @@ function WheelPane({
     } else {
       rotation.value = withTiming(target, {
         duration: 4_000,
-        easing: (progress) => activityWheelLandingProgress(progress),
+        easing: activityWheelLandingProgress,
       });
       await delay(4_000);
     }

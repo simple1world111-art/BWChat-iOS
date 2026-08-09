@@ -397,6 +397,7 @@ export function activityWheelLandingRotation(
 }
 
 export function activityWheelLandingProgress(rawProgress: number): number {
+  "worklet";
   const progress = Math.min(Math.max(rawProgress, 0), 1);
   if (progress <= 0.6) return (0.75 * progress) / 0.6;
   const deceleration = (progress - 0.6) / 0.4;

@@ -37,7 +37,15 @@ describe("ActivityCenter source and asset parity guards", () => {
 
   it("locks the native wheel motion and reward animation durations in source", () => {
     const page = fs.readFileSync(path.join(root, "src/app/activity-center.tsx"), "utf8");
+    const models = fs.readFileSync(
+      path.join(root, "src/services/activity/ActivityModels.ts"),
+      "utf8",
+    );
     expect(page).toContain("activityWheelLandingRotation(rotation.value, index, 6)");
+    expect(page).toContain("easing: activityWheelLandingProgress");
+    expect(models).toMatch(
+      /function activityWheelLandingProgress\([^)]*\)[^{]*\{\s*["']worklet["'];/u,
+    );
     expect(page).toContain("duration: 4_000");
     expect(page).toContain("await delay(4_000)");
     expect(page).toContain("await delay(260)");
