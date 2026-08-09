@@ -18,8 +18,6 @@ import {
   StyleSheet,
   Text,
   View,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from "react-native";
 
 import {
@@ -182,7 +180,6 @@ function MomentsAccountScreen({
     following: false,
   });
   const [unreadCount, setUnreadCount] = useState(0);
-  const [coverChrome, setCoverChrome] = useState(true);
   const [activeComment, setActiveComment] = useState<ActiveComment | null>(null);
   const [mediaSelection, setMediaSelection] = useState<MediaSelection | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -554,21 +551,12 @@ function MomentsAccountScreen({
     ],
   );
 
-  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    // FlatList emits programmatic scroll events while its header/data settles.
-    // They must not flip the cover navigation chrome before the user scrolls.
-    if (!didBeginScrollingRef.current) return;
-    const next = event.nativeEvent.contentOffset.y < 139;
-    if (next !== coverChrome) setCoverChrome(next);
-  };
-
   const headerOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
       headerBackVisible: false,
       headerTransparent: true,
-      headerShadowVisible: !coverChrome,
-      headerBackground: () => (coverChrome ? null : <View style={styles.navigationBackground} />),
-      headerTintColor: coverChrome ? colors.white : colors.text,
+      headerShadowVisible: false,
+      headerTintColor: colors.white,
       headerLeft: () => (
         <Pressable
           accessibilityLabel={t("common.back")}
@@ -582,18 +570,15 @@ function MomentsAccountScreen({
             resizeMode="center"
             size={17}
             weight="semibold"
-            tintColor={coverChrome ? colors.white : colors.text}
+            tintColor={colors.white}
           />
         </Pressable>
       ),
       headerTitle: () =>
         isMyMoments ? (
-          <Text style={[styles.myMomentsTitle, coverChrome && styles.myMomentsTitleCover]}>
-            {t("profile.moments")}
-          </Text>
+          <Text style={styles.myMomentsTitle}>{t("profile.moments")}</Text>
         ) : (
           <FeedSegmentedControl
-            coverChrome={coverChrome}
             onChange={(tab) => {
               setActiveComment(null);
               setSelectedTab(tab);
@@ -607,16 +592,11 @@ function MomentsAccountScreen({
           onPress={() => router.push("/create-moment")}
           style={styles.headerButton}
         >
-          <SymbolView
-            name="camera.fill"
-            resizeMode="center"
-            size={16}
-            tintColor={coverChrome ? colors.white : colors.text}
-          />
+          <SymbolView name="camera.fill" resizeMode="center" size={16} tintColor={colors.white} />
         </Pressable>
       ),
     }),
-    [coverChrome, isMyMoments, selectedTab, t],
+    [isMyMoments, selectedTab, t],
   );
 
   return (
@@ -625,7 +605,7 @@ function MomentsAccountScreen({
       keyboardVerticalOffset={0}
       style={styles.screen}
     >
-      <StatusBar style={coverChrome ? "light" : "dark"} />
+      <StatusBar style="light" />
       <Stack.Screen options={headerOptions} />
       <FlatList
         contentContainerStyle={[styles.listContent, activeComment && styles.listWithComposer]}
@@ -651,7 +631,6 @@ function MomentsAccountScreen({
           if (didBeginScrollingRef.current) void loadFeed(selectedTab, false);
         }}
         onEndReachedThreshold={0.2}
-        onScroll={onScroll}
         onScrollBeginDrag={() => {
           didBeginScrollingRef.current = true;
         }}
@@ -698,7 +677,6 @@ function MomentsAccountScreen({
             ) : null}
           </View>
         )}
-        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       />
 
@@ -736,19 +714,17 @@ function findMoment(feeds: Record<MomentFeedTab, FeedState>, momentId: number): 
 
 function FeedSegmentedControl({
   selected,
-  coverChrome,
   onChange,
 }: {
   selected: MomentFeedTab;
-  coverChrome: boolean;
   onChange: (tab: MomentFeedTab) => void;
 }) {
   const { t } = useLocalization();
   return (
     <SystemSegmentedTabs
       accessibilityIdentifier="moments.top.tabs"
-      backgroundColor={coverChrome ? "rgba(0,0,0,0.16)" : undefined}
-      colorScheme={coverChrome ? "dark" : "light"}
+      backgroundColor="rgba(0,0,0,0.16)"
+      colorScheme="dark"
       fontWeight="bold"
       items={[
         { value: "recommended", title: t("moments.tab.recommended") },
@@ -875,7 +851,6 @@ function errorMessage(error: unknown): string {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.card },
-  navigationBackground: { flex: 1, backgroundColor: "#F7F7F7" },
   listContent: { paddingBottom: 18, backgroundColor: colors.card },
   listWithComposer: { paddingBottom: 146 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
@@ -894,8 +869,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  myMomentsTitle: { color: colors.text, fontSize: 17, fontWeight: "600" },
-  myMomentsTitleCover: { color: colors.white },
+  myMomentsTitle: { color: colors.white, fontSize: 17, fontWeight: "600" },
   coverBlock: {
     height: 270,
     overflow: "visible",

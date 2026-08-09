@@ -20,13 +20,14 @@ describe("Moments visual source parity", () => {
 
   it("keeps cover chrome light while matching the native icon-only toolbar", () => {
     const screen = expo("src/app/moments.tsx");
-    expect(screen).toContain('<StatusBar style={coverChrome ? "light" : "dark"} />');
-    expect(screen).toContain("if (!didBeginScrollingRef.current) return");
+    expect(screen).toContain('<StatusBar style="light" />');
     expect(screen).toContain("headerBackVisible: false");
+    expect(screen).toContain("headerTintColor: colors.white");
     expect(screen).toContain("headerLeft: () => (");
     expect(screen).toContain('name="chevron.left"');
     expect(screen).toContain('resizeMode="center"');
-    expect(screen).toContain('colorScheme={coverChrome ? "dark" : "light"}');
+    expect(screen).toContain('colorScheme="dark"');
+    expect(screen).not.toContain("setCoverChrome");
   });
 
   it("matches the visible 270pt hero and the offset 76pt overlay avatar", () => {
