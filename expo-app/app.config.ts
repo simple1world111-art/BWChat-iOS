@@ -111,7 +111,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: environment === "production" ? "BBchat" : `BBchat ${environment}`,
+    name: "BBchat",
     slug: "bbchat",
     owner,
     scheme: "bwchat",
