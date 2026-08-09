@@ -54,6 +54,12 @@ jest.mock("@/providers/AuthProvider", () => ({ useAuth: () => ({ user: mockUser 
 jest.mock("@/providers/LocalizationProvider", () => ({
   useLocalization: () => ({ t: mockTranslate }),
 }));
+jest.mock("@/services/navigation/NavigationWorkScheduler", () => ({
+  runAfterNavigationInteractions: (work: () => void) => {
+    work();
+    return () => undefined;
+  },
+}));
 jest.mock("@/services/short-drama/ShortDramaHistoryRepository", () => ({
   readShortDramaHistory: jest.fn(() => Promise.resolve({})),
   subscribeShortDramaHistory: jest.fn(() => () => undefined),

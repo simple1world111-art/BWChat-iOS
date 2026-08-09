@@ -31,6 +31,9 @@ describe("Discover destination navigation performance", () => {
       "runAfterNavigationInteractions",
     );
     expect(source("src/services/live/useLiveLobby.ts")).toContain("runAfterNavigationInteractions");
+    const scheduler = source("src/services/navigation/NavigationWorkScheduler.ts");
+    expect(scheduler).toContain("NAVIGATION_TRANSITION_GUARD_MS");
+    expect(scheduler).toContain("!interactionsSettled || !transitionGuardSettled");
   });
 
   it("does not mount the hidden game WebView until navigation work settles", () => {
