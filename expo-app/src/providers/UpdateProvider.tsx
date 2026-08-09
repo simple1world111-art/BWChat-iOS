@@ -57,7 +57,10 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
       const previousState = appStateRef.current;
       appStateRef.current = nextState;
       if (nextState === "active" && previousState !== "active") {
-        void runAutomaticCheck(false);
+        // A newly published Preview update should be discovered on the next
+        // foreground entry, even if an earlier no-update check happened less
+        // than the persisted throttle window ago.
+        void runAutomaticCheck(true);
       }
     });
     return () => subscription.remove();

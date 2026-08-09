@@ -56,7 +56,7 @@ describe("UpdateProvider silent automatic checks", () => {
     await waitFor(() => expect(mockCheckAndDownloadUpdate).toHaveBeenCalledWith(true));
   });
 
-  test("uses the persisted throttle when the app returns to the foreground", async () => {
+  test("checks again when the app returns to the foreground", async () => {
     await render(
       <UpdateProvider>
         <Text>App</Text>
@@ -69,7 +69,7 @@ describe("UpdateProvider silent automatic checks", () => {
       appStateListener?.("active");
       await Promise.resolve();
     });
-    await waitFor(() => expect(mockCheckAndDownloadUpdate).toHaveBeenLastCalledWith(false));
+    await waitFor(() => expect(mockCheckAndDownloadUpdate).toHaveBeenLastCalledWith(true));
   });
 
   test("removes the foreground listener on unmount", async () => {
