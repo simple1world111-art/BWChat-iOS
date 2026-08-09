@@ -84,20 +84,12 @@ async function performUpdateCheck(force: boolean): Promise<UpdateCheckResult> {
       await persist("no-update", now);
       return { status: "no-update", checkedAt: now };
     }
-    const fetched = await Updates.fetchUpdateAsync();
+    await Updates.fetchUpdateAsync();
+    // Never reload from the automatic check: the fetch can finish after the user
+    // leaves the app, which would interrupt their current activity. Apply on the
+    // next cold launch unless they explicitly choose the settings-page restart.
     await persist("downloaded", now);
     captureMessage("OTA update downloaded", { channel: Updates.channel ?? "unknown" });
-
-    // Restart only when this fetch produced a new launchable update. A failed/no-op
-    // fetch has isNew=false; reloading after that would just launch the same bundle
-    // and can repeat on every app entry.
-    if (fetched.isNew) {
-      try {
-        await reloadToApplyUpdate();
-      } catch {
-        return { status: "downloaded", checkedAt: now };
-      }
-    }
     return { status: "downloaded", checkedAt: now };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown update error";
