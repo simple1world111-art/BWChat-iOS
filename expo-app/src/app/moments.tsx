@@ -555,6 +555,9 @@ function MomentsAccountScreen({
   );
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    // FlatList emits programmatic scroll events while its header/data settles.
+    // They must not flip the cover navigation chrome before the user scrolls.
+    if (!didBeginScrollingRef.current) return;
     const next = event.nativeEvent.contentOffset.y < 139;
     if (next !== coverChrome) setCoverChrome(next);
   };

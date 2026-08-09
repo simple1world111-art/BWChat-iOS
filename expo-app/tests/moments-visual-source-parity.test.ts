@@ -21,6 +21,7 @@ describe("Moments visual source parity", () => {
   it("keeps cover chrome light while matching the native icon-only toolbar", () => {
     const screen = expo("src/app/moments.tsx");
     expect(screen).toContain('<StatusBar style={coverChrome ? "light" : "dark"} />');
+    expect(screen).toContain("if (!didBeginScrollingRef.current) return");
     expect(screen).toContain("headerBackVisible: false");
     expect(screen).toContain("headerLeft: () => (");
     expect(screen).toContain('name="chevron.left"');
