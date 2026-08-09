@@ -131,6 +131,7 @@ const SWIPE_ACTION_WIDTH = 144;
 
 type Translate = (key: string, ...args: (string | number)[]) => string;
 type ConversationTheme = ReturnType<typeof palette>;
+type ConversationLoadMode = "initial" | "manual" | "background";
 
 export default function ConversationsScreen() {
   const insets = useSafeAreaInsets();
@@ -247,11 +248,13 @@ export default function ConversationsScreen() {
   );
 
   const load = useCallback(
-    async (refresh = false) => {
+    async (mode: ConversationLoadMode = "initial") => {
       if (!ownerId) return;
+      const forceRefresh = mode !== "initial";
+      const showRefreshIndicator = mode === "manual";
       const generation = ++loadGeneration.current;
-      if (refresh) setIsRefreshing(true);
-      else setIsLoading(true);
+      if (showRefreshIndicator) setIsRefreshing(true);
+      else if (mode === "initial") setIsLoading(true);
       try {
         const [
           cachedSnapshot,
@@ -277,7 +280,7 @@ export default function ConversationsScreen() {
         ]);
         setPinnedKeys(localState.pinnedKeys);
         setHiddenSnapshots(localState.hiddenSnapshots);
-        if (!refresh && cachedSnapshot) {
+        if (!forceRefresh && cachedSnapshot) {
           const provisionalChat = reconcileLatestConversationPreviews(
             visibleChatConversations(
               cachedSnapshot.conversations.filter((row) => !isAgentConversation(row)),
@@ -302,9 +305,9 @@ export default function ConversationsScreen() {
         const [snapshotResult, friendsResult, agentConversationsResult, installedAgentsResult] =
           await Promise.allSettled([
             loadConversationSnapshotWithNativeCache(ownerId, getConversationSyncSnapshot, {
-              forceRefresh: refresh,
+              forceRefresh,
             }),
-            loadFriendsWithNativeCache(ownerId, getFriendList, { forceRefresh: refresh }),
+            loadFriendsWithNativeCache(ownerId, getFriendList, { forceRefresh }),
             getAgentConversations(),
             getInstalledAgents(),
           ]);
@@ -451,7 +454,7 @@ export default function ConversationsScreen() {
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" && ownerId) void load(true);
+      if (state === "active" && ownerId) void load("background");
     });
     return () => subscription.remove();
   }, [load, ownerId]);
@@ -513,7 +516,7 @@ export default function ConversationsScreen() {
       const eventTicket = accountScopeRef.current.capture();
       if (eventTicket.ownerId !== ownerId) return;
       if (event.type === "refresh_conversations") {
-        void load(true);
+        void load("background");
         return;
       }
       if (event.type === "conversation_preference") {
@@ -642,7 +645,7 @@ export default function ConversationsScreen() {
           return [conversation];
         });
         if (!found && (event.type === "direct_message" || event.type === "group_message")) {
-          queueMicrotask(() => void load(true));
+          queueMicrotask(() => void load("background"));
           return current;
         }
         if (accountScopeRef.current.isCurrent(eventTicket)) {
@@ -966,7 +969,7 @@ export default function ConversationsScreen() {
             error={error}
             isLoading={isLoading}
             isSearching={query.length > 0}
-            retry={() => void load(true)}
+            retry={() => void load("manual")}
             t={t}
           />
         }
@@ -976,7 +979,7 @@ export default function ConversationsScreen() {
             refreshing={isRefreshing}
             onRefresh={() => {
               closeOpenSwipe(openSwipeKey, swipeClosers);
-              void load(true);
+              void load("manual");
             }}
             tintColor={theme.accent}
             progressViewOffset={insets.top + 86}

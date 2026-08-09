@@ -88,6 +88,17 @@ describe("ContactList source parity", () => {
     expect(unreadStore).toContain("aggregateConversationUnread(conversations)");
   });
 
+  it("keeps automatic reconciliation in the background and reserves the spinner for user actions", () => {
+    const page = sourceExpo("src/app/(tabs)/conversations.tsx");
+    expect(page).toContain('type ConversationLoadMode = "initial" | "manual" | "background"');
+    expect(page).toContain('const showRefreshIndicator = mode === "manual"');
+    expect(page).toContain('if (state === "active" && ownerId) void load("background")');
+    expect(page).toContain('if (event.type === "refresh_conversations")');
+    expect(page).toContain('queueMicrotask(() => void load("background"))');
+    expect(page).toContain('retry={() => void load("manual")}');
+    expect(page).toContain('void load("manual")');
+  });
+
   it("preserves exact read, history-clear and preference routes", () => {
     const native = sourceNative("BWChat/Services/APIService.swift");
     const expo = sourceExpo("src/api/bwchat.ts");
