@@ -773,6 +773,7 @@ function MomentMediaTile({
       <ImageGallerySource
         contentFit="cover"
         cornerRadius={cornerRadius}
+        fallback={<View style={imageStyle} />}
         imageStyle={imageStyle}
         onOpen={onOpen}
         selection={selection}
@@ -789,6 +790,7 @@ function MomentMediaTile({
       {resolvedUrl ? (
         <AuthenticatedImage
           contentFit="cover"
+          loadingFallback={<View style={imageStyle} />}
           uri={resolvedUrl}
           style={imageStyle}
           transition={0}
@@ -877,6 +879,7 @@ function CommentImage({
     <ImageGallerySource
       contentFit="cover"
       cornerRadius={4}
+      fallback={<View style={styles.commentImage} />}
       imageStyle={styles.commentImage}
       onOpen={onMedia}
       selection={{ media, images: [uri], index: 0 }}

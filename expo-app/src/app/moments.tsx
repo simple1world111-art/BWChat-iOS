@@ -157,6 +157,7 @@ function MomentsAccountScreen({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [uploadStatuses, setUploadStatuses] = useState<Record<string, MomentUploadStatus>>({});
   const unlockKeysRef = useRef(new Map<string, string>());
+  const didBeginScrollingRef = useRef(false);
 
   useEffect(() => {
     activeRef.current = true;
@@ -237,7 +238,6 @@ function MomentsAccountScreen({
         const stateBeforeRequest = feedsRef.current[tab];
         const beforeId = reset ? undefined : stateBeforeRequest.moments.at(-1)?.id;
         const page = await fetchPage(tab, beforeId, isMyMoments ? ownerId : undefined);
-        if (!activeRef.current) return;
         if (
           reset &&
           !shouldAcceptMomentFeedFirstPage(
@@ -248,7 +248,6 @@ function MomentsAccountScreen({
           throw new Error("朋友圈列表响应不完整");
         }
         await reconcileMomentUploads(ownerId, page.moments);
-        if (!activeRef.current) return;
         const nextMoments = mergeMomentFeed(
           reset
             ? stateBeforeRequest.moments.filter((item) => item.client_request_id)
@@ -265,6 +264,10 @@ function MomentsAccountScreen({
           isRefreshing: false,
           isLoadingMore: false,
         };
+        if (!activeRef.current) {
+          await persistTab(tab, nextState);
+          return;
+        }
         loadedRef.current[tab] = true;
         updateTab(tab, () => nextState);
         await persistTab(tab, nextState);
@@ -291,6 +294,7 @@ function MomentsAccountScreen({
   );
 
   useEffect(() => {
+    didBeginScrollingRef.current = false;
     const timer = setTimeout(() => void loadFeed(selectedTab, true), 0);
     return () => clearTimeout(timer);
   }, [loadFeed, selectedTab]);
@@ -587,9 +591,14 @@ function MomentsAccountScreen({
           ) : null
         }
         ListHeaderComponent={header}
-        onEndReached={() => void loadFeed(selectedTab, false)}
+        onEndReached={() => {
+          if (didBeginScrollingRef.current) void loadFeed(selectedTab, false);
+        }}
         onEndReachedThreshold={0.2}
         onScroll={onScroll}
+        onScrollBeginDrag={() => {
+          didBeginScrollingRef.current = true;
+        }}
         refreshControl={
           <RefreshControl
             refreshing={current.isRefreshing}
@@ -710,6 +719,7 @@ function MomentsCoverHeader({ avatarUrl, nickname }: { avatarUrl: string; nickna
           <AuthenticatedImage
             blurRadius={22}
             contentFit="cover"
+            loadingFallback={<View />}
             style={styles.coverImage}
             transition={0}
             uri={resolved}
@@ -735,6 +745,8 @@ function MomentsCoverHeader({ avatarUrl, nickname }: { avatarUrl: string; nickna
           {resolved ? (
             <AuthenticatedImage
               contentFit="cover"
+              errorFallback={<Avatar cornerRadius={16} name={nickname} size={76} />}
+              loadingFallback={<Avatar cornerRadius={16} name={nickname} size={76} />}
               style={styles.coverAvatar}
               transition={0}
               uri={resolved}
@@ -782,7 +794,7 @@ function FeedEmptyState({
 }) {
   const { t } = useLocalization();
   if (isLoading) {
-    return <ActivityIndicator color={colors.accent} style={styles.emptyState} />;
+    return <View style={styles.emptyState} />;
   }
   return (
     <View style={styles.emptyState}>

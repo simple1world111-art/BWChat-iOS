@@ -55,6 +55,27 @@ describe("Moments account lifecycle isolation", () => {
     expect(feed).toContain("isShowingCachedData: false");
   });
 
+  it("keeps automatic entry, cover media and initial pagination spinner-free", () => {
+    const feed = read("src/app/moments.tsx");
+    const content = read("src/components/profile/PublicProfileContent.tsx");
+
+    expect(feed).toContain("if (isLoading) {\n    return <View style={styles.emptyState} />;");
+    expect(feed).toContain("loadingFallback={<View />}");
+    expect(feed).toContain("if (didBeginScrollingRef.current) void loadFeed(selectedTab, false)");
+    expect(content).toContain("fallback={<View style={imageStyle} />}");
+    expect(content).toContain("loadingFallback={<View style={imageStyle} />}");
+  });
+
+  it("persists a completed background refresh after the screen is left", () => {
+    const feed = read("src/app/moments.tsx");
+    const inactivePersistence = feed.indexOf(
+      "if (!activeRef.current) {\n          await persistTab(tab, nextState);",
+    );
+    const reconciliation = feed.indexOf("await reconcileMomentUploads(ownerId, page.moments)");
+
+    expect(inactivePersistence).toBeGreaterThan(reconciliation);
+  });
+
   it("matches the original account ownership guards", () => {
     const native = read("../BWChat/ViewModels/MomentsViewModel.swift");
     expect(native).toContain("ownerID == AuthManager.shared.currentUser?.userID");
