@@ -11,6 +11,8 @@ import {
 import {
   applyPushSideEffects,
   beginNativePushUploadSession,
+  dismissReadConversationNotifications,
+  dismissReadMomentsNotifications,
   ensureNativePushTokenUploaded,
   flattenNotificationPayload,
   initializePushNotifications,
@@ -39,7 +41,9 @@ jest.mock("expo-notifications", () => ({
   IosAllowsPreviews: { ALWAYS: 1 },
   IosAuthorizationStatus: { AUTHORIZED: 2, NOT_DETERMINED: 0 },
   PermissionStatus: { GRANTED: "granted", UNDETERMINED: "undetermined" },
+  dismissNotificationAsync: jest.fn(async () => undefined),
   getDevicePushTokenAsync: jest.fn(),
+  getPresentedNotificationsAsync: jest.fn(),
   getPermissionsAsync: jest.fn(),
   requestPermissionsAsync: jest.fn(),
   setBadgeCountAsync: jest.fn(async () => true),
@@ -50,7 +54,9 @@ jest.mock("expo-notifications", () => ({
 const request = jest.mocked(apiRequest);
 const getToken = jest.mocked(Notifications.getDevicePushTokenAsync);
 const getPermissions = jest.mocked(Notifications.getPermissionsAsync);
+const getPresented = jest.mocked(Notifications.getPresentedNotificationsAsync);
 const requestPermissions = jest.mocked(Notifications.requestPermissionsAsync);
+const dismissNotification = jest.mocked(Notifications.dismissNotificationAsync);
 
 describe("native push service", () => {
   beforeEach(async () => {
@@ -60,6 +66,7 @@ describe("native push service", () => {
     await AsyncStorage.clear();
     getToken.mockResolvedValue({ type: "ios", data: "apns-token" });
     getPermissions.mockResolvedValue(permission(false));
+    getPresented.mockResolvedValue([]);
     requestPermissions.mockResolvedValue(permission(true));
     request.mockResolvedValue({});
   });
@@ -204,6 +211,36 @@ describe("native push service", () => {
     expect(momentsUnreadSnapshot("owner")).toBe(1);
   });
 
+  it("dismisses only delivered chat notifications covered by the read watermark", async () => {
+    getPresented.mockResolvedValue([
+      presented("dm-40", { sender_id: "u1", message_id: 40 }),
+      presented("dm-42", { sender_id: "u1", message_id: 42 }),
+      presented("dm-43", { sender_id: "u1", message_id: 43 }),
+      presented("other-dm", { sender_id: "u2", message_id: 4 }),
+      presented("group", { group_id: 1, message_id: 1 }),
+      presented("legacy-without-message-id", { sender_id: "u1" }),
+    ]);
+
+    await expect(dismissReadConversationNotifications("dm", "u1", 42)).resolves.toBe(2);
+    expect(dismissNotification).toHaveBeenCalledTimes(2);
+    expect(dismissNotification).toHaveBeenNthCalledWith(1, "dm-40");
+    expect(dismissNotification).toHaveBeenNthCalledWith(2, "dm-42");
+  });
+
+  it("dismisses delivered Moments notifications without touching chat or call pushes", async () => {
+    getPresented.mockResolvedValue([
+      presented("moment-1", { push_type: "moments_update", event_id: "m1" }),
+      presented("moment-2", { event_type: "moments_update", event_id: "m2" }),
+      presented("chat", { sender_id: "u1", message_id: 1 }),
+      presented("call", { push_type: "call", caller_id: "u1" }),
+    ]);
+
+    await expect(dismissReadMomentsNotifications()).resolves.toBe(2);
+    expect(dismissNotification).toHaveBeenCalledTimes(2);
+    expect(dismissNotification).toHaveBeenCalledWith("moment-1");
+    expect(dismissNotification).toHaveBeenCalledWith("moment-2");
+  });
+
   it("persists cold-open targets and caps processed delivery identity", async () => {
     const target = pushOpenTarget({ sender_id: "u1", message_id: 3 }, "n1");
     expect(target).not.toBeNull();
@@ -223,6 +260,13 @@ function policy(show: boolean, sound: boolean) {
     shouldPlaySound: sound,
     shouldSetBadge: false,
   };
+}
+
+function presented(identifier: string, data: Record<string, unknown>): Notifications.Notification {
+  return {
+    date: Date.now(),
+    request: { identifier, content: { data } },
+  } as Notifications.Notification;
 }
 
 function permission(granted: boolean): Notifications.NotificationPermissionsStatus {

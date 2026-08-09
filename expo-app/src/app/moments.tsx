@@ -27,7 +27,6 @@ import {
   getMomentsWorld,
   getUserMoments,
   markMomentsFeedViewed,
-  markMomentsNotificationsRead,
   toggleMomentLike,
   unlockMoment,
 } from "@/api/bwchat";
@@ -64,6 +63,7 @@ import {
   publishMomentMutation,
   subscribeMomentMutation,
 } from "@/services/moments/MomentMutationStore";
+import { markMomentsNotificationsReadEverywhere } from "@/services/moments/MomentsReadService";
 import { clearMomentsUnread, publishMomentsUnread } from "@/services/moments/MomentsUnreadStore";
 import {
   cancelMomentUpload,
@@ -475,7 +475,7 @@ function MomentsAccountScreen({
   const openNotifications = useCallback(() => {
     setUnreadCount(0);
     clearMomentsUnread(ownerId);
-    void markMomentsNotificationsRead().catch(() => undefined);
+    void markMomentsNotificationsReadEverywhere().catch(() => undefined);
     router.push("/moments-notifications");
   }, [ownerId]);
 

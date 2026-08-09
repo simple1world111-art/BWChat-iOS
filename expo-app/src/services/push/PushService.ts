@@ -303,6 +303,37 @@ export async function applyPushSideEffects(input: unknown, ownerId = ""): Promis
   chatRealtimeService.requestConversationRefresh("push_notification");
 }
 
+/** Removes only delivered notifications covered by a successful chat read receipt. */
+export async function dismissReadConversationNotifications(
+  conversationType: NotificationConversationType,
+  conversationId: string,
+  throughMessageId: number,
+): Promise<number> {
+  const normalizedId = conversationId.trim();
+  if (!normalizedId || !Number.isInteger(throughMessageId) || throughMessageId < 0) return 0;
+  return dismissPresentedNotifications("chat_read_notification_cleanup", (notification) => {
+    const route = parseNotificationRoute(notification.request.content.data);
+    if (
+      !route ||
+      route.conversationType !== conversationType ||
+      route.conversationId !== normalizedId
+    ) {
+      return false;
+    }
+    return route.messageId !== undefined && route.messageId <= throughMessageId;
+  });
+}
+
+/** Moments read is an all-at-once server contract, so all delivered Moments pushes are covered. */
+export async function dismissReadMomentsNotifications(): Promise<number> {
+  return dismissPresentedNotifications(
+    "moments_read_notification_cleanup",
+    (notification) =>
+      pushOpenTarget(notification.request.content.data, notification.request.identifier)?.kind ===
+      "moments",
+  );
+}
+
 export async function savePendingPushOpen(target: PushOpenTarget): Promise<void> {
   await AsyncStorage.setItem(pendingOpenKey, JSON.stringify(target));
 }
@@ -337,6 +368,36 @@ export function resetPushServiceForTests(): void {
   uploadedSessions.clear();
   uploadFlights.clear();
   uploadSessionGenerations.clear();
+}
+
+async function dismissPresentedNotifications(
+  operation: string,
+  shouldDismiss: (notification: Notifications.Notification) => boolean,
+): Promise<number> {
+  if (Platform.OS === "web") return 0;
+  let presented: Notifications.Notification[];
+  try {
+    presented = await Notifications.getPresentedNotificationsAsync();
+  } catch (error) {
+    captureException(error, { operation: `${operation}_list` });
+    return 0;
+  }
+  const identifiers = presented
+    .filter(shouldDismiss)
+    .map((notification) => notification.request.identifier)
+    .filter((identifier) => identifier.trim().length > 0);
+  const dismissed = await Promise.all(
+    identifiers.map(async (identifier) => {
+      try {
+        await Notifications.dismissNotificationAsync(identifier);
+        return true;
+      } catch (error) {
+        captureException(error, { notification_id: identifier, operation });
+        return false;
+      }
+    }),
+  );
+  return dismissed.filter(Boolean).length;
 }
 
 async function uploadTokenWithRetry(token: string, signal?: AbortSignal): Promise<void> {

@@ -4,6 +4,7 @@ import {
   applyConversationReadReceipt,
   conversationReadIdentity,
 } from "@/services/conversations/ConversationRepository";
+import { dismissReadConversationNotifications } from "@/services/push/PushService";
 
 const submittedThrough = new Map<string, number>();
 
@@ -27,7 +28,10 @@ export async function markConversationRead(
         type === "group"
           ? await markGroupMessagesRead(Number(targetId))
           : await markDirectMessagesRead(targetId);
-      if (receipt?.conversation_id.trim()) await applyConversationReadReceipt(ownerId, receipt);
+      if (receipt?.conversation_id.trim()) {
+        await applyConversationReadReceipt(ownerId, receipt);
+        await dismissReadConversationNotifications(type, targetId, receipt.read_through_message_id);
+      }
       return receipt;
     } catch {
       return null;
@@ -41,7 +45,10 @@ export async function markConversationRead(
       type === "group"
         ? await markGroupMessagesRead(Number(targetId), { throughMessageId })
         : await markDirectMessagesRead(targetId, { throughMessageId });
-    if (receipt?.conversation_id.trim()) await applyConversationReadReceipt(ownerId, receipt);
+    if (receipt?.conversation_id.trim()) {
+      await applyConversationReadReceipt(ownerId, receipt);
+      await dismissReadConversationNotifications(type, targetId, receipt.read_through_message_id);
+    }
     return receipt;
   } catch {
     if (submittedThrough.get(identity) === throughMessageId) {

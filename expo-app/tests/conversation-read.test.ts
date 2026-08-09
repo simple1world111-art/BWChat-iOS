@@ -18,9 +18,14 @@ import {
   resetConversationReadSubmissionForAccount,
   resetConversationReadSubmissionForTests,
 } from "@/services/conversations/ConversationReadService";
+import { dismissReadConversationNotifications } from "@/services/push/PushService";
 
 jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
+jest.mock("@/services/push/PushService", () => ({
+  dismissReadConversationNotifications: jest.fn(async () => 0),
+}));
 const request = jest.mocked(apiRequest);
+const dismissReadNotifications = jest.mocked(dismissReadConversationNotifications);
 
 describe("native conversation read-state contracts", () => {
   beforeEach(async () => {
@@ -180,6 +185,9 @@ describe("native conversation read-state contracts", () => {
     await markConversationRead("owner", "dm", "u2", 9);
     await markConversationRead("owner", "dm", "u2", 9);
     expect(request).toHaveBeenCalledTimes(4);
+    expect(dismissReadNotifications).toHaveBeenNthCalledWith(1, "dm", "u1", 41);
+    expect(dismissReadNotifications).toHaveBeenNthCalledWith(2, "dm", "u1", 42);
+    expect(dismissReadNotifications).toHaveBeenNthCalledWith(3, "dm", "u2", 9);
   });
 
   it("supports the native script-room read request when no through-message id is known", async () => {
@@ -190,6 +198,7 @@ describe("native conversation read-state contracts", () => {
       requiredEnvelope: true,
       body: { idempotency_key: expect.any(String) },
     });
+    expect(dismissReadNotifications).toHaveBeenCalledWith("group", "7", 41);
   });
 
   it("clears submitted read watermarks for only the selected account", async () => {

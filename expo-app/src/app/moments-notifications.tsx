@@ -3,7 +3,7 @@ import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
-import { getMomentsNotifications, markMomentsNotificationsRead } from "@/api/bwchat";
+import { getMomentsNotifications } from "@/api/bwchat";
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { Avatar } from "@/components/Avatar";
 import { env } from "@/config/env";
@@ -14,6 +14,7 @@ import {
   readCachedMomentsNotifications,
   saveCachedMomentsNotifications,
 } from "@/services/moments/MomentsNotificationRepository";
+import { markMomentsNotificationsReadEverywhere } from "@/services/moments/MomentsReadService";
 import { clearMomentsUnread } from "@/services/moments/MomentsUnreadStore";
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
@@ -49,7 +50,7 @@ export default function MomentsNotificationsScreen() {
   useEffect(() => {
     const timer = setTimeout(() => void load(), 0);
     clearMomentsUnread(ownerId);
-    void markMomentsNotificationsRead().catch(() => undefined);
+    void markMomentsNotificationsReadEverywhere().catch(() => undefined);
     return () => clearTimeout(timer);
   }, [load, ownerId]);
 
