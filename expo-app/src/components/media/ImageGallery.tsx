@@ -323,6 +323,11 @@ function ImageGalleryContent({
   const paginationOperationRef = useRef(0);
   const saveOperationRef = useRef(0);
   const dismissOperationRef = useRef(0);
+  const swipeDismissRequestRef = useRef<{
+    ownerId: string;
+    generation: number;
+    operation: number;
+  } | null>(null);
   const sourceFrame = selection.sourceFrame;
 
   const scale = useSharedValue(1);
@@ -355,6 +360,7 @@ function ImageGalleryContent({
       paginationOperationRef.current += 1;
       saveOperationRef.current += 1;
       dismissOperationRef.current += 1;
+      swipeDismissRequestRef.current = null;
       loadMoreBusy.current = false;
     },
     [],
@@ -493,68 +499,50 @@ function ImageGalleryContent({
           requestedOperation,
         )
       ) {
-        onClose();
+        // Paint the source thumbnail under the now-transparent Modal, then
+        // unmount on the following frame. This avoids both an end flash and a
+        // React commit competing with the shrink animation.
+        setActiveSourceId(null);
+        requestAnimationFrame(() => {
+          if (
+            isCurrentGalleryOperation(
+              ownerIdRef.current,
+              requestedOwnerId,
+              lifecycleGenerationRef.current,
+              requestedGeneration,
+              dismissOperationRef.current,
+              requestedOperation,
+            )
+          ) {
+            onClose();
+          }
+        });
       }
     },
     [onClose],
   );
 
-  const beginDismiss = useCallback(
-    (direction: number) => {
-      if (dismissing.current) return;
-      dismissing.current = true;
-      const requestedOwnerId = ownerId;
-      const requestedGeneration = lifecycleGenerationRef.current;
-      const requestedOperation = dismissOperationRef.current + 1;
-      dismissOperationRef.current = requestedOperation;
-      // Reveal the source while it is still covered by the modal so it is
-      // already painted when the transparent presentation unmounts.
-      setActiveSourceId(null);
-      const canReturnToSource =
-        direction === 0 &&
-        Boolean(sourceFrame) &&
-        currentIndex === initialIndex &&
-        scale.value <= GALLERY_REST_SCALE_LIMIT;
-      if (canReturnToSource) {
-        // Both layers are at the same fitted frame here, so swapping them in
-        // one UI-thread frame avoids a duplicate image and a React commit pop.
-        heroOpacity.value = 1;
-        contentOpacity.value = 0;
-        openProgress.value = withTiming(
-          0,
-          {
-            duration: direction === 0 ? 240 : 180,
-            easing: direction === 0 ? Easing.inOut(Easing.cubic) : Easing.out(Easing.cubic),
-          },
-          (finished) => {
-            if (finished) {
-              runOnJS(finishClose)(requestedOwnerId, requestedGeneration, requestedOperation);
-            }
-          },
-        );
-        return;
-      }
-      // A swipe dismissal continues from the current drag instead of first
-      // snapping verticalDrag back to zero and switching to the Hero layer.
-      const targetY = direction === 0 ? 0 : direction < 0 ? -height : height;
-      const duration = direction === 0 ? 180 : 260;
-      verticalDrag.value = withTiming(targetY, {
-        duration,
-        easing: Easing.out(Easing.cubic),
-      });
-      // When the current page cannot return to the opening thumbnail, native
-      // still fades the black backdrop with `appeared`. Keeping openProgress
-      // at one made Expo drop a fully opaque black frame only when the Modal
-      // unmounted, producing a visible end-of-close flash.
-      openProgress.value = withTiming(0, {
-        duration,
-        easing: Easing.out(Easing.cubic),
-      });
-      contentOpacity.value = withTiming(
+  const beginDismiss = useCallback(() => {
+    if (dismissing.current) return;
+    dismissing.current = true;
+    const requestedOwnerId = ownerId;
+    const requestedGeneration = lifecycleGenerationRef.current;
+    const requestedOperation = dismissOperationRef.current + 1;
+    dismissOperationRef.current = requestedOperation;
+    const canReturnToSource =
+      Boolean(sourceFrame) &&
+      currentIndex === initialIndex &&
+      scale.value <= GALLERY_REST_SCALE_LIMIT;
+    if (canReturnToSource) {
+      // Both layers are at the same fitted frame here, so swapping them in
+      // one UI-thread frame avoids a duplicate image and a React commit pop.
+      heroOpacity.value = 1;
+      contentOpacity.value = 0;
+      openProgress.value = withTiming(
         0,
         {
-          duration,
-          easing: Easing.out(Easing.cubic),
+          duration: 240,
+          easing: Easing.inOut(Easing.cubic),
         },
         (finished) => {
           if (finished) {
@@ -562,21 +550,55 @@ function ImageGalleryContent({
           }
         },
       );
-    },
-    [
-      contentOpacity,
-      currentIndex,
-      finishClose,
-      height,
-      heroOpacity,
-      initialIndex,
-      openProgress,
+      return;
+    }
+    const duration = 180;
+    openProgress.value = withTiming(0, {
+      duration,
+      easing: Easing.out(Easing.cubic),
+    });
+    contentOpacity.value = withTiming(
+      0,
+      {
+        duration,
+        easing: Easing.out(Easing.cubic),
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(finishClose)(requestedOwnerId, requestedGeneration, requestedOperation);
+        }
+      },
+    );
+  }, [
+    contentOpacity,
+    currentIndex,
+    finishClose,
+    heroOpacity,
+    initialIndex,
+    openProgress,
+    ownerId,
+    scale,
+    sourceFrame,
+  ]);
+
+  const prepareSwipeDismiss = useCallback(() => {
+    if (dismissing.current) return;
+    dismissing.current = true;
+    const operation = dismissOperationRef.current + 1;
+    dismissOperationRef.current = operation;
+    swipeDismissRequestRef.current = {
       ownerId,
-      scale,
-      sourceFrame,
-      verticalDrag,
-    ],
-  );
+      generation: lifecycleGenerationRef.current,
+      operation,
+    };
+  }, [ownerId]);
+
+  const finishSwipeDismiss = useCallback(() => {
+    const request = swipeDismissRequestRef.current;
+    if (!request) return;
+    swipeDismissRequestRef.current = null;
+    finishClose(request.ownerId, request.generation, request.operation);
+  }, [finishClose]);
 
   const saveCurrentImage = useCallback(
     async (mediaPath: string, requestedOwnerId: string, requestedGeneration: number) => {
@@ -736,8 +758,29 @@ function ImageGalleryContent({
           }
           if (panMode.value === 2) {
             const decision = galleryDismissDecision(event.translationY, event.velocityY);
-            if (decision !== 0) runOnJS(beginDismiss)(decision);
-            else
+            if (decision !== 0) {
+              // Start the visual continuation before crossing to JS. The old
+              // runOnJS(beginDismiss) handoff left the image parked for a frame
+              // after the finger lifted, which read as a hitch on iOS.
+              runOnJS(prepareSwipeDismiss)();
+              const duration = 220;
+              const targetY = decision < 0 ? -height : height;
+              verticalDrag.value = withTiming(targetY, {
+                duration,
+                easing: Easing.out(Easing.cubic),
+              });
+              openProgress.value = withTiming(0, {
+                duration,
+                easing: Easing.out(Easing.cubic),
+              });
+              contentOpacity.value = withTiming(
+                0,
+                { duration, easing: Easing.out(Easing.cubic) },
+                (finished) => {
+                  if (finished) runOnJS(finishSwipeDismiss)();
+                },
+              );
+            } else
               verticalDrag.value = withTiming(0, {
                 duration: 160,
                 easing: Easing.out(Easing.cubic),
@@ -785,8 +828,10 @@ function ImageGalleryContent({
           panMode.value = 0;
         }),
     [
-      beginDismiss,
       commitPage,
+      contentOpacity,
+      finishSwipeDismiss,
+      height,
       images.length,
       offsetX,
       offsetXAtStart,
@@ -796,8 +841,10 @@ function ImageGalleryContent({
       pageOffset,
       pageOffsetAtStart,
       panMode,
+      prepareSwipeDismiss,
       recordPageTarget,
       scale,
+      openProgress,
       verticalDrag,
       width,
     ],
@@ -838,7 +885,7 @@ function ImageGalleryContent({
         .numberOfTaps(1)
         .maxDistance(10)
         .onEnd((_, success) => {
-          if (success) runOnJS(beginDismiss)(0);
+          if (success) runOnJS(beginDismiss)();
         }),
     [beginDismiss],
   );
@@ -869,13 +916,13 @@ function ImageGalleryContent({
       openProgress.value * Math.max(0.25, 1 - Math.min(Math.abs(verticalDrag.value) / 320, 0.75)),
   }));
   const stripStyle = useAnimatedStyle(() => ({
-    opacity: contentOpacity.value,
     transform: [{ translateX: pageOffset.value }],
   }));
   const currentImageStyle = useAnimatedStyle(() => {
     const dragScale =
       Math.abs(verticalDrag.value) < 8 ? 1 : Math.max(1 - Math.abs(verticalDrag.value) / 900, 0.55);
     return {
+      opacity: contentOpacity.value,
       transform: [
         { translateX: offsetX.value },
         { translateY: offsetY.value + verticalDrag.value },
@@ -924,8 +971,8 @@ function ImageGalleryContent({
             else if (event.nativeEvent.actionName === "decrement") moveToPage(currentIndex - 1);
             else if (event.nativeEvent.actionName === "save") requestSave();
           }}
-          onAccessibilityEscape={() => beginDismiss(0)}
-          onAccessibilityTap={() => beginDismiss(0)}
+          onAccessibilityEscape={beginDismiss}
+          onAccessibilityTap={beginDismiss}
           style={styles.gestureSurface}
         >
           <Animated.View style={[styles.strip, { width: width * images.length }, stripStyle]}>
