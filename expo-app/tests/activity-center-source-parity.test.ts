@@ -140,4 +140,12 @@ describe("ActivityCenter source and asset parity guards", () => {
     expect(preview).toContain('inviteCode: "MEOW88"');
     expect(preview).toContain('spinID: "wheel-result-preview"');
   });
+
+  it("keeps automatic activity sync separate from the manual pull-to-refresh indicator", () => {
+    const page = fs.readFileSync(path.join(root, "src/app/activity-center.tsx"), "utf8");
+    expect(page).toContain("const [isManualRefreshing, setIsManualRefreshing] = useState(false)");
+    expect(page).toContain("await loadActivity(true)");
+    expect(page).toContain("refreshing={isRefreshing}");
+    expect(page).not.toContain("refreshing={state.isLoading}");
+  });
 });
