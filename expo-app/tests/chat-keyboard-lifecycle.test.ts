@@ -1,12 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { act, renderHook } from "@testing-library/react-native";
 
 import { chatKeyboardInset } from "@/components/messages/ChatKeyboardAvoidingView";
 import {
-  chatComposerInputMetrics,
-  clampChatComposerInputHeight,
-  useChatComposerInputHeight,
+  chatComposerInitialInputHeight,
+  chatComposerInputHeight,
 } from "@/components/messages/ChatComposerInputHeight";
 
 const root = resolve(__dirname, "..");
@@ -36,7 +34,7 @@ describe("chat keyboard lifecycle", () => {
     }
   });
 
-  it("resets multiline input height after sending on every chat surface", () => {
+  it("preserves intrinsic multiline growth and only collapses an empty draft", () => {
     for (const path of [
       "src/app/chat/[id].tsx",
       "src/app/group-chat/[id].tsx",
@@ -44,45 +42,41 @@ describe("chat keyboard lifecycle", () => {
       "src/app/script-room-chat.tsx",
     ]) {
       const page = source(path);
-      expect(page).toContain("useChatComposerInputHeight(");
-      expect(page).toContain("updateInputHeight(nativeEvent.contentSize.height)");
-      expect(page).toContain("resetInputHeight();");
+      expect(page).toContain("chatComposerInputHeight(");
+      expect(page).toContain("initialInputHeight !== undefined && { height: initialInputHeight }");
+      expect(page).not.toContain("updateInputHeight(nativeEvent.contentSize.height)");
+      expect(page).not.toContain("scrollEnabled={inputHeight");
     }
   });
 
   it("dismisses direct and group chat keyboards before native back navigation", () => {
     for (const path of ["src/app/chat/[id].tsx", "src/app/group-chat/[id].tsx"]) {
       const page = source(path);
-      expect(page).toContain("onSubmitEditing={submitDraft}");
-      expect(page).toContain("onPress={submitDraft}");
+      expect(page).toContain("onSubmitEditing={onSend}");
+      expect(page).toContain("onPress={onSend}");
       expect(page).toContain('navigation.addListener("beforeRemove"');
       expect(page).toContain("Keyboard.dismiss()");
     }
   });
 
-  it("clamps multiline composer content and restores the single-line height", () => {
-    expect(clampChatComposerInputHeight(Number.NaN)).toBe(chatComposerInputMetrics.minimum);
-    expect(clampChatComposerInputHeight(12)).toBe(40);
-    expect(clampChatComposerInputHeight(72)).toBe(72);
-    expect(clampChatComposerInputHeight(240)).toBe(120);
+  it("does not impose a controlled height while multiline text is present", () => {
+    expect(chatComposerInputHeight("")).toBe(chatComposerInitialInputHeight);
+    expect(chatComposerInputHeight("single line")).toBeUndefined();
+    expect(chatComposerInputHeight("first line\nsecond line")).toBeUndefined();
   });
 
-  it("ignores stale multiline measurements after the sent draft is cleared", async () => {
-    const hook = await renderHook(
-      ({ draft }: { draft: string }) => useChatComposerInputHeight(draft),
-      { initialProps: { draft: "a long draft" } },
+  it("keeps the script composer above the safe area and centers the agent input", () => {
+    const scriptChat = source("src/app/script-room-chat.tsx");
+    expect(scriptChat).toContain("const safeAreaInsets = useSafeAreaInsets();");
+    expect(scriptChat).toContain(
+      "{ paddingBottom: isInputFocused ? 12 : 12 + safeAreaInsets.bottom }",
     );
-    await act(async () => hook.result.current.updateInputHeight(110));
-    expect(hook.result.current.inputHeight).toBe(110);
+    expect(scriptChat).toContain("onBlur={() => setInputFocused(false)}");
+    expect(scriptChat).toContain("onFocus={() => setInputFocused(true)}");
 
-    await act(async () => hook.result.current.resetInputHeight());
-    await hook.rerender({ draft: "" });
-    expect(hook.result.current.inputHeight).toBe(40);
-
-    await act(async () => hook.result.current.updateInputHeight(110));
-    expect(hook.result.current.inputHeight).toBe(40);
-    await hook.rerender({ draft: "next" });
-    expect(hook.result.current.inputHeight).toBe(40);
+    const agentChat = source("src/app/agent-chat.tsx");
+    expect(agentChat).toContain('justifyContent: "center"');
+    expect(agentChat).toContain("paddingVertical: 8");
   });
 
   it("remounts the native pull-to-refresh control after returning to messages", () => {

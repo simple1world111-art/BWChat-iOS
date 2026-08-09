@@ -40,10 +40,7 @@ import {
   type ImageGallerySelection,
 } from "@/components/media/ImageGallery";
 import { VideoPlayerOverlay } from "@/components/media/VideoPlayerOverlay";
-import {
-  chatComposerInputMetrics,
-  useChatComposerInputHeight,
-} from "@/components/messages/ChatComposerInputHeight";
+import { chatComposerInputHeight } from "@/components/messages/ChatComposerInputHeight";
 import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
 import { ChatMessageActionOverlay } from "@/components/messages/ChatReplyViews";
 import { TopToast } from "@/components/TopToast";
@@ -147,7 +144,7 @@ export default function AgentChatScreen() {
   const scopeGenerationRef = useRef(0);
   const loadPromiseRef = useRef<Promise<void> | null>(null);
   const [draft, setDraft] = useState("");
-  const { inputHeight, resetInputHeight, updateInputHeight } = useChatComposerInputHeight(draft);
+  const initialInputHeight = chatComposerInputHeight(draft);
   const [composerImage, setComposerImage] = useState<{ uri: string; filename: string } | null>(
     null,
   );
@@ -1266,7 +1263,6 @@ export default function AgentChatScreen() {
       if (!isCurrentSend()) return;
       setTimeline(mergeAgentMessages(messagesRef.current, [accepted.message]));
       setOptimisticText(null);
-      resetInputHeight();
       setDraft("");
       detachComposerImage();
       setTurnStatus(accepted.turn.status);
@@ -1533,17 +1529,16 @@ export default function AgentChatScreen() {
               multiline
               onBlur={() => setFocused(false)}
               onChangeText={setDraft}
-              onContentSizeChange={({ nativeEvent }) => {
-                updateInputHeight(nativeEvent.contentSize.height);
-              }}
               onFocus={() => setFocused(true)}
               onSubmitEditing={() => void send()}
               placeholder="输入消息..."
               placeholderTextColor={colors.tertiaryText}
               returnKeyType="send"
-              scrollEnabled={inputHeight >= chatComposerInputMetrics.maximum}
               ref={inputRef}
-              style={[styles.input, { height: inputHeight }]}
+              style={[
+                styles.input,
+                initialInputHeight !== undefined && { height: initialInputHeight },
+              ]}
               submitBehavior="submit"
               value={draft}
             />
@@ -2089,11 +2084,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
+    justifyContent: "center",
   },
   input: {
     minHeight: 38,
     maxHeight: 120,
-    padding: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 8,
     color: colors.text,
     fontSize: 16,
     lineHeight: 22,

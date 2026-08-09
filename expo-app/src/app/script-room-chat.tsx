@@ -17,6 +17,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
   endScriptRoom,
@@ -29,10 +30,7 @@ import {
 import { Avatar } from "@/components/Avatar";
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { TopToast } from "@/components/TopToast";
-import {
-  chatComposerInputMetrics,
-  useChatComposerInputHeight,
-} from "@/components/messages/ChatComposerInputHeight";
+import { chatComposerInputHeight } from "@/components/messages/ChatComposerInputHeight";
 import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
 import { env } from "@/config/env";
 import type { GroupMessage, ScriptRole, ScriptRoom, ScriptTurnState } from "@/models";
@@ -80,6 +78,7 @@ export default function ScriptRoomChatScreen() {
   const scheme = useColorScheme();
   const theme = palette(scheme);
   const styles = useMemo(() => makeStyles(scheme), [scheme]);
+  const safeAreaInsets = useSafeAreaInsets();
   const initialRoom = useMemo(() => {
     const conversation = pendingScriptRoomConversation(roomId, ownerId);
     return conversation ? provisionalScriptRoom(conversation) : null;
@@ -88,8 +87,8 @@ export default function ScriptRoomChatScreen() {
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [turnState, setTurnState] = useState<ScriptTurnState | null>(null);
   const [inputText, setInputText] = useState("");
-  const { inputHeight, resetInputHeight, updateInputHeight } =
-    useChatComposerInputHeight(inputText);
+  const initialInputHeight = chatComposerInputHeight(inputText);
+  const [isInputFocused, setInputFocused] = useState(false);
   const [isLoading, setLoading] = useState(!initialRoom);
   const [isSending, setSending] = useState(false);
   const [hasAuthoritativeRoom, setAuthoritativeRoom] = useState(isCompleteScriptRoom(initialRoom));
@@ -574,7 +573,6 @@ export default function ScriptRoomChatScreen() {
     const requestedOwner = ownerId;
     const requestedRoomId = roomId;
     const requestedGeneration = sessionGenerationRef.current;
-    resetInputHeight();
     setInputText("");
     sendingRef.current = true;
     setSending(true);
@@ -645,7 +643,7 @@ export default function ScriptRoomChatScreen() {
         setSending(false);
       }
     }
-  }, [generating, inputText, ownerId, persistMessages, resetInputHeight, roomId, scrollToBottom]);
+  }, [generating, inputText, ownerId, persistMessages, roomId, scrollToBottom]);
 
   const retry = useCallback(async () => {
     if (turnState?.status !== "failed" || isSending || sendingRef.current) return;
@@ -890,7 +888,12 @@ export default function ScriptRoomChatScreen() {
         </View>
       )}
 
-      <View style={styles.composer}>
+      <View
+        style={[
+          styles.composer,
+          { paddingBottom: isInputFocused ? 12 : 12 + safeAreaInsets.bottom },
+        ]}
+      >
         <View style={styles.composerRow}>
           <TextInput
             accessibilityLabel={
@@ -900,10 +903,9 @@ export default function ScriptRoomChatScreen() {
             }
             editable={hasAuthoritativeRoom && room?.status === "active" && !generating}
             multiline
+            onBlur={() => setInputFocused(false)}
             onChangeText={(value) => setInputText(cappedScriptInput(value))}
-            onContentSizeChange={({ nativeEvent }) => {
-              updateInputHeight(nativeEvent.contentSize.height);
-            }}
+            onFocus={() => setInputFocused(true)}
             onSubmitEditing={() => void send()}
             placeholder={
               room?.status === "ended"
@@ -912,8 +914,10 @@ export default function ScriptRoomChatScreen() {
             }
             placeholderTextColor={theme.tertiaryText}
             returnKeyType="send"
-            scrollEnabled={inputHeight >= chatComposerInputMetrics.maximum}
-            style={[styles.input, { height: inputHeight }]}
+            style={[
+              styles.input,
+              initialInputHeight !== undefined && { height: initialInputHeight },
+            ]}
             submitBehavior="submit"
             testID="script-room-input"
             value={inputText}
@@ -1357,7 +1361,7 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     composer: {
       flexGrow: 0,
       paddingHorizontal: 12,
-      paddingVertical: 9,
+      paddingTop: 9,
       backgroundColor: theme.card,
       borderTopColor: theme.separator,
       borderTopWidth: StyleSheet.hairlineWidth,
