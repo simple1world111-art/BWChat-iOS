@@ -15,7 +15,7 @@ export type UpdateCheckResult =
   | { status: "disabled" }
   | { status: "throttled"; checkedAt: number }
   | { status: "no-update"; checkedAt: number }
-  | { status: "downloaded"; checkedAt: number }
+  | { status: "downloaded"; checkedAt: number; updateId?: string }
   | { status: "error"; checkedAt: number; message: string };
 
 type PersistedUpdateResult = "no-update" | "downloaded" | "error";
@@ -84,16 +84,27 @@ async function performUpdateCheck(force: boolean): Promise<UpdateCheckResult> {
       await persist("no-update", now);
       return { status: "no-update", checkedAt: now };
     }
-    await Updates.fetchUpdateAsync();
+    const fetched = await Updates.fetchUpdateAsync();
+    const updateId = manifestUpdateId(fetched.manifest) ?? manifestUpdateId(result.manifest);
     await persist("downloaded", now);
     captureMessage("OTA update downloaded", { channel: Updates.channel ?? "unknown" });
-    return { status: "downloaded", checkedAt: now };
+    return {
+      status: "downloaded",
+      checkedAt: now,
+      ...(updateId ? { updateId } : {}),
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown update error";
     await persist("error", now);
     captureException(error, { operation: "ota_check_download" });
     return { status: "error", checkedAt: now, message };
   }
+}
+
+function manifestUpdateId(manifest: unknown): string | undefined {
+  if (!manifest || typeof manifest !== "object" || !("id" in manifest)) return undefined;
+  const id = manifest.id;
+  return typeof id === "string" && id.trim() ? id.trim() : undefined;
 }
 
 export async function getLastUpdateCheck(): Promise<PersistedUpdateState | null> {

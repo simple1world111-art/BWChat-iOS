@@ -53,7 +53,7 @@ const nativeNoUpdate: NativeCheckResult = {
 };
 const nativeUpdateAvailable = {
   isAvailable: true,
-  manifest: {},
+  manifest: { id: "update-new" },
   isRollBackToEmbedded: false,
   reason: undefined,
 } as NativeCheckResult;
@@ -108,7 +108,7 @@ describe("UpdateService", () => {
 
     const result = await checkAndDownloadUpdate();
 
-    expect(result.status).toBe("downloaded");
+    expect(result).toMatchObject({ status: "downloaded", updateId: "update-new" });
     expect(mockFetchUpdateAsync).toHaveBeenCalledTimes(1);
     expect(mockReloadAsync).not.toHaveBeenCalled();
     expect(mockedCaptureMessage).toHaveBeenCalledWith("OTA update downloaded", {
@@ -143,8 +143,12 @@ describe("UpdateService", () => {
   });
 
   test("storage read and write failures do not block the native update check", async () => {
-    const readFailure = jest.spyOn(AsyncStorage, "getItem").mockRejectedValueOnce(new Error("read"));
-    const writeFailure = jest.spyOn(AsyncStorage, "setItem").mockRejectedValueOnce(new Error("write"));
+    const readFailure = jest
+      .spyOn(AsyncStorage, "getItem")
+      .mockRejectedValueOnce(new Error("read"));
+    const writeFailure = jest
+      .spyOn(AsyncStorage, "setItem")
+      .mockRejectedValueOnce(new Error("write"));
 
     await expect(checkAndDownloadUpdate()).resolves.toMatchObject({ status: "no-update" });
     expect(mockCheckForUpdateAsync).toHaveBeenCalledTimes(1);
