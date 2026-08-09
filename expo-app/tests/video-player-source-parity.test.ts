@@ -148,22 +148,39 @@ describe("native VideoPlayerView parity", () => {
     );
   });
 
-  it("preserves loading, error, close, native controls and gesture arbitration", () => {
+  it("preserves loading, error, close and native controls without a crash-prone display-link graph", () => {
     const player = expo("src/components/media/VideoPlayerOverlay.tsx");
     expect(player).toContain('<ActivityIndicator color="#FFFFFF" />');
     expect(player).toContain('name="exclamationmark.triangle" size={40}');
     expect(player).toContain('t("video.loadFailed")');
     expect(player).toContain('name="xmark.circle.fill" size={28}');
     expect(player).toContain("nativeControls");
-    expect(player).toContain("Gesture.Simultaneous(native, pinch, pan)");
-    expect(player).toContain(".maxPointers(1)");
-    expect(player).toContain("pinching.value !== 0");
-    expect(player).toContain("event.focalX");
-    expect(player).toContain("event.focalY");
-    expect(player).toContain("withSpring(0, { duration: 320, dampingRatio: 0.86 })");
-    expect(player).not.toContain("verticalDrag.value = withTiming(direction");
+    expect(player).toContain('animationType="none"');
+    expect(player).toContain("allowsVideoFrameAnalysis={false}");
+    expect(player).toContain("allowsPictureInPicture={false}");
+    expect(player).toContain("startsPictureInPictureAutomatically={false}");
+    expect(player).toContain("fullscreenOptions={{ enable: false }}");
+    expect(player).not.toContain("react-native-reanimated");
+    expect(player).not.toContain("react-native-gesture-handler");
+    expect(player).not.toContain("useSharedValue");
+    expect(player).not.toContain("useAnimatedStyle");
+    expect(player).not.toContain("runOnJS");
+    expect(player).not.toContain("GestureDetector");
     expect(player).not.toContain('t("common.retry")');
     expect(player).not.toContain("onRetry");
+  });
+
+  it("contains synchronous player exceptions instead of letting Hermes abort the app", () => {
+    const player = expo("src/components/media/VideoPlayerOverlay.tsx");
+    expect(player).toContain("try {\n      playVideoPlayer(player)");
+    expect(player).toContain("setActivationErrorIdentity(sourceIdentity)");
+    expect(player).toContain('reportVideoPlayerFailure(error, "video_player_play")');
+    expect(player).toContain("try {\n      pauseVideoPlayer(player)");
+    expect(player).toContain("} finally {\n      onClose()");
+    expect(player).toContain('reportVideoPlayerFailure(error, "video_player_pause")');
+    expect(player).toContain('reportVideoPlayerFailure(error, "video_player_replace_sync")');
+    expect(player).toContain('reportVideoPlayerFailure(error, "video_player_replace")');
+    expect(player).toContain("Monitoring must never turn a recoverable media failure");
   });
 
   it("preserves the exact zoom, intent, dismiss and visual-decay thresholds", () => {
