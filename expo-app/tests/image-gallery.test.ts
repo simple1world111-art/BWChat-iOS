@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import {
   aspectFitRect,
   dedupeGalleryUrls,
@@ -47,6 +50,16 @@ describe("native image gallery contracts", () => {
     expect(galleryDismissDecision(28, 900)).toBe(1);
     expect(galleryDismissDecision(-28, -900)).toBe(-1);
     expect(galleryDismissDecision(27, 2_000)).toBe(0);
+  });
+
+  it("keeps the dismiss decision executable on the gesture UI thread", () => {
+    const mathSource = fs.readFileSync(
+      path.join(process.cwd(), "src/components/media/imageGalleryMath.ts"),
+      "utf8",
+    );
+    expect(mathSource).toMatch(
+      /function galleryDismissDecision\([^)]*\)[^{]*\{\s*["']worklet["'];/u,
+    );
   });
 
   it("computes centered aspect-fit Hero frames", () => {

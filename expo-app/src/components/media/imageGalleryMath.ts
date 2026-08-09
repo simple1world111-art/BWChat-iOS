@@ -104,6 +104,7 @@ export function initialGalleryIndex(
 }
 
 export function galleryDismissDecision(translationY: number, velocityY: number): -1 | 0 | 1 {
+  "worklet";
   const distance = Math.abs(translationY);
   const shouldDismiss =
     distance >= GALLERY_DISMISS_DISTANCE ||
