@@ -71,6 +71,19 @@ describe("native SplashScreen contracts", () => {
     expect(stackStart).toBeGreaterThan(realtimeStart);
   });
 
+  it("does not animate startup redirects into the auth or tab roots", () => {
+    const layout = fs.readFileSync(path.join(process.cwd(), "src/app/_layout.tsx"), "utf8");
+
+    for (const route of ["index", "(auth)", "(tabs)"]) {
+      expect(layout).toMatch(
+        new RegExp(
+          `name=["']${route.replace(/[()]/gu, "\\$&")}["'][\\s\\S]*?options=\\{\\{ animation: ["']none["'], headerShown: false \\}\\}`,
+          "u",
+        ),
+      );
+    }
+  });
+
   it("invalidates only explicit credential rejection, including nested business codes", () => {
     expect(shouldInvalidateCachedSession(new APIError("unauthorized", 401))).toBe(true);
     expect(shouldInvalidateCachedSession(new APIError("forbidden", 403))).toBe(true);
