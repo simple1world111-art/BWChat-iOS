@@ -2,6 +2,13 @@
 
 本日志只记录有源码证据和验证证据的进展。自 2026-08-08 起，前端样式/组件采用 **95–98% 视觉还原**标准，不再要求逐像素零差异；功能、交互、状态和全部后端契约仍必须与原版 **100% 一一对应**。页面未满足 `migration-status.md` 的四级完成条件时统一记录为“部分完成”，不会用入口、占位页或单独视觉通过冒充完成。下文早于新口径的 exact `FAIL` 是历史指标，需按新门禁重新判定，但不会自动证明功能完成。
 
+## 2026-08-09：iOS Production Store 云构建、产物验收与 App Store Connect 上传完成
+
+- **凭据与构建**：用户完成 Apple 登录/2FA 后，EAS 自动创建新的 Distribution Certificate 与 App Store Provisioning Profile；Build `2236972b-d74c-417f-9f52-18e48cd8e8e3` 为 `FINISHED`。最终为 `1.0.0 (11)`、`STORE`、`production` channel、commit `6be7c5e4ea3c399120bf5f5088d969f8a032c35e`，runtime `610f9a3e005a9939903c424963e89631d7be538f` 与稳定 iOS Production OTA 逐字一致。
+- **产物终验**：49,697,034-byte IPA 的 SHA-256 为 `92c5d2eca5826555cd88fc145e91bfe04461339180a81c670e7a64e5b5ed8016`；ZIP、`com.bwchat.app`、`1.0.0 (11)`、arm64、Update URL/channel/fingerprint、Distribution 深度签名、Team `A5U93R249R`、Production APNs/communication entitlement、`get-task-allow=false`、App Store Profile 无设备清单及无 Dev Launcher/Menu 全部通过。
+- **TestFlight 上传、处理与 runtime 纠错**：App Store Connect 自动准备 App `6760574012`；EAS 生成并托管 `APP_MANAGER` 最小权限 API Key。Submission `705eafd8-8d74-4531-9926-ae90e21b9e63` 返回 `Submitted your app to Apple App Store Connect!`。Apple 随后处理完成，Build 11 在 TestFlight 为 `Ready to Submit`、90 天有效，并关联内部 `BWChatAdmin` 组；该组与单独测试人员均为 0。外部 `BWChatAdmin` 组已有公开链接，但仍为 `0 Builds / 0 Testers`。选择 Build 11 后 Beta Review 要求 Feedback Email 和可登录账号；未获用户明确授权前没有发送 `test1` 凭据或最终提交。曾尝试把 `ascAppId` 固化到 `eas.json`，但定向 fingerprint 立即从稳定 `610f9a3e...` 变为 `bcd8eaa1...`；为保证当前安装包继续命中 Production OTA，已撤回该无关配置变化。
+- **清理/质量门/总体**：一次性 IPA 和解包目录验收后精确删除，共 `214` 个文件、`209,485,824 bytes`，匹配临时路径回到 0；没有启动模拟器，没有删除源码、测试、原数字图片、本机 Ad Hoc IPA或正式证据。最新 `pnpm validate` 为密钥扫描 1,183 个文本文件、45 个原数字资产、10×1,138 本地化、296/296 suites、1,912/1,912 tests、38 条发布策略、双端 fingerprint 与 7/7 EAS 配置全部 PASS。页面复刻 **47/47（100%）**，双端 Production Store Build **2/2**，实现/构建/OTA/上传五阶段 **5/5**；朋友公开链接安装仍等待用户授权 Beta Review 信息与 Apple 审核。
+
 ## 2026-08-09：双端 Development Client EAS 云构建与产物验收通过
 
 - **iOS Development Client**：在隔离提交临时增加 `development-simulator` profile，继承 development environment/channel 并启用 `developmentClient` 与 simulator；EAS Build `7c0369e0-6431-4787-95c6-a746f8a9fae1` 为 `FINISHED`。96,851,084-byte tar.gz 的 SHA-256 为 `b2a7026d34b7566fea56525ddd60f0144047753624e6e4202eea9ed89cab30ba`；包内 EXDevLauncher/EXDevMenu、x86_64+arm64、真实项目 URL、development channel/Constants 和 runtime `90a786735fff1cf06456964ea794e8476e7f2392` 均通过，深度 codesign 通过。
