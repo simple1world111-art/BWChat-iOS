@@ -622,15 +622,16 @@ function TransferRecipientSelectionScreen({
       <View style={styles.transferSelectionTop}>
         <View style={styles.transferSelectionHeader}>
           <Pressable accessibilityLabel={t("common.close")} hitSlop={12} onPress={onClose} style={styles.transferSelectionClose}>
-            <SymbolView name="xmark" size={23} weight="regular" tintColor="#111111" />
+            <SymbolView name="xmark" size={20} weight="regular" tintColor="#111111" />
           </Pressable>
-          <Text style={styles.transferSelectionTitle}>{t("chatMoney.transfer.chooseRecipientTitle")}</Text>
+          <Text maxFontSizeMultiplier={1.15} style={styles.transferSelectionTitle}>{t("chatMoney.transfer.chooseRecipientTitle")}</Text>
           <View style={styles.transferSelectionClose} />
         </View>
         <View style={styles.transferSelectionSearchBox}>
-          <SymbolView name="magnifyingglass" size={21} weight="regular" tintColor="#B7B7BA" />
+          <SymbolView name="magnifyingglass" size={18} weight="regular" tintColor="#B7B7BA" />
           <TextInput
             onChangeText={setSearch}
+            maxFontSizeMultiplier={1.15}
             placeholder={t("chatMoney.transfer.recipientSearch")}
             placeholderTextColor="#B7B7BA"
             style={styles.transferSelectionSearchInput}
@@ -641,15 +642,17 @@ function TransferRecipientSelectionScreen({
       <ScrollView keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled">
         {sections.length === 0 ? (
           <View style={styles.transferSelectionEmpty}>
-            <Text style={styles.transferSelectionEmptyText}>{t("chatMoney.noRecipients")}</Text>
+            <Text maxFontSizeMultiplier={1.15} style={styles.transferSelectionEmptyText}>{t("chatMoney.noRecipients")}</Text>
           </View>
         ) : sections.map((section) => (
           <View key={section.initial}>
-            <Text style={styles.transferSelectionSectionTitle}>{section.initial}</Text>
+            <Text maxFontSizeMultiplier={1.15} style={styles.transferSelectionSectionTitle}>{section.initial}</Text>
             {section.members.map((item) => (
               <Pressable key={item.id} onPress={() => onSelect(item)} style={styles.transferSelectionRow}>
-                <Avatar name={item.name} size={49} uri={item.avatar_url} />
-                <Text numberOfLines={1} style={styles.transferSelectionName}>{item.name}</Text>
+                <Avatar name={item.name} size={40} uri={item.avatar_url} />
+                <View style={styles.transferSelectionNameCell}>
+                  <Text maxFontSizeMultiplier={1.15} numberOfLines={1} style={styles.transferSelectionName}>{item.name}</Text>
+                </View>
               </Pressable>
             ))}
           </View>
@@ -658,7 +661,7 @@ function TransferRecipientSelectionScreen({
       <View pointerEvents="none" style={styles.transferAlphabetIndex}>
         <SymbolView name="magnifyingglass" size={11} weight="semibold" tintColor="#555555" />
         {"ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split("").map((letter) => (
-          <Text key={letter} style={styles.transferAlphabetLetter}>{letter}</Text>
+          <Text key={letter} maxFontSizeMultiplier={1.15} style={styles.transferAlphabetLetter}>{letter}</Text>
         ))}
       </View>
     </Pressable>
@@ -1142,48 +1145,48 @@ const styles = StyleSheet.create({
   transferSelectionHeader: {
     alignItems: "center",
     flexDirection: "row",
-    height: 58,
+    height: 50,
     justifyContent: "space-between",
   },
-  transferSelectionClose: { alignItems: "center", height: 58, justifyContent: "center", width: 66 },
-  transferSelectionTitle: { color: "#111111", fontSize: 21, fontWeight: "600" },
+  transferSelectionClose: { alignItems: "center", height: 50, justifyContent: "center", width: 56 },
+  transferSelectionTitle: { color: "#111111", fontSize: 17, fontWeight: "600" },
   transferSelectionSearchBox: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 6,
     flexDirection: "row",
-    height: 44,
+    height: 38,
     justifyContent: "center",
     marginHorizontal: 10,
   },
-  transferSelectionSearchInput: { color: "#111111", fontSize: 17, maxWidth: 130, padding: 0 },
+  transferSelectionSearchInput: { color: "#111111", fontSize: 15, maxWidth: 120, padding: 0 },
   transferSelectionSectionTitle: {
     color: "#777779",
-    fontSize: 17,
-    height: 55,
-    paddingLeft: 20,
-    paddingTop: 19,
+    fontSize: 14,
+    height: 38,
+    paddingLeft: 16,
+    paddingTop: 11,
   },
   transferSelectionRow: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
-    height: 78,
-    paddingLeft: 20,
-    paddingRight: 26,
+    height: 62,
+    paddingLeft: 16,
+    paddingRight: 24,
   },
-  transferSelectionName: {
+  transferSelectionNameCell: {
+    alignItems: "flex-start",
     borderBottomColor: "#ECECEC",
     borderBottomWidth: StyleSheet.hairlineWidth,
-    color: "#111111",
     flex: 1,
-    fontSize: 20,
-    height: 78,
-    marginLeft: 15,
-    paddingTop: 25,
+    height: 62,
+    justifyContent: "center",
+    marginLeft: 12,
   },
+  transferSelectionName: { color: "#111111", fontSize: 16 },
   transferSelectionEmpty: { alignItems: "center", justifyContent: "center", minHeight: 260 },
-  transferSelectionEmptyText: { color: "#888888", fontSize: 16 },
+  transferSelectionEmptyText: { color: "#888888", fontSize: 14 },
   transferAlphabetIndex: {
     alignItems: "center",
     justifyContent: "center",
@@ -1191,7 +1194,7 @@ const styles = StyleSheet.create({
     right: 5,
     top: 270,
   },
-  transferAlphabetLetter: { color: "#555555", fontSize: 10, fontWeight: "600", lineHeight: 14 },
+  transferAlphabetLetter: { color: "#555555", fontSize: 9, fontWeight: "600", lineHeight: 12 },
   referenceSafeArea: { backgroundColor: "#F3F3F3", flex: 1 },
   referencePage: { flex: 1 },
   referenceHeader: {

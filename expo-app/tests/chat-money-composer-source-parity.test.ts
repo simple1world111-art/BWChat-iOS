@@ -76,6 +76,15 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain('new Intl.Collator("zh-Hans-u-co-pinyin")');
   });
 
+  it("keeps the transfer recipient directory compact on iPhone", () => {
+    expect(composer).toContain('<Avatar name={item.name} size={40}');
+    expect(composer).toContain('transferSelectionTitle: { color: "#111111", fontSize: 17');
+    expect(composer).toContain('transferSelectionSearchInput: { color: "#111111", fontSize: 15');
+    expect(composer).toContain('transferSelectionName: { color: "#111111", fontSize: 16 }');
+    expect(composer).toContain('height: 62');
+    expect(composer).toContain('maxFontSizeMultiplier={1.15}');
+  });
+
   it("uses an integer Gold Coin keypad with delete and transfer actions", () => {
     expect(composer).toContain("<TransferCoinKeypad");
     expect(composer).toContain('const rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]');
