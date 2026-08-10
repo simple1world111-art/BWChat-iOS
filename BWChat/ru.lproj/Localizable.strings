@@ -12,7 +12,11 @@
 "tab.contacts" = "Контакты";
 "tab.discover" = "Обзор";
 "tab.map" = "Карта";
+"tab.test" = "Тест";
 "tab.profile" = "Я";
+
+"test.card.title" = "Тестовая карточка";
+"test.card.subtitle" = "Нажмите, чтобы проверить обновление Preview";
 
 "language.title" = "Язык";
 "language.option.system" = "Как в системе";
@@ -1083,6 +1087,9 @@
 "wallet.error.activityCatFoodDisabled" = "Корм за активности отключён";
 "live.billing.chargedActivityCatFood" = "Потрачено корма: %d";
 "live.billing.chargedGoldCoins" = "Потрачено котомонет: %d";
+"live.billing.earnedActivityCatFood" = "Получено корма: %d";
+"live.billing.awaitingBreakdown" = "Ожидание разбивки списания от сервера";
+"live.billing.awaitingEarnings" = "Ожидание расчёта дохода от сервера";
 "live.billing.totalCharged" = "Всего потрачено: %d";
 "live.billing.balanceAfter" = "После: %d монет · %d корма · %d доступно";
 "live.billing.earnedGoldCoins" = "Заработано котомонет: %d";

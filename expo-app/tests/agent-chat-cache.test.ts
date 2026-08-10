@@ -41,6 +41,10 @@ describe("native account-scoped agent chat cache", () => {
     await AsyncStorage.clear();
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it("uses exact five-minute freshness and one-year stale retention", async () => {
     const now = Date.parse("2026-08-08T00:00:00Z");
     await saveAgentChatPage("test1", "conversation/1", [message("m1")], true, conversation(), now);
@@ -78,5 +82,32 @@ describe("native account-scoped agent chat cache", () => {
     const key = agentChatCacheKey("test1", "conversation/1")!;
     await AsyncStorage.setItem(key, "{broken");
     await expect(loadAgentChatPage("test1", "conversation/1", 2)).resolves.toBeNull();
+  });
+
+  it("serializes same-conversation writes so a slower old snapshot cannot win", async () => {
+    let releaseFirstWrite: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const encodedWrites: string[] = [];
+    const setItem = jest.spyOn(AsyncStorage, "setItem").mockImplementation(async (_key, value) => {
+      encodedWrites.push(value);
+      if (encodedWrites.length === 1) await firstWrite;
+    });
+    setItem.mockClear();
+
+    const older = saveAgentChatPage("test1", "conversation/1", [message("older")], false, null, 1);
+    await Promise.resolve();
+    const newer = saveAgentChatPage("test1", "conversation/1", [message("newer")], false, null, 2);
+    await Promise.resolve();
+
+    expect(setItem).toHaveBeenCalledTimes(1);
+    releaseFirstWrite?.();
+    await Promise.all([older, newer]);
+    expect(setItem).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(encodedWrites[1] ?? "{}")).toMatchObject({
+      updatedAt: 2,
+      messages: [{ id: "newer" }],
+    });
   });
 });

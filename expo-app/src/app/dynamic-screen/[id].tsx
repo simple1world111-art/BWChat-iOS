@@ -4,13 +4,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ActivityIndicator,
   Alert,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { DynamicComponentRenderer } from "@/components/dynamic-screen/DynamicComponentRenderer";
 import { useAuth } from "@/providers/AuthProvider";

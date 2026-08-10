@@ -43,7 +43,7 @@ describe("MainTab source and contract parity", () => {
     }
     expect(config).toContain('const hidden = new Set(["contacts"])');
     expect(config).toContain("tab.minBuild");
-    expect(config).toContain('["messages", "discover", "profile"]');
+    expect(config).toContain('["messages", "discover", "test", "profile"]');
     expect(config).toContain("return merged.sort(compareTabs)");
     const didSelect = nativeTabs.slice(
       nativeTabs.indexOf("func tabBarController(\n            _ tabBarController"),
@@ -108,9 +108,11 @@ describe("MainTab source and contract parity", () => {
     expect(page).toContain("conversationContentPreviewText(");
     expect(page).toContain("conversationSenderPrefixText(");
     expect(page).toContain("headerShadowVisible: false");
+    expect(page).toContain('headerBackButtonDisplayMode: "minimal"');
     expect(page).toContain("headerStyle: { backgroundColor: colors.background }");
     expect(page).toContain("screen: { flex: 1, backgroundColor: colors.background }");
     expect(avatar).toContain("loadCachedGroupDetailSnapshot(ownerId, groupId)");
+    expect(avatar).toContain("peekCachedGroupDetail(ownerId, groupId)");
     expect(avatar).toContain("getGroupDetail(groupId)");
     expect(avatar).toContain("saveCachedGroupDetail(ownerId, detail, cacheGeneration)");
     expect(avatar).toContain(".slice(0, 9)");
@@ -147,7 +149,7 @@ describe("MainTab source and contract parity", () => {
     expect(expo).toContain('contacts: "/contacts"');
     expect(expo).toContain('nearby: "/nearby"');
     expect(expo).toContain(
-      'const rootTabs = new Set<MainTabID>(["messages", "map", "discover", "profile"])',
+      'const rootTabs = new Set<MainTabID>(["messages", "map", "discover", "test", "profile"])',
     );
   });
 });

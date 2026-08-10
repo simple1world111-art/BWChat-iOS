@@ -181,7 +181,9 @@ export function requireCleanMatchingCommit(previewCommit, currentCommit, status)
   return normalizedCurrent;
 }
 
-export function previewPublishArgs(message) {
+export function previewPublishArgs(message, platform = "all") {
+  const normalizedPlatform =
+    platform.trim().toLowerCase() === "all" ? "all" : requirePlatform(platform);
   return [
     "update",
     "--channel",
@@ -191,7 +193,7 @@ export function previewPublishArgs(message) {
     "--message",
     requireDescriptiveMessage(message),
     "--platform",
-    "all",
+    normalizedPlatform,
     "--json",
     "--non-interactive",
   ];

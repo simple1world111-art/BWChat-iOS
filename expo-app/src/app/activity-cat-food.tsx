@@ -2,11 +2,10 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Stack } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +15,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import type { ActivityCatFoodTransaction } from "@/models";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -46,6 +46,7 @@ export default function ActivityCatFoodScreen() {
   const refreshActivityCatFoodTransactions = wallet.refreshActivityCatFoodTransactions;
   const didLoadBalanceRef = useRef(false);
   const didLoadTransactionsRef = useRef(false);
+  const [isPullRefreshing, setPullRefreshing] = useState(false);
   const scrollMetricsRef = useRef({ contentHeight: 0, contentOffsetY: 0, viewportHeight: 0 });
   const theme = propBagPalette(useColorScheme());
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -62,16 +63,25 @@ export default function ActivityCatFoodScreen() {
     void refreshActivityCatFoodTransactions(true);
   }, [refreshActivityCatFoodTransactions, wallet.isActivityCatFoodEnabled]);
 
-  const refresh = () => Promise.all([
-    wallet.refreshBalance(true),
-    wallet.refreshActivityCatFoodTransactions(true),
-  ]).then(() => undefined);
+  const refresh = async () => {
+    setPullRefreshing(true);
+    try {
+      await Promise.all([
+        wallet.refreshBalance(true),
+        wallet.refreshActivityCatFoodTransactions(true),
+      ]);
+    } finally {
+      setPullRefreshing(false);
+    }
+  };
   const requestNextPageIfNeeded = () => {
-    if (shouldLoadNextActivityCatFoodPage({
-      ...scrollMetricsRef.current,
-      hasNextPage: Boolean(wallet.activityCatFoodNextCursor),
-      isLoading: wallet.isLoadingActivityCatFoodTransactions,
-    })) {
+    if (
+      shouldLoadNextActivityCatFoodPage({
+        ...scrollMetricsRef.current,
+        hasNextPage: Boolean(wallet.activityCatFoodNextCursor),
+        isLoading: wallet.isLoadingActivityCatFoodTransactions,
+      })
+    ) {
       void wallet.refreshActivityCatFoodTransactions(false);
     }
   };
@@ -108,13 +118,13 @@ export default function ActivityCatFoodScreen() {
         onContentSizeChange={handleContentSizeChange}
         onLayout={handleLayout}
         onScroll={handleScroll}
-        refreshControl={(
+        refreshControl={
           <RefreshControl
-            refreshing={wallet.isLoadingBalance || wallet.isLoadingActivityCatFoodTransactions}
+            refreshing={isPullRefreshing}
             tintColor={theme.accent}
             onRefresh={() => void refresh()}
           />
-        )}
+        }
         scrollEventThrottle={100}
         showsVerticalScrollIndicator={false}
         testID="activity-cat-food-scroll"
@@ -147,34 +157,48 @@ function BalanceHeader({
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
-    <LinearGradient colors={["#667EEA", "#8C7CF3"]} end={{ x: 1, y: 1 }} start={{ x: 0, y: 0 }} style={styles.balanceHeader}>
-      <Image accessibilityIgnoresInvertColors contentFit="contain" source={activityCatFoodArtwork} style={styles.balanceArtwork} />
+    <LinearGradient
+      colors={["#667EEA", "#8C7CF3"]}
+      end={{ x: 1, y: 1 }}
+      start={{ x: 0, y: 0 }}
+      style={styles.balanceHeader}
+    >
+      <Image
+        accessibilityIgnoresInvertColors
+        contentFit="contain"
+        source={activityCatFoodArtwork}
+        style={styles.balanceArtwork}
+      />
       <View style={styles.balanceCopy}>
-        <Text allowFontScaling={false} style={styles.balanceLabel}>{title}</Text>
-        <Text allowFontScaling={false} numberOfLines={1} style={styles.balanceValue}>{balance === undefined ? loadingTitle : balance}</Text>
-        <Text allowFontScaling={false} style={styles.balanceRate}>{rate}</Text>
+        <Text allowFontScaling={false} style={styles.balanceLabel}>
+          {title}
+        </Text>
+        <Text allowFontScaling={false} numberOfLines={1} style={styles.balanceValue}>
+          {balance === undefined ? loadingTitle : balance}
+        </Text>
+        <Text allowFontScaling={false} style={styles.balanceRate}>
+          {rate}
+        </Text>
       </View>
       <View style={styles.balanceSpacer} />
     </LinearGradient>
   );
 }
 
-function RulesCard({
-  styles,
-  t,
-}: {
-  styles: ReturnType<typeof makeStyles>;
-  t: Translate;
-}) {
+function RulesCard({ styles, t }: { styles: ReturnType<typeof makeStyles>; t: Translate }) {
   return (
     <View style={styles.rulesCard}>
-      <Text allowFontScaling={false} style={styles.rulesTitle}>{t("activityCatFood.rules.title")}</Text>
+      <Text allowFontScaling={false} style={styles.rulesTitle}>
+        {t("activityCatFood.rules.title")}
+      </Text>
       {ruleDefinitions.map((rule) => (
         <View key={rule.key} style={styles.ruleRow}>
           <View style={styles.ruleIcon}>
             <SymbolView name={rule.symbol} size={17} tintColor="#7667E8" />
           </View>
-          <Text allowFontScaling={false} style={styles.ruleText}>{t(rule.key)}</Text>
+          <Text allowFontScaling={false} style={styles.ruleText}>
+            {t(rule.key)}
+          </Text>
         </View>
       ))}
     </View>
@@ -192,20 +216,31 @@ function TransactionContent({
   t: Translate;
   wallet: ReturnType<typeof useWallet>;
 }) {
-  if (wallet.isLoadingActivityCatFoodTransactions && wallet.activityCatFoodTransactions.length === 0) {
-    return <View style={styles.transactionState}><ActivityIndicator color={theme.accent} /></View>;
+  if (
+    wallet.isLoadingActivityCatFoodTransactions &&
+    wallet.activityCatFoodTransactions.length === 0
+  ) {
+    return (
+      <View style={styles.transactionState}>
+        <ActivityIndicator color={theme.accent} />
+      </View>
+    );
   }
   if (wallet.activityCatFoodTransactionError && wallet.activityCatFoodTransactions.length === 0) {
     return (
       <View style={styles.errorCard}>
         <SymbolView name="exclamationmark.triangle" size={34} tintColor={theme.warning} />
-        <Text allowFontScaling={false} style={styles.errorText}>{wallet.activityCatFoodTransactionError}</Text>
+        <Text allowFontScaling={false} style={styles.errorText}>
+          {wallet.activityCatFoodTransactionError}
+        </Text>
         <Pressable
           accessibilityRole="button"
           onPress={() => void wallet.refreshActivityCatFoodTransactions(true)}
           style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
         >
-          <Text allowFontScaling={false} style={styles.retryText}>{t("common.retry")}</Text>
+          <Text allowFontScaling={false} style={styles.retryText}>
+            {t("common.retry")}
+          </Text>
         </Pressable>
       </View>
     );
@@ -213,20 +248,26 @@ function TransactionContent({
   if (wallet.activityCatFoodTransactions.length === 0) {
     return (
       <View style={styles.emptyCard}>
-        <Image accessibilityIgnoresInvertColors contentFit="contain" source={activityCatFoodArtwork} style={styles.emptyArtwork} />
-        <Text allowFontScaling={false} style={styles.emptyText}>{t("activityCatFood.transactions.empty")}</Text>
+        <Image
+          accessibilityIgnoresInvertColors
+          contentFit="contain"
+          source={activityCatFoodArtwork}
+          style={styles.emptyArtwork}
+        />
+        <Text allowFontScaling={false} style={styles.emptyText}>
+          {t("activityCatFood.transactions.empty")}
+        </Text>
       </View>
     );
   }
   return (
     <View style={styles.transactionSection}>
-      <Text allowFontScaling={false} style={styles.transactionTitle}>{t("activityCatFood.transactions.title")}</Text>
+      <Text allowFontScaling={false} style={styles.transactionTitle}>
+        {t("activityCatFood.transactions.title")}
+      </Text>
       {wallet.activityCatFoodTransactions.map((transaction) => (
         <TransactionRow key={transaction.id} styles={styles} t={t} transaction={transaction} />
       ))}
-      {wallet.isLoadingActivityCatFoodTransactions ? (
-        <View style={styles.loadingFooter}><ActivityIndicator color={theme.accent} /></View>
-      ) : null}
     </View>
   );
 }
@@ -248,16 +289,38 @@ function TransactionRow({
       style={styles.transactionRow}
     >
       <View style={styles.transactionArtworkFrame}>
-        <Image accessibilityIgnoresInvertColors contentFit="contain" source={activityCatFoodArtwork} style={styles.transactionArtwork} />
+        <Image
+          accessibilityIgnoresInvertColors
+          contentFit="contain"
+          source={activityCatFoodArtwork}
+          style={styles.transactionArtwork}
+        />
       </View>
       <View style={styles.transactionCopy}>
-        <Text allowFontScaling={false} numberOfLines={1} style={styles.rowTitle}>{presentation.title}</Text>
-        {transaction.created_at?.trim() ? <Text allowFontScaling={false} numberOfLines={1} style={styles.createdAt}>{transaction.created_at}</Text> : null}
-        {presentation.source ? <Text allowFontScaling={false} numberOfLines={1} style={styles.source}>{presentation.source}</Text> : null}
+        <Text allowFontScaling={false} numberOfLines={1} style={styles.rowTitle}>
+          {presentation.title}
+        </Text>
+        {transaction.created_at?.trim() ? (
+          <Text allowFontScaling={false} numberOfLines={1} style={styles.createdAt}>
+            {transaction.created_at}
+          </Text>
+        ) : null}
+        {presentation.source ? (
+          <Text allowFontScaling={false} numberOfLines={1} style={styles.source}>
+            {presentation.source}
+          </Text>
+        ) : null}
       </View>
       <View style={styles.amountCopy}>
-        <Text allowFontScaling={false} style={[styles.amount, transaction.delta >= 0 && styles.positiveAmount]}>{presentation.signedAmount}</Text>
-        <Text allowFontScaling={false} style={styles.balanceAfter}>{t("activityCatFood.balanceAfter", transaction.balance_after)}</Text>
+        <Text
+          allowFontScaling={false}
+          style={[styles.amount, transaction.delta >= 0 && styles.positiveAmount]}
+        >
+          {presentation.signedAmount}
+        </Text>
+        <Text allowFontScaling={false} style={styles.balanceAfter}>
+          {t("activityCatFood.balanceAfter", transaction.balance_after)}
+        </Text>
       </View>
     </View>
   );
@@ -286,7 +349,12 @@ function makeStyles(theme: Theme) {
     balanceCopy: { alignItems: "flex-start", rowGap: 5, flexShrink: 1 },
     balanceSpacer: { flex: 1 },
     balanceLabel: { color: "rgba(255,255,255,0.78)", fontSize: 13, fontWeight: "600" },
-    balanceValue: { color: "#FFFFFF", fontSize: 34, fontWeight: "700", fontVariant: ["tabular-nums"] },
+    balanceValue: {
+      color: "#FFFFFF",
+      fontSize: 34,
+      fontWeight: "700",
+      fontVariant: ["tabular-nums"],
+    },
     balanceRate: { color: "rgba(255,255,255,0.78)", fontSize: 12, fontWeight: "500" },
     rulesCard: {
       padding: 16,
@@ -300,7 +368,13 @@ function makeStyles(theme: Theme) {
     rulesTitle: { color: theme.text, fontSize: 16, fontWeight: "700" },
     ruleRow: { width: "100%", flexDirection: "row", alignItems: "center", columnGap: 8 },
     ruleIcon: { width: 19, alignItems: "center", justifyContent: "center" },
-    ruleText: { flex: 1, color: theme.secondaryText, fontSize: 13, lineHeight: 18, fontWeight: "500" },
+    ruleText: {
+      flex: 1,
+      color: theme.secondaryText,
+      fontSize: 13,
+      lineHeight: 18,
+      fontWeight: "500",
+    },
     transactionState: { minHeight: 220, alignItems: "center", justifyContent: "center" },
     errorCard: {
       minHeight: 280,
@@ -312,7 +386,14 @@ function makeStyles(theme: Theme) {
       backgroundColor: theme.card,
     },
     errorText: { color: theme.secondaryText, fontSize: 14, textAlign: "center" },
-    retryButton: { minHeight: 34, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: theme.accent },
+    retryButton: {
+      minHeight: 34,
+      paddingHorizontal: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 8,
+      backgroundColor: theme.accent,
+    },
     retryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
     pressed: { opacity: 0.72 },
     emptyCard: {
@@ -337,7 +418,13 @@ function makeStyles(theme: Theme) {
       borderColor: theme.separator,
       backgroundColor: theme.card,
     },
-    transactionArtworkFrame: { width: 48, height: 48, padding: 5, borderRadius: 12, backgroundColor: "#EEEAFE" },
+    transactionArtworkFrame: {
+      width: 48,
+      height: 48,
+      padding: 5,
+      borderRadius: 12,
+      backgroundColor: "#EEEAFE",
+    },
     transactionArtwork: { width: 38, height: 38 },
     transactionCopy: { flex: 1, minWidth: 0, alignItems: "flex-start", rowGap: 4 },
     rowTitle: { width: "100%", color: theme.text, fontSize: 14, fontWeight: "600" },

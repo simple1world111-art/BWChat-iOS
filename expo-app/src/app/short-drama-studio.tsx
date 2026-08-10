@@ -7,7 +7,6 @@ import {
   FlatList,
   LayoutAnimation,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +14,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { getMyShortDramaSeries, getShortDramaSeriesDetail } from "@/api/bwchat";
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
@@ -24,6 +24,10 @@ import { env } from "@/config/env";
 import type { ShortDramaPublishStatus, ShortDramaSeries, ShortDramaVideo } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
+import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
 import { rememberShortDramaSeriesForEditing } from "@/services/short-drama/ShortDramaEditorNavigationStore";
 import { subscribeShortDramaLibrary } from "@/services/short-drama/ShortDramaLibraryStore";
 import {
@@ -54,6 +58,12 @@ import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 type Translate = (key: string, ...args: (string | number)[]) => string;
 
+interface ShortDramaStudioNavigationSnapshot {
+  series: ShortDramaSeries[];
+  hasMore: boolean;
+  nextCursor?: string | undefined;
+}
+
 export default function ShortDramaStudioScreen() {
   const { user } = useAuth();
   const { t } = useLocalization();
@@ -61,17 +71,29 @@ export default function ShortDramaStudioScreen() {
   const scheme = useColorScheme();
   const theme = palette(scheme);
   const styles = useMemo(() => makeStyles(scheme), [scheme]);
-  const [series, setSeries] = useState<ShortDramaSeries[]>([]);
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<ShortDramaStudioNavigationSnapshot>("short-drama-studio", ownerId),
+  );
+  const [series, setSeries] = useState<ShortDramaSeries[]>(navigationSnapshot?.series ?? []);
   const [isLoading, setLoading] = useState(false);
   const [isLoadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [nextCursor, setNextCursor] = useState<string | undefined>();
+  const [hasMore, setHasMore] = useState(navigationSnapshot?.hasMore ?? true);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(navigationSnapshot?.nextCursor);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const jobsRef = useRef<ShortDramaUploadJob[]>([]);
   const busyRef = useRef(false);
   const didLoadRef = useRef(false);
   const requestRef = useRef(0);
   const ownerRef = useRef(ownerId);
+
+  useEffect(() => {
+    if (ownerRef.current !== ownerId) return;
+    writeNavigationSnapshot<ShortDramaStudioNavigationSnapshot>("short-drama-studio", ownerId, {
+      series,
+      hasMore,
+      ...(nextCursor ? { nextCursor } : {}),
+    });
+  }, [hasMore, nextCursor, ownerId, series]);
 
   const load = useCallback(
     async (reset: boolean) => {

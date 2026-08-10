@@ -64,6 +64,11 @@ export interface MapRegion {
   longitudeDelta: number;
 }
 
+export interface MapViewportPositionState {
+  didAutomaticallyPosition: boolean;
+  userHasInteracted: boolean;
+}
+
 const userListKeys = [
   "users",
   "nearby_users",
@@ -452,6 +457,12 @@ export function viewerMapRegion(coordinate: MapCoordinate): MapRegion | null {
     latitudeDelta: 100 / metersPerLatitudeDegree,
     longitudeDelta: 100 / metersPerLongitudeDegree,
   };
+}
+
+export function shouldAutomaticallyPositionMapViewport(
+  state: MapViewportPositionState,
+): boolean {
+  return !state.didAutomaticallyPosition && !state.userHasInteracted;
 }
 
 export function fittedMapRegion(

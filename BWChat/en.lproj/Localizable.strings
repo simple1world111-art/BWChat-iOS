@@ -12,7 +12,11 @@
 "tab.contacts" = "Contacts";
 "tab.discover" = "Discover";
 "tab.map" = "Map";
+"tab.test" = "Test";
 "tab.profile" = "Me";
+
+"test.card.title" = "Test card";
+"test.card.subtitle" = "Tap to verify the Preview update";
 
 "language.title" = "Language";
 "language.option.system" = "Follow System";
@@ -1083,11 +1087,14 @@
 "wallet.error.activityCatFoodDisabled" = "Cat Food is disabled";
 "live.billing.chargedActivityCatFood" = "Cat Food spent: %d";
 "live.billing.chargedGoldCoins" = "Gold Coins spent: %d";
+"live.billing.earnedActivityCatFood" = "Cat Food earned: %d";
+"live.billing.awaitingBreakdown" = "Waiting for the server billing breakdown";
+"live.billing.awaitingEarnings" = "Waiting for the server earnings settlement";
 "live.billing.totalCharged" = "Total spent: %d";
 "live.billing.balanceAfter" = "After billing: %d Gold Coins · %d Cat Food · %d spendable";
 "live.billing.earnedGoldCoins" = "Gold Coins earned: %d";
 "live.billing.freePayer" = "%d seconds free remaining";
-"live.billing.freeHost" = "%d seconds free remaining · No Gold Coin earnings yet";
+"live.billing.freeHost" = "%d seconds free remaining · No earnings yet";
 "live.billing.estimatedSpendable" = "Estimated total: %d · Awaiting server billing";
 "live.billing.estimatedEarning" = "Estimated Gold Coin earnings: %d · Awaiting settlement";
 "live.billing.ratePerMinute" = "%d spendable balance/min";

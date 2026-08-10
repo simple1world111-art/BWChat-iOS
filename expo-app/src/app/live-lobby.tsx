@@ -15,7 +15,6 @@ import {
   Keyboard,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +24,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import Animated, {
   type SharedValue,
   useAnimatedStyle,
@@ -199,9 +199,7 @@ function LiveLobbyAccountScreen() {
         showsVerticalScrollIndicator={false}
       >
         <PricingBanner policy={lobby.billingPolicy} supportedCallTypes={lobby.supportedCallTypes} />
-        {!lobby.hasLoaded ? (
-          <SkeletonGrid />
-        ) : participants.length === 0 ? (
+        {!lobby.hasLoaded ? null : participants.length === 0 ? (
           <EmptyState tab={tab} />
         ) : (
           <LiveGrid>
@@ -325,31 +323,6 @@ function PricingBanner({
 
 function LiveGrid({ children }: { children: React.ReactNode }) {
   return <View style={styles.grid}>{children}</View>;
-}
-
-function SkeletonGrid() {
-  const theme = liveLobbyPalette(useColorScheme());
-  const skeleton = { backgroundColor: theme.systemGray5 };
-  return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <LiveGrid>
-        {Array.from({ length: 4 }, (_, index) => (
-          <View key={index} style={[styles.skeletonCard, { backgroundColor: theme.card }]}>
-            <View style={[styles.skeletonCover, skeleton]} />
-            <View style={styles.skeletonBody}>
-              <View style={[styles.skeletonLine, skeleton, { width: 72, height: 10 }]} />
-              <View style={[styles.skeletonLine, skeleton, { height: 12 }]} />
-              <View style={[styles.skeletonLine, skeleton, { width: 96, height: 12 }]} />
-            </View>
-            <View style={styles.skeletonFooterRow}>
-              <View style={[styles.skeletonFooterItem, skeleton]} />
-              <View style={[styles.skeletonFooterItem, skeleton]} />
-            </View>
-          </View>
-        ))}
-      </LiveGrid>
-    </View>
-  );
 }
 
 function EmptyState({ tab }: { tab: LiveLobbyTab }) {
@@ -1383,12 +1356,6 @@ const styles = StyleSheet.create({
   pricingTitle: { color: "#1A1A2E", fontSize: 15, fontWeight: "600" },
   pricingDetail: { color: "#9E9EB8", fontSize: 12, lineHeight: 16 },
   grid: { flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 14 },
-  skeletonCard: { width: "48%", overflow: "hidden", borderRadius: 16, backgroundColor: "#FFFFFF" },
-  skeletonCover: { aspectRatio: 0.8, backgroundColor: "#E5E5EA" },
-  skeletonBody: { padding: 10, rowGap: 6 },
-  skeletonLine: { borderRadius: 4, backgroundColor: "#E5E5EA" },
-  skeletonFooterRow: { height: 70, padding: 8, flexDirection: "row", columnGap: 8 },
-  skeletonFooterItem: { flex: 1, height: 54, borderRadius: 10, backgroundColor: "#E5E5EA" },
   empty: {
     minHeight: 260,
     paddingHorizontal: 24,

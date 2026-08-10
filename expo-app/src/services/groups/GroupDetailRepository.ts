@@ -19,6 +19,7 @@ const keyPrefix = "bwchat.group-detail.v1";
 const profileCacheTtlMilliseconds = 10 * 60 * 1_000;
 const repositoryGenerations = new Map<string, number>();
 const writeChains = new Map<string, Promise<void>>();
+const memorySnapshots = new Map<string, GroupDetailCacheSnapshot>();
 type DetailListener = (detail: GroupDetail) => void;
 interface ScopedDetailListener {
   ownerId: string;
@@ -56,14 +57,30 @@ export async function loadCachedGroupDetailSnapshot(
       wrapped && typeof decoded.saved_at === "number" && Number.isFinite(decoded.saved_at)
         ? decoded.saved_at
         : 0;
-    return {
+    const snapshot = {
       detail,
       savedAt,
       isFresh: savedAt > 0 && Date.now() - savedAt < profileCacheTtlMilliseconds,
     };
+    memorySnapshots.set(cacheKey(owner, groupId), snapshot);
+    return snapshot;
   } catch {
     return null;
   }
+}
+
+export function peekCachedGroupDetail(
+  ownerId: string,
+  groupId: number,
+): GroupDetailCacheSnapshot | null {
+  const owner = ownerKey(ownerId);
+  if (!owner || !Number.isInteger(groupId) || groupId <= 0) return null;
+  const snapshot = memorySnapshots.get(cacheKey(owner, groupId));
+  if (!snapshot) return null;
+  return {
+    ...snapshot,
+    isFresh: snapshot.savedAt > 0 && Date.now() - snapshot.savedAt < profileCacheTtlMilliseconds,
+  };
 }
 
 export async function saveCachedGroupDetail(
@@ -80,8 +97,10 @@ export async function saveCachedGroupDetail(
     const current = await loadCachedGroupDetail(owner, detail.group_id);
     if (expectedGeneration !== groupDetailGeneration(owner, detail.group_id)) return;
     resolved = mergeGroupInfoRevisions(current, detail);
-    await AsyncStorage.setItem(key, JSON.stringify({ saved_at: Date.now(), detail: resolved }));
+    const savedAt = Date.now();
+    await AsyncStorage.setItem(key, JSON.stringify({ saved_at: savedAt, detail: resolved }));
     if (expectedGeneration !== groupDetailGeneration(owner, detail.group_id)) return;
+    memorySnapshots.set(key, { detail: resolved, savedAt, isFresh: true });
     await updateCachedGroupSummary(owner, resolved);
     if (expectedGeneration !== groupDetailGeneration(owner, detail.group_id)) return;
     for (const subscription of [...detailListeners]) {
@@ -152,7 +171,21 @@ export async function removeCachedGroupDetail(ownerId: string, groupId: number):
   if (!owner || !Number.isInteger(groupId) || groupId <= 0) return;
   const key = cacheKey(owner, groupId);
   repositoryGenerations.set(key, groupDetailGeneration(owner, groupId) + 1);
+  memorySnapshots.delete(key);
   await enqueueWrite(key, () => AsyncStorage.removeItem(key));
+}
+
+export function resetGroupDetailRepositoryMemoryForAccount(ownerId: string): void {
+  const owner = ownerKey(ownerId);
+  if (!owner) return;
+  const prefix = `${keyPrefix}:${encodeURIComponent(owner)}:`;
+  for (const key of memorySnapshots.keys()) {
+    if (key.startsWith(prefix)) memorySnapshots.delete(key);
+  }
+}
+
+export function resetAllGroupDetailRepositoryMemory(): void {
+  memorySnapshots.clear();
 }
 
 export function subscribeGroupDetail(ownerId: string, listener: DetailListener): () => void {

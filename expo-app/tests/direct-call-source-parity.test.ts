@@ -86,6 +86,24 @@ describe("CallView ordinary friend-call source parity", () => {
     expect(overlay).toContain("width: 110");
     expect(overlay).toContain("height: 150");
     expect(overlay).toContain("borderRadius: 12");
+    expect(overlay).toContain("const CALL_AVATAR_CORNER_RATIO = 0.22");
+    expect(directStage).toContain("cornerRadius={identityAvatarSize * CALL_AVATAR_CORNER_RATIO}");
+    expect(directStage).not.toContain("cornerRadius={999}");
+  });
+
+  it("renders live charges and earnings as separate conserved asset rows", () => {
+    const billingBadge = overlay.slice(
+      overlay.indexOf("function LiveBillingBadge"),
+      overlay.indexOf("function LiveRoleIntroductionCard"),
+    );
+    expect(billingBadge).toContain('symbol: "pawprint.fill"');
+    expect(billingBadge).toContain('symbol: "dollarsign.circle.fill"');
+    expect(billingBadge).toContain('"live.billing.earnedActivityCatFood"');
+    expect(billingBadge).toContain('"live.billing.earnedGoldCoins"');
+    expect(billingBadge).not.toContain('t("live.billing.totalCharged"');
+    expect(overlay).toContain('const LIVE_CAT_FOOD_COLOR = "#D7B8FF"');
+    expect(overlay).toContain('const LIVE_GOLD_COIN_COLOR = "#FFD60A"');
+    expect(billingBadge).toContain("tintColor={line.color}");
   });
 
   it("persists native primary-video state through minimize and restores the secondary PiP", () => {

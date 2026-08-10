@@ -3,15 +3,16 @@ import path from "node:path";
 
 const root = process.cwd();
 
-describe("media picker preview source parity", () => {
-  it("connects preview-before-send to both direct and group chat", () => {
+describe("chat media picker source parity", () => {
+  it("sends the system picker's result immediately in both direct and group chat", () => {
     for (const file of ["src/app/chat/[id].tsx", "src/app/group-chat/[id].tsx"]) {
       const source = fs.readFileSync(path.join(root, file), "utf8");
-      expect(source).toContain("const [pendingMediaAssets, setPendingMediaAssets]");
-      expect(source).toMatch(/confirmedAssets\s*\?\?\s*\(?await pickChatMedia\(\)\)?/u);
-      expect(source).toContain("if (!confirmedAssets)");
-      expect(source).toContain("<ChatMediaPickerPreview");
-      expect(source).toContain("onSend={(items) => void chooseMedia(items)}");
+      expect(source).toContain("const assets = await pickChatMedia();");
+      expect(source).toContain('asset.type === "image" || asset.type === "video"');
+      expect(source).toContain("const jobs = supportedAssets.map");
+      expect(source).not.toContain("pendingMediaAssets");
+      expect(source).not.toContain("ChatMediaPickerPreview");
+      expect(source).not.toContain("confirmedAssets");
     }
   });
 
@@ -26,34 +27,11 @@ describe("media picker preview source parity", () => {
     expect(source).toContain('mediaTypes: ["images", "videos"]');
   });
 
-  it("preserves every audited Swift layout constant and interaction", () => {
-    const source = fs.readFileSync(
-      path.join(root, "src/components/messages/ChatMediaPickerPreview.tsx"),
-      "utf8",
-    );
-    for (const expected of [
-      "columns: 3",
-      "gridSpacing: 8",
-      "gridPadding: 16",
-      "cellRadius: 10",
-      "videoThumbnailMaximumSize: 300",
-      "videoBadgeIconSize: 11",
-      "videoBadgeHorizontalPadding: 6",
-      "videoBadgeVerticalPadding: 3",
-      "videoBadgeInset: 6",
-      "removeIconSize: 22",
-      "removeInset: 4",
-      "removeAnimationDurationMs: 200",
-      "bottomHorizontalPadding: 16",
-      "bottomVerticalPadding: 12",
-      "sendHorizontalPadding: 24",
-      "sendVerticalPadding: 10",
-      "sendRadius: 20",
-      "if (next.length === 0) onCancel()",
-      "const selected = [...items]",
-      "onCancel();",
-      "onSend(selected);",
-    ])
-      expect(source).toContain(expected);
+  it("matches the native Swift select-then-send flow", () => {
+    for (const file of ["../BWChat/Views/ChatView.swift", "../BWChat/Views/GroupChatView.swift"]) {
+      const source = fs.readFileSync(path.join(root, file), "utf8");
+      expect(source).toContain("prepareOutgoingMediaDrafts");
+      expect(source).toContain("sendMediaBatch(drafts)");
+    }
   });
 });

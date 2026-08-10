@@ -20,6 +20,7 @@ import {
   makeGiftMessagePayload,
   normalizeGiftCatalog,
   parseGiftMessagePayload,
+  withGiftMessageRecipient,
 } from "@/services/messages/chatGiftPolicy";
 
 jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
@@ -120,6 +121,7 @@ describe("native gift contracts", () => {
           receiverCurrency: "gold_coin",
           receiverId: "friend",
           receiver_nickname: "朋友",
+          receiver: { avatarUrl: "/friend.jpg" },
           senderId: "me",
           sender_nickname: "我",
         },
@@ -133,6 +135,7 @@ describe("native gift contracts", () => {
       receiver_currency: "gold_coin",
       recipient_id: "friend",
       recipient_name: "朋友",
+      recipient_avatar_url: "/friend.jpg",
       sender_id: "me",
       sender_name: "我",
     });
@@ -158,6 +161,7 @@ describe("native gift contracts", () => {
       receiver_currency: "gold_coin",
       recipient_id: "friend",
       recipient_name: "朋友",
+      recipient_avatar_url: "/friend.jpg",
       sender_id: "me",
       sender_name: "我",
     });
@@ -166,6 +170,28 @@ describe("native gift contracts", () => {
     expect(localizedGiftPayloadName({ ...payload, gift_id: "custom", gift_name: "礼物" }, t)).toBe(
       "礼物",
     );
+  });
+
+  it("hydrates legacy gift payloads with the selected recipient avatar without replacing server data", () => {
+    const legacy = parseGiftMessagePayload("fish_10")!;
+    expect(
+      withGiftMessageRecipient(legacy, {
+        id: "friend",
+        name: "朋友",
+        avatar_url: "/friend.jpg",
+      }),
+    ).toMatchObject({
+      recipient_id: "friend",
+      recipient_name: "朋友",
+      recipient_avatar_url: "/friend.jpg",
+    });
+
+    expect(
+      withGiftMessageRecipient(
+        { ...legacy, recipient_avatar_url: "/server.jpg" },
+        { id: "friend", name: "朋友", avatar_url: "/picker.jpg" },
+      ).recipient_avatar_url,
+    ).toBe("/server.jpg");
   });
 
   it("retains a per-recipient/gift idempotency key until success", () => {

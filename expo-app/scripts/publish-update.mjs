@@ -25,7 +25,7 @@ const values = rawValues.filter((value) => value !== "--dry-run");
 
 if (target !== "preview" && target !== "production") {
   process.stderr.write(
-    'Usage: pnpm update:preview -- [--dry-run] "message" | pnpm update:production -- [--dry-run] <preview-ios-group-id> <preview-android-group-id> "VERIFIED: evidence"\n',
+    'Usage: pnpm update:preview -- [--dry-run] [--platform ios|android|all] "message" | pnpm update:production -- [--dry-run] <preview-ios-group-id> <preview-android-group-id> "VERIFIED: evidence"\n',
   );
   process.exit(2);
 }
@@ -66,8 +66,9 @@ function runGit(args) {
 
 try {
   if (target === "preview") {
-    const message = values.join(" ").trim();
-    const args = previewPublishArgs(message);
+    const { platform, remainingValues } = extractPreviewPlatform(values);
+    const message = remainingValues.join(" ").trim();
+    const args = previewPublishArgs(message, platform);
     if (dryRun) {
       printDryRun([
         {
@@ -161,4 +162,25 @@ try {
 
 function printDryRun(steps) {
   process.stdout.write(`${JSON.stringify({ dryRun: true, target, steps }, null, 2)}\n`);
+}
+
+function extractPreviewPlatform(input) {
+  let platform = "all";
+  const remainingValues = [];
+  for (let index = 0; index < input.length; index += 1) {
+    const value = input[index];
+    if (value === "--platform") {
+      const selected = input[index + 1];
+      if (!selected) throw new Error("--platform requires ios, android, or all.");
+      platform = selected;
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--platform=")) {
+      platform = value.slice("--platform=".length);
+      continue;
+    }
+    remainingValues.push(value);
+  }
+  return { platform, remainingValues };
 }

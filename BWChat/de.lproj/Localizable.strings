@@ -12,7 +12,11 @@
 "tab.contacts" = "Kontakte";
 "tab.discover" = "Entdecken";
 "tab.map" = "Karte";
+"tab.test" = "Test";
 "tab.profile" = "Ich";
+
+"test.card.title" = "Testkarte";
+"test.card.subtitle" = "Tippen, um das Preview-Update zu prüfen";
 
 "language.title" = "Sprache";
 "language.option.system" = "System folgen";
@@ -1083,6 +1087,9 @@
 "wallet.error.activityCatFoodDisabled" = "Aktivitätsfutter ist deaktiviert";
 "live.billing.chargedActivityCatFood" = "Aktivitätsfutter verbraucht: %d";
 "live.billing.chargedGoldCoins" = "Goldmünzen verbraucht: %d";
+"live.billing.earnedActivityCatFood" = "Aktivitätsfutter verdient: %d";
+"live.billing.awaitingBreakdown" = "Auf Server-Aufschlüsselung warten";
+"live.billing.awaitingEarnings" = "Auf Ertragsabrechnung warten";
 "live.billing.totalCharged" = "Gesamtverbrauch: %d";
 "live.billing.balanceAfter" = "Danach: %d Münzen · %d Futter · %d verfügbar";
 "live.billing.earnedGoldCoins" = "Goldmünzen verdient: %d";

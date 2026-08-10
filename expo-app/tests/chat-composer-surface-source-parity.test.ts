@@ -7,6 +7,7 @@ describe("native chat composer surface parity", () => {
   const nativeDirect = source("../BWChat/Views/ChatView.swift");
   const nativeGroup = source("../BWChat/Views/GroupChatView.swift");
   const expoSurface = source("src/components/messages/ChatComposerSurface.tsx");
+  const expoStickerPanel = source("src/components/messages/ChatStickerPanel.tsx");
   const expoDirect = source("src/app/chat/[id].tsx");
   const expoGroup = source("src/app/group-chat/[id].tsx");
 
@@ -41,6 +42,23 @@ describe("native chat composer surface parity", () => {
       expect(file).toContain('activeSystemName="face.smiling.fill"');
       expect(file).toContain('activeSystemName="xmark.circle.fill"');
     }
+  });
+
+  it("keeps the chat wallpaper outside keyboard and custom-panel resizing", () => {
+    for (const file of [expoDirect, expoGroup]) {
+      expect(file).toMatch(
+        /<View style=\{styles\.screen\}>\s*<ChatBackgroundLayer[\s\S]*?<ChatKeyboardAvoidingView style=\{styles\.chatContent\}>/u,
+      );
+      expect(file).not.toMatch(/<View style=\{styles\.timelineSurface\}>\s*<ChatBackgroundLayer/u);
+      expect(file).toContain("chatContent: { flex: 1 }");
+    }
+  });
+
+  it("prevents iOS from inserting navigation or keyboard insets above sticker grids", () => {
+    expect(expoStickerPanel.match(/automaticallyAdjustContentInsets=\{false\}/gu)).toHaveLength(2);
+    expect(expoStickerPanel.match(/automaticallyAdjustKeyboardInsets=\{false\}/gu)).toHaveLength(2);
+    expect(expoStickerPanel.match(/contentInsetAdjustmentBehavior="never"/gu)).toHaveLength(2);
+    expect(expoStickerPanel.match(/alignContent: "flex-start"/gu)).toHaveLength(2);
   });
 
   it("keeps self-chat to the album-only 108pt panel and other chats at 202pt", () => {

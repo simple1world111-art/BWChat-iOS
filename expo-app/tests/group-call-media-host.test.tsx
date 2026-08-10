@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react-native";
+import { act, render, waitFor } from "@testing-library/react-native";
 
 import { AudioSession, LiveKitRoom } from "@livekit/react-native";
 
@@ -44,6 +44,46 @@ describe("GroupCall LiveKit media host", () => {
     jest.clearAllMocks();
     jest.mocked(AudioSession.configureAudio).mockResolvedValue(undefined);
     jest.mocked(AudioSession.startAudioSession).mockResolvedValue(undefined);
+  });
+
+  it("keeps an interactive call surface visible while LiveKit creates its room context", async () => {
+    mockedUseCall.mockReturnValue(callValue({}));
+
+    const view = await render(<CallOverlay />);
+    await waitFor(() => expect(mockedLiveKitRoom).toHaveBeenCalled());
+
+    expect(view.getByLabelText("call.end")).toBeTruthy();
+    view.unmount();
+  });
+
+  it("shows payer and host billing as separate asset rows without a total", async () => {
+    mockedUseCall.mockReturnValue({
+      ...callValue({}),
+      session: liveSession({
+        is_outgoing: true,
+        confirmed_live_activity_cat_food_charge: 58,
+        confirmed_live_gold_coin_charge: 42,
+        confirmed_live_total_charge: 100,
+      }),
+    });
+    const payer = await render(<CallOverlay />);
+    expect(payer.getByText("live.billing.chargedActivityCatFood")).toBeTruthy();
+    expect(payer.getByText("live.billing.chargedGoldCoins")).toBeTruthy();
+    expect(payer.queryByText("live.billing.totalCharged")).toBeNull();
+    await act(async () => payer.unmount());
+
+    mockedUseCall.mockReturnValue({
+      ...callValue({}),
+      session: liveSession({
+        is_outgoing: false,
+        confirmed_live_earning_activity_cat_food: 58,
+        confirmed_live_earning_gold_coins: 42,
+      }),
+    });
+    const host = await render(<CallOverlay />);
+    expect(host.getByText("live.billing.earnedActivityCatFood")).toBeTruthy();
+    expect(host.getByText("live.billing.earnedGoldCoins")).toBeTruthy();
+    await act(async () => host.unmount());
   });
 
   it("keeps the room alive for device failures and synchronizes media controls", async () => {
@@ -148,5 +188,30 @@ function groupSession(): CallSession {
     livekit_url: "wss://live.example.test",
     group_id: 7,
     group_name: "Friends",
+  };
+}
+
+function liveSession(overrides: Partial<CallSession>): CallSession {
+  return {
+    id: "live-session",
+    remote_user_id: "remote-user",
+    remote_nickname: "Remote",
+    remote_avatar_url: "/remote.jpg",
+    call_type: "voice",
+    is_outgoing: true,
+    state: "connected",
+    started_at: Date.now(),
+    connected_at: Date.now() - 65_000,
+    call_id: "live-call",
+    is_live_pair: true,
+    live_billing_policy: {
+      currency: "spendable_balance",
+      freeSeconds: 0,
+      unitSeconds: 60,
+      amountPerUnit: 100,
+      minimumStartingBalance: 100,
+      rounding: "started_unit",
+    },
+    ...overrides,
   };
 }

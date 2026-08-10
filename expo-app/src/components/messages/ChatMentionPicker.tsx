@@ -1,7 +1,9 @@
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { getGroupDetail } from "@/api/bwchat";
 import { Avatar } from "@/components/Avatar";

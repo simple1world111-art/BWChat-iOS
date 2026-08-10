@@ -31,7 +31,7 @@ jest.mock("expo-image", () => ({
 jest.mock("@/components/AuthenticatedImage", () => ({
   AuthenticatedImage: (props: Record<string, unknown>) => {
     const { View } = jest.requireActual("react-native") as typeof import("react-native");
-    return <View {...props} />;
+    return <View {...props} testID={`authenticated-image:${String(props.uri)}`} />;
   },
 }));
 jest.mock("@/components/media/ImageGallery", () => ({
@@ -39,17 +39,20 @@ jest.mock("@/components/media/ImageGallery", () => ({
   ImageGallerySource: ({
     accessibilityLabel,
     children,
+    loadingFallback,
     onOpen,
     selection,
   }: {
     accessibilityLabel?: string;
     children?: import("react").ReactNode;
+    loadingFallback?: import("react").ReactNode;
     onOpen: (selection: unknown) => void;
     selection: unknown;
   }) => {
     const { Pressable } = jest.requireActual("react-native") as typeof import("react-native");
     return (
       <Pressable accessibilityLabel={accessibilityLabel} onPress={() => onOpen(selection)}>
+        {loadingFallback}
         {children}
       </Pressable>
     );
@@ -171,6 +174,29 @@ describe("agent paid-media unlock interaction", () => {
     );
     await fireEvent.press(screen.getByLabelText("播放视频"));
     expect(onVideoPress).toHaveBeenCalledWith("http://localhost:8000/api/v1/video");
+  });
+
+  it("keeps the blurred locked preview visible while the unlocked image replaces it", async () => {
+    await render(
+      <PaidMediaPart
+        isUnlocking={false}
+        mediaId="image/a"
+        metadata={{
+          media_type: "image",
+          access: "unlocked",
+          generation_status: "ready",
+          content_url: "/image",
+          preview_url: "/preview",
+        }}
+        onImageOpen={jest.fn()}
+        onImagePress={jest.fn()}
+        onUnlock={jest.fn()}
+        onVideoPress={jest.fn()}
+      />,
+    );
+
+    const preview = screen.getByTestId("authenticated-image:http://localhost:8000/api/v1/preview");
+    expect(preview.props.blurRadius).toBe(9);
   });
 
   it("opens an unlocked paid image through the shared gallery with the raw ordered paths", async () => {

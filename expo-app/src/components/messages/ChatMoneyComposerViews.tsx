@@ -1,8 +1,10 @@
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
+import { MenuView } from "@expo/ui/community/menu";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -39,6 +41,7 @@ import {
   loadChatMoneyConfiguration,
 } from "@/services/messages/ChatMoneyRepository";
 import {
+  chatMoneyPacketCountAfterModeChange,
   chatMoneyComposerPolicy,
   chatMoneyTheme,
   defaultChatMoneyLimits,
@@ -159,10 +162,11 @@ export function ChatMoneyComposerModal({
     && validation.canSubmit && !isSubmitting && !isLoading;
 
   const selectMode = (nextMode: ChatMoneyRedPacketMode) => {
+    Keyboard.dismiss();
     setMode(nextMode);
     setErrorMessage(null);
+    setPacketCountText((current) => chatMoneyPacketCountAfterModeChange(current, nextMode));
     if (nextMode === "exclusive") {
-      setPacketCountText("1");
       if (!recipient) setShowsRecipientPicker(true);
     } else if (source.kind === "group") {
       setRecipient(null);
@@ -227,7 +231,12 @@ export function ChatMoneyComposerModal({
         ) : (
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
             <ComposerHeader kind={kind} onBack={onClose} />
-            <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              onScrollBeginDrag={Keyboard.dismiss}
+            >
               {kind === "red_packet" && source.kind === "group" ? (
                 <ModeSelector mode={mode} onSelect={selectMode} />
               ) : null}
@@ -280,38 +289,36 @@ export function ChatMoneyComposerModal({
                 value={messageText}
               />
               <View style={styles.balanceRow}>
-                <Text style={styles.balanceText}>{t("chatMoney.availableBalance", balance)}</Text>
+                <Text style={styles.balanceText}>{t("chatMoney.availableBalance")}</Text>
+                <Text style={styles.balanceText}>{t("chatMoney.amountValue", balance)}</Text>
                 <Pressable onPress={onOpenWallet}>
                   <Text style={styles.topUpText}>{t("chatMoney.topUp")}</Text>
                 </Pressable>
               </View>
-              {kind === "red_packet" && mode === "equal" && validation.totalAmount > 0 ? (
-                <View style={styles.totalBlock}>
-                  <Text style={styles.totalLabel}>{t("chatMoney.total")}</Text>
-                  <View style={styles.totalAmountRow}>
-                    <Text style={styles.totalAmount}>{validation.totalAmount}</Text>
-                    <Text style={styles.totalUnit}>{t("wallet.currency.goldCoins")}</Text>
-                  </View>
+              <View style={styles.totalSection}>
+                <View style={styles.totalAmountRow}>
+                  <Text style={styles.totalAmount}>{validation.totalAmount}</Text>
+                  <Text style={styles.totalUnit}>{t("wallet.currency.goldCoins")}</Text>
                 </View>
-              ) : null}
-              {!featureEnabled || !configuration.eligibility.eligible ? (
-                <Text style={styles.errorText}>
-                  {configuration.eligibility.message || t(featureEnabled ? "chatMoney.notEligible" : "chatMoney.featureDisabled")}
-                </Text>
-              ) : null}
-              {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-              <Pressable
-                accessibilityState={{ disabled: !submitEnabled }}
-                disabled={!submitEnabled}
-                onPress={() => void submit()}
-                style={[styles.submitButton, !submitEnabled && styles.submitDisabled]}
-              >
-                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
-                <Text style={styles.submitText}>
-                  {t(kind === "red_packet" ? "chatMoney.redPacket.submit" : "chatMoney.transfer.submit")}
-                </Text>
-              </Pressable>
-              <Text style={styles.expiryText}>{t("chatMoney.expiryNotice")}</Text>
+                <Pressable
+                  accessibilityState={{ disabled: !submitEnabled }}
+                  disabled={!submitEnabled}
+                  onPress={() => void submit()}
+                  style={[styles.submitButton, !submitEnabled && styles.submitDisabled]}
+                >
+                  {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
+                  <Text style={styles.submitText}>
+                    {t(kind === "red_packet" ? "chatMoney.redPacket.submit" : "chatMoney.transfer.submit")}
+                  </Text>
+                </Pressable>
+                {!featureEnabled || !configuration.eligibility.eligible ? (
+                  <Text style={styles.errorText}>
+                    {configuration.eligibility.message || t(featureEnabled ? "chatMoney.notEligible" : "chatMoney.featureDisabled")}
+                  </Text>
+                ) : null}
+                {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+                <Text style={styles.expiryText}>{t("chatMoney.expiryNotice")}</Text>
+              </View>
             </ScrollView>
           </KeyboardAvoidingView>
         )}
@@ -339,13 +346,28 @@ function ModeSelector({ mode, onSelect }: { mode: ChatMoneyRedPacketMode; onSele
   const { t } = useLocalization();
   const modes: ChatMoneyRedPacketMode[] = ["lucky", "equal", "exclusive"];
   return (
-    <View style={styles.modeSelector}>
-      {modes.map((item) => (
-        <Pressable key={item} onPress={() => onSelect(item)} style={[styles.modeOption, item === mode && styles.modeSelected]}>
-          <Text style={[styles.modeText, item === mode && styles.modeSelectedText]}>{t(`chatMoney.redPacket.mode.${item}`)}</Text>
-        </Pressable>
-      ))}
-    </View>
+    <MenuView
+      actions={modes.map((item) => ({
+        id: item,
+        state: item === mode ? "on" : "off",
+        title: t(`chatMoney.redPacket.mode.${item}`),
+      }))}
+      onPressAction={({ nativeEvent }) => {
+        const selected = modes.find((item) => item === nativeEvent.event);
+        if (selected) onSelect(selected);
+      }}
+      style={styles.modeSelector}
+    >
+      <View accessibilityRole="button" style={styles.modeTrigger}>
+        <Text style={styles.modeText}>{t(`chatMoney.redPacket.mode.${mode}`)}</Text>
+        <SymbolView
+          name="chevron.down"
+          size={11}
+          weight="semibold"
+          tintColor={chatMoneyTheme.link}
+        />
+      </View>
+    </MenuView>
   );
 }
 
@@ -372,6 +394,8 @@ function InputRow({
       <TextInput
         keyboardType={keyboardType}
         onChangeText={onChangeText}
+        placeholder="0"
+        placeholderTextColor="#B2B2B2"
         ref={inputRef}
         selectionColor={chatMoneyTheme.actionRed}
         style={[styles.amountInput, { fontSize: valueSize }]}
@@ -391,7 +415,10 @@ function MessageRow({ kind, value, onChangeText, maxLength }: { kind: ChatMoneyK
         maxLength={maxLength}
         multiline
         onChangeText={onChangeText}
-        placeholder={kind === "transfer" ? t("chatMoney.transfer.notePlaceholder") : undefined}
+        placeholder={kind === "transfer"
+          ? t("chatMoney.transfer.notePlaceholder")
+          : t("chatMoney.redPacket.defaultGreeting")}
+        placeholderTextColor="#B2B2B2"
         style={styles.messageInput}
         value={value}
       />
@@ -478,11 +505,9 @@ const styles = StyleSheet.create({
   headerButton: { alignItems: "center", height: 40, justifyContent: "center", width: 44 },
   headerTitle: { color: "#111111", fontSize: 17, fontWeight: "600" },
   scrollContent: { paddingBottom: 36, paddingHorizontal: chatMoneyComposerPolicy.pageHorizontalPadding, paddingTop: 6 },
-  modeSelector: { backgroundColor: "#E9E9EB", borderRadius: 8, flexDirection: "row", marginBottom: 12, padding: 2 },
-  modeOption: { alignItems: "center", borderRadius: 7, flex: 1, height: 32, justifyContent: "center" },
-  modeSelected: { backgroundColor: "#FFFFFF", shadowColor: "#000000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 2 },
-  modeText: { color: chatMoneyTheme.secondary, fontSize: 14 },
-  modeSelectedText: { color: "#111111", fontWeight: "500" },
+  modeSelector: { alignSelf: "center", height: 32, marginBottom: 12 },
+  modeTrigger: { alignItems: "center", flexDirection: "row", gap: 5, height: 32, paddingHorizontal: 12 },
+  modeText: { color: chatMoneyTheme.link, fontSize: 14 },
   directSpacer: { height: 22 },
   inputRow: { alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 4, flexDirection: "row", gap: 10, height: chatMoneyComposerPolicy.inputRowHeight, paddingHorizontal: 16 },
   inputLabel: { color: "#111111", fontSize: 16 },
@@ -490,21 +515,20 @@ const styles = StyleSheet.create({
   inputSuffix: { color: "#111111", fontSize: 16 },
   validationText: { color: chatMoneyTheme.actionRed, fontSize: 12, marginHorizontal: 4, marginTop: 7 },
   memberHint: { color: "#B2B2B2", fontSize: 12, marginBottom: 12, marginHorizontal: 4, marginTop: 7 },
-  messageRow: { alignItems: "flex-start", flexDirection: "row", gap: 12, marginTop: 12 },
-  messageLabel: { color: "#111111", fontSize: 16, paddingTop: 18 },
-  messageInput: { backgroundColor: "#FFFFFF", borderRadius: 4, color: "#111111", flex: 1, fontSize: 16, minHeight: 56, padding: 16, textAlignVertical: "top" },
+  messageRow: { alignItems: "flex-start", backgroundColor: "#FFFFFF", borderRadius: 4, flexDirection: "row", gap: 12, marginTop: 12, minHeight: 56, padding: 16 },
+  messageLabel: { color: "#111111", fontSize: 16, paddingTop: 2 },
+  messageInput: { color: "#111111", flex: 1, fontSize: 16, minHeight: 24, padding: 0, textAlign: "right", textAlignVertical: "top" },
   balanceRow: { alignItems: "center", flexDirection: "row", gap: 6, marginTop: 18 },
   balanceText: { color: chatMoneyTheme.secondary, fontSize: 13 },
   topUpText: { color: chatMoneyTheme.link, fontSize: 13 },
-  totalBlock: { alignItems: "center", gap: 24, marginTop: 34 },
-  totalLabel: { color: chatMoneyTheme.secondary, fontSize: 14 },
+  totalSection: { alignItems: "center", marginTop: 34 },
   totalAmountRow: { alignItems: "baseline", flexDirection: "row", gap: 6 },
   totalAmount: { color: "#111111", fontSize: chatMoneyComposerPolicy.totalFontSize, fontWeight: "500", fontVariant: ["tabular-nums"] },
   totalUnit: { color: "#111111", fontSize: 15 },
-  submitButton: { alignItems: "center", alignSelf: "center", backgroundColor: chatMoneyTheme.actionRed, borderRadius: chatMoneyComposerPolicy.submitRadius, flexDirection: "row", gap: 8, height: chatMoneyComposerPolicy.submitHeight, justifyContent: "center", marginTop: 24, width: chatMoneyComposerPolicy.submitWidth },
+  submitButton: { alignItems: "center", backgroundColor: chatMoneyTheme.actionRed, borderRadius: chatMoneyComposerPolicy.submitRadius, flexDirection: "row", gap: 8, height: chatMoneyComposerPolicy.submitHeight, justifyContent: "center", marginTop: 24, width: chatMoneyComposerPolicy.submitWidth },
   submitDisabled: { backgroundColor: chatMoneyTheme.disabledRed },
   submitText: { color: "#FFFFFF", fontSize: 17, fontWeight: "500" },
-  expiryText: { color: "#B2B2B2", fontSize: 12, marginTop: 10, textAlign: "center" },
+  expiryText: { color: "#B2B2B2", fontSize: 12, marginTop: 12, textAlign: "center" },
   errorText: { color: chatMoneyTheme.actionRed, fontSize: 12, marginTop: 10, textAlign: "center" },
   recipientRow: { alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 4, flexDirection: "row", height: chatMoneyComposerPolicy.recipientRowHeight, justifyContent: "space-between", marginBottom: 12, paddingHorizontal: 16 },
   recipientValue: { alignItems: "center", flexDirection: "row", gap: 8 },

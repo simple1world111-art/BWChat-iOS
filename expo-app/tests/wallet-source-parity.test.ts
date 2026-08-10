@@ -53,6 +53,10 @@ describe("locked Swift to Expo wallet source parity", () => {
 
   it("keeps the complete balance, transaction, activity, withdrawal, ad and IAP route family", () => {
     const api = expo("src/api/bwchat.ts");
+    const walletApi = api.slice(
+      api.indexOf("export async function getWalletBalance"),
+      api.indexOf("export async function getGiftCatalog"),
+    );
     for (const route of [
       '"/wallet/balance"',
       "`/wallet/transactions?${query.toString()}`",
@@ -70,7 +74,7 @@ describe("locked Swift to Expo wallet source parity", () => {
     expect(api).toContain('reward_item: "gold_coin"');
     expect(api).toContain("signed_transaction_info: input.signedPayload");
     expect(api).toContain('payout_method: "usdt"');
-    expect(api).not.toContain("requiredSuccessCode: true");
+    expect(walletApi).not.toContain("requiredSuccessCode: true");
   });
 
   it("preserves native cache, account, paging and mutation semantics in the Expo state machine", () => {

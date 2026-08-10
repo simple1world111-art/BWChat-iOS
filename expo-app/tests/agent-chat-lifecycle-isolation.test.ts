@@ -57,9 +57,10 @@ describe("AgentChat account, route and operation isolation", () => {
       "setRuntimeConfig(null)",
       "videoRoleDialogGenerationRef.current += 1",
       "cancelVideoMatch()",
+      "timelineSyncPromiseRef.current = null",
+      "activeTurnPollRef.current = null",
       "setComposerImage(null)",
       "setImageReplyTarget(null)",
-      "setOptimisticText(null)",
       "setLastFailedSubmission(null)",
       "setVideoRoleDialog(null)",
     ]) {
@@ -69,7 +70,7 @@ describe("AgentChat account, route and operation isolation", () => {
 
   it("invalidates every asynchronous operation again when the screen unmounts", () => {
     expect(source()).toMatch(
-      /useEffect\(\s*\(\) => \(\) => \{\s*scopeGenerationRef\.current \+= 1;\s*imagePreparationGenerationRef\.current \+= 1;\s*pollGenerationRef\.current \+= 1;\s*unlockLifecycleRef\.current \+= 1;\s*videoRoleDialogGenerationRef\.current \+= 1;[\s\S]*?cancelVideoMatch\(\);/u,
+      /useEffect\(\s*\(\) => \(\) => \{\s*scopeGenerationRef\.current \+= 1;\s*imagePreparationGenerationRef\.current \+= 1;\s*pollGenerationRef\.current \+= 1;\s*activeTurnPollRef\.current = null;\s*unlockLifecycleRef\.current \+= 1;\s*videoRoleDialogGenerationRef\.current \+= 1;[\s\S]*?cancelVideoMatch\(\);/u,
     );
   });
 
@@ -80,13 +81,13 @@ describe("AgentChat account, route and operation isolation", () => {
       /loadAgentChatPage\(ownerId, conversationId\);\s+if \(!isCurrentLoad\(\)\) return;/u,
     );
     expect(screen).toMatch(
-      /const result = await getAgentTurn\(turnId\);\s+if \(!isCurrentPoll\(\)\) return;/u,
+      /const \[result, page\] = await Promise\.all\([\s\S]*?getAgentTurn\(turnId\),[\s\S]*?getAgentMessages\(conversationId,[\s\S]*?if \(!isCurrentPoll\(\)\) return;/u,
     );
     expect(screen).toMatch(
       /const result = await getAgentTurn\(turnId\);\s+if \(!isCurrentResume\(\)\) return;/u,
     );
     expect(screen).toMatch(
-      /const agent = await getAgent\(agentId\);\s+if \(!isCurrentSettings\(\)\) return;/u,
+      /const agent = await getAgent\(settingsAgentId\);\s+if \(!isCurrentSettings\(\)\) return;/u,
     );
     expect(screen).toMatch(
       /if \(ownerId\) await upsertCachedAgentConversation[\s\S]*?if \(!isCurrentCreation\(\)\) return;\s+router\.push/u,

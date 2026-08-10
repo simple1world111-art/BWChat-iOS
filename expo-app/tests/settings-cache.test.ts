@@ -112,9 +112,11 @@ describe("native ProfileSettings cache controls", () => {
       "bwchat.agent-catalog-v1:account:user/1:overview",
       "bwchat.agent-messages-v1:account:user%2F1:conversation:c1",
       "bwchat.chat-hidden-messages.v1:user%2F1:dm:peer",
+      "bwchat.discover-refresh.v1:user%2F1",
       "bwchat.friend-requests-metadata.v1:user%2F1",
       "bwchat.games.recommended.v1:user%2F1",
       "bwchat.gift.catalog.v1:user%2F1",
+      "bwchat.profile-agents.v1:user%2F1:target",
       "bwchat.remote-config.v2:user.user/1:zh-Hans",
       "bwchat.short-drama-feed-v1:account:user%2F1:recommended",
       "bwchat.wallet.balance.v2:user/1",
@@ -130,6 +132,7 @@ describe("native ProfileSettings cache controls", () => {
     const ownKeys = [
       "bwchat.wallet.balance.v2:user/1",
       "bwchat.agent-messages-v1:account:user%2F1:conversation:c1",
+      "bwchat.profile-agents.v1:user%2F1:target",
       "bwchat.short-drama-feed-v1:account:user%2F1:recommended",
       "bbchat.activity-center.snapshot.user%2F1",
     ];

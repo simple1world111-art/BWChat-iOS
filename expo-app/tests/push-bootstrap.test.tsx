@@ -6,6 +6,7 @@ import { AppState, type AppStateStatus } from "react-native";
 import { PushNotificationBootstrap } from "@/components/PushNotificationBootstrap";
 import type { Conversation } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
+import { publishCallNotification } from "@/services/calls/CallNotificationBridge";
 import {
   publishConversationUnread,
   resetConversationUnreadStoreForTests,
@@ -46,6 +47,10 @@ jest.mock("expo-notifications", () => ({
 
 jest.mock("@/services/monitoring/MonitoringService", () => ({ captureException: jest.fn() }));
 
+jest.mock("@/services/calls/CallNotificationBridge", () => ({
+  publishCallNotification: jest.fn(),
+}));
+
 jest.mock("@/services/push/PushService", () => ({
   applyPushSideEffects: jest.fn(),
   beginNativePushUploadSession: jest.fn(),
@@ -61,6 +66,7 @@ jest.mock("@/services/push/PushService", () => ({
 }));
 
 const mockedUseAuth = jest.mocked(useAuth);
+const publishCall = jest.mocked(publishCallNotification);
 const requestPermission = jest.mocked(requestPushPermission);
 const beginUploadSession = jest.mocked(beginNativePushUploadSession);
 const uploadToken = jest.mocked(ensureNativePushTokenUploaded);
@@ -111,6 +117,7 @@ describe("authenticated push bootstrap", () => {
     cacheToken.mockResolvedValue("cached-token");
     dismissCachedRead.mockResolvedValue(0);
     applySideEffects.mockResolvedValue();
+    publishCall.mockReturnValue({ kind: "not_call" });
     takeOpenTarget.mockResolvedValue(null);
     wasProcessed.mockResolvedValue(false);
     markProcessed.mockResolvedValue();
@@ -265,6 +272,32 @@ describe("authenticated push bootstrap", () => {
     expect(replaceRoute).toHaveBeenCalledWith("/(tabs)/conversations");
     expect(markProcessed).toHaveBeenCalledWith(target.eventId);
 
+    await view.unmount();
+  });
+
+  it("hands a tapped call notification to the replayable call bridge instead of chat routing", async () => {
+    currentUserId = "owner";
+    publishCall.mockReturnValue({
+      kind: "published",
+      invitation: {
+        call_id: "call-1",
+        caller_id: "caller-1",
+        caller_name: "Caller",
+        caller_avatar: "",
+        call_type: "video",
+        room_name: "room-1",
+      },
+    });
+    const view = await render(<PushNotificationBootstrap />);
+
+    await act(async () => {
+      responseListener?.(response(notification({ push_type: "call", call_id: "call-1" })));
+      await Promise.resolve();
+    });
+
+    expect(publishCall).toHaveBeenCalledWith({ push_type: "call", call_id: "call-1" });
+    expect(parseOpenTarget).not.toHaveBeenCalled();
+    expect(saveOpenTarget).not.toHaveBeenCalled();
     await view.unmount();
   });
 

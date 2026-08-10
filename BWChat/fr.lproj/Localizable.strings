@@ -12,7 +12,11 @@
 "tab.contacts" = "Contacts";
 "tab.discover" = "Découvrir";
 "tab.map" = "Carte";
+"tab.test" = "Test";
 "tab.profile" = "Moi";
+
+"test.card.title" = "Carte de test";
+"test.card.subtitle" = "Touchez pour vérifier la mise à jour Preview";
 
 "language.title" = "Langue";
 "language.option.system" = "Suivre le système";
@@ -1083,6 +1087,9 @@
 "wallet.error.activityCatFoodDisabled" = "La nourriture d’activité est désactivée";
 "live.billing.chargedActivityCatFood" = "Nourriture dépensée : %d";
 "live.billing.chargedGoldCoins" = "Pièces d’or dépensées : %d";
+"live.billing.earnedActivityCatFood" = "Nourriture gagnée : %d";
+"live.billing.awaitingBreakdown" = "En attente du détail de facturation du serveur";
+"live.billing.awaitingEarnings" = "En attente du règlement des gains";
 "live.billing.totalCharged" = "Total dépensé : %d";
 "live.billing.balanceAfter" = "Après : %d pièces · %d nourriture · %d utilisable";
 "live.billing.earnedGoldCoins" = "Pièces d’or gagnées : %d";

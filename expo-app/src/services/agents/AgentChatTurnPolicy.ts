@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentMessagePart, AgentTurn } from "@/models";
+import type { AgentMessage, AgentMessagePart, AgentPartMetadata, AgentTurn } from "@/models";
 import { isAgentTransformRequest } from "@/services/agents/AgentImageReplyPolicy";
 
 export type AgentGeneratedMediaPollingDecision = "stop" | "waitForMediaPart" | "waitForGeneration";
@@ -18,17 +18,84 @@ export const agentTurnPollingPolicy = Object.freeze({
 });
 
 const terminalStatuses = new Set(["completed", "completed_with_errors", "failed"]);
+const optimisticAgentMessageSource = "local_optimistic";
+
+export interface AgentOptimisticMessageInput {
+  clientMessageId: string;
+  conversationId: string;
+  createdAt: string;
+  imageUri?: string | null | undefined;
+  ownerId: string;
+  replyToId?: string | null | undefined;
+  sequenceNo: number;
+  text: string;
+}
 
 export function isAgentTurnTerminal(status: string | null | undefined): boolean {
   return terminalStatuses.has(status?.trim().toLowerCase() ?? "");
+}
+
+export function makeAgentOptimisticMessage(input: AgentOptimisticMessageInput): AgentMessage {
+  const parts: AgentMessagePart[] = [];
+  if (input.text) {
+    parts.push({
+      id: `${input.clientMessageId}:text`,
+      ordinal: 0,
+      type: "text",
+      text: input.text,
+      metadata: {},
+    });
+  }
+  if (input.imageUri) {
+    parts.push({
+      id: `${input.clientMessageId}:image`,
+      ordinal: parts.length,
+      type: "input_image",
+      text: "",
+      metadata: { content_url: input.imageUri },
+    });
+  }
+  return {
+    id: `local:${input.clientMessageId}`,
+    conversation_id: input.conversationId,
+    sequence_no: input.sequenceNo,
+    sender: { type: "user", id: input.ownerId },
+    source: optimisticAgentMessageSource,
+    status: "sending",
+    ...(input.replyToId ? { reply_to_id: input.replyToId } : {}),
+    client_message_id: input.clientMessageId,
+    created_at: input.createdAt,
+    updated_at: input.createdAt,
+    parts,
+  };
+}
+
+export function isAgentOptimisticMessage(message: AgentMessage): boolean {
+  return message.source === optimisticAgentMessageSource;
+}
+
+export function agentMessageIdentity(message: AgentMessage): string {
+  const clientMessageId = message.client_message_id?.trim();
+  if (clientMessageId) return `client:${clientMessageId}`;
+  const messageId = message.id.trim();
+  return messageId ? `server:${messageId}` : `sequence:${message.sequence_no}`;
+}
+
+export function nextAgentOptimisticSequence(messages: readonly AgentMessage[]): number {
+  return (
+    messages.reduce(
+      (maximum, message) =>
+        Math.max(maximum, Number.isFinite(message.sequence_no) ? message.sequence_no : 0),
+      0,
+    ) + 1
+  );
 }
 
 export function agentGeneratedMediaPollingDecision(
   expectsGeneratedMedia: boolean,
   mediaParts: readonly AgentMessagePart[],
 ): AgentGeneratedMediaPollingDecision {
-  if (!expectsGeneratedMedia) return "stop";
-  if (mediaParts.length === 0) return "waitForMediaPart";
+  if (mediaParts.length === 0) return expectsGeneratedMedia ? "waitForMediaPart" : "stop";
 
   const hasUnsettledPart = mediaParts.some((part) => {
     const status = part.metadata.generation_status?.trim().toLowerCase();
@@ -156,15 +223,35 @@ export function mergeAgentTimeline(
   current: readonly AgentMessage[],
   incoming: readonly AgentMessage[],
 ): AgentMessage[] {
-  const bySequence = new Map<number, AgentMessage>();
-  for (const message of current) bySequence.set(message.sequence_no, message);
+  const next = [...current];
   for (const message of incoming) {
-    const existing = bySequence.get(message.sequence_no);
-    if (existing && existing.updated_at > message.updated_at) continue;
-    bySequence.set(message.sequence_no, message);
+    const index = next.findIndex((candidate) => sameAgentTimelineSlot(candidate, message));
+    if (index < 0) {
+      next.push(message);
+      continue;
+    }
+    const existing = next[index]!;
+    if (!shouldReplaceAgentMessage(existing, message)) continue;
+    const serverReplacement =
+      message.client_message_id || !existing.client_message_id
+        ? message
+        : { ...message, client_message_id: existing.client_message_id };
+    const replacement = preserveAgentMediaAdvancements(existing, serverReplacement);
+    if (!agentMessagesEqual(existing, replacement)) next[index] = replacement;
   }
-  return [...bySequence.values()].sort(
+  return next.sort(
     (left, right) => left.sequence_no - right.sequence_no || left.id.localeCompare(right.id),
+  );
+}
+
+export function agentMessageTimelinesEqual(
+  left: readonly AgentMessage[],
+  right: readonly AgentMessage[],
+): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((message, index) => agentMessagesEqual(message, right[index]!)))
   );
 }
 
@@ -183,4 +270,113 @@ export function newestAgentTurnIds(
     }
   }
   return ids;
+}
+
+function sameAgentTimelineSlot(left: AgentMessage, right: AgentMessage): boolean {
+  const leftClientId = left.client_message_id?.trim();
+  const rightClientId = right.client_message_id?.trim();
+  if (leftClientId && rightClientId && leftClientId === rightClientId) return true;
+  if (left.id && right.id && left.id === right.id) return true;
+  return (
+    !isAgentOptimisticMessage(left) &&
+    !isAgentOptimisticMessage(right) &&
+    left.sequence_no > 0 &&
+    left.sequence_no === right.sequence_no
+  );
+}
+
+function shouldReplaceAgentMessage(existing: AgentMessage, incoming: AgentMessage): boolean {
+  if (isAgentOptimisticMessage(existing) !== isAgentOptimisticMessage(incoming)) {
+    return isAgentOptimisticMessage(existing);
+  }
+  const existingTime = Date.parse(existing.updated_at);
+  const incomingTime = Date.parse(incoming.updated_at);
+  if (Number.isFinite(existingTime) && Number.isFinite(incomingTime)) {
+    return incomingTime >= existingTime;
+  }
+  return incoming.updated_at >= existing.updated_at;
+}
+
+function agentMessagesEqual(left: AgentMessage, right: AgentMessage): boolean {
+  return (
+    left === right ||
+    (left.id === right.id &&
+      left.conversation_id === right.conversation_id &&
+      left.sequence_no === right.sequence_no &&
+      left.sender.type === right.sender.type &&
+      left.sender.id === right.sender.id &&
+      left.turn_id === right.turn_id &&
+      left.source === right.source &&
+      left.status === right.status &&
+      left.reply_to_id === right.reply_to_id &&
+      left.client_message_id === right.client_message_id &&
+      left.created_at === right.created_at &&
+      left.updated_at === right.updated_at &&
+      left.parts.length === right.parts.length &&
+      left.parts.every((part, index) => agentPartsEqual(part, right.parts[index]!)))
+  );
+}
+
+function agentPartsEqual(left: AgentMessagePart, right: AgentMessagePart): boolean {
+  return (
+    left === right ||
+    (left.id === right.id &&
+      left.ordinal === right.ordinal &&
+      left.type === right.type &&
+      left.text === right.text &&
+      left.asset_id === right.asset_id &&
+      left.reference_id === right.reference_id &&
+      agentMetadataEqual(left.metadata, right.metadata))
+  );
+}
+
+function agentMetadataEqual(left: AgentPartMetadata, right: AgentPartMetadata): boolean {
+  return (
+    left === right ||
+    (left.media_type === right.media_type &&
+      left.generation_status === right.generation_status &&
+      left.price_points === right.price_points &&
+      left.access === right.access &&
+      left.preview_url === right.preview_url &&
+      left.content_url === right.content_url &&
+      left.download_url === right.download_url &&
+      left.width === right.width &&
+      left.height === right.height &&
+      left.error_code === right.error_code)
+  );
+}
+
+function preserveAgentMediaAdvancements(
+  existing: AgentMessage,
+  incoming: AgentMessage,
+): AgentMessage {
+  let changed = false;
+  const parts = incoming.parts.map((part) => {
+    if (part.type !== "paid_media") return part;
+    const previous = existing.parts.find(
+      (candidate) =>
+        candidate.type === "paid_media" &&
+        candidate.reference_id &&
+        candidate.reference_id === part.reference_id &&
+        candidate.metadata.access === "unlocked",
+    );
+    if (!previous) return part;
+    const replacement = {
+      ...part,
+      metadata: {
+        ...part.metadata,
+        access: "unlocked",
+        ...(!part.metadata.content_url && previous.metadata.content_url
+          ? { content_url: previous.metadata.content_url }
+          : {}),
+        ...(!part.metadata.download_url && previous.metadata.download_url
+          ? { download_url: previous.metadata.download_url }
+          : {}),
+      },
+    };
+    if (agentPartsEqual(part, replacement)) return part;
+    changed = true;
+    return replacement;
+  });
+  return changed ? { ...incoming, parts } : incoming;
 }

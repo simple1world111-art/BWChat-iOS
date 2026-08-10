@@ -1,5 +1,4 @@
 import { LinearGradient } from "expo-linear-gradient";
-import type { ImagePickerAsset } from "expo-image-picker";
 import * as Clipboard from "expo-clipboard";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
@@ -46,7 +45,6 @@ import {
   ChatMoneyReceiptTip,
   ChatMoneyPlusMenuGlyph,
 } from "@/components/messages/ChatMoneyViews";
-import { ChatMediaPickerPreview } from "@/components/messages/ChatMediaPickerPreview";
 import {
   ChatSelectionIndicator,
   ChatSelectionToolbar,
@@ -86,6 +84,8 @@ import type {
   ChatMoneyPayload,
   ForwardMessageSource,
   ForwardMode,
+  GiftCatalogItem,
+  GiftRecipient,
   Message,
 } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
@@ -151,8 +151,11 @@ import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import { parseChatVoiceContent } from "@/services/messages/chatVoicePolicy";
 import {
   completeGiftIdempotency,
+  encodeGiftMessagePayload,
   giftIdempotencyKey,
+  makeGiftMessagePayload,
   parseGiftMessagePayload,
+  withGiftMessageRecipient,
 } from "@/services/messages/chatGiftPolicy";
 import {
   encodeChatMoneyPayload,
@@ -256,7 +259,6 @@ export default function ChatScreen() {
   } | null>(null);
   const [selectionEntries, setSelectionEntries] = useState<ChatSelectionEntry[] | null>(null);
   const [forwardDraft, setForwardDraft] = useState<ForwardDraft | null>(null);
-  const [pendingMediaAssets, setPendingMediaAssets] = useState<ImagePickerAsset[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const listRef = useRef<FlatList<TimelineRow>>(null);
@@ -322,7 +324,6 @@ export default function ChatScreen() {
     setMoneyDetail(null);
     setSelectionEntries(null);
     setForwardDraft(null);
-    setPendingMediaAssets([]);
   }, [sessionKey]);
 
   useLayoutEffect(() => {
@@ -984,17 +985,23 @@ export default function ChatScreen() {
     }
   };
 
-  const sendGift = async (giftId: string) => {
+  const sendGift = async (gift: GiftCatalogItem, recipient: GiftRecipient) => {
     if (!id || !user?.user_id) return;
     if (id === user.user_id) throw new Error(t("gift.cannotSendToSelf"));
     const expectedSession = sessionKey;
     const sendingOwnerId = user.user_id;
     const sendingTargetId = id;
-    const key = giftIdempotencyKey(id, giftId);
-    const confirmed = await sendDirectGiftMessage(sendingTargetId, giftId, key);
-    completeGiftIdempotency(sendingTargetId, giftId);
+    const key = giftIdempotencyKey(id, gift.gift_id);
+    const confirmed = await sendDirectGiftMessage(sendingTargetId, gift.gift_id, key);
+    completeGiftIdempotency(sendingTargetId, gift.gift_id);
+    const giftPayload = withGiftMessageRecipient(
+      parseGiftMessagePayload(confirmed.content) ??
+        makeGiftMessagePayload(gift, recipient, { id: sendingOwnerId, name: user.nickname }),
+      recipient,
+    );
     const normalized: Message = {
       ...confirmed,
+      content: encodeGiftMessagePayload(giftPayload),
       sender_id: confirmed.sender_id || sendingOwnerId,
       receiver_id: confirmed.receiver_id || sendingTargetId,
       msg_type: confirmed.msg_type || "gift",
@@ -1512,19 +1519,15 @@ export default function ChatScreen() {
     void send(message);
   };
 
-  const chooseMedia = async (confirmedAssets?: ImagePickerAsset[]) => {
+  const chooseMedia = async () => {
     const expectedSession = sessionKey;
     try {
-      const assets = confirmedAssets ?? (await pickChatMedia());
+      const assets = await pickChatMedia();
       if (activeSessionRef.current !== expectedSession) return;
       setActivePanel(null);
       const supportedAssets = assets.filter(
         (asset) => asset.type === "image" || asset.type === "video",
       );
-      if (!confirmedAssets) {
-        if (supportedAssets.length > 0) setPendingMediaAssets(supportedAssets);
-        return;
-      }
       const now = Date.now();
       const jobs = supportedAssets.map((asset, index) => ({
         asset,
@@ -1629,259 +1632,255 @@ export default function ChatScreen() {
   };
 
   return (
-    <ChatKeyboardAvoidingView style={styles.screen}>
-      <View style={styles.timelineSurface}>
-        <ChatBackgroundLayer background={chatBackground} style={styles.backgroundLayer} />
-        {error && visibleMessages.length === 0 && !isLoading ? (
-          <View style={styles.blockingState}>
-            <Text style={styles.stateText}>{error}</Text>
-            <Pressable onPress={() => void load()} style={styles.retryButton}>
-              <Text style={styles.retryText}>{t("common.retry")}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <FlatList
-            ref={listRef}
-            contentContainerStyle={styles.list}
-            data={[...timeline].reverse()}
-            inverted
-            ItemSeparatorComponent={() => <View style={styles.messageSeparator} />}
-            keyExtractor={({ message }) => timelineIdentity(message)}
-            keyboardDismissMode="interactive"
-            ListFooterComponent={
-              isLoading || isLoadingMore ? (
-                <Text style={styles.loadingText}>{t("common.loading")}</Text>
-              ) : null
-            }
-            onEndReached={() => void loadMore()}
-            onEndReachedThreshold={0.2}
-            onScrollBeginDrag={() => {
-              Keyboard.dismiss();
-              setInputFocused(false);
-              setActivePanel(null);
-              setMenuTarget(null);
-            }}
-            onTouchStart={() => {
-              Keyboard.dismiss();
-              setInputFocused(false);
-              setActivePanel(null);
-            }}
-            onScroll={({ nativeEvent }) => {
-              const nextNearBottom = nativeEvent.contentOffset.y <= 24;
-              if (nextNearBottom !== isNearBottomRef.current) {
-                isNearBottomRef.current = nextNearBottom;
-                setIsNearBottom(nextNearBottom);
-                if (nextNearBottom) {
-                  setNewMessagesBelowCount(0);
-                  setReplyLocatorMessageIds([]);
-                }
+    <View style={styles.screen}>
+      <ChatBackgroundLayer background={chatBackground} style={styles.backgroundLayer} />
+      <ChatKeyboardAvoidingView style={styles.chatContent}>
+        <View style={styles.timelineSurface}>
+          {error && visibleMessages.length === 0 && !isLoading ? (
+            <View style={styles.blockingState}>
+              <Text style={styles.stateText}>{error}</Text>
+              <Pressable onPress={() => void load()} style={styles.retryButton}>
+                <Text style={styles.retryText}>{t("common.retry")}</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              ref={listRef}
+              contentContainerStyle={styles.list}
+              data={[...timeline].reverse()}
+              inverted
+              ItemSeparatorComponent={() => <View style={styles.messageSeparator} />}
+              keyExtractor={({ message }) => timelineIdentity(message)}
+              keyboardDismissMode="interactive"
+              ListFooterComponent={
+                isLoading || isLoadingMore ? (
+                  <Text style={styles.loadingText}>{t("common.loading")}</Text>
+                ) : null
               }
-            }}
-            onScrollToIndexFailed={({ index }) => {
-              setTimeout(
-                () => listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 }),
-                80,
-              );
-            }}
-            renderItem={({ item }) => {
-              const entry = selectionEntryFor(item.message);
-              const rowView = (
-                <MessageTimelineRow
-                  highlighted={highlightedMessageId === item.message.id}
-                  row={item}
-                  isMine={item.message.sender_id === user?.user_id}
-                  myAvatar={user?.avatar_url}
-                  myId={user?.user_id}
-                  imageUrls={imageUrls}
-                  loadMoreGalleryImages={loadMoreGalleryImages}
-                  onImageOpen={setImageSelection}
-                  onVideoOpen={setPreviewVideoUrl}
-                  peerAvatar={avatar}
-                  peerId={id}
-                  peerName={name}
-                  messages={visibleMessages}
-                  onMenuRequested={openMessageMenu}
-                  onQuoteTap={(messageId) => void scrollToMessage(messageId)}
-                  recalledEditableText={recalledEditableTexts[item.message.id]}
-                  onReedit={(text) => {
-                    setDraft(text);
-                    setComposerFocusRequest((value) => value + 1);
-                  }}
-                  onRetry={retryMessage}
-                  onChatMoneyTap={(payload) =>
-                    setMoneyDetail({ payload, isSender: payload.sender_id === user?.user_id })
-                  }
-                  onForwardBundleTap={(bundleId) =>
-                    router.push({ pathname: "/forward-bundle/[id]", params: { id: bundleId } })
-                  }
-                />
-              );
-              if (selectionEntries === null) return rowView;
-              const selected = entry
-                ? selectionEntries.some(
-                    (selectedEntry) => selectedEntry.reference === entry.reference,
-                  )
-                : false;
-              return (
-                <Pressable disabled={!entry} onPress={() => toggleMessageSelection(item.message)}>
-                  <View style={styles.selectionRow}>
-                    {entry ? <ChatSelectionIndicator selected={selected} /> : null}
-                    <View pointerEvents="none" style={styles.selectionRowContent}>
-                      {rowView}
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            }}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-        {timelineLocator ? (
-          <View pointerEvents="box-none" style={styles.timelineLocatorHost}>
-            <ChatTimelineLocatorButton kind={timelineLocator} onPress={activateTimelineLocator} />
-          </View>
-        ) : null}
-      </View>
-
-      {selectionEntries !== null ? (
-        <ChatSelectionToolbar
-          count={selectionEntries.length}
-          onDelete={requestSelectionDelete}
-          onForward={requestSelectionForward}
-          showsForward
-        />
-      ) : (
-        <>
-          {replyingTo ? (
-            <ChatReplyPreviewBar
-              onCancel={() => setReplyingTo(null)}
-              value={{
-                senderName:
-                  replyingTo.sender_id === user?.user_id
-                    ? t("common.me")
-                    : (name ?? replyingTo.sender_id),
-                content: replyingTo.content,
-                msgType: replyingTo.msg_type,
+              onEndReached={() => void loadMore()}
+              onEndReachedThreshold={0.2}
+              onScrollBeginDrag={() => {
+                Keyboard.dismiss();
+                setInputFocused(false);
+                setActivePanel(null);
+                setMenuTarget(null);
               }}
+              onTouchStart={() => {
+                Keyboard.dismiss();
+                setInputFocused(false);
+                setActivePanel(null);
+              }}
+              onScroll={({ nativeEvent }) => {
+                const nextNearBottom = nativeEvent.contentOffset.y <= 24;
+                if (nextNearBottom !== isNearBottomRef.current) {
+                  isNearBottomRef.current = nextNearBottom;
+                  setIsNearBottom(nextNearBottom);
+                  if (nextNearBottom) {
+                    setNewMessagesBelowCount(0);
+                    setReplyLocatorMessageIds([]);
+                  }
+                }
+              }}
+              onScrollToIndexFailed={({ index }) => {
+                setTimeout(
+                  () =>
+                    listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 }),
+                  80,
+                );
+              }}
+              renderItem={({ item }) => {
+                const entry = selectionEntryFor(item.message);
+                const rowView = (
+                  <MessageTimelineRow
+                    highlighted={highlightedMessageId === item.message.id}
+                    row={item}
+                    isMine={item.message.sender_id === user?.user_id}
+                    myAvatar={user?.avatar_url}
+                    myId={user?.user_id}
+                    imageUrls={imageUrls}
+                    loadMoreGalleryImages={loadMoreGalleryImages}
+                    onImageOpen={setImageSelection}
+                    onVideoOpen={setPreviewVideoUrl}
+                    peerAvatar={avatar}
+                    peerId={id}
+                    peerName={name}
+                    messages={visibleMessages}
+                    onMenuRequested={openMessageMenu}
+                    onQuoteTap={(messageId) => void scrollToMessage(messageId)}
+                    recalledEditableText={recalledEditableTexts[item.message.id]}
+                    onReedit={(text) => {
+                      setDraft(text);
+                      setComposerFocusRequest((value) => value + 1);
+                    }}
+                    onRetry={retryMessage}
+                    onChatMoneyTap={(payload) =>
+                      setMoneyDetail({ payload, isSender: payload.sender_id === user?.user_id })
+                    }
+                    onForwardBundleTap={(bundleId) =>
+                      router.push({ pathname: "/forward-bundle/[id]", params: { id: bundleId } })
+                    }
+                  />
+                );
+                if (selectionEntries === null) return rowView;
+                const selected = entry
+                  ? selectionEntries.some(
+                      (selectedEntry) => selectedEntry.reference === entry.reference,
+                    )
+                  : false;
+                return (
+                  <Pressable disabled={!entry} onPress={() => toggleMessageSelection(item.message)}>
+                    <View style={styles.selectionRow}>
+                      {entry ? <ChatSelectionIndicator selected={selected} /> : null}
+                      <View pointerEvents="none" style={styles.selectionRowContent}>
+                        {rowView}
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              }}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
             />
+          )}
+          {timelineLocator ? (
+            <View pointerEvents="box-none" style={styles.timelineLocatorHost}>
+              <ChatTimelineLocatorButton kind={timelineLocator} onPress={activateTimelineLocator} />
+            </View>
           ) : null}
-          <Composer
-            activePanel={activePanel}
-            draft={draft}
-            focusRequest={composerFocusRequest}
-            isInputFocused={isInputFocused}
-            isSelfChat={Boolean(user?.user_id && id === user.user_id)}
-            onChooseMedia={() => void chooseMedia()}
-            onChooseGift={() => {
-              setActivePanel(null);
-              setShowGiftSheet(true);
-            }}
-            onChooseMoney={(kind) => {
-              setActivePanel(null);
-              setMoneyComposerKind(kind);
-            }}
-            onChooseCall={(callType) => {
-              setActivePanel(null);
-              void call.startDirectCall(
-                { userId: id, nickname: name ?? id, avatarUrl: avatar },
-                callType,
-              );
-            }}
-            onDraftChange={setDraft}
-            onFocusChange={setInputFocused}
-            onPanelChange={setActivePanel}
-            onSend={() => void send()}
-            onSendSticker={(pack, sticker) => void sendSticker(pack, sticker)}
-            onVoiceRecorded={(recording) => sendVoice(recording)}
-            onVoiceRecordingStateChange={setVoiceRecordingState}
+        </View>
+
+        {selectionEntries !== null ? (
+          <ChatSelectionToolbar
+            count={selectionEntries.length}
+            onDelete={requestSelectionDelete}
+            onForward={requestSelectionForward}
+            showsForward
           />
-        </>
-      )}
-      <ImageGallery onClose={() => setImageSelection(null)} selection={imageSelection} />
-      <VideoPlayerOverlay onClose={() => setPreviewVideoUrl(null)} videoUrl={previewVideoUrl} />
-      <VoiceRecordingOverlay state={voiceRecordingState} />
-      {giftRecipientSource && user?.user_id ? (
-        <ChatGiftPickerSheet
-          onClose={() => setShowGiftSheet(false)}
-          onOpenWallet={() => router.push("/wallet")}
-          onSend={(gift) => sendGift(gift.gift_id)}
-          onSendFailure={(message) => Alert.alert(t("gift.sendFailed"), message)}
-          ownerId={user.user_id}
-          source={giftRecipientSource}
-          visible={showGiftSheet}
+        ) : (
+          <>
+            {replyingTo ? (
+              <ChatReplyPreviewBar
+                onCancel={() => setReplyingTo(null)}
+                value={{
+                  senderName:
+                    replyingTo.sender_id === user?.user_id
+                      ? t("common.me")
+                      : (name ?? replyingTo.sender_id),
+                  content: replyingTo.content,
+                  msgType: replyingTo.msg_type,
+                }}
+              />
+            ) : null}
+            <Composer
+              activePanel={activePanel}
+              draft={draft}
+              focusRequest={composerFocusRequest}
+              isInputFocused={isInputFocused}
+              isSelfChat={Boolean(user?.user_id && id === user.user_id)}
+              onChooseMedia={() => void chooseMedia()}
+              onChooseGift={() => {
+                setActivePanel(null);
+                setShowGiftSheet(true);
+              }}
+              onChooseMoney={(kind) => {
+                setActivePanel(null);
+                setMoneyComposerKind(kind);
+              }}
+              onChooseCall={(callType) => {
+                setActivePanel(null);
+                void call.startDirectCall(
+                  { userId: id, nickname: name ?? id, avatarUrl: avatar },
+                  callType,
+                );
+              }}
+              onDraftChange={setDraft}
+              onFocusChange={setInputFocused}
+              onPanelChange={setActivePanel}
+              onSend={() => void send()}
+              onSendSticker={(pack, sticker) => void sendSticker(pack, sticker)}
+              onVoiceRecorded={(recording) => sendVoice(recording)}
+              onVoiceRecordingStateChange={setVoiceRecordingState}
+            />
+          </>
+        )}
+        <ImageGallery onClose={() => setImageSelection(null)} selection={imageSelection} />
+        <VideoPlayerOverlay onClose={() => setPreviewVideoUrl(null)} videoUrl={previewVideoUrl} />
+        <VoiceRecordingOverlay state={voiceRecordingState} />
+        {giftRecipientSource && user?.user_id ? (
+          <ChatGiftPickerSheet
+            onClose={() => setShowGiftSheet(false)}
+            onOpenWallet={() => router.push("/wallet")}
+            onSend={sendGift}
+            onSendFailure={(message) => Alert.alert(t("gift.sendFailed"), message)}
+            ownerId={user.user_id}
+            source={giftRecipientSource}
+            visible={showGiftSheet}
+          />
+        ) : null}
+        {user?.user_id && moneyComposerKind ? (
+          <ChatMoneyComposerModal
+            kind={moneyComposerKind}
+            onClose={() => setMoneyComposerKind(null)}
+            onCreated={(result) => {
+              if (activeSessionRef.current !== sessionKey || !result.direct_message) return;
+              const created = result.direct_message;
+              void saveDirectChatMessages(ownerId, id, [created]);
+              setMessages((current) => {
+                const merged = mergeMessages(current, created);
+                messagesRef.current = merged;
+                return merged;
+              });
+            }}
+            onOpenWallet={() => {
+              setMoneyComposerKind(null);
+              router.push("/wallet");
+            }}
+            ownerId={user.user_id}
+            source={giftRecipientSource!}
+            visible
+          />
+        ) : null}
+        {user?.user_id ? (
+          <ChatMoneyDetailModal
+            initialPayload={moneyDetail?.payload ?? null}
+            isSender={moneyDetail?.isSender ?? false}
+            onClose={() => setMoneyDetail(null)}
+            onOpenBillDetails={() => {
+              setMoneyDetail(null);
+              setTimeout(() => router.push("/wallet-transactions"), 200);
+            }}
+            onOpenWallet={() => {
+              setMoneyDetail(null);
+              setTimeout(() => router.push("/wallet"), 200);
+            }}
+            onResult={applyChatMoneyResult}
+            ownerAvatar={user.avatar_url}
+            ownerId={user.user_id}
+            ownerName={user.nickname}
+            visible={moneyDetail !== null}
+          />
+        ) : null}
+        <ForwardFlowModal
+          mode={forwardDraft?.mode ?? "single"}
+          onClose={() => setForwardDraft(null)}
+          onCompleted={() => {
+            if (activeSessionRef.current !== sessionKey) return;
+            setSelectionEntries(null);
+            setToastMessage(t("forward.sent"));
+          }}
+          preview={forwardDraft?.preview ?? ""}
+          sources={forwardDraft?.sources ?? []}
+          visible={forwardDraft !== null}
         />
-      ) : null}
-      {user?.user_id && moneyComposerKind ? (
-        <ChatMoneyComposerModal
-          kind={moneyComposerKind}
-          onClose={() => setMoneyComposerKind(null)}
-          onCreated={(result) => {
-            if (activeSessionRef.current !== sessionKey || !result.direct_message) return;
-            const created = result.direct_message;
-            void saveDirectChatMessages(ownerId, id, [created]);
-            setMessages((current) => {
-              const merged = mergeMessages(current, created);
-              messagesRef.current = merged;
-              return merged;
-            });
-          }}
-          onOpenWallet={() => {
-            setMoneyComposerKind(null);
-            router.push("/wallet");
-          }}
-          ownerId={user.user_id}
-          source={giftRecipientSource!}
-          visible
+        <ChatMessageActionOverlay
+          actions={menuTarget?.actions ?? []}
+          anchor={menuTarget?.anchor ?? null}
+          onDismiss={() => setMenuTarget(null)}
+          onSelect={(action) => void handleMenuAction(action)}
         />
-      ) : null}
-      {user?.user_id ? (
-        <ChatMoneyDetailModal
-          initialPayload={moneyDetail?.payload ?? null}
-          isSender={moneyDetail?.isSender ?? false}
-          onClose={() => setMoneyDetail(null)}
-          onOpenBillDetails={() => {
-            setMoneyDetail(null);
-            setTimeout(() => router.push("/wallet-transactions"), 200);
-          }}
-          onOpenWallet={() => {
-            setMoneyDetail(null);
-            setTimeout(() => router.push("/wallet"), 200);
-          }}
-          onResult={applyChatMoneyResult}
-          ownerAvatar={user.avatar_url}
-          ownerId={user.user_id}
-          ownerName={user.nickname}
-          visible={moneyDetail !== null}
-        />
-      ) : null}
-      <ForwardFlowModal
-        mode={forwardDraft?.mode ?? "single"}
-        onClose={() => setForwardDraft(null)}
-        onCompleted={() => {
-          if (activeSessionRef.current !== sessionKey) return;
-          setSelectionEntries(null);
-          setToastMessage(t("forward.sent"));
-        }}
-        preview={forwardDraft?.preview ?? ""}
-        sources={forwardDraft?.sources ?? []}
-        visible={forwardDraft !== null}
-      />
-      <ChatMediaPickerPreview
-        items={pendingMediaAssets}
-        onCancel={() => setPendingMediaAssets([])}
-        onChange={setPendingMediaAssets}
-        onSend={(items) => void chooseMedia(items)}
-        visible={pendingMediaAssets.length > 0}
-      />
-      <ChatMessageActionOverlay
-        actions={menuTarget?.actions ?? []}
-        anchor={menuTarget?.anchor ?? null}
-        onDismiss={() => setMenuTarget(null)}
-        onSelect={(action) => void handleMenuAction(action)}
-      />
-      <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
-    </ChatKeyboardAvoidingView>
+        <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      </ChatKeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -2628,6 +2627,7 @@ function messageFromDraftQuote(quote: ChatDraftQuote, peerId: string): Message {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  chatContent: { flex: 1 },
   timelineSurface: { flex: 1 },
   backgroundLayer: { position: "absolute", inset: 0 },
   list: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 },

@@ -1,5 +1,4 @@
 import { LinearGradient } from "expo-linear-gradient";
-import type { ImagePickerAsset } from "expo-image-picker";
 import * as Clipboard from "expo-clipboard";
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
@@ -30,6 +29,7 @@ import {
 import { UserAvatarButton } from "@/components/Avatar";
 import { TopToast } from "@/components/TopToast";
 import { ChatBackgroundLayer } from "@/components/chat/ChatBackgroundLayer";
+import { GroupCallMemberPicker } from "@/components/calls/GroupCallMemberPicker";
 import { ChatMentionPicker } from "@/components/messages/ChatMentionPicker";
 import { ImageGallery, type ImageGallerySelection } from "@/components/media/ImageGallery";
 import { VideoPlayerOverlay } from "@/components/media/VideoPlayerOverlay";
@@ -48,7 +48,6 @@ import {
   ChatMoneyPlusMenuGlyph,
   ChatMoneyReceiptTip,
 } from "@/components/messages/ChatMoneyViews";
-import { ChatMediaPickerPreview } from "@/components/messages/ChatMediaPickerPreview";
 import {
   ChatSelectionIndicator,
   ChatSelectionToolbar,
@@ -88,6 +87,8 @@ import type {
   ChatMoneyPayload,
   ForwardMessageSource,
   ForwardMode,
+  GiftCatalogItem,
+  GiftRecipient,
   GroupDetail,
   GroupMember,
   GroupMessage,
@@ -165,8 +166,11 @@ import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import { parseChatVoiceContent } from "@/services/messages/chatVoicePolicy";
 import {
   completeGiftIdempotency,
+  encodeGiftMessagePayload,
   giftIdempotencyKey,
+  makeGiftMessagePayload,
   parseGiftMessagePayload,
+  withGiftMessageRecipient,
 } from "@/services/messages/chatGiftPolicy";
 import {
   encodeChatMoneyPayload,
@@ -296,13 +300,13 @@ export default function GroupChatScreen() {
   );
   const [showGiftSheet, setShowGiftSheet] = useState(false);
   const [moneyComposerKind, setMoneyComposerKind] = useState<ChatMoneyKind | null>(null);
+  const [pendingGroupCallType, setPendingGroupCallType] = useState<CallType | null>(null);
   const [moneyDetail, setMoneyDetail] = useState<{
     payload: ChatMoneyPayload;
     isSender: boolean;
   } | null>(null);
   const [selectionEntries, setSelectionEntries] = useState<ChatSelectionEntry[] | null>(null);
   const [forwardDraft, setForwardDraft] = useState<ForwardDraft | null>(null);
-  const [pendingMediaAssets, setPendingMediaAssets] = useState<ImagePickerAsset[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const messagesRef = useRef<GroupMessage[]>([]);
   const listRef = useRef<FlatList<TimelineRow>>(null);
@@ -379,10 +383,10 @@ export default function GroupChatScreen() {
     setVoiceRecordingState(null);
     setShowGiftSheet(false);
     setMoneyComposerKind(null);
+    setPendingGroupCallType(null);
     setMoneyDetail(null);
     setSelectionEntries(null);
     setForwardDraft(null);
-    setPendingMediaAssets([]);
     setToastMessage(null);
     // `t` is intentionally handled by the fallback-only effect below. A locale
     // change must not reset the active group's messages, draft or scroll state.
@@ -1368,17 +1372,29 @@ export default function GroupChatScreen() {
     }
   };
 
-  const sendGift = async (giftId: string, recipientId: string) => {
+  const sendGift = async (gift: GiftCatalogItem, recipient: GiftRecipient) => {
     if (!user?.user_id || groupId <= 0) return;
+    const recipientId = recipient.id;
     if (recipientId === user.user_id) throw new Error(t("gift.cannotSendToSelf"));
     const expectedSession = sessionKey;
     const sendingOwnerId = user.user_id;
     const sendingGroupId = groupId;
-    const key = giftIdempotencyKey(recipientId, giftId);
-    const received = await sendGroupGiftMessage(sendingGroupId, recipientId, giftId, key);
-    completeGiftIdempotency(recipientId, giftId);
+    const key = giftIdempotencyKey(recipientId, gift.gift_id);
+    const received = await sendGroupGiftMessage(
+      sendingGroupId,
+      recipientId,
+      gift.gift_id,
+      key,
+    );
+    completeGiftIdempotency(recipientId, gift.gift_id);
+    const giftPayload = withGiftMessageRecipient(
+      parseGiftMessagePayload(received.content) ??
+        makeGiftMessagePayload(gift, recipient, { id: sendingOwnerId, name: user.nickname }),
+      recipient,
+    );
     const normalized: GroupMessage = {
       ...received,
+      content: encodeGiftMessagePayload(giftPayload),
       group_id: received.group_id || sendingGroupId,
       sender_id: received.sender_id || sendingOwnerId,
       sender_nickname: received.sender_nickname || user.nickname,
@@ -1930,19 +1946,15 @@ export default function GroupChatScreen() {
     }
   }
 
-  const chooseMedia = async (confirmedAssets?: ImagePickerAsset[]) => {
+  const chooseMedia = async () => {
     const expectedSession = sessionKey;
     try {
-      const assets = confirmedAssets ?? (await pickChatMedia());
+      const assets = await pickChatMedia();
       if (activeSessionRef.current !== expectedSession) return;
       setPanel(null);
       const supportedAssets = assets.filter(
         (asset) => asset.type === "image" || asset.type === "video",
       );
-      if (!confirmedAssets) {
-        if (supportedAssets.length > 0) setPendingMediaAssets(supportedAssets);
-        return;
-      }
       const now = Date.now();
       const jobs = supportedAssets.map((asset, index) => ({
         asset,
@@ -2097,285 +2109,302 @@ export default function GroupChatScreen() {
   };
 
   return (
-    <ChatKeyboardAvoidingView style={styles.screen}>
-      <View style={styles.timelineSurface}>
-        <ChatBackgroundLayer background={background} style={styles.backgroundLayer} />
-        {error && visibleMessages.length === 0 && !isLoading ? (
-          <View style={styles.blockingState}>
-            <Text style={styles.stateText}>{error}</Text>
-            <Pressable onPress={() => void load()} style={styles.retryButton}>
-              <Text style={styles.retryText}>{t("common.retry")}</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <FlatList
-            ref={listRef}
-            contentContainerStyle={styles.list}
-            data={[...timeline].reverse()}
-            inverted
-            keyExtractor={({ message }) => identity(message)}
-            keyboardDismissMode="interactive"
-            ListFooterComponent={
-              isLoading || isLoadingMore ? (
-                <Text style={styles.loadingText}>{t("common.loading")}</Text>
-              ) : null
-            }
-            onEndReached={() => void loadMore()}
-            onEndReachedThreshold={0.2}
-            onScrollBeginDrag={() => {
-              Keyboard.dismiss();
-              setFocused(false);
-              setPanel(null);
-              setMenuTarget(null);
-            }}
-            onScroll={({ nativeEvent }) => {
-              const nextNearBottom = nativeEvent.contentOffset.y <= 24;
-              if (nextNearBottom !== isNearBottomRef.current) {
-                isNearBottomRef.current = nextNearBottom;
-                setIsNearBottom(nextNearBottom);
-                if (nextNearBottom) {
-                  setNewMessagesBelowCount(0);
-                  setMentionLocatorMessageIds([]);
-                  setReplyLocatorMessageIds([]);
-                  const throughMessageId = maximumServerMessageId(messagesRef.current);
-                  if (ownerId && throughMessageId !== undefined)
-                    void markConversationRead(ownerId, "group", String(groupId), throughMessageId);
-                }
+    <View style={styles.screen}>
+      <ChatBackgroundLayer background={background} style={styles.backgroundLayer} />
+      <ChatKeyboardAvoidingView style={styles.chatContent}>
+        <View style={styles.timelineSurface}>
+          {error && visibleMessages.length === 0 && !isLoading ? (
+            <View style={styles.blockingState}>
+              <Text style={styles.stateText}>{error}</Text>
+              <Pressable onPress={() => void load()} style={styles.retryButton}>
+                <Text style={styles.retryText}>{t("common.retry")}</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <FlatList
+              ref={listRef}
+              contentContainerStyle={styles.list}
+              data={[...timeline].reverse()}
+              inverted
+              keyExtractor={({ message }) => identity(message)}
+              keyboardDismissMode="interactive"
+              ListFooterComponent={
+                isLoading || isLoadingMore ? (
+                  <Text style={styles.loadingText}>{t("common.loading")}</Text>
+                ) : null
               }
-            }}
-            onScrollToIndexFailed={({ index }) => {
-              const expectedSession = sessionKey;
-              setTimeout(() => {
-                if (activeSessionRef.current === expectedSession)
-                  listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
-              }, 80);
-            }}
-            onTouchStart={() => {
-              Keyboard.dismiss();
-              setFocused(false);
-              setPanel(null);
-              setMenuTarget(null);
-            }}
-            renderItem={({ item }) => {
-              const entry = selectionEntryFor(item.message);
-              const rowView = (
-                <GroupMessageRow
-                  highlighted={highlightedMessageId === item.message.id}
-                  isMine={item.message.sender_id === user?.user_id}
-                  myAvatar={user?.avatar_url}
-                  myId={user?.user_id}
-                  imageUrls={imageUrls}
-                  loadMoreGalleryImages={loadMoreGalleryImages}
-                  onImageOpen={setImageSelection}
-                  onVideoOpen={setPreviewVideoUrl}
-                  messages={visibleMessages}
-                  onMenuRequested={openMessageMenu}
-                  onQuoteTap={(messageId) => void scrollToMessage(messageId)}
-                  recalledEditableText={recalledEditableTexts[item.message.id]}
-                  onReedit={(text) => {
-                    setDraft(text);
-                    setComposerFocusRequest((value) => value + 1);
-                  }}
-                  row={item}
-                  onRetry={retryMessage}
-                  onChatMoneyTap={(payload) =>
-                    setMoneyDetail({ payload, isSender: payload.sender_id === user?.user_id })
-                  }
-                  onForwardBundleTap={(bundleId) =>
-                    router.push({ pathname: "/forward-bundle/[id]", params: { id: bundleId } })
-                  }
-                  onMentionSender={(message) =>
-                    insertMentions(
-                      [
-                        {
-                          kind: "direct",
-                          user_id: message.sender_id,
-                          nickname: message.sender_nickname || message.sender_id,
-                        },
-                      ],
-                      null,
-                    )
-                  }
-                />
-              );
-              if (selectionEntries === null) return rowView;
-              const selected = entry
-                ? selectionEntries.some(
-                    (selectedEntry) => selectedEntry.reference === entry.reference,
-                  )
-                : false;
-              return (
-                <Pressable disabled={!entry} onPress={() => toggleMessageSelection(item.message)}>
-                  <View style={styles.selectionRow}>
-                    {entry ? <ChatSelectionIndicator selected={selected} /> : null}
-                    <View pointerEvents="none" style={styles.selectionRowContent}>
-                      {rowView}
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            }}
-            scrollEventThrottle={16}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-        {timelineLocator ? (
-          <View pointerEvents="box-none" style={styles.timelineLocatorHost}>
-            <ChatTimelineLocatorButton kind={timelineLocator} onPress={activateTimelineLocator} />
-          </View>
-        ) : null}
-      </View>
-      {selectionEntries !== null ? (
-        <ChatSelectionToolbar
-          count={selectionEntries.length}
-          onDelete={requestSelectionDelete}
-          onForward={requestSelectionForward}
-          showsForward
-        />
-      ) : (
-        <>
-          {replyingTo ? (
-            <ChatReplyPreviewBar
-              onCancel={() => setReplyingTo(null)}
-              value={{
-                senderName:
-                  replyingTo.sender_id === user?.user_id
-                    ? t("common.me")
-                    : replyingTo.sender_nickname,
-                content: replyingTo.content,
-                msgType: replyingTo.msg_type,
+              onEndReached={() => void loadMore()}
+              onEndReachedThreshold={0.2}
+              onScrollBeginDrag={() => {
+                Keyboard.dismiss();
+                setFocused(false);
+                setPanel(null);
+                setMenuTarget(null);
               }}
+              onScroll={({ nativeEvent }) => {
+                const nextNearBottom = nativeEvent.contentOffset.y <= 24;
+                if (nextNearBottom !== isNearBottomRef.current) {
+                  isNearBottomRef.current = nextNearBottom;
+                  setIsNearBottom(nextNearBottom);
+                  if (nextNearBottom) {
+                    setNewMessagesBelowCount(0);
+                    setMentionLocatorMessageIds([]);
+                    setReplyLocatorMessageIds([]);
+                    const throughMessageId = maximumServerMessageId(messagesRef.current);
+                    if (ownerId && throughMessageId !== undefined)
+                      void markConversationRead(
+                        ownerId,
+                        "group",
+                        String(groupId),
+                        throughMessageId,
+                      );
+                  }
+                }
+              }}
+              onScrollToIndexFailed={({ index }) => {
+                const expectedSession = sessionKey;
+                setTimeout(() => {
+                  if (activeSessionRef.current === expectedSession)
+                    listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
+                }, 80);
+              }}
+              onTouchStart={() => {
+                Keyboard.dismiss();
+                setFocused(false);
+                setPanel(null);
+                setMenuTarget(null);
+              }}
+              renderItem={({ item }) => {
+                const entry = selectionEntryFor(item.message);
+                const rowView = (
+                  <GroupMessageRow
+                    highlighted={highlightedMessageId === item.message.id}
+                    isMine={item.message.sender_id === user?.user_id}
+                    members={groupMembers}
+                    myAvatar={user?.avatar_url}
+                    myId={user?.user_id}
+                    imageUrls={imageUrls}
+                    loadMoreGalleryImages={loadMoreGalleryImages}
+                    onImageOpen={setImageSelection}
+                    onVideoOpen={setPreviewVideoUrl}
+                    messages={visibleMessages}
+                    onMenuRequested={openMessageMenu}
+                    onQuoteTap={(messageId) => void scrollToMessage(messageId)}
+                    recalledEditableText={recalledEditableTexts[item.message.id]}
+                    onReedit={(text) => {
+                      setDraft(text);
+                      setComposerFocusRequest((value) => value + 1);
+                    }}
+                    row={item}
+                    onRetry={retryMessage}
+                    onChatMoneyTap={(payload) =>
+                      setMoneyDetail({ payload, isSender: payload.sender_id === user?.user_id })
+                    }
+                    onForwardBundleTap={(bundleId) =>
+                      router.push({ pathname: "/forward-bundle/[id]", params: { id: bundleId } })
+                    }
+                    onMentionSender={(message) =>
+                      insertMentions(
+                        [
+                          {
+                            kind: "direct",
+                            user_id: message.sender_id,
+                            nickname: message.sender_nickname || message.sender_id,
+                          },
+                        ],
+                        null,
+                      )
+                    }
+                  />
+                );
+                if (selectionEntries === null) return rowView;
+                const selected = entry
+                  ? selectionEntries.some(
+                      (selectedEntry) => selectedEntry.reference === entry.reference,
+                    )
+                  : false;
+                return (
+                  <Pressable disabled={!entry} onPress={() => toggleMessageSelection(item.message)}>
+                    <View style={styles.selectionRow}>
+                      {entry ? <ChatSelectionIndicator selected={selected} /> : null}
+                      <View pointerEvents="none" style={styles.selectionRowContent}>
+                        {rowView}
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              }}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
             />
+          )}
+          {timelineLocator ? (
+            <View pointerEvents="box-none" style={styles.timelineLocatorHost}>
+              <ChatTimelineLocatorButton kind={timelineLocator} onPress={activateTimelineLocator} />
+            </View>
           ) : null}
-          <Composer
-            draft={draft}
-            focusRequest={composerFocusRequest}
-            isFocused={isFocused}
-            panel={panel}
-            onChooseMedia={() => void chooseMedia()}
-            onChooseGift={() => {
-              setPanel(null);
-              setShowGiftSheet(true);
-            }}
-            onChooseMoney={(kind) => {
-              setPanel(null);
-              setMoneyComposerKind(kind);
-            }}
-            onChooseCall={(callType) => {
-              setPanel(null);
-              void call.startGroupCall({ groupId, groupName: groupTitle }, callType);
-            }}
-            onDraftChange={editDraft}
-            onFocusChange={setFocused}
-            onPanelChange={setPanel}
-            onSelectionChange={setComposerSelection}
-            onSend={() => void send()}
-            onSendSticker={(pack, sticker) => void sendSticker(pack, sticker)}
-            onVoiceRecorded={sendVoice}
-            onVoiceRecordingStateChange={setVoiceRecordingState}
-            selection={composerSelection}
+        </View>
+        {selectionEntries !== null ? (
+          <ChatSelectionToolbar
+            count={selectionEntries.length}
+            onDelete={requestSelectionDelete}
+            onForward={requestSelectionForward}
+            showsForward
           />
-        </>
-      )}
-      <ImageGallery onClose={() => setImageSelection(null)} selection={imageSelection} />
-      <VideoPlayerOverlay onClose={() => setPreviewVideoUrl(null)} videoUrl={previewVideoUrl} />
-      <VoiceRecordingOverlay state={voiceRecordingState} />
-      {groupId > 0 && user?.user_id ? (
-        <ChatGiftPickerSheet
-          onClose={() => setShowGiftSheet(false)}
-          onOpenWallet={() => router.push("/wallet")}
-          onSend={(gift, recipient) => sendGift(gift.gift_id, recipient.id)}
-          onSendFailure={(message) => Alert.alert(t("gift.sendFailed"), message)}
-          ownerId={user.user_id}
-          source={giftRecipientSource}
-          visible={showGiftSheet}
+        ) : (
+          <>
+            {replyingTo ? (
+              <ChatReplyPreviewBar
+                onCancel={() => setReplyingTo(null)}
+                value={{
+                  senderName:
+                    replyingTo.sender_id === user?.user_id
+                      ? t("common.me")
+                      : replyingTo.sender_nickname,
+                  content: replyingTo.content,
+                  msgType: replyingTo.msg_type,
+                }}
+              />
+            ) : null}
+            <Composer
+              draft={draft}
+              focusRequest={composerFocusRequest}
+              isFocused={isFocused}
+              panel={panel}
+              onChooseMedia={() => void chooseMedia()}
+              onChooseGift={() => {
+                setPanel(null);
+                setShowGiftSheet(true);
+              }}
+              onChooseMoney={(kind) => {
+                setPanel(null);
+                setMoneyComposerKind(kind);
+              }}
+              onChooseCall={(callType) => {
+                setPanel(null);
+                setPendingGroupCallType(callType);
+              }}
+              onDraftChange={editDraft}
+              onFocusChange={setFocused}
+              onPanelChange={setPanel}
+              onSelectionChange={setComposerSelection}
+              onSend={() => void send()}
+              onSendSticker={(pack, sticker) => void sendSticker(pack, sticker)}
+              onVoiceRecorded={sendVoice}
+              onVoiceRecordingStateChange={setVoiceRecordingState}
+              selection={composerSelection}
+            />
+          </>
+        )}
+        <ImageGallery onClose={() => setImageSelection(null)} selection={imageSelection} />
+        <VideoPlayerOverlay onClose={() => setPreviewVideoUrl(null)} videoUrl={previewVideoUrl} />
+        <VoiceRecordingOverlay state={voiceRecordingState} />
+        {pendingGroupCallType ? (
+          <GroupCallMemberPicker
+            callType={pendingGroupCallType}
+            groupId={groupId}
+            initialMembers={groupMembers}
+            onClose={() => setPendingGroupCallType(null)}
+            onConfirm={(inviteeUserIds) => {
+              const callType = pendingGroupCallType;
+              setPendingGroupCallType(null);
+              void call.startGroupCall(
+                { groupId, groupName: groupTitle, inviteeUserIds },
+                callType,
+              );
+            }}
+          />
+        ) : null}
+        {groupId > 0 && user?.user_id ? (
+          <ChatGiftPickerSheet
+            onClose={() => setShowGiftSheet(false)}
+            onOpenWallet={() => router.push("/wallet")}
+            onSend={sendGift}
+            onSendFailure={(message) => Alert.alert(t("gift.sendFailed"), message)}
+            ownerId={user.user_id}
+            source={giftRecipientSource}
+            visible={showGiftSheet}
+          />
+        ) : null}
+        {groupId > 0 && user?.user_id && moneyComposerKind ? (
+          <ChatMoneyComposerModal
+            kind={moneyComposerKind}
+            onClose={() => setMoneyComposerKind(null)}
+            onCreated={(result) => {
+              const created = result.group_message;
+              if (!created) return;
+              const normalized = { ...created, group_id: groupId };
+              void saveGroupChatMessages(ownerId, groupId, [normalized]).then(() =>
+                publishLatestCachedGroupConversationPreview(ownerId, groupId, t),
+              );
+              if (activeSessionRef.current !== sessionKey) return;
+              setMessages((current) => {
+                const merged = mergeMessages(current, normalized);
+                messagesRef.current = merged;
+                return merged;
+              });
+            }}
+            onOpenWallet={() => {
+              setMoneyComposerKind(null);
+              router.push("/wallet");
+            }}
+            ownerId={user.user_id}
+            source={giftRecipientSource}
+            visible
+          />
+        ) : null}
+        {user?.user_id ? (
+          <ChatMoneyDetailModal
+            initialPayload={moneyDetail?.payload ?? null}
+            isSender={moneyDetail?.isSender ?? false}
+            onClose={() => setMoneyDetail(null)}
+            onOpenBillDetails={() => {
+              setMoneyDetail(null);
+              setTimeout(() => router.push("/wallet-transactions"), 200);
+            }}
+            onOpenWallet={() => {
+              setMoneyDetail(null);
+              setTimeout(() => router.push("/wallet"), 200);
+            }}
+            onResult={applyChatMoneyResult}
+            ownerAvatar={user.avatar_url}
+            ownerId={user.user_id}
+            ownerName={user.nickname}
+            visible={moneyDetail !== null}
+          />
+        ) : null}
+        <ForwardFlowModal
+          mode={forwardDraft?.mode ?? "single"}
+          onClose={() => setForwardDraft(null)}
+          onCompleted={() => {
+            setSelectionEntries(null);
+            setToastMessage(t("forward.sent"));
+          }}
+          preview={forwardDraft?.preview ?? ""}
+          sources={forwardDraft?.sources ?? []}
+          visible={forwardDraft !== null}
         />
-      ) : null}
-      {groupId > 0 && user?.user_id && moneyComposerKind ? (
-        <ChatMoneyComposerModal
-          kind={moneyComposerKind}
-          onClose={() => setMoneyComposerKind(null)}
-          onCreated={(result) => {
-            const created = result.group_message;
-            if (!created) return;
-            const normalized = { ...created, group_id: groupId };
-            void saveGroupChatMessages(ownerId, groupId, [normalized]).then(() =>
-              publishLatestCachedGroupConversationPreview(ownerId, groupId, t),
-            );
-            if (activeSessionRef.current !== sessionKey) return;
-            setMessages((current) => {
-              const merged = mergeMessages(current, normalized);
-              messagesRef.current = merged;
-              return merged;
-            });
-          }}
-          onOpenWallet={() => {
-            setMoneyComposerKind(null);
-            router.push("/wallet");
-          }}
-          ownerId={user.user_id}
-          source={giftRecipientSource}
-          visible
+        {showMentionPicker ? (
+          <ChatMentionPicker
+            allowsMentionAll={allowsMentionAll}
+            groupId={groupId}
+            initialMembers={mentionCandidates}
+            onClose={() => {
+              setShowMentionPicker(false);
+              setPendingMentionTriggerRange(null);
+            }}
+            onSelect={(selections) => insertMentions(selections)}
+          />
+        ) : null}
+        <ChatMessageActionOverlay
+          actions={menuTarget?.actions ?? []}
+          anchor={menuTarget?.anchor ?? null}
+          onDismiss={() => setMenuTarget(null)}
+          onSelect={(action) => void handleMenuAction(action)}
         />
-      ) : null}
-      {user?.user_id ? (
-        <ChatMoneyDetailModal
-          initialPayload={moneyDetail?.payload ?? null}
-          isSender={moneyDetail?.isSender ?? false}
-          onClose={() => setMoneyDetail(null)}
-          onOpenBillDetails={() => {
-            setMoneyDetail(null);
-            setTimeout(() => router.push("/wallet-transactions"), 200);
-          }}
-          onOpenWallet={() => {
-            setMoneyDetail(null);
-            setTimeout(() => router.push("/wallet"), 200);
-          }}
-          onResult={applyChatMoneyResult}
-          ownerAvatar={user.avatar_url}
-          ownerId={user.user_id}
-          ownerName={user.nickname}
-          visible={moneyDetail !== null}
-        />
-      ) : null}
-      <ForwardFlowModal
-        mode={forwardDraft?.mode ?? "single"}
-        onClose={() => setForwardDraft(null)}
-        onCompleted={() => {
-          setSelectionEntries(null);
-          setToastMessage(t("forward.sent"));
-        }}
-        preview={forwardDraft?.preview ?? ""}
-        sources={forwardDraft?.sources ?? []}
-        visible={forwardDraft !== null}
-      />
-      <ChatMediaPickerPreview
-        items={pendingMediaAssets}
-        onCancel={() => setPendingMediaAssets([])}
-        onChange={setPendingMediaAssets}
-        onSend={(items) => void chooseMedia(items)}
-        visible={pendingMediaAssets.length > 0}
-      />
-      {showMentionPicker ? (
-        <ChatMentionPicker
-          allowsMentionAll={allowsMentionAll}
-          groupId={groupId}
-          initialMembers={mentionCandidates}
-          onClose={() => {
-            setShowMentionPicker(false);
-            setPendingMentionTriggerRange(null);
-          }}
-          onSelect={(selections) => insertMentions(selections)}
-        />
-      ) : null}
-      <ChatMessageActionOverlay
-        actions={menuTarget?.actions ?? []}
-        anchor={menuTarget?.anchor ?? null}
-        onDismiss={() => setMenuTarget(null)}
-        onSelect={(action) => void handleMenuAction(action)}
-      />
-      <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
-    </ChatKeyboardAvoidingView>
+        <TopToast message={toastMessage} onDismiss={() => setToastMessage(null)} />
+      </ChatKeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -2383,6 +2412,7 @@ function GroupMessageRow({
   row,
   highlighted,
   isMine,
+  members,
   myAvatar,
   myId,
   imageUrls,
@@ -2402,6 +2432,7 @@ function GroupMessageRow({
   row: TimelineRow;
   highlighted: boolean;
   isMine: boolean;
+  members: GroupMember[];
   myAvatar: string | undefined;
   myId: string | undefined;
   imageUrls: string[];
@@ -2509,6 +2540,7 @@ function GroupMessageRow({
                 imageUrls={imageUrls}
                 isMine={isMine}
                 loadMoreGalleryImages={loadMoreGalleryImages}
+                members={members}
                 message={message}
                 myAvatar={myAvatar}
                 myId={myId}
@@ -2540,6 +2572,7 @@ function MessageContent({
   isMine,
   imageUrls,
   loadMoreGalleryImages,
+  members,
   onImageOpen,
   onVideoOpen,
   onChatMoneyTap,
@@ -2551,6 +2584,7 @@ function MessageContent({
   isMine: boolean;
   imageUrls: string[];
   loadMoreGalleryImages: () => Promise<string[]>;
+  members: GroupMember[];
   onImageOpen: (selection: ImageGallerySelection) => void;
   onVideoOpen: (url: string) => void;
   onChatMoneyTap: (payload: ChatMoneyPayload) => void;
@@ -2621,12 +2655,25 @@ function MessageContent({
   }
   const giftPayload = parseGiftMessagePayload(message.content);
   if (giftPayload) {
+    const recipientId = giftPayload.recipient_id?.trim() || "";
+    const recipientMember = members.find((member) => member.user_id === recipientId);
+    const cachedRecipient = recipientId ? peekCachedUserInfo(recipientId) : undefined;
+    const recipientAvatar =
+      recipientId === myId
+        ? myAvatar
+        : recipientMember?.avatar_url || cachedRecipient?.avatar_url;
+    const recipientName =
+      recipientMember?.group_nickname ||
+      recipientMember?.nickname ||
+      cachedRecipient?.nickname ||
+      t("group.member");
     return (
       <ChatGiftBubble
         isFromMe={isMine}
         payload={giftPayload}
-        recipientAvatarFallback={giftPayload.recipient_id === myId ? myAvatar : undefined}
-        recipientFallback={t("group.member")}
+        recipientAvatarFallback={recipientAvatar}
+        recipientFallback={recipientName}
+        recipientIdFallback={recipientId || undefined}
       />
     );
   }
@@ -3172,6 +3219,7 @@ function groupMessageFromDraftQuote(quote: ChatDraftQuote, groupId: number): Gro
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  chatContent: { flex: 1 },
   timelineSurface: { flex: 1 },
   backgroundLayer: { position: "absolute", inset: 0 },
   list: { paddingHorizontal: 12, paddingVertical: 8, rowGap: 4 },

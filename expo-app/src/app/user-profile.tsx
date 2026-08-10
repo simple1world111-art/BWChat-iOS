@@ -1,19 +1,19 @@
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -33,7 +33,14 @@ import {
 } from "@/components/profile/PublicProfileContent";
 import { TopToast } from "@/components/TopToast";
 import { env } from "@/config/env";
-import type { FollowUser, PublicProfile, User } from "@/models";
+import type {
+  AgentSummary,
+  FollowUser,
+  PublicProfile,
+  ShortDramaSeries,
+  ShortDramaVideo,
+  User,
+} from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import {
@@ -355,6 +362,48 @@ function UserProfileAccountScreen({
   };
 
   const isMe = targetId === ownerId;
+  const viewer = useMemo(
+    () => ({
+      user_id: ownerId,
+      nickname: currentUser?.nickname ?? "",
+      avatar_url: currentUser?.avatar_url ?? "",
+    }),
+    [currentUser?.avatar_url, currentUser?.nickname, ownerId],
+  );
+  const openAgent = useCallback(
+    async (agent: AgentSummary) => {
+      const conversation = await resolveAgentConversation(agent, ownerId);
+      const avatarId =
+        conversation.agent_profile.avatar_asset_id ||
+        agent.avatar_asset_id ||
+        agent.profile?.avatar_asset_id ||
+        "";
+      router.push({
+        pathname: "/agent-chat",
+        params: {
+          conversationId: conversation.id,
+          agentId: conversation.agent_id || agent.id,
+          name: conversation.agent_profile.name || agent.profile?.name || "智能体",
+          avatarId,
+        },
+      });
+    },
+    [ownerId],
+  );
+  const openShortDrama = useCallback(
+    (series: ShortDramaSeries, episode?: ShortDramaVideo) =>
+      router.push({
+        pathname: "/short-drama-player",
+        params: {
+          seriesId: series.series_id,
+          ...(episode?.id || series.resume_episode_id
+            ? { episodeId: episode?.id || series.resume_episode_id }
+            : {}),
+          initialPosition: String(episode ? 0 : series.resume_position_seconds),
+        },
+      }),
+    [],
+  );
 
   return (
     <View style={styles.screen}>
@@ -366,30 +415,20 @@ function UserProfileAccountScreen({
           headerStyle: { backgroundColor: colors.card },
           headerTintColor: colors.text,
           headerLeft: () => (
-            <View style={styles.navigationTitle}>
-              <Pressable
-                accessibilityLabel={t("common.back")}
-                accessibilityRole="button"
-                hitSlop={4}
-                onPress={() => router.back()}
-                style={styles.backButton}
-              >
-                <SymbolView
-                  name="chevron.left"
-                  size={userProfileMetrics.navigation.symbol}
-                  weight="semibold"
-                  tintColor={colors.text}
-                />
-              </Pressable>
-              <Text
-                adjustsFontSizeToFit
-                minimumFontScale={userProfileMetrics.navigation.titleMinimumScale}
-                numberOfLines={1}
-                style={styles.navigationName}
-              >
-                {profile?.nickname.trim() ? profile.nickname : t("profile.public.title")}
-              </Text>
-            </View>
+            <Pressable
+              accessibilityLabel={t("common.back")}
+              accessibilityRole="button"
+              hitSlop={4}
+              onPress={() => router.back()}
+              style={styles.backButton}
+            >
+              <SymbolView
+                name="chevron.left"
+                size={userProfileMetrics.navigation.symbol}
+                weight="semibold"
+                tintColor={colors.text}
+              />
+            </Pressable>
           ),
           headerRight: () => (
             <Pressable
@@ -486,9 +525,6 @@ function UserProfileAccountScreen({
               <Suggestions
                 excludeUserId={profile.user_id}
                 isLoading={isLoadingSuggestions}
-                onDismiss={(userId) =>
-                  setSuggestions((current) => current.filter((item) => item.user_id !== userId))
-                }
                 onToggle={(item) => void toggleSuggestion(item)}
                 suggestions={suggestions}
                 updatingIds={updatingSuggestionIds}
@@ -589,46 +625,15 @@ function UserProfileAccountScreen({
               !(selectedTab === "moments" && profile?.is_private && !profile.can_view_moments)
             }
             key={`${ownerId}:${targetId}`}
-            onOpenAgent={async (agent) => {
-              const conversation = await resolveAgentConversation(agent, ownerId);
-              const avatarId =
-                conversation.agent_profile.avatar_asset_id ||
-                agent.avatar_asset_id ||
-                agent.profile?.avatar_asset_id ||
-                "";
-              router.push({
-                pathname: "/agent-chat",
-                params: {
-                  conversationId: conversation.id,
-                  agentId: conversation.agent_id || agent.id,
-                  name: conversation.agent_profile.name || agent.profile?.name || "智能体",
-                  avatarId,
-                },
-              });
-            }}
-            onOpenShortDrama={(series, episode) =>
-              router.push({
-                pathname: "/short-drama-player",
-                params: {
-                  seriesId: series.series_id,
-                  ...(episode?.id || series.resume_episode_id
-                    ? { episodeId: episode?.id || series.resume_episode_id }
-                    : {}),
-                  initialPosition: String(episode ? 0 : series.resume_position_seconds),
-                },
-              })
-            }
+            onOpenAgent={openAgent}
+            onOpenShortDrama={openShortDrama}
             onMomentCountChange={setLoadedMomentCount}
             onToast={setToastMessage}
             ownerId={ownerId}
             ref={contentRef}
             tab={selectedTab}
             targetId={targetId}
-            viewer={{
-              user_id: ownerId,
-              nickname: currentUser?.nickname ?? "",
-              avatar_url: currentUser?.avatar_url ?? "",
-            }}
+            viewer={viewer}
           />
         </View>
       </ScrollView>
@@ -828,14 +833,12 @@ function Suggestions({
   isLoading,
   suggestions,
   updatingIds,
-  onDismiss,
   onToggle,
 }: {
   excludeUserId: string;
   isLoading: boolean;
   suggestions: FollowUser[];
   updatingIds: ReadonlySet<string>;
-  onDismiss: (userId: string) => void;
   onToggle: (user: FollowUser) => void;
 }) {
   const { t } = useLocalization();
@@ -890,9 +893,6 @@ function Suggestions({
                   <Text numberOfLines={1} style={styles.suggestionName}>
                     {item.nickname}
                   </Text>
-                  <Text numberOfLines={1} style={styles.suggestionId}>
-                    {item.username.trim() ? item.username : `#${item.user_id}`}
-                  </Text>
                 </View>
               </Pressable>
               <Pressable
@@ -913,20 +913,6 @@ function Suggestions({
                 >
                   {t(item.followed_by_me ? "follow.followingButton" : "follow.followButton")}
                 </Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel={t("common.close")}
-                accessibilityRole="button"
-                hitSlop={4}
-                onPress={() => onDismiss(item.user_id)}
-                style={styles.dismissSuggestion}
-              >
-                <SymbolView
-                  name="xmark"
-                  size={userProfileMetrics.suggestions.dismissSymbol}
-                  weight="semibold"
-                  tintColor={colors.text}
-                />
               </Pressable>
             </View>
           ))}
@@ -1109,22 +1095,11 @@ function formatCount(value: number) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.card },
   content: { flexGrow: 1, paddingBottom: userProfileMetrics.content.bottomInset },
-  navigationTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    columnGap: userProfileMetrics.navigation.gap,
-  },
   backButton: {
     width: userProfileMetrics.navigation.button,
     height: userProfileMetrics.navigation.button,
     alignItems: "center",
     justifyContent: "center",
-  },
-  navigationName: {
-    maxWidth: userProfileMetrics.navigation.titleMaxWidth,
-    color: colors.text,
-    fontSize: userProfileMetrics.navigation.title,
-    fontWeight: "700",
   },
   profileLoading: { marginTop: userProfileMetrics.content.topStateInset },
   header: {
@@ -1303,12 +1278,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
-  suggestionId: {
-    width: "100%",
-    color: colors.secondaryText,
-    fontSize: userProfileMetrics.suggestions.id,
-    textAlign: "center",
-  },
   suggestionFollow: {
     height: userProfileMetrics.suggestions.followHeight,
     borderRadius: userProfileMetrics.suggestions.followRadius,
@@ -1318,15 +1287,6 @@ const styles = StyleSheet.create({
   suggestionFollowText: {
     fontSize: userProfileMetrics.suggestions.followTitle,
     fontWeight: "700",
-  },
-  dismissSuggestion: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: userProfileMetrics.suggestions.dismiss,
-    height: userProfileMetrics.suggestions.dismiss,
-    alignItems: "center",
-    justifyContent: "center",
   },
   highlights: {
     paddingHorizontal: userProfileMetrics.highlights.horizontalInset,

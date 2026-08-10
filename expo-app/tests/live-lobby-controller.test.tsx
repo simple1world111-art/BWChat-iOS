@@ -93,6 +93,35 @@ describe("useLiveLobby account and tab lifecycle", () => {
     await restored.unmount();
   });
 
+  it("keeps the current live slot for controls but excludes it from chatted participants", async () => {
+    const ownSlot = slot("own-live-slot", "owner-a");
+    mockGetCurrent.mockResolvedValue(ownSlot);
+    mockGetSlots.mockResolvedValue({
+      ...page("chatted-slot", "chatted-user"),
+      items: [slot("chatted-slot", "chatted-user"), ownSlot],
+    });
+
+    const hook = await renderHook(() => useLiveLobby("owner-a", "chatted"));
+    await act(async () => hook.result.current.refresh("chatted"));
+
+    expect(hook.result.current.currentSlot).toEqual(ownSlot);
+    expect(hook.result.current.participants).toEqual([
+      expect.objectContaining({
+        id: "chatted-slot",
+        hasChatted: true,
+        isCurrentUser: false,
+      }),
+    ]);
+    await hook.unmount();
+
+    const restored = await renderHook(() => useLiveLobby("owner-a", "chatted"));
+    expect(restored.result.current.currentSlot).toEqual(ownSlot);
+    expect(restored.result.current.participants).toEqual([
+      expect.objectContaining({ id: "chatted-slot", isCurrentUser: false }),
+    ]);
+    await restored.unmount();
+  });
+
   it("invalidates a pending start mutation and heartbeat when its account screen unmounts", async () => {
     const creation = deferred<ReturnType<typeof slot>>();
     mockCreateSlot.mockReturnValueOnce(creation.promise);

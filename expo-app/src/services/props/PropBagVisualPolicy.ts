@@ -20,7 +20,51 @@ export const propBagMetrics = {
   detailHeaderRadius: 22,
   transactionStateHeight: 220,
   transactionPageSize: 20,
+  popoverWidth: 262,
+  popoverEdgeInset: 12,
+  popoverArrowGap: 10,
+  popoverArrowSize: 8,
 } as const;
+
+export interface PropBagAnchorRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PropBagPopoverPlacement {
+  arrowDirection: "up" | "down";
+  arrowLeft: number;
+  left: number;
+  top: number;
+  width: number;
+}
+
+export function propBagPopoverPlacement(
+  anchor: PropBagAnchorRect,
+  viewport: { width: number; height: number },
+  popoverHeight: number,
+): PropBagPopoverPlacement {
+  const edge = propBagMetrics.popoverEdgeInset;
+  const gap = propBagMetrics.popoverArrowGap;
+  const arrowSize = propBagMetrics.popoverArrowSize;
+  const width = Math.min(propBagMetrics.popoverWidth, Math.max(0, viewport.width - edge * 2));
+  const height = Math.max(1, popoverHeight);
+  const anchorCenter = anchor.x + anchor.width / 2;
+  const left = clamp(anchorCenter - width / 2, edge, viewport.width - width - edge);
+  const belowTop = anchor.y + anchor.height + gap;
+  const aboveTop = anchor.y - height - gap;
+  const showAbove = belowTop + height > viewport.height - edge && aboveTop >= edge;
+  const top = clamp(showAbove ? aboveTop : belowTop, edge, viewport.height - height - edge);
+  return {
+    arrowDirection: showAbove ? "down" : "up",
+    arrowLeft: clamp(anchorCenter - left - arrowSize, edge, width - edge - arrowSize * 2),
+    left,
+    top,
+    width,
+  };
+}
 
 export function propBagPalette(scheme: ColorSchemeName) {
   const dark = scheme === "dark";
@@ -35,4 +79,8 @@ export function propBagPalette(scheme: ColorSchemeName) {
     accentSoft: "rgba(102,126,234,0.12)",
     warning: "#FF9500",
   } as const;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(value, Math.max(minimum, maximum)));
 }

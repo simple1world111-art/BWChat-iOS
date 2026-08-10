@@ -52,10 +52,15 @@ describe("ScriptCenterView source parity", () => {
     expect(page).toContain("numColumns={scriptCenterMetrics.gridColumns}");
     expect(page).toContain('testID="script-center-list"');
     expect(page).toContain('headerBackButtonDisplayMode: "minimal"');
-    expect(page).toContain('gridRow: { alignItems: "center"');
+    expect(page).toContain('gridRow: { alignItems: "stretch"');
     expect(page).toContain("<ScriptCover key={script.cover_url}");
-    expect(page).toContain("scriptCoverAspectRatio(event.source.width, event.source.height)");
-    expect(page).toContain("{...(onLoad ? { onLoad } : {})}");
+    expect(page).toContain("aspectRatio: scriptCenterMetrics.coverAspectRatio");
+    expect(page).toContain("style={[styles.cardCell, { width: cardWidth }]}");
+    expect(page).toContain("categoryScroller: { flexGrow: 0, flexShrink: 0, minHeight: 57 }");
+    expect(page).toContain("const ScriptCardCell = memo");
+    expect(page).toContain("renderItem={renderScript}");
+    expect(page).toContain("maxToRenderPerBatch={6}");
+    expect(page).toContain("numberOfLines={1}");
     expect(page).toContain("lineHeight: 16");
     expect(policy).toContain("segmentedWidth: 196");
     expect(policy).toContain("gridColumns: 2");
@@ -127,8 +132,10 @@ describe("ScriptCenterView source parity", () => {
   it("locks immediate selection clearing, manual refresh chrome and VoiceOver semantics", () => {
     const page = expo("src/app/script-center.tsx");
     expect(page).toContain("scriptsRef.current = []");
-    expect(page).toContain("selectionLoadInFlightRef.current");
-    expect(page).toContain("queuedSelectionLoadRef.current = run");
+    expect(page).not.toContain("selectionLoadInFlightRef.current");
+    expect(page).not.toContain("queuedSelectionLoadRef.current");
+    expect(page).toContain("hasScheduledInitialSelectionLoadRef.current");
+    expect(page).toContain("requestAnimationFrame(work)");
     expect(page).toContain("refreshing={isManualRefreshing}");
     expect(page).toContain('headerBackTitle: t("common.back")');
     expect(page).toContain('headerBackButtonDisplayMode: "minimal"');

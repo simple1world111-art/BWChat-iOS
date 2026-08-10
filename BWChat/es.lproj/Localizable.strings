@@ -12,7 +12,11 @@
 "tab.contacts" = "Contactos";
 "tab.discover" = "Descubrir";
 "tab.map" = "Mapa";
+"tab.test" = "Prueba";
 "tab.profile" = "Yo";
+
+"test.card.title" = "Tarjeta de prueba";
+"test.card.subtitle" = "Toca para verificar la actualización Preview";
 
 "language.title" = "Idioma";
 "language.option.system" = "Seguir sistema";
@@ -1083,6 +1087,9 @@
 "wallet.error.activityCatFoodDisabled" = "La Comida para Gatos está desactivada";
 "live.billing.chargedActivityCatFood" = "Comida para Gatos gastada: %d";
 "live.billing.chargedGoldCoins" = "Monedas de Oro gastadas: %d";
+"live.billing.earnedActivityCatFood" = "Comida para Gatos obtenida: %d";
+"live.billing.awaitingBreakdown" = "Esperando el desglose del servidor";
+"live.billing.awaitingEarnings" = "Esperando la liquidación de ganancias";
 "live.billing.totalCharged" = "Total gastado: %d";
 "live.billing.balanceAfter" = "Después: %d monedas · %d comida · %d disponible";
 "live.billing.earnedGoldCoins" = "Monedas de Oro ganadas: %d";

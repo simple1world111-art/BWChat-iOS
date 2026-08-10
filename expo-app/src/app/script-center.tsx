@@ -1,19 +1,19 @@
 import { LinearGradient } from "expo-linear-gradient";
-import type { ImageLoadEventData } from "expo-image";
 import { router, Stack, useFocusEffect, type NativeStackNavigationOptions } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
+  useWindowDimensions,
   View,
+  type ListRenderItemInfo,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { getScriptCategories, getScripts } from "@/api/bwchat";
 import { trimFoundationWhitespacesAndNewlines } from "@/api/normalizers";
@@ -35,7 +35,6 @@ import {
   appendUniqueScripts,
   scriptBadgeText,
   scriptCenterMetrics,
-  scriptCoverAspectRatio,
   scriptText,
 } from "@/services/scripts/scriptCenterPolicy";
 import { palette } from "@/theme";
@@ -47,18 +46,12 @@ import {
   writeNavigationSnapshot,
 } from "@/services/navigation/NavigationSnapshotCache";
 
-const skeletons = Array.from({ length: scriptCenterMetrics.skeletonCount }, (_, index) => ({
-  script_id: `placeholder-${index}`,
-  title: "Placeholder",
-  synopsis: "Placeholder synopsis for loading state.",
-  cover_url: "",
-  category_ids: [],
-  visibility: "public" as const,
-  status: "ready" as const,
-  creator: { user_id: "", nickname: "Creator", avatar_url: "" },
-  roles: [],
-  is_admin_hidden: false,
-}));
+interface ScriptSelectionSnapshot {
+  scripts: InteractiveScript[];
+  nextCursor?: string | undefined;
+  hasMore: boolean;
+  hasResolved: boolean;
+}
 
 interface ScriptCenterNavigationSnapshot {
   scope: ScriptScope;
@@ -67,6 +60,8 @@ interface ScriptCenterNavigationSnapshot {
   scripts: InteractiveScript[];
   nextCursor?: string | undefined;
   hasMore: boolean;
+  hasResolvedSelection?: boolean | undefined;
+  pages?: Record<string, ScriptSelectionSnapshot> | undefined;
 }
 
 export default function ScriptCenterScreen() {
@@ -80,35 +75,68 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
   const scheme = useColorScheme();
   const theme = palette(scheme);
   const styles = useMemo(() => makeStyles(scheme), [scheme]);
+  const { width: viewportWidth } = useWindowDimensions();
+  const cardWidth = Math.max(
+    1,
+    (viewportWidth - scriptCenterMetrics.gridHorizontalInset * 2 - scriptCenterMetrics.gridGap) /
+      scriptCenterMetrics.gridColumns,
+  );
   const [navigationSnapshot] = useState(() =>
     readNavigationSnapshot<ScriptCenterNavigationSnapshot>("script-center", ownerId),
   );
-  const [scope, setScope] = useState<ScriptScope>(navigationSnapshot?.scope ?? "public");
+  const initialScope = navigationSnapshot?.scope ?? "public";
+  const initialCategoryId = navigationSnapshot?.selectedCategoryId;
+  const initialPages = restoreSelectionSnapshots(navigationSnapshot);
+  const initialPage = initialPages[scriptSelectionKey(initialScope, initialCategoryId)];
+  const [scope, setScope] = useState<ScriptScope>(initialScope);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(
-    navigationSnapshot?.selectedCategoryId,
+    initialCategoryId,
   );
   const [categories, setCategories] = useState<ScriptCategory[]>(
     navigationSnapshot?.categories ?? [],
   );
-  const [scripts, setScripts] = useState<InteractiveScript[]>(navigationSnapshot?.scripts ?? []);
-  const [nextCursor, setNextCursor] = useState<string | undefined>(navigationSnapshot?.nextCursor);
-  const [hasMore, setHasMore] = useState(navigationSnapshot?.hasMore ?? false);
-  const [isLoading, setLoading] = useState(false);
-  const [isLoadingMore, setLoadingMore] = useState(false);
+  const [scripts, setScripts] = useState<InteractiveScript[]>(initialPage?.scripts ?? []);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(initialPage?.nextCursor);
+  const [hasMore, setHasMore] = useState(initialPage?.hasMore ?? false);
+  const [hasResolvedSelection, setHasResolvedSelection] = useState(
+    initialPage?.hasResolved ?? false,
+  );
+  const [isLoading, setLoading] = useState(Boolean(ownerId && !hasResolvedSelection));
   const [isManualRefreshing, setManualRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const selectionRef = useRef({ ownerId, scope, categoryId: selectedCategoryId });
   const categoriesRef = useRef(categories);
   const scriptsRef = useRef(scripts);
+  const selectionSnapshotsRef = useRef(initialPages);
   const loadTokenRef = useRef(0);
   const paginationGenerationRef = useRef(0);
   const paginationInFlightRef = useRef(false);
-  const selectionLoadInFlightRef = useRef(false);
-  const queuedSelectionLoadRef = useRef<(() => Promise<void>) | null>(null);
   const manualRefreshInFlightRef = useRef(false);
   const activeRef = useRef(true);
+  const hasResolvedSelectionRef = useRef(hasResolvedSelection);
   const hasFocusedRef = useRef(false);
   const skipNextSelectionEffectRef = useRef(false);
+  const hasScheduledInitialSelectionLoadRef = useRef(false);
+
+  const resolveSelection = useCallback(() => {
+    if (hasResolvedSelectionRef.current) return;
+    hasResolvedSelectionRef.current = true;
+    setHasResolvedSelection(true);
+  }, []);
+
+  const restoreSelection = useCallback((nextScope: ScriptScope, nextCategoryId?: string) => {
+    const restored = selectionSnapshotsRef.current[scriptSelectionKey(nextScope, nextCategoryId)];
+    const nextScripts = restored?.scripts ?? [];
+    const resolved = restored?.hasResolved ?? false;
+    scriptsRef.current = nextScripts;
+    hasResolvedSelectionRef.current = resolved;
+    setScripts(nextScripts);
+    setHasMore(restored?.hasMore ?? false);
+    setNextCursor(restored?.nextCursor);
+    setHasResolvedSelection(resolved);
+    setLoading(!resolved);
+    setErrorMessage(null);
+  }, []);
 
   useEffect(() => {
     activeRef.current = true;
@@ -117,7 +145,6 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       loadTokenRef.current += 1;
       paginationGenerationRef.current += 1;
       paginationInFlightRef.current = false;
-      queuedSelectionLoadRef.current = null;
       manualRefreshInFlightRef.current = false;
     };
   }, []);
@@ -131,6 +158,16 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
     selectionRef.current = { ownerId, scope, categoryId: selectedCategoryId };
   }, [ownerId, scope, selectedCategoryId]);
   useEffect(() => {
+    const page: ScriptSelectionSnapshot = {
+      scripts,
+      nextCursor,
+      hasMore,
+      hasResolved: hasResolvedSelection,
+    };
+    selectionSnapshotsRef.current = {
+      ...selectionSnapshotsRef.current,
+      [scriptSelectionKey(scope, selectedCategoryId)]: page,
+    };
     writeNavigationSnapshot<ScriptCenterNavigationSnapshot>("script-center", ownerId, {
       scope,
       selectedCategoryId,
@@ -138,8 +175,19 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       scripts,
       nextCursor,
       hasMore,
+      hasResolvedSelection,
+      pages: selectionSnapshotsRef.current,
     });
-  }, [categories, hasMore, nextCursor, ownerId, scope, scripts, selectedCategoryId]);
+  }, [
+    categories,
+    hasMore,
+    hasResolvedSelection,
+    nextCursor,
+    ownerId,
+    scope,
+    scripts,
+    selectedCategoryId,
+  ]);
 
   const text = useCallback(
     (chinese: string, english: string) => scriptText(selectedLanguage, chinese, english),
@@ -153,15 +201,10 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       paginationGenerationRef.current += 1;
       paginationInFlightRef.current = false;
       selectionRef.current = { ownerId, scope: value, categoryId: selectedCategoryId };
-      scriptsRef.current = [];
-      setScripts([]);
-      setHasMore(false);
-      setNextCursor(undefined);
-      setErrorMessage(null);
-      setLoading(true);
+      restoreSelection(value, selectedCategoryId);
       setScope(value);
     },
-    [ownerId, scope, selectedCategoryId],
+    [ownerId, restoreSelection, scope, selectedCategoryId],
   );
 
   const selectCategory = useCallback(
@@ -171,15 +214,10 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       paginationGenerationRef.current += 1;
       paginationInFlightRef.current = false;
       selectionRef.current = { ownerId, scope, categoryId };
-      scriptsRef.current = [];
-      setScripts([]);
-      setHasMore(false);
-      setNextCursor(undefined);
-      setErrorMessage(null);
-      setLoading(true);
+      restoreSelection(scope, categoryId);
       setSelectedCategoryId(categoryId);
     },
-    [ownerId, scope, selectedCategoryId],
+    [ownerId, restoreSelection, scope, selectedCategoryId],
   );
 
   const loadCategories = useCallback(
@@ -229,7 +267,8 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       paginationInFlightRef.current = false;
       const requestedScope = scope;
       let requestedCategoryId = selectedCategoryId;
-      setLoading(true);
+      let hasPresentationSnapshot = hasResolvedSelectionRef.current;
+      setLoading(!hasPresentationSnapshot);
       setErrorMessage(null);
       try {
         if (options.reloadCategories) {
@@ -250,6 +289,8 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
               categoryId: undefined,
             };
             skipNextSelectionEffectRef.current = true;
+            restoreSelection(requestedScope, undefined);
+            hasPresentationSnapshot = hasResolvedSelectionRef.current;
             setSelectedCategoryId(undefined);
           }
         }
@@ -264,13 +305,14 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
           !sameSelection(selectionRef.current, ownerId, requestedScope, requestedCategoryId)
         )
           return;
-        if (cached) {
+        if (cached && !hasPresentationSnapshot) {
           const page = cached.value;
           scriptsRef.current = page.scripts;
           setScripts(page.scripts);
           setHasMore(page.has_more);
           setNextCursor(page.next_cursor);
-        } else if (!options.force) {
+          resolveSelection();
+        } else if (!cached && !options.force && !hasPresentationSnapshot) {
           scriptsRef.current = [];
           setScripts([]);
           setHasMore(false);
@@ -292,6 +334,7 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
           setScripts(remote.scripts);
           setHasMore(remote.has_more);
           setNextCursor(remote.next_cursor);
+          resolveSelection();
           await saveCachedScriptPage(
             ownerId,
             requestedScope,
@@ -305,45 +348,29 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
             activeRef.current &&
             token === loadTokenRef.current &&
             sameSelection(selectionRef.current, ownerId, requestedScope, requestedCategoryId) &&
-            !cached
+            !cached &&
+            !hasPresentationSnapshot
           ) {
             setErrorMessage(readableError(error, text("请求失败，请稍后重试", "Request failed")));
           }
         }
       } finally {
-        if (activeRef.current && token === loadTokenRef.current) setLoading(false);
+        if (activeRef.current && token === loadTokenRef.current) {
+          resolveSelection();
+          setLoading(false);
+        }
       }
     },
-    [loadCategories, ownerId, scope, selectedCategoryId, text],
+    [loadCategories, ownerId, resolveSelection, restoreSelection, scope, selectedCategoryId, text],
   );
 
   const loadSelection = useCallback(
-    async (
+    (
       options: {
         force?: boolean;
         reloadCategories?: boolean;
       } = {},
-    ) => {
-      const run = () => runSelectionLoad(options);
-      if (selectionLoadInFlightRef.current) {
-        // Swift serializes reset loads with isLoading and, after a selection
-        // changes, schedules only the latest scope/category once the old load exits.
-        queuedSelectionLoadRef.current = run;
-        return;
-      }
-      selectionLoadInFlightRef.current = true;
-      let next: (() => Promise<void>) | null = run;
-      try {
-        while (next && activeRef.current) {
-          queuedSelectionLoadRef.current = null;
-          await next();
-          next = queuedSelectionLoadRef.current;
-        }
-      } finally {
-        selectionLoadInFlightRef.current = false;
-        queuedSelectionLoadRef.current = null;
-      }
-    },
+    ) => runSelectionLoad(options),
     [runSelectionLoad],
   );
 
@@ -356,7 +383,6 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
     const generation = ++paginationGenerationRef.current;
     const cacheGeneration = scriptCatalogGeneration(ownerId);
     paginationInFlightRef.current = true;
-    setLoadingMore(true);
     setErrorMessage(null);
     try {
       const page = await getScripts(requestedScope, {
@@ -390,7 +416,6 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
     } finally {
       if (generation === paginationGenerationRef.current) {
         paginationInFlightRef.current = false;
-        if (activeRef.current) setLoadingMore(false);
       }
     }
   }, [hasMore, isLoading, nextCursor, ownerId, scope, selectedCategoryId]);
@@ -412,12 +437,17 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       skipNextSelectionEffectRef.current = false;
       return;
     }
-    const cancel = runAfterNavigationInteractions(
-      () => void loadSelection({ reloadCategories: categories.length === 0 }),
-    );
+    const work = () => void loadSelection({ reloadCategories: categories.length === 0 });
+    if (!hasScheduledInitialSelectionLoadRef.current) {
+      hasScheduledInitialSelectionLoadRef.current = true;
+      return runAfterNavigationInteractions(work);
+    }
+    const frame = requestAnimationFrame(work);
     // Categories are intentionally not a dependency: a cache/remote category write
     // must not restart the selected-page request.
-    return cancel;
+    return () => {
+      cancelAnimationFrame(frame);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId, scope, selectedCategoryId]);
 
@@ -440,8 +470,19 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
     }, []),
   );
 
-  const displayedScripts = isLoading && scripts.length === 0 ? skeletons : scripts;
-  const showSkeletons = isLoading && scripts.length === 0;
+  const awaitingFirstSnapshot = isLoading && !hasResolvedSelection;
+  const renderScript = useCallback(
+    ({ item }: ListRenderItemInfo<InteractiveScript>) => (
+      <ScriptCardCell
+        cardWidth={cardWidth}
+        item={item}
+        ownerId={ownerId}
+        selectedLanguage={selectedLanguage}
+        styles={styles}
+      />
+    ),
+    [cardWidth, ownerId, selectedLanguage, styles],
+  );
   const headerOptions = useMemo<NativeStackNavigationOptions>(
     () => ({
       title: "",
@@ -485,20 +526,23 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
         contentContainerStyle={styles.categories}
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.categoryScroller}
       >
         <CategoryPill
+          categoryId={undefined}
+          onSelect={selectCategory}
           selected={selectedCategoryId === undefined}
           styles={styles}
           title={text("全部", "All")}
-          onPress={() => selectCategory(undefined)}
         />
         {categories.map((category) => (
           <CategoryPill
             key={category.id}
+            categoryId={category.id}
+            onSelect={selectCategory}
             selected={selectedCategoryId === category.id}
             styles={styles}
             title={category.name}
-            onPress={() => selectCategory(category.id)}
           />
         ))}
       </ScrollView>
@@ -506,26 +550,30 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
       <FlatList
         testID="script-center-list"
         columnWrapperStyle={styles.gridRow}
-        contentContainerStyle={[styles.grid, displayedScripts.length === 0 && styles.emptyGrid]}
-        data={displayedScripts}
+        contentContainerStyle={[styles.grid, scripts.length === 0 && styles.emptyGrid]}
+        data={scripts}
+        initialNumToRender={6}
         keyExtractor={(script) => script.script_id}
+        maxToRenderPerBatch={6}
         numColumns={scriptCenterMetrics.gridColumns}
         ListEmptyComponent={
-          <ScriptCenterEmpty
-            error={errorMessage}
-            onRetry={() => void manualRefresh()}
-            scope={scope}
-            styles={styles}
-            text={text}
-          />
+          awaitingFirstSnapshot ? (
+            <View />
+          ) : (
+            <ScriptCenterEmpty
+              error={errorMessage}
+              onRetry={() => void manualRefresh()}
+              scope={scope}
+              styles={styles}
+              text={text}
+            />
+          )
         }
-        ListFooterComponent={
-          isLoadingMore ? <ActivityIndicator color={theme.accent} style={styles.loadMore} /> : null
-        }
+        ListFooterComponent={null}
         onEndReached={() => void loadMore()}
         onEndReachedThreshold={0.3}
         refreshControl={
-          showSkeletons || scripts.length === 0 ? undefined : (
+          scripts.length === 0 ? undefined : (
             <RefreshControl
               refreshing={isManualRefreshing}
               tintColor={theme.accent}
@@ -533,41 +581,24 @@ export function ScriptCenterOwner({ ownerId }: { ownerId: string }) {
             />
           )
         }
-        renderItem={({ item }) => (
-          <Pressable
-            accessibilityLabel={scriptCardAccessibilityLabel(item, selectedLanguage)}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: showSkeletons }}
-            accessibilityElementsHidden={showSkeletons}
-            disabled={showSkeletons}
-            importantForAccessibility={showSkeletons ? "no-hide-descendants" : "auto"}
-            onPress={() => {
-              rememberScriptForNavigation(item, ownerId);
-              router.push({ pathname: "/script-detail", params: { scriptId: item.script_id } });
-            }}
-            style={styles.cardCell}
-          >
-            <ScriptCard
-              placeholder={showSkeletons}
-              script={item}
-              selectedLanguage={selectedLanguage}
-              styles={styles}
-            />
-          </Pressable>
-        )}
+        renderItem={renderScript}
         showsVerticalScrollIndicator={false}
+        updateCellsBatchingPeriod={16}
+        windowSize={5}
       />
     </View>
   );
 }
 
-function CategoryPill({
-  onPress,
+const CategoryPill = memo(function CategoryPill({
+  categoryId,
+  onSelect,
   selected,
   styles,
   title,
 }: {
-  onPress(): void;
+  categoryId: string | undefined;
+  onSelect(categoryId: string | undefined): void;
   selected: boolean;
   styles: ReturnType<typeof makeStyles>;
   title: string;
@@ -577,28 +608,64 @@ function CategoryPill({
       accessibilityLabel={title}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      onPress={onPress}
-      style={[styles.categoryPill, selected && styles.categoryPillSelected]}
+      onPress={() => onSelect(categoryId)}
+      style={({ pressed }) => [
+        styles.categoryPill,
+        selected && styles.categoryPillSelected,
+        pressed && styles.categoryPillPressed,
+      ]}
     >
-      <Text style={[styles.categoryText, selected && styles.categoryTextSelected]}>{title}</Text>
+      <Text
+        ellipsizeMode="tail"
+        numberOfLines={1}
+        style={[styles.categoryText, selected && styles.categoryTextSelected]}
+      >
+        {title}
+      </Text>
     </Pressable>
   );
-}
+});
+
+const ScriptCardCell = memo(function ScriptCardCell({
+  cardWidth,
+  item,
+  ownerId,
+  selectedLanguage,
+  styles,
+}: {
+  cardWidth: number;
+  item: InteractiveScript;
+  ownerId: string;
+  selectedLanguage: string;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={scriptCardAccessibilityLabel(item, selectedLanguage)}
+      accessibilityRole="button"
+      onPress={() => {
+        rememberScriptForNavigation(item, ownerId);
+        router.push({ pathname: "/script-detail", params: { scriptId: item.script_id } });
+      }}
+      style={[styles.cardCell, { width: cardWidth }]}
+    >
+      <ScriptCard script={item} selectedLanguage={selectedLanguage} styles={styles} />
+    </Pressable>
+  );
+});
 
 function ScriptCard({
-  placeholder,
   script,
   selectedLanguage,
   styles,
 }: {
-  placeholder: boolean;
   script: InteractiveScript;
   selectedLanguage: string;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const badge = scriptBadgeText(script, selectedLanguage);
   return (
-    <View style={[styles.card, placeholder && styles.placeholderCard]}>
+    <View style={styles.card}>
       <ScriptCover key={script.cover_url} badge={badge} styles={styles} url={script.cover_url} />
       <Text numberOfLines={1} style={styles.cardTitle}>
         {script.title}
@@ -640,14 +707,10 @@ function ScriptCover({
   styles: ReturnType<typeof makeStyles>;
   url: string;
 }) {
-  const [aspectRatio, setAspectRatio] = useState<number>(scriptCenterMetrics.coverAspectRatio);
   return (
-    <View style={[styles.coverWrap, { aspectRatio }]}>
+    <View style={styles.coverWrap}>
       <ScriptCatalogImage
         fallback="book.closed.fill"
-        onLoad={(event) =>
-          setAspectRatio(scriptCoverAspectRatio(event.source.width, event.source.height))
-        }
         radius={scriptCenterMetrics.coverRadius}
         styles={styles}
         url={url}
@@ -708,14 +771,12 @@ function ScriptCenterEmpty({
 
 function ScriptCatalogImage({
   fallback,
-  onLoad,
   radius,
   size,
   styles,
   url,
 }: {
   fallback: string;
-  onLoad?: ((event: ImageLoadEventData) => void) | undefined;
   radius: number;
   size?: number;
   styles: ReturnType<typeof makeStyles>;
@@ -745,12 +806,7 @@ function ScriptCatalogImage({
       contentFit="cover"
       errorFallback={fallbackView}
       fallback={fallbackView}
-      loadingFallback={
-        <View style={[imageStyle, styles.imageLoading]}>
-          <ActivityIndicator color="#667EEA" size="small" />
-        </View>
-      }
-      {...(onLoad ? { onLoad } : {})}
+      loadingFallback={fallbackView}
       style={imageStyle}
       transition={0}
       uri={resolved}
@@ -758,6 +814,30 @@ function ScriptCatalogImage({
   ) : (
     fallbackView
   );
+}
+
+function restoreSelectionSnapshots(
+  snapshot: ScriptCenterNavigationSnapshot | undefined,
+): Record<string, ScriptSelectionSnapshot> {
+  if (!snapshot) return {};
+  const restored = Object.fromEntries(
+    Object.entries(snapshot.pages ?? {}).map(([key, page]) => [
+      key,
+      { ...page, hasResolved: page.hasResolved ?? true },
+    ]),
+  );
+  const currentKey = scriptSelectionKey(snapshot.scope, snapshot.selectedCategoryId);
+  restored[currentKey] ??= {
+    scripts: snapshot.scripts,
+    nextCursor: snapshot.nextCursor,
+    hasMore: snapshot.hasMore,
+    hasResolved: snapshot.hasResolvedSelection ?? true,
+  };
+  return restored;
+}
+
+function scriptSelectionKey(scope: ScriptScope, categoryId?: string): string {
+  return `${scope}\u0000${categoryId?.trim() || "all"}`;
 }
 
 function sameSelection(
@@ -778,28 +858,39 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     accent: { color: theme.accent },
     accentDark: { color: theme.accentDark },
     createButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-    categories: { flexGrow: 0, gap: 8, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12 },
+    categoryScroller: { flexGrow: 0, flexShrink: 0, minHeight: 57 },
+    categories: {
+      minHeight: 57,
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 12,
+    },
     categoryPill: {
+      flexShrink: 0,
+      minHeight: 35,
+      justifyContent: "center",
       paddingHorizontal: 13,
       paddingVertical: 7,
       borderRadius: 999,
       backgroundColor: theme.card,
     },
     categoryPillSelected: { backgroundColor: theme.accentSoft },
+    categoryPillPressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
     categoryText: {
       color: theme.secondaryText,
       fontSize: 13,
       fontWeight: "400",
-      lineHeight: 16,
+      lineHeight: 17,
     },
     categoryTextSelected: { color: theme.accent, fontWeight: "600" },
     grid: { paddingHorizontal: 16, paddingBottom: 24 },
     emptyGrid: { flexGrow: 1 },
-    gridRow: { alignItems: "center", gap: 12, marginBottom: 12 },
-    cardCell: { flex: 1 },
-    card: { gap: 9, padding: 10, borderRadius: 15, backgroundColor: theme.card },
-    placeholderCard: { opacity: 0.36 },
-    coverWrap: { width: "100%" },
+    gridRow: { alignItems: "stretch", gap: 12, marginBottom: 12 },
+    cardCell: { flexGrow: 0, alignSelf: "stretch" },
+    card: { flex: 1, gap: 9, padding: 10, borderRadius: 15, backgroundColor: theme.card },
+    coverWrap: { width: "100%", aspectRatio: scriptCenterMetrics.coverAspectRatio },
     badge: {
       position: "absolute",
       top: 7,
@@ -813,9 +904,15 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
       borderRadius: 999,
       backgroundColor: "rgba(0,0,0,0.62)",
     },
-    cardTitle: { color: theme.text, fontSize: 15, fontWeight: "600" },
-    cardSynopsis: { minHeight: 32, color: theme.secondaryText, fontSize: 12, lineHeight: 16 },
-    cardFooter: { flexDirection: "row", alignItems: "center" },
+    cardTitle: {
+      minHeight: 18,
+      color: theme.text,
+      fontSize: 15,
+      fontWeight: "600",
+      lineHeight: 18,
+    },
+    cardSynopsis: { height: 32, color: theme.secondaryText, fontSize: 12, lineHeight: 16 },
+    cardFooter: { minHeight: 22, flexDirection: "row", alignItems: "center" },
     roleAvatars: { flexDirection: "row", alignItems: "center" },
     roleAvatarFrame: {
       width: 22,
@@ -834,12 +931,6 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
       textAlign: "right",
     },
     imageFallback: { overflow: "hidden", alignItems: "center", justifyContent: "center" },
-    imageLoading: {
-      overflow: "hidden",
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: theme.accentSoft,
-    },
     emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 30 },
     emptyIconGradient: { width: 52, height: 52, alignItems: "center", justifyContent: "center" },
     emptyTitle: { color: theme.text, fontSize: 17, fontWeight: "600", textAlign: "center" },
@@ -850,7 +941,6 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
       textAlign: "center",
     },
     retryText: { color: theme.accent, fontSize: 15, fontWeight: "600", paddingBottom: 28 },
-    loadMore: { paddingBottom: 20 },
   });
 }
 

@@ -1,11 +1,11 @@
 import { act, render } from "@testing-library/react-native";
-import * as Notifications from "expo-notifications";
 import { createRef, forwardRef, useImperativeHandle } from "react";
 import { AppState, Text } from "react-native";
 
 import * as api from "@/api/bwchat";
 import { useAuth } from "@/providers/AuthProvider";
 import { CallProvider, useCall } from "@/providers/CallProvider";
+import { publishCallNotification } from "@/services/calls/CallNotificationBridge";
 import { publishCallSettlementRefresh } from "@/services/calls/CallSettlementRefreshService";
 import { getLiveCallState } from "@/services/live/LiveLobbyRepository";
 import { captureException } from "@/services/monitoring/MonitoringService";
@@ -133,12 +133,19 @@ describe("group CallProvider lifecycle parity", () => {
     await render(tree());
 
     await act(async () => {
-      await actions.current?.startGroupCall({ groupId: 7, groupName: "Friends" }, "video");
+      await actions.current?.startGroupCall(
+        {
+          groupId: 7,
+          groupName: "Friends",
+          inviteeUserIds: ["member-b", "member-a"],
+        },
+        "video",
+      );
     });
 
     expect(recordingPermission).toHaveBeenCalledTimes(1);
     expect(cameraPermission).toHaveBeenCalledTimes(1);
-    expect(startGroupCall).toHaveBeenCalledWith(7, "video");
+    expect(startGroupCall).toHaveBeenCalledWith(7, "video", ["member-b", "member-a"]);
     expect(actions.current?.session).toMatchObject({
       id: "session-1",
       group_id: 7,
@@ -152,6 +159,35 @@ describe("group CallProvider lifecycle parity", () => {
     expect(actions.current?.session).not.toHaveProperty("is_live_pair");
     expect(actions.current?.session).not.toHaveProperty("live_role_setting");
     expect(actions.current?.session).not.toHaveProperty("live_billing_policy");
+  });
+
+  it("does not expose the group call surface until native permissions finish", async () => {
+    const permission = deferred<{ granted: boolean }>();
+    recordingPermission.mockReturnValue(permission.promise);
+    startGroupCall.mockResolvedValue(credentials());
+    await render(tree());
+    let firstStart: Promise<void> | undefined;
+    let duplicateStart: Promise<void> | undefined;
+
+    await act(async () => {
+      firstStart = actions.current?.startGroupCall({ groupId: 7, groupName: "Friends" }, "voice");
+      duplicateStart = actions.current?.startGroupCall(
+        { groupId: 7, groupName: "Friends" },
+        "voice",
+      );
+      await flushTasks();
+    });
+
+    expect(actions.current?.session).toBeNull();
+    expect(startGroupCall).not.toHaveBeenCalled();
+
+    await act(async () => {
+      permission.resolve({ granted: true });
+      await Promise.all([firstStart, duplicateStart]);
+    });
+
+    expect(startGroupCall).toHaveBeenCalledTimes(1);
+    expect(actions.current?.session).toMatchObject({ group_id: 7, state: "connecting" });
   });
 
   it("aborts an outgoing group video call before the API when camera permission is denied", async () => {
@@ -371,29 +407,19 @@ describe("group CallProvider lifecycle parity", () => {
 
   it("normalizes native nested notification containers with top-level precedence", async () => {
     await render(tree());
-    const listener = jest
-      .mocked(Notifications.addNotificationReceivedListener)
-      .mock.calls.at(-1)?.[0];
-    if (!listener) throw new Error("CallProvider notification listener was not installed");
 
     await act(async () => {
-      listener({
-        request: {
-          content: {
-            data: {
-              push_type: "group_call",
-              group_id: 31,
-              notification_data: JSON.stringify({
-                group_id: 99,
-                group_name: "Nested Group",
-                room_name: "nested-room",
-                call_type: "voice",
-                call_id: "nested-call",
-              }),
-            },
-          },
-        },
-      } as never);
+      publishCallNotification({
+        push_type: "group_call",
+        group_id: 31,
+        notification_data: JSON.stringify({
+          group_id: 99,
+          group_name: "Nested Group",
+          room_name: "nested-room",
+          call_type: "voice",
+          call_id: "nested-call",
+        }),
+      });
     });
 
     expect(actions.current?.session).toMatchObject({
@@ -555,6 +581,67 @@ describe("group CallProvider lifecycle parity", () => {
       state: "outgoing",
     });
     expect(actions.current?.session).not.toHaveProperty("is_live_pair");
+  });
+
+  it("does not expose the direct call surface until native permissions finish", async () => {
+    const permission = deferred<{ granted: boolean }>();
+    recordingPermission.mockReturnValue(permission.promise);
+    startDirectCall.mockResolvedValue(credentials({ call_id: "friend-call" }));
+    await render(tree());
+    let firstStart: Promise<void> | undefined;
+    let duplicateStart: Promise<void> | undefined;
+
+    await act(async () => {
+      firstStart = actions.current?.startDirectCall(
+        { userId: "friend-1", nickname: "Alice" },
+        "voice",
+      );
+      duplicateStart = actions.current?.startDirectCall(
+        { userId: "friend-1", nickname: "Alice" },
+        "voice",
+      );
+      await flushTasks();
+    });
+
+    expect(actions.current?.session).toBeNull();
+    expect(startDirectCall).not.toHaveBeenCalled();
+
+    await act(async () => {
+      permission.resolve({ granted: true });
+      await Promise.all([firstStart, duplicateStart]);
+    });
+
+    expect(startDirectCall).toHaveBeenCalledTimes(1);
+    expect(actions.current?.session).toMatchObject({
+      remote_user_id: "friend-1",
+      state: "outgoing",
+    });
+  });
+
+  it("releases the start lock when the native permission request throws", async () => {
+    const permissionError = new Error("permission service unavailable");
+    recordingPermission.mockRejectedValueOnce(permissionError).mockResolvedValue({ granted: true });
+    startDirectCall.mockResolvedValue(credentials({ call_id: "retry-call" }));
+    await render(tree());
+
+    await act(async () => {
+      await actions.current?.startDirectCall(
+        { userId: "friend-retry", nickname: "Retry" },
+        "voice",
+      );
+    });
+    expect(actions.current?.session).toBeNull();
+    expect(startDirectCall).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledWith(permissionError, { operation: "call_permissions" });
+
+    await act(async () => {
+      await actions.current?.startDirectCall(
+        { userId: "friend-retry", nickname: "Retry" },
+        "voice",
+      );
+    });
+    expect(startDirectCall).toHaveBeenCalledTimes(1);
+    expect(actions.current?.session).toMatchObject({ call_id: "retry-call" });
   });
 
   it("requests microphone then camera and aborts outgoing video when camera access is denied", async () => {
@@ -937,7 +1024,7 @@ describe("group CallProvider lifecycle parity", () => {
     expect(actions.current?.session?.confirmed_live_total_charge).toBe(100);
   });
 
-  it("keeps host earnings distinct from payer charges", async () => {
+  it("keeps host Cat Food and Gold Coin earnings distinct and rejects cross-currency minting", async () => {
     await render(tree());
     await act(async () => {
       await actions.current?.connectAcceptedLiveCall(
@@ -950,13 +1037,26 @@ describe("group CallProvider lifecycle parity", () => {
 
     await sendLiveSignal("one_to_one_live.billing_updated", {
       call_id: "host-live",
+      earned_gold_coins: 100,
+      total_charged: 100,
+      charged_activity_cat_food: 12,
+      charged_gold_coins: 88,
+    });
+
+    expect(actions.current?.session).not.toHaveProperty("confirmed_live_earning_activity_cat_food");
+    expect(actions.current?.session).not.toHaveProperty("confirmed_live_earning_gold_coins");
+
+    await sendLiveSignal("one_to_one_live.billing_updated", {
+      call_id: "host-live",
+      earned_activity_cat_food: 12,
       earned_gold_coins: 88,
       total_charged: 100,
-      charged_activity_cat_food: 0,
-      charged_gold_coins: 100,
+      charged_activity_cat_food: 12,
+      charged_gold_coins: 88,
     });
 
     expect(actions.current?.session).toMatchObject({
+      confirmed_live_earning_activity_cat_food: 12,
       confirmed_live_earning_gold_coins: 88,
     });
     expect(actions.current?.session).not.toHaveProperty("confirmed_live_total_charge");

@@ -29,10 +29,13 @@ import {
   mergeProfileAgents,
   mergeShortDramaSeries,
   publicProfileContentCachePolicy,
+  readCachedProfileAgents,
+  readCachedProfileAgentsSnapshot,
   readCachedProfileMoments,
   readCachedProfileMomentsSnapshot,
   readCachedProfileShortDramas,
   readCachedProfileShortDramasSnapshot,
+  saveCachedProfileAgents,
   saveCachedProfileMoments,
   saveCachedProfileShortDramas,
   shouldAcceptMomentFirstPage,
@@ -489,8 +492,15 @@ describe("native public-profile content contracts", () => {
     });
   });
 
-  it("isolates and caps moments and short-drama caches per signed-in account", async () => {
+  it("isolates and caps all three profile content caches per signed-in account", async () => {
     const moments = Array.from({ length: 205 }, (_, index) => makeMoment(index + 1));
+    const agents = Array.from(
+      { length: 205 },
+      (_, index) =>
+        normalizeAgentSummaryPage({
+          agents: [{ id: `agent-${index + 1}`, profile: { name: `智能体 ${index + 1}` } }],
+        }).agents[0]!,
+    );
     const series = Array.from({ length: 205 }, (_, index) => makeShortDrama(`series-${index + 1}`));
     await saveCachedProfileMoments("owner-a", "target", {
       moments,
@@ -500,17 +510,24 @@ describe("native public-profile content contracts", () => {
       series,
       has_more: true,
     });
+    await saveCachedProfileAgents("owner-a", "target", {
+      agents,
+      has_more: true,
+      next_cursor: "next",
+    });
 
     await expect(readCachedProfileMoments("owner-a", "target")).resolves.toMatchObject({
       moments: expect.any(Array),
     });
     expect((await readCachedProfileMoments("owner-a", "target"))?.moments).toHaveLength(200);
+    expect((await readCachedProfileAgents("owner-a", "target"))?.agents).toHaveLength(200);
     expect((await readCachedProfileShortDramas("owner-a", "target"))?.series).toHaveLength(200);
     await expect(readCachedProfileMoments("owner-b", "target")).resolves.toBeNull();
+    await expect(readCachedProfileAgents("owner-b", "target")).resolves.toBeNull();
     await expect(readCachedProfileShortDramas("owner-b", "target")).resolves.toBeNull();
   });
 
-  it("uses native moments and short-drama freshness with 30-day stale retention", async () => {
+  it("uses per-content freshness with 30-day stale retention", async () => {
     const now = 1_800_000_000_000;
     await saveCachedProfileMoments(
       "owner-a",
@@ -522,6 +539,17 @@ describe("native public-profile content contracts", () => {
       "owner-a",
       "target",
       { series: [makeShortDrama("series-1")], has_more: false },
+      now,
+    );
+    await saveCachedProfileAgents(
+      "owner-a",
+      "target",
+      {
+        agents: normalizeAgentSummaryPage({
+          agents: [{ id: "agent-1", profile: { name: "缓存智能体" } }],
+        }).agents,
+        has_more: false,
+      },
       now,
     );
 
@@ -545,6 +573,20 @@ describe("native public-profile content contracts", () => {
           1,
       ),
     ).resolves.toMatchObject({ isStale: true, isRetained: false });
+    await expect(
+      readCachedProfileAgentsSnapshot(
+        "owner-a",
+        "target",
+        now + publicProfileContentCachePolicy.agents.ttlMilliseconds - 1,
+      ),
+    ).resolves.toMatchObject({ isStale: false, isRetained: true });
+    await expect(
+      readCachedProfileAgentsSnapshot(
+        "owner-a",
+        "target",
+        now + publicProfileContentCachePolicy.agents.ttlMilliseconds,
+      ),
+    ).resolves.toMatchObject({ isStale: true, isRetained: true });
     await expect(
       readCachedProfileShortDramasSnapshot(
         "owner-a",

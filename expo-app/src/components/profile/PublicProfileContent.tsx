@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -13,6 +14,7 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  InteractionManager,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -54,8 +56,10 @@ import {
   mergeMoments,
   mergeProfileAgents,
   mergeShortDramaSeries,
+  readCachedProfileAgentsSnapshot,
   readCachedProfileMomentsSnapshot,
   readCachedProfileShortDramasSnapshot,
+  saveCachedProfileAgents,
   saveCachedProfileMoments,
   saveCachedProfileShortDramas,
   shouldAcceptMomentFirstPage,
@@ -247,18 +251,29 @@ export const PublicProfileContent = forwardRef<
   );
 
   const loadAgents = useCallback(
-    async (reset: boolean) => {
-      if (!targetId) return;
+    async (reset: boolean, forceRefresh = false) => {
+      if (!ownerId || !targetId) return;
       if (!reset && !agentsHasMoreRef.current) return;
       const generation = lifecycleGenerationRef.current;
       if (!agentsBusyGenerationsRef.current.tryEnter(generation)) return;
       if (reset) {
-        setAgentsLoading(agentsRef.current.length === 0);
+        setAgentsLoading(agentsRef.current.length === 0 || forceRefresh);
         agentsCursorRef.current = null;
         agentsHasMoreRef.current = true;
       } else setAgentsLoadingMore(true);
       setAgentsError(null);
       try {
+        if (reset && !forceRefresh) {
+          const cached = await readCachedProfileAgentsSnapshot(ownerId, targetId);
+          if (generation !== lifecycleGenerationRef.current) return;
+          if (cached?.isRetained && agentsRef.current.length === 0) {
+            setAgents(cached.page.agents);
+            agentsCursorRef.current = cached.page.next_cursor ?? null;
+            agentsHasMoreRef.current = cached.page.has_more;
+            agentsLoadedRef.current = true;
+          }
+          if (cached && !cached.isStale) return;
+        }
         const page = await getPublicAgentsPage(targetId, {
           limit: 20,
           ...(reset || !agentsCursorRef.current ? {} : { cursor: agentsCursorRef.current }),
@@ -269,8 +284,14 @@ export const PublicProfileContent = forwardRef<
         agentsCursorRef.current = page.next_cursor ?? null;
         agentsHasMoreRef.current = page.has_more;
         agentsLoadedRef.current = true;
+        await saveCachedProfileAgents(ownerId, targetId, {
+          ...page,
+          agents: next,
+        }).catch(() => undefined);
       } catch (error) {
-        if (generation === lifecycleGenerationRef.current) setAgentsError(errorMessage(error));
+        if (generation === lifecycleGenerationRef.current && agentsRef.current.length === 0) {
+          setAgentsError(errorMessage(error));
+        }
       } finally {
         agentsBusyGenerationsRef.current.leave(generation);
         if (generation === lifecycleGenerationRef.current) {
@@ -279,7 +300,7 @@ export const PublicProfileContent = forwardRef<
         }
       }
     },
-    [setAgents, targetId],
+    [ownerId, setAgents, targetId],
   );
 
   const loadShortDramas = useCallback(
@@ -352,6 +373,14 @@ export const PublicProfileContent = forwardRef<
     }
   }, [loadAgents, loadShortDramas, tab]);
 
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (!agentsLoadedRef.current) void loadAgents(true);
+      if (!shortDramasLoadedRef.current) void loadShortDramas(true);
+    });
+    return () => task.cancel();
+  }, [loadAgents, loadShortDramas]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -362,97 +391,126 @@ export const PublicProfileContent = forwardRef<
       },
       refresh: async () => {
         if (tab === "moments") await loadMoments(true, true);
-        else if (tab === "agents") await loadAgents(true);
+        else if (tab === "agents") await loadAgents(true, true);
         else await loadShortDramas(true, true);
       },
     }),
     [loadAgents, loadMoments, loadShortDramas, tab],
   );
 
-  const handleLike = async (moment: Moment) => {
-    const generation = lifecycleGenerationRef.current;
-    try {
-      const liked = await toggleMomentLike(moment.id);
-      if (generation !== lifecycleGenerationRef.current) return;
-      const next = momentsRef.current.map((item) => {
-        if (item.id !== moment.id) return item;
-        const likes = item.likes.filter((author) => author.user_id !== viewer.user_id);
-        if (liked) likes.push(viewer);
-        return { ...item, liked_by_me: liked, likes };
-      });
-      setMoments(next);
-      await saveCachedProfileMoments(ownerId, targetId, {
-        moments: next,
-        has_more: momentsHasMoreRef.current,
-      }).catch(() => undefined);
-    } catch (error) {
-      if (generation === lifecycleGenerationRef.current) onToast(errorMessage(error));
-    }
-  };
-
-  const handleOpenAgent = async (agent: AgentSummary) => {
-    if (openingAgentIdsRef.current.has(agent.id)) return;
-    const generation = lifecycleGenerationRef.current;
-    const opening = new Set(openingAgentIdsRef.current).add(agent.id);
-    openingAgentIdsRef.current = opening;
-    setOpeningAgentIds(opening);
-    try {
-      await onOpenAgent(agent);
-    } catch (error) {
-      if (generation === lifecycleGenerationRef.current) onToast(errorMessage(error));
-    } finally {
-      if (generation === lifecycleGenerationRef.current) {
-        setOpeningAgentIds((current) => {
-          const next = new Set(current);
-          next.delete(agent.id);
-          openingAgentIdsRef.current = next;
-          return next;
+  const handleLike = useCallback(
+    async (moment: Moment) => {
+      const generation = lifecycleGenerationRef.current;
+      try {
+        const liked = await toggleMomentLike(moment.id);
+        if (generation !== lifecycleGenerationRef.current) return;
+        const next = momentsRef.current.map((item) => {
+          if (item.id !== moment.id) return item;
+          const likes = item.likes.filter((author) => author.user_id !== viewer.user_id);
+          if (liked) likes.push(viewer);
+          return { ...item, liked_by_me: liked, likes };
         });
+        setMoments(next);
+        await saveCachedProfileMoments(ownerId, targetId, {
+          moments: next,
+          has_more: momentsHasMoreRef.current,
+        }).catch(() => undefined);
+      } catch (error) {
+        if (generation === lifecycleGenerationRef.current) onToast(errorMessage(error));
       }
-    }
-  };
+    },
+    [onToast, ownerId, setMoments, targetId, viewer],
+  );
 
-  if (!isVisible) return null;
+  const handleOpenAgent = useCallback(
+    async (agent: AgentSummary) => {
+      if (openingAgentIdsRef.current.has(agent.id)) return;
+      const generation = lifecycleGenerationRef.current;
+      const opening = new Set(openingAgentIdsRef.current).add(agent.id);
+      openingAgentIdsRef.current = opening;
+      setOpeningAgentIds(opening);
+      try {
+        await onOpenAgent(agent);
+      } catch (error) {
+        if (generation === lifecycleGenerationRef.current) onToast(errorMessage(error));
+      } finally {
+        if (generation === lifecycleGenerationRef.current) {
+          setOpeningAgentIds((current) => {
+            const next = new Set(current);
+            next.delete(agent.id);
+            openingAgentIdsRef.current = next;
+            return next;
+          });
+        }
+      }
+    },
+    [onOpenAgent, onToast],
+  );
 
-  if (tab === "moments") {
-    return (
-      <>
+  const closeMedia = useCallback(() => setMediaSelection(null), []);
+  const openMedia = useCallback((selection: MediaSelection) => setMediaSelection(selection), []);
+  const likeMoment = useCallback((moment: Moment) => void handleLike(moment), [handleLike]);
+  const openAgent = useCallback(
+    (agent: AgentSummary) => void handleOpenAgent(agent),
+    [handleOpenAgent],
+  );
+  const retryMoments = useCallback(() => void loadMoments(true, true), [loadMoments]);
+  const retryAgents = useCallback(() => void loadAgents(true, true), [loadAgents]);
+  const retryShortDramas = useCallback(() => void loadShortDramas(true, true), [loadShortDramas]);
+  const paneStyle = useCallback(
+    (candidate: PublicProfileContentTab) =>
+      isVisible && tab === candidate ? undefined : styles.inactiveTab,
+    [isVisible, tab],
+  );
+
+  return (
+    <>
+      <View
+        pointerEvents={isVisible && tab === "moments" ? "auto" : "none"}
+        style={paneStyle("moments")}
+      >
         <MomentList
           error={momentsError}
           isLoading={momentsLoading}
           isLoadingMore={momentsLoadingMore}
           moments={moments}
-          onLike={(moment) => void handleLike(moment)}
-          onMedia={(selection) => setMediaSelection(selection)}
-          onRetry={() => void loadMoments(true, true)}
+          onLike={likeMoment}
+          onMedia={openMedia}
+          onRetry={retryMoments}
           viewerId={viewer.user_id}
         />
-        <MediaViewer onClose={() => setMediaSelection(null)} selection={mediaSelection} />
-      </>
-    );
-  }
-  if (tab === "agents") {
-    return (
-      <AgentList
-        agents={agents}
-        error={agentsError}
-        isLoading={agentsLoading}
-        isLoadingMore={agentsLoadingMore}
-        onOpen={(agent) => void handleOpenAgent(agent)}
-        openingAgentIds={openingAgentIds}
-        onRetry={() => void loadAgents(true)}
-      />
-    );
-  }
-  return (
-    <ShortDramaList
-      error={shortDramasError}
-      isLoading={shortDramasLoading}
-      isLoadingMore={shortDramasLoadingMore}
-      onOpen={onOpenShortDrama}
-      onRetry={() => void loadShortDramas(true, true)}
-      series={shortDramas}
-    />
+      </View>
+      <View
+        pointerEvents={isVisible && tab === "agents" ? "auto" : "none"}
+        style={paneStyle("agents")}
+      >
+        <AgentList
+          agents={agents}
+          error={agentsError}
+          isLoading={agentsLoading}
+          isLoadingMore={agentsLoadingMore}
+          onOpen={openAgent}
+          openingAgentIds={openingAgentIds}
+          onRetry={retryAgents}
+        />
+      </View>
+      <View
+        pointerEvents={isVisible && tab === "shortDramas" ? "auto" : "none"}
+        style={paneStyle("shortDramas")}
+      >
+        <ShortDramaList
+          error={shortDramasError}
+          isLoading={shortDramasLoading}
+          isLoadingMore={shortDramasLoadingMore}
+          onOpen={onOpenShortDrama}
+          onRetry={retryShortDramas}
+          series={shortDramas}
+        />
+      </View>
+      {isVisible && tab === "moments" ? (
+        <MediaViewer onClose={closeMedia} selection={mediaSelection} />
+      ) : null}
+    </>
   );
 });
 
@@ -464,7 +522,7 @@ export interface MomentCommentTarget {
   replyContent?: string | undefined;
 }
 
-function MomentList({
+const MomentList = memo(function MomentList({
   moments,
   isLoading,
   isLoadingMore,
@@ -513,7 +571,7 @@ function MomentList({
       ) : null}
     </View>
   );
-}
+});
 
 export function MomentRow({
   moment,
@@ -907,7 +965,7 @@ function CommentText({ comment }: { comment: MomentComment }) {
   );
 }
 
-function AgentList({
+const AgentList = memo(function AgentList({
   agents,
   isLoading,
   isLoadingMore,
@@ -949,7 +1007,7 @@ function AgentList({
       ) : null}
     </View>
   );
-}
+});
 
 function AgentCard({
   agent,
@@ -1042,7 +1100,7 @@ function AgentAvatar({ uri, name, size }: { uri: string | null; name: string; si
   );
 }
 
-function ShortDramaList({
+const ShortDramaList = memo(function ShortDramaList({
   series,
   isLoading,
   isLoadingMore,
@@ -1076,7 +1134,7 @@ function ShortDramaList({
       ) : null}
     </View>
   );
-}
+});
 
 function ShortDramaCard({
   series,
@@ -1274,6 +1332,7 @@ function formatMomentTime(
 }
 
 const styles = StyleSheet.create({
+  inactiveTab: { display: "none" },
   contentLoading: { marginTop: 52 },
   moreLoading: { marginVertical: 16 },
   contentEmpty: { paddingTop: 54, alignItems: "center", rowGap: 12 },

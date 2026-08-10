@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { propBagPalette } from "@/services/props/PropBagVisualPolicy";
+import { propBagPalette, propBagPopoverPlacement } from "@/services/props/PropBagVisualPolicy";
 
 const root = process.cwd();
 
@@ -42,8 +42,12 @@ describe("prop-bag source parity", () => {
     expect(propBag).toContain("minHeight: 188");
     expect(propBag).toContain("width: 92, height: 92");
     expect(propBag).toContain("minimumFontScale={0.76}");
-    expect(propBag).toContain("onPress={() => setSelectedItem(item)}");
+    expect(propBag).toContain("onPopoverPress={(anchor) => setSelectedPopover({ anchor, item })}");
     expect(propBag).toContain("<UsageRulesPopover");
+    expect(propBag).toContain("propBagPopoverPlacement");
+    expect(propBag).toContain("popoverArrowUp");
+    expect(propBag).toContain('backgroundColor: "transparent"');
+    expect(propBag).not.toContain('backgroundColor: "rgba(0,0,0,0.16)"');
     expect(propBag).toContain("allowFontScaling={false}");
     expect(detail).toContain('colors={["#667EEA", "#8C7CF3"]}');
     expect(detail).toContain("minHeight: 220");
@@ -55,6 +59,23 @@ describe("prop-bag source parity", () => {
     expect(
       fs.readFileSync(path.join(root, "src/services/props/PropBagVisualPolicy.ts"), "utf8"),
     ).toContain("transactionPageSize: 20");
+  });
+
+  it("anchors the usage bubble below its card and flips above near the bottom edge", () => {
+    expect(
+      propBagPopoverPlacement(
+        { x: 100, y: 200, width: 80, height: 188 },
+        { width: 390, height: 844 },
+        110,
+      ),
+    ).toMatchObject({ arrowDirection: "up", left: 12, top: 398, width: 262 });
+    expect(
+      propBagPopoverPlacement(
+        { x: 100, y: 650, width: 80, height: 188 },
+        { width: 390, height: 844 },
+        110,
+      ),
+    ).toMatchObject({ arrowDirection: "down", top: 530, width: 262 });
   });
 
   it("keeps native light/dark semantic backgrounds, fixed point sizes, and accessible interactions", () => {

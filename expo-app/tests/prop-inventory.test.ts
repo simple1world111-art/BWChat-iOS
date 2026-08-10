@@ -1,3 +1,5 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { apiRequest } from "@/api/client";
 import { getPropBag } from "@/services/props/PropInventoryRepository";
 import {
@@ -22,12 +24,24 @@ jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
 const request = jest.mocked(apiRequest);
 
 describe("prop inventory parity", () => {
-  beforeEach(() => request.mockReset());
+  beforeEach(async () => {
+    request.mockReset();
+    await AsyncStorage.clear();
+  });
 
   it("uses the native prop-bag endpoint without an HTTP cache", async () => {
     request.mockResolvedValue({ data: { items: [] } });
     await expect(getPropBag()).resolves.toMatchObject({ items: [], summary: { totalQuantity: 0 } });
     expect(request).toHaveBeenCalledWith("/me/prop-bag", { cache: "no-store" });
+  });
+
+  it("restores an account-scoped persisted page when revalidation fails", async () => {
+    request
+      .mockResolvedValueOnce({ data: { items: [item("cached", "live_experience_card_5m", 2)] } })
+      .mockRejectedValueOnce(new Error("offline"));
+
+    await expect(getPropBag("owner", true)).resolves.toMatchObject({ items: [{ inventoryId: "cached" }] });
+    await expect(getPropBag("owner", true)).resolves.toMatchObject({ items: [{ inventoryId: "cached" }] });
   });
 
   it("filters retired and empty props while accepting snake/camel aliases", () => {

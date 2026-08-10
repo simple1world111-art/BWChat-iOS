@@ -1,8 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { normalizeMomentFeedPage, normalizeShortDramaSeriesPage } from "@/api/normalizers";
+import {
+  normalizeAgentSummaryPage,
+  normalizeMomentFeedPage,
+  normalizeShortDramaSeriesPage,
+} from "@/api/normalizers";
 import type {
   AgentSummary,
+  AgentSummaryPage,
   Moment,
   MomentFeedPage,
   ShortDramaSeries,
@@ -10,12 +15,17 @@ import type {
 } from "@/models";
 
 const momentKeyPrefix = "bwchat.profile-moments.v1";
+const agentKeyPrefix = "bwchat.profile-agents.v1";
 const shortDramaKeyPrefix = "bwchat.profile-short-dramas.v1";
 const schemaVersion = 2;
 
 export const publicProfileContentCachePolicy = {
   moments: {
     ttlMilliseconds: 2 * 60 * 1_000,
+    staleRetentionMilliseconds: 30 * 24 * 60 * 60 * 1_000,
+  },
+  agents: {
+    ttlMilliseconds: 5 * 60 * 1_000,
     staleRetentionMilliseconds: 30 * 24 * 60 * 60 * 1_000,
   },
   shortDramas: {
@@ -79,6 +89,47 @@ export async function saveCachedProfileMoments(
     page: { ...page, moments: page.moments.slice(0, 200) },
   };
   await AsyncStorage.setItem(cacheKey(momentKeyPrefix, ownerId, targetId), JSON.stringify(stored));
+}
+
+export async function readCachedProfileAgents(
+  ownerId: string,
+  targetId: string,
+): Promise<AgentSummaryPage | null> {
+  return (await readCachedProfileAgentsSnapshot(ownerId, targetId))?.page ?? null;
+}
+
+export async function readCachedProfileAgentsSnapshot(
+  ownerId: string,
+  targetId: string,
+  now = Date.now(),
+): Promise<ProfileContentCacheSnapshot<AgentSummaryPage> | null> {
+  try {
+    const encoded = await AsyncStorage.getItem(cacheKey(agentKeyPrefix, ownerId, targetId));
+    if (!encoded) return null;
+    return decodeSnapshot(
+      JSON.parse(encoded) as unknown,
+      normalizeAgentSummaryPage,
+      publicProfileContentCachePolicy.agents.staleRetentionMilliseconds,
+      now,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCachedProfileAgents(
+  ownerId: string,
+  targetId: string,
+  page: AgentSummaryPage,
+  updatedAt = Date.now(),
+): Promise<void> {
+  const stored: StoredProfileContent<AgentSummaryPage> = {
+    schema_version: schemaVersion,
+    updated_at: updatedAt,
+    expires_at: updatedAt + publicProfileContentCachePolicy.agents.ttlMilliseconds,
+    page: { ...page, agents: page.agents.slice(0, 200) },
+  };
+  await AsyncStorage.setItem(cacheKey(agentKeyPrefix, ownerId, targetId), JSON.stringify(stored));
 }
 
 export async function readCachedProfileShortDramas(

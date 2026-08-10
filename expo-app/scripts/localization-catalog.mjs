@@ -4,9 +4,9 @@ import path from "node:path";
 import process from "node:process";
 
 const locales = ["de", "en", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-Hans", "zh-Hant"];
-const expectedEntriesPerLocale = 1_138;
-const expectedUniqueKeysPerLocale = 1_137;
-const expectedAggregate = "d3b5e6ae3e97ede67304e4bfbbf4ff086b702f9aaf819fbe6e56cb64f628dc6e";
+const expectedEntriesPerLocale = 1_144;
+const expectedUniqueKeysPerLocale = 1_143;
+const expectedAggregate = "c0ab710ce0d059de79a00a57156085357b88386dc6d61ceb84fe88cbb9e68615";
 const projectRoot = process.cwd();
 const nativeRoot = path.resolve(projectRoot, "../BWChat");
 const generatedRoot = path.resolve(projectRoot, "src/localization/generated");
@@ -27,18 +27,31 @@ function parseStrings(source, locale) {
     entries[key] = value;
   }
   const duplicateKeys = [...occurrences].filter(([, count]) => count > 1).map(([key]) => key);
-  if (duplicateKeys.length !== 1 || duplicateKeys[0] !== "common.save" || occurrences.get("common.save") !== 2) {
-    throw new Error(`${locale}: unexpected duplicate localization keys: ${duplicateKeys.join(",")}`);
+  if (
+    duplicateKeys.length !== 1 ||
+    duplicateKeys[0] !== "common.save" ||
+    occurrences.get("common.save") !== 2
+  ) {
+    throw new Error(
+      `${locale}: unexpected duplicate localization keys: ${duplicateKeys.join(",")}`,
+    );
   }
   const entryCount = [...occurrences.values()].reduce((total, count) => total + count, 0);
   if (entryCount !== expectedEntriesPerLocale) {
-    throw new Error(`${locale}: expected ${expectedEntriesPerLocale} entries, received ${entryCount}`);
+    throw new Error(
+      `${locale}: expected ${expectedEntriesPerLocale} entries, received ${entryCount}`,
+    );
   }
-  return Object.fromEntries(Object.entries(entries).sort(([left], [right]) => left.localeCompare(right)));
+  return Object.fromEntries(
+    Object.entries(entries).sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 async function readNativeCatalog(locale) {
-  const source = await readFile(path.join(nativeRoot, `${locale}.lproj/Localizable.strings`), "utf8");
+  const source = await readFile(
+    path.join(nativeRoot, `${locale}.lproj/Localizable.strings`),
+    "utf8",
+  );
   return parseStrings(source, locale);
 }
 
@@ -56,18 +69,24 @@ const referenceKeys = Object.keys(nativeCatalogs["zh-Hans"]);
 for (const locale of locales) {
   const keys = Object.keys(nativeCatalogs[locale]);
   if (keys.length !== expectedUniqueKeysPerLocale) {
-    throw new Error(`${locale}: expected ${expectedUniqueKeysPerLocale} unique keys, received ${keys.length}`);
+    throw new Error(
+      `${locale}: expected ${expectedUniqueKeysPerLocale} unique keys, received ${keys.length}`,
+    );
   }
   const missing = referenceKeys.filter((key) => !Object.hasOwn(nativeCatalogs[locale], key));
   const extra = keys.filter((key) => !Object.hasOwn(nativeCatalogs["zh-Hans"], key));
   if (missing.length > 0 || extra.length > 0) {
-    throw new Error(`${locale}: key parity failed; missing=${missing.join(",")}; extra=${extra.join(",")}`);
+    throw new Error(
+      `${locale}: key parity failed; missing=${missing.join(",")}; extra=${extra.join(",")}`,
+    );
   }
 }
 
 const aggregate = catalogFingerprint(nativeCatalogs);
 if (expectedAggregate !== "TO_BE_REPLACED" && aggregate !== expectedAggregate) {
-  throw new Error(`Native localization aggregate changed: expected ${expectedAggregate}, received ${aggregate}`);
+  throw new Error(
+    `Native localization aggregate changed: expected ${expectedAggregate}, received ${aggregate}`,
+  );
 }
 
 if (mode === "generate") {
@@ -83,9 +102,13 @@ if (mode === "generate") {
   );
 } else if (mode === "verify") {
   for (const locale of locales) {
-    const generated = JSON.parse(await readFile(path.join(generatedRoot, `${locale}.json`), "utf8"));
+    const generated = JSON.parse(
+      await readFile(path.join(generatedRoot, `${locale}.json`), "utf8"),
+    );
     if (JSON.stringify(generated) !== JSON.stringify(nativeCatalogs[locale])) {
-      throw new Error(`${locale}: generated JSON differs from the Swift Localizable.strings source`);
+      throw new Error(
+        `${locale}: generated JSON differs from the Swift Localizable.strings source`,
+      );
     }
   }
 } else {

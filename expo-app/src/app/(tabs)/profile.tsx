@@ -7,7 +7,6 @@ import {
   AppState,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import QRCode from "react-native-qrcode-svg";
 
 import { getProfile, getWalletGoldCoinBalance } from "@/api/bwchat";

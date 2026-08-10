@@ -11,14 +11,16 @@ import {
   Keyboard,
   Modal,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   useColorScheme,
   View,
 } from "react-native";
-import { Swipeable } from "react-native-gesture-handler";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
+import ReanimatedSwipeable, {
+  type SwipeableMethods,
+} from "react-native-gesture-handler/ReanimatedSwipeable";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import {
@@ -1140,64 +1142,28 @@ function SwipeableConversationRow({
   t: Translate;
 }) {
   const { styles } = useConversationTheme();
-  const swipeRef = useRef<Swipeable | null>(null);
+  const swipeRef = useRef<SwipeableMethods | null>(null);
   const close = useCallback(() => swipeRef.current?.close(), []);
   useEffect(() => {
     onRegister(close);
     return () => onRegister(null);
   }, [close, onRegister]);
   return (
-    <Swipeable
+    <ReanimatedSwipeable
+      childrenContainerStyle={styles.swipeForeground}
       friction={1}
       onSwipeableOpen={() => onOpen(close)}
       overshootRight={false}
       ref={swipeRef}
       renderRightActions={() => (
-        <View style={styles.swipeActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              close();
-              setTimeout(onTogglePin, 160);
-            }}
-            style={[styles.swipeAction, styles.pinAction]}
-          >
-            <SymbolView
-              name={isPinned ? "pin.slash" : "pin.fill"}
-              size={16}
-              weight="semibold"
-              tintColor="#FFFFFF"
-            />
-            <Text
-              adjustsFontSizeToFit
-              minimumFontScale={0.78}
-              numberOfLines={1}
-              style={styles.swipeActionText}
-            >
-              {isPinned ? t("messages.unpin") : t("messages.pin")}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={isDeleting}
-            onPress={onDelete}
-            style={[styles.swipeAction, styles.deleteAction]}
-          >
-            {isDeleting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <SymbolView name="trash" size={16} weight="semibold" tintColor="#FFFFFF" />
-            )}
-            <Text
-              adjustsFontSizeToFit
-              minimumFontScale={0.78}
-              numberOfLines={1}
-              style={styles.swipeActionText}
-            >
-              {t("common.delete")}
-            </Text>
-          </Pressable>
-        </View>
+        <ConversationSwipeActions
+          close={close}
+          isDeleting={isDeleting}
+          isPinned={isPinned}
+          onDelete={onDelete}
+          onTogglePin={onTogglePin}
+          t={t}
+        />
       )}
       rightThreshold={SWIPE_ACTION_WIDTH * 0.46}
     >
@@ -1209,7 +1175,72 @@ function SwipeableConversationRow({
         showsDivider={showsDivider}
         t={t}
       />
-    </Swipeable>
+    </ReanimatedSwipeable>
+  );
+}
+
+function ConversationSwipeActions({
+  close,
+  isDeleting,
+  isPinned,
+  onDelete,
+  onTogglePin,
+  t,
+}: {
+  close: () => void;
+  isDeleting: boolean;
+  isPinned: boolean;
+  onDelete: () => void;
+  onTogglePin: () => void;
+  t: Translate;
+}) {
+  const { styles } = useConversationTheme();
+  return (
+    <View style={styles.swipeActions}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          close();
+          setTimeout(onTogglePin, 160);
+        }}
+        style={[styles.swipeAction, styles.pinAction]}
+      >
+        <SymbolView
+          name={isPinned ? "pin.slash" : "pin.fill"}
+          size={16}
+          weight="semibold"
+          tintColor="#FFFFFF"
+        />
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+          numberOfLines={1}
+          style={styles.swipeActionText}
+        >
+          {isPinned ? t("messages.unpin") : t("messages.pin")}
+        </Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        disabled={isDeleting}
+        onPress={onDelete}
+        style={[styles.swipeAction, styles.deleteAction]}
+      >
+        {isDeleting ? (
+          <ActivityIndicator color="#FFFFFF" size="small" />
+        ) : (
+          <SymbolView name="trash" size={16} weight="semibold" tintColor="#FFFFFF" />
+        )}
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+          numberOfLines={1}
+          style={styles.swipeActionText}
+        >
+          {t("common.delete")}
+        </Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -1676,6 +1707,7 @@ function createStyles(theme: ConversationTheme) {
     },
     mutedBadge: { backgroundColor: "#B2B2B2" },
     unreadBadgeText: { color: theme.white, fontSize: 11, fontWeight: "700" },
+    swipeForeground: { backgroundColor: theme.background },
     swipeActions: {
       width: SWIPE_ACTION_WIDTH,
       height: CONVERSATION_CARD_HEIGHT,

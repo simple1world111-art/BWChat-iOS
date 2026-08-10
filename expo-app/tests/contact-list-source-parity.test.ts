@@ -156,6 +156,18 @@ describe("ContactList source parity", () => {
     expect(page).not.toContain('title={t("messages.scan")}');
   });
 
+  it("keeps swipe actions behind an opaque foreground without a second reveal animation", () => {
+    const page = sourceExpo("src/app/(tabs)/conversations.tsx");
+    expect(page).toContain('from "react-native-gesture-handler/ReanimatedSwipeable"');
+    expect(page).toContain("<ReanimatedSwipeable");
+    expect(page).toContain("childrenContainerStyle={styles.swipeForeground}");
+    expect(page).toContain("swipeForeground: { backgroundColor: theme.background }");
+    expect(page).toContain("<View style={styles.swipeActions}>");
+    expect(page).not.toContain("useAnimatedStyle(() => ({");
+    expect(page).not.toContain("progress: SharedValue<number>");
+    expect(page).not.toContain('import { Swipeable } from "react-native-gesture-handler"');
+  });
+
   it("uses dynamic original avatars and remote covers without introducing page bitmap assets", () => {
     const page = sourceExpo("src/app/(tabs)/conversations.tsx");
     expect(page).toContain("<GroupMemberAvatar");

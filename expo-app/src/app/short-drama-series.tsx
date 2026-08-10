@@ -3,18 +3,17 @@ import { router, Stack, useFocusEffect, type NativeStackNavigationOptions } from
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   LayoutAnimation,
   PlatformColor,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import {
   getShortDramaFeed,
@@ -69,6 +68,7 @@ import {
 interface FilterState {
   series: ShortDramaSeries[];
   hasMore: boolean;
+  hasResolved: boolean;
   nextCursor?: string | undefined;
   isLoading: boolean;
   isLoadingMore: boolean;
@@ -87,6 +87,7 @@ const initialFilterStates: FilterStates = {
   recommended: {
     series: [],
     hasMore: true,
+    hasResolved: false,
     isLoading: false,
     isLoadingMore: false,
     isRefreshing: false,
@@ -94,6 +95,7 @@ const initialFilterStates: FilterStates = {
   watched: {
     series: [],
     hasMore: true,
+    hasResolved: false,
     isLoading: false,
     isLoadingMore: false,
     isRefreshing: false,
@@ -102,11 +104,17 @@ const initialFilterStates: FilterStates = {
 
 const settledFilterSnapshot = (state: FilterState): FilterState => ({
   ...state,
+  hasResolved: state.hasResolved ?? true,
   isLoading: false,
   isLoadingMore: false,
   isRefreshing: false,
   error: undefined,
 });
+
+const restoredFilterSnapshot = (state: FilterState): FilterState => {
+  const restored = settledFilterSnapshot(state);
+  return { ...restored, isLoading: !restored.hasResolved };
+};
 
 const secondarySystemBackground = PlatformColor("secondarySystemBackgroundColor");
 const systemBackground = PlatformColor("systemBackgroundColor");
@@ -126,8 +134,13 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
   const [filter, setFilter] = useState<ShortDramaSeriesFilter>(
     navigationSnapshot?.filter ?? "recommended",
   );
-  const [states, setStates] = useState<FilterStates>(
-    navigationSnapshot?.states ?? initialFilterStates,
+  const [states, setStates] = useState<FilterStates>(() =>
+    navigationSnapshot
+      ? {
+          recommended: restoredFilterSnapshot(navigationSnapshot.states.recommended),
+          watched: restoredFilterSnapshot(navigationSnapshot.states.watched),
+        }
+      : initialFilterStates,
   );
   const statesRef = useRef(states);
   const loadedRef = useRef(new Set<ShortDramaSeriesFilter>());
@@ -177,6 +190,7 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
         ...state,
         series: merged,
         hasMore: page.has_more,
+        hasResolved: true,
         nextCursor: page.next_cursor,
       }));
       loadedRef.current.add(target);
@@ -267,7 +281,7 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
         ...state,
         ...(reset
           ? {
-              isLoading: state.series.length === 0,
+              isLoading: !state.hasResolved && !showRefreshIndicator,
               isRefreshing: showRefreshIndicator,
               hasMore: true,
               nextCursor: undefined,
@@ -311,6 +325,7 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
         if (isRequestActive(target, token)) {
           commit(target, (state) => ({
             ...state,
+            ...(reset ? { hasResolved: true } : {}),
             isLoading: false,
             isLoadingMore: false,
             isRefreshing: false,
@@ -447,17 +462,13 @@ function ShortDramaSeriesContent({ ownerId }: { ownerId: string }) {
         ItemSeparatorComponent={() => <View style={styles.cardGap} />}
         keyExtractor={(series) => series.series_id}
         ListEmptyComponent={
-          current.isLoading ? (
-            <ActivityIndicator color={colors.accent} style={styles.initialLoading} />
+          current.isLoading && !current.isRefreshing ? (
+            <View />
           ) : (
             <ShortDramaSeriesEmpty error={current.error} styles={styles} t={t} />
           )
         }
-        ListFooterComponent={
-          current.series.length > 0 && (current.isLoading || current.isLoadingMore) ? (
-            <ActivityIndicator color={colors.accent} style={styles.loadingMore} />
-          ) : null
-        }
+        ListFooterComponent={null}
         onEndReached={() => {
           if (current.hasMore) void load(filter, false, false);
         }}
@@ -515,7 +526,6 @@ function ShortDramaSeriesCard({
   const { width } = useWindowDimensions();
   const [loadedEpisodes, setLoadedEpisodes] = useState(series.episodes);
   const [currentPage, setCurrentPage] = useState(0);
-  const [isLoadingEpisodes, setLoadingEpisodes] = useState(false);
   const loadedEpisodesRef = useRef(series.episodes);
   const detailLoadRef = useRef<Promise<ShortDramaVideo[]> | null>(null);
   const initialLoadSeriesIdRef = useRef<string | null>(null);
@@ -560,7 +570,6 @@ function ShortDramaSeriesCard({
       return Promise.resolve(currentEpisodes);
     }
     if (detailLoadRef.current) return detailLoadRef.current;
-    setLoadingEpisodes(true);
     let request!: Promise<ShortDramaVideo[]>;
     request = getShortDramaSeriesDetail(series.series_id)
       .then((detail) => {
@@ -584,7 +593,6 @@ function ShortDramaSeriesCard({
       .catch(() => loadedEpisodesRef.current)
       .finally(() => {
         if (detailLoadRef.current === request) detailLoadRef.current = null;
-        if (activeRef.current) setLoadingEpisodes(false);
       });
     detailLoadRef.current = request;
     return request;
@@ -669,13 +677,6 @@ function ShortDramaSeriesCard({
                   weight="bold"
                   tintColor={styles.accent.color}
                   style={styles.episodeLock}
-                />
-              ) : null}
-              {isLoadingEpisodes && !slot.episode ? (
-                <ActivityIndicator
-                  color={styles.accent.color}
-                  size="small"
-                  style={styles.episodeLoading}
                 />
               ) : null}
             </Pressable>
@@ -905,7 +906,6 @@ function makeStyles() {
       top: shortDramaSeriesMetrics.lockInset,
       right: shortDramaSeriesMetrics.lockInset,
     },
-    episodeLoading: { position: "absolute", transform: [{ scale: 0.65 }] },
     creatorDivider: {
       height: StyleSheet.hairlineWidth,
       marginTop: shortDramaSeriesMetrics.creatorDividerTopInset,
@@ -924,8 +924,6 @@ function makeStyles() {
       fontSize: shortDramaSeriesMetrics.creatorCopySize,
       fontWeight: "500",
     },
-    initialLoading: { padding: shortDramaSeriesMetrics.loadingInset },
-    loadingMore: { padding: shortDramaSeriesMetrics.loadingInset },
     emptyState: {
       alignItems: "center",
       gap: shortDramaSeriesMetrics.emptyGap,

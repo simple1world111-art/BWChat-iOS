@@ -311,6 +311,7 @@ export interface GiftMessagePayload {
   receiver_currency: "gold_coin";
   recipient_id?: string | undefined;
   recipient_name?: string | undefined;
+  recipient_avatar_url?: string | undefined;
   sender_id?: string | undefined;
   sender_name?: string | undefined;
 }
@@ -1141,6 +1142,7 @@ export interface CallSession {
   confirmed_live_activity_cat_food_charge?: number | undefined;
   confirmed_live_gold_coin_charge?: number | undefined;
   confirmed_live_total_charge?: number | undefined;
+  confirmed_live_earning_activity_cat_food?: number | undefined;
   confirmed_live_earning_gold_coins?: number | undefined;
   live_ending_message?: string | undefined;
   live_ending_detail?: string | undefined;

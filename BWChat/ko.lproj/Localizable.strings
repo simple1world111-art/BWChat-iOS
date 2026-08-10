@@ -12,7 +12,11 @@
 "tab.contacts" = "연락처";
 "tab.discover" = "발견";
 "tab.map" = "지도";
+"tab.test" = "테스트";
 "tab.profile" = "나";
+
+"test.card.title" = "테스트 카드";
+"test.card.subtitle" = "탭하여 Preview 업데이트를 확인하세요";
 
 "language.title" = "언어";
 "language.option.system" = "시스템 설정 따르기";
@@ -1083,6 +1087,9 @@
 "wallet.error.activityCatFoodDisabled" = "활동 캣푸드 기능이 꺼져 있습니다";
 "live.billing.chargedActivityCatFood" = "캣푸드 사용 %d";
 "live.billing.chargedGoldCoins" = "골드 코인 사용 %d";
+"live.billing.earnedActivityCatFood" = "캣푸드 수익 %d";
+"live.billing.awaitingBreakdown" = "서버의 분리 정산을 기다리는 중";
+"live.billing.awaitingEarnings" = "서버의 수익 정산을 기다리는 중";
 "live.billing.totalCharged" = "총 사용 %d";
 "live.billing.balanceAfter" = "결제 후: 코인 %d · 푸드 %d · 사용 가능 %d";
 "live.billing.earnedGoldCoins" = "골드 코인 수익 %d";

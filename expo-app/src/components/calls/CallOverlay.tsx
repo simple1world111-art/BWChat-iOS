@@ -18,6 +18,7 @@ import {
   ConnectionState,
   DefaultReconnectPolicy,
   MediaDeviceFailure,
+  RoomEvent,
   Track,
   type Participant,
 } from "livekit-client";
@@ -27,16 +28,18 @@ import {
   Animated,
   AppState,
   Dimensions,
-  Modal,
+  Keyboard,
   PanResponder,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Avatar } from "@/components/Avatar";
+import { GroupMemberAvatar } from "@/components/GroupMemberAvatar";
 import type { CallSession } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
 import { useCall } from "@/providers/CallProvider";
@@ -49,6 +52,7 @@ import {
   GROUP_REMOTE_DEPARTURE_GRACE_MS,
   shouldMarkCallConnected,
   shouldScheduleCallAutoExit,
+  groupVideoCellSize,
 } from "@/services/calls/callPolicy";
 import {
   callQualityService,
@@ -57,10 +61,8 @@ import {
 } from "@/services/calls/CallQualityService";
 import { retryCallMediaPublication } from "@/services/calls/CallMediaRecovery";
 import {
-  liveBillingAccruedAmount,
   liveBillingFreeSecondsRemaining,
   liveBillingPolicyOrFallback,
-  liveExperienceAccruedOverageAmount,
   liveExperienceRemainingSeconds,
 } from "@/services/live/LiveCallExperience";
 
@@ -68,6 +70,16 @@ const CALL_VIDEO_CAPTURE_OPTIONS = {
   facingMode: "user" as const,
   resolution: { width: 1280, height: 720, frameRate: 30 },
 };
+const CALL_AVATAR_CORNER_RATIO = 0.22;
+const LIVE_CAT_FOOD_COLOR = "#D7B8FF";
+const LIVE_GOLD_COIN_COLOR = "#FFD60A";
+const LIVE_BILLING_NEUTRAL_COLOR = "#FFFFFF";
+const CALL_CAMERA_TRACK_UPDATE_EVENTS = [
+  RoomEvent.TrackSubscribed,
+  RoomEvent.TrackUnsubscribed,
+  RoomEvent.TrackMuted,
+  RoomEvent.TrackUnmuted,
+];
 
 const CALL_ROOM_OPTIONS = {
   adaptiveStream: { pixelDensity: "screen" as const },
@@ -97,6 +109,9 @@ const CALL_ROOM_OPTIONS = {
 export function CallOverlay() {
   const call = useCall();
   const { session } = call;
+  useEffect(() => {
+    if (session && !call.isMinimized) Keyboard.dismiss();
+  }, [call.isMinimized, session]);
   if (!session) return null;
   if (session.token !== undefined && session.livekit_url !== undefined) {
     return <CallMediaHost key={session.id} session={session} />;
@@ -116,8 +131,10 @@ function CallMediaHost({ session }: { session: CallSession }) {
   } = useCall();
   const { t } = useLocalization();
   const [audioReady, setAudioReady] = useState(false);
+  const [roomContextReady, setRoomContextReady] = useState(false);
   const connectedRef = useRef(false);
   const initialSpeakerOnRef = useRef(isSpeakerOn);
+  const markRoomContextReady = useCallback(() => setRoomContextReady(true), []);
 
   useEffect(() => {
     const generation = { active: true };
@@ -160,41 +177,57 @@ function CallMediaHost({ session }: { session: CallSession }) {
   }
 
   return (
-    <LiveKitRoom
-      audio
-      connect
-      onConnected={() => {
-        connectedRef.current = true;
-        markMediaConnected(0, false);
-      }}
-      onDisconnected={() => failMedia()}
-      onError={(error) => {
-        if (MediaDeviceFailure.getFailure(error)) return;
-        failMedia(error);
-      }}
-      onMediaDeviceFailure={(_failure, kind?: "audioinput" | "audiooutput" | "videoinput") => {
-        if (kind === "audioinput") {
-          setMuted(true);
-          showError(t("call.error.microphoneUnavailable"));
-        } else if (kind === "videoinput") {
-          setCameraEnabled(false);
-          showError(t("call.error.cameraUnavailable"));
-        }
-      }}
-      connectOptions={{ maxRetries: 12 }}
-      options={CALL_ROOM_OPTIONS}
-      serverUrl={session.livekit_url}
-      token={session.token}
-      video={session.call_type === "video" ? CALL_VIDEO_CAPTURE_OPTIONS : false}
-    >
-      <CallRoomContent session={session} />
-    </LiveKitRoom>
+    <>
+      {!roomContextReady ? (
+        isMinimized ? (
+          <CallPipBubble session={session} />
+        ) : (
+          <CallModal session={session} />
+        )
+      ) : null}
+      <LiveKitRoom
+        audio
+        connect
+        onConnected={() => {
+          connectedRef.current = true;
+          markMediaConnected(0, false);
+        }}
+        onDisconnected={() => failMedia()}
+        onError={(error) => {
+          if (MediaDeviceFailure.getFailure(error)) return;
+          failMedia(error);
+        }}
+        onMediaDeviceFailure={(_failure, kind?: "audioinput" | "audiooutput" | "videoinput") => {
+          if (kind === "audioinput") {
+            setMuted(true);
+            showError(t("call.error.microphoneUnavailable"));
+          } else if (kind === "videoinput") {
+            setCameraEnabled(false);
+            showError(t("call.error.cameraUnavailable"));
+          }
+        }}
+        connectOptions={{ maxRetries: 12 }}
+        options={CALL_ROOM_OPTIONS}
+        serverUrl={session.livekit_url}
+        token={session.token}
+        video={session.call_type === "video" ? CALL_VIDEO_CAPTURE_OPTIONS : false}
+      >
+        <CallRoomContent onRoomContextReady={markRoomContextReady} session={session} />
+      </LiveKitRoom>
+    </>
   );
 }
 
-function CallRoomContent({ session }: { session: CallSession }) {
+function CallRoomContent({
+  session,
+  onRoomContextReady,
+}: {
+  session: CallSession;
+  onRoomContextReady(): void;
+}) {
   const call = useCall();
   const { t } = useLocalization();
+  useLayoutEffect(onRoomContextReady, [onRoomContextReady]);
   const unsortedRemoteParticipants = useRemoteParticipants();
   const remoteParticipants = useMemo(
     () =>
@@ -208,7 +241,10 @@ function CallRoomContent({ session }: { session: CallSession }) {
   const speakingParticipants = useSpeakingParticipants();
   const connectionState = useConnectionState();
   const { localParticipant } = useLocalParticipant();
-  const tracks = useTracks([Track.Source.Camera]);
+  const tracks = useTracks([Track.Source.Camera], {
+    onlySubscribed: false,
+    updateOnlyOn: CALL_CAMERA_TRACK_UPDATE_EVENTS,
+  });
   const trackReferences = tracks.filter(isTrackReference);
   const localQualityTrack = localParticipant.getTrackPublication(Track.Source.Camera)?.track as
     CallQualityTrack | undefined;
@@ -527,13 +563,7 @@ function CallModal({
   const duration = useCallDuration(session);
   const connectedGroup = session.group_id !== undefined && session.state === "connected";
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={call.minimizeCall}
-      presentationStyle="fullScreen"
-      statusBarTranslucent
-      visible
-    >
+    <View accessibilityViewIsModal style={styles.callSurface}>
       {connectedGroup ? (
         <GroupCallStage
           controls={controls}
@@ -551,7 +581,7 @@ function CallModal({
           session={session}
         />
       )}
-    </Modal>
+    </View>
   );
 }
 
@@ -590,6 +620,10 @@ function DirectCallStage({
     ? call.isMuted
     : isParticipantMuted(roomState?.remoteParticipants[0]);
   const localAvatarUrl = user?.avatar_url ?? "";
+  const groupId = session.group_id;
+  const isGroupCall = groupId !== undefined;
+  const identityAvatarSize =
+    session.call_type === "voice" && session.state === "connected" ? 156 : 100;
 
   return (
     <View style={styles.callRoot}>
@@ -669,20 +703,29 @@ function DirectCallStage({
         </View>
         <View style={{ height: 20 }} />
         {session.call_type !== "video" || session.state !== "connected" ? (
-          <View style={styles.identityBlock}>
-            {session.group_id !== undefined ? (
-              <GroupFallbackAvatar size={100} />
+          <View style={[styles.identityBlock, isGroupCall && styles.groupIdentityBlock]}>
+            {isGroupCall ? (
+              <View style={styles.identityAvatarShadow}>
+                <GroupMemberAvatar groupId={groupId} size={100} />
+              </View>
             ) : (
               <View style={styles.identityAvatarShadow}>
                 <Avatar
-                  cornerRadius={999}
+                  cornerRadius={identityAvatarSize * CALL_AVATAR_CORNER_RATIO}
                   name={session.remote_nickname}
-                  size={session.call_type === "voice" && session.state === "connected" ? 156 : 100}
+                  size={identityAvatarSize}
                   uri={session.remote_avatar_url}
                 />
               </View>
             )}
-            <Text style={styles.callName}>{session.group_name ?? session.remote_nickname}</Text>
+            <Text
+              adjustsFontSizeToFit
+              minimumFontScale={0.72}
+              numberOfLines={isGroupCall ? 2 : 1}
+              style={[styles.callName, isGroupCall && styles.groupCallName]}
+            >
+              {session.group_name ?? session.remote_nickname}
+            </Text>
             {!session.is_live_pair || session.state !== "connected" ? (
               <StatusText duration={duration} roomState={roomState} session={session} />
             ) : null}
@@ -750,61 +793,102 @@ function LiveBillingBadge({ session, duration }: { session: CallSession; duratio
   const experienceRemaining = experience
     ? liveExperienceRemainingSeconds(experience, duration)
     : undefined;
-  const projected = experience
-    ? liveExperienceAccruedOverageAmount(experience, policy, duration)
-    : liveBillingAccruedAmount(policy, duration);
   const freeRemaining = liveBillingFreeSecondsRemaining(policy, duration);
   const endingSoon =
     experienceRemaining !== undefined && experienceRemaining > 0 && experienceRemaining <= 60;
-  const lines: string[] = [];
+  const lines: { color: string; key: string; symbol: SFSymbol; text: string }[] = [];
   if (experienceRemaining !== undefined && experienceRemaining > 0) {
-    lines.push(
-      t(
+    lines.push({
+      key: "experience",
+      color: LIVE_BILLING_NEUTRAL_COLOR,
+      symbol: "ticket.fill",
+      text: t(
         session.is_outgoing ? "live.experience.remaining.viewer" : "live.experience.remaining.host",
         formatCallDuration(experienceRemaining),
       ),
-    );
+    });
   } else if (session.is_outgoing) {
-    if (freeRemaining > 0)
-      lines.push(
-        experience
+    if (freeRemaining > 0) {
+      lines.push({
+        key: "free",
+        color: LIVE_BILLING_NEUTRAL_COLOR,
+        symbol: "clock.fill",
+        text: experience
           ? t("live.experience.overage.viewer")
           : t("live.billing.freePayer", freeRemaining),
-      );
-    else if (session.confirmed_live_total_charge !== undefined) {
-      if ((session.confirmed_live_activity_cat_food_charge ?? 0) > 0)
-        lines.push(
-          t(
-            "live.billing.chargedActivityCatFood",
-            session.confirmed_live_activity_cat_food_charge!,
-          ),
-        );
-      if ((session.confirmed_live_gold_coin_charge ?? 0) > 0)
-        lines.push(t("live.billing.chargedGoldCoins", session.confirmed_live_gold_coin_charge!));
-      lines.push(t("live.billing.totalCharged", session.confirmed_live_total_charge));
-    } else if (projected > 0) lines.push(t("live.billing.estimatedSpendable", projected));
-    else lines.push(t("live.experience.overage.viewer"));
-  } else if (freeRemaining > 0 && !experience)
-    lines.push(t("live.billing.freeHost", freeRemaining));
-  else if (session.confirmed_live_earning_gold_coins !== undefined)
-    lines.push(t("live.billing.earnedGoldCoins", session.confirmed_live_earning_gold_coins));
-  else if (projected > 0) lines.push(t("live.billing.estimatedEarning", projected));
-  else lines.push(t("live.experience.overage.host"));
+      });
+    } else if (
+      session.confirmed_live_activity_cat_food_charge !== undefined ||
+      session.confirmed_live_gold_coin_charge !== undefined
+    ) {
+      lines.push({
+        key: "activity-charge",
+        color: LIVE_CAT_FOOD_COLOR,
+        symbol: "pawprint.fill",
+        text: t(
+          "live.billing.chargedActivityCatFood",
+          session.confirmed_live_activity_cat_food_charge ?? 0,
+        ),
+      });
+      lines.push({
+        key: "gold-charge",
+        color: LIVE_GOLD_COIN_COLOR,
+        symbol: "dollarsign.circle.fill",
+        text: t("live.billing.chargedGoldCoins", session.confirmed_live_gold_coin_charge ?? 0),
+      });
+    } else {
+      lines.push({
+        key: "awaiting-charge",
+        color: LIVE_BILLING_NEUTRAL_COLOR,
+        symbol: "clock.fill",
+        text: t("live.billing.awaitingBreakdown"),
+      });
+    }
+  } else if (freeRemaining > 0 && !experience) {
+    lines.push({
+      key: "free",
+      color: LIVE_BILLING_NEUTRAL_COLOR,
+      symbol: "clock.fill",
+      text: t("live.billing.freeHost", freeRemaining),
+    });
+  } else if (
+    session.confirmed_live_earning_activity_cat_food !== undefined ||
+    session.confirmed_live_earning_gold_coins !== undefined
+  ) {
+    lines.push({
+      key: "activity-earning",
+      color: LIVE_CAT_FOOD_COLOR,
+      symbol: "pawprint.fill",
+      text: t(
+        "live.billing.earnedActivityCatFood",
+        session.confirmed_live_earning_activity_cat_food ?? 0,
+      ),
+    });
+    lines.push({
+      key: "gold-earning",
+      color: LIVE_GOLD_COIN_COLOR,
+      symbol: "dollarsign.circle.fill",
+      text: t("live.billing.earnedGoldCoins", session.confirmed_live_earning_gold_coins ?? 0),
+    });
+  } else {
+    lines.push({
+      key: "awaiting-earning",
+      color: LIVE_BILLING_NEUTRAL_COLOR,
+      symbol: "clock.fill",
+      text: t("live.billing.awaitingEarnings"),
+    });
+  }
   return (
     <View
-      accessibilityLabel={lines.join("，")}
+      accessibilityLabel={lines.map((line) => line.text).join("，")}
       style={[styles.liveBillingBadge, endingSoon && styles.liveBillingEndingSoon]}
     >
-      <SymbolView
-        name={experience ? "ticket.fill" : "pawprint.fill"}
-        size={12}
-        tintColor="#FFFFFF"
-      />
-      <View>
-        {lines.map((line, index) => (
-          <Text key={`${index}-${line}`} style={styles.liveBillingText}>
-            {line}
-          </Text>
+      <View style={styles.liveBillingLines}>
+        {lines.map((line) => (
+          <View key={line.key} style={styles.liveBillingLine}>
+            <SymbolView name={line.symbol} size={12} tintColor={line.color} />
+            <Text style={[styles.liveBillingText, { color: line.color }]}>{line.text}</Text>
+          </View>
         ))}
       </View>
     </View>
@@ -894,6 +978,8 @@ function GroupCallStage({
   const call = useCall();
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const videoCellSize = groupVideoCellSize(windowWidth);
   const allParticipants = roomState
     ? [roomState.localParticipant, ...roomState.remoteParticipants]
     : [];
@@ -925,6 +1011,7 @@ function GroupCallStage({
       </View>
       <ScrollView
         contentContainerStyle={session.call_type === "video" ? styles.videoGrid : styles.voiceGrid}
+        style={styles.groupParticipantScroll}
       >
         {allParticipants.length > 0
           ? allParticipants.map((participant) => {
@@ -947,6 +1034,7 @@ function GroupCallStage({
                   speaking={speaking}
                   track={hasActiveVideoTrack ? track : undefined}
                   mirrorsVideo={local && call.isFrontCamera}
+                  cellSize={videoCellSize}
                 />
               ) : (
                 <GroupVoiceParticipant
@@ -1323,6 +1411,7 @@ function GroupVideoParticipant({
   speaking,
   cameraEnabled,
   mirrorsVideo,
+  cellSize,
 }: {
   name: string;
   track?: TrackReference | undefined;
@@ -1330,6 +1419,7 @@ function GroupVideoParticipant({
   speaking: boolean;
   cameraEnabled: boolean;
   mirrorsVideo: boolean;
+  cellSize: { width: number; height: number };
 }) {
   const { t } = useLocalization();
   return (
@@ -1342,7 +1432,7 @@ function GroupVideoParticipant({
       ]
         .filter(Boolean)
         .join(", ")}
-      style={[styles.groupVideoCell, speaking && styles.speakingBorder]}
+      style={[styles.groupVideoCell, cellSize, speaking && styles.speakingBorder]}
     >
       {track && cameraEnabled ? (
         <VideoTrack
@@ -1575,7 +1665,12 @@ function AvatarStage({ avatarUrl, name, size }: { avatarUrl: string; name: strin
     <View style={styles.avatarStage}>
       <DarkStage />
       <View style={styles.primaryAvatarShadow}>
-        <Avatar name={name} size={size} uri={avatarUrl} />
+        <Avatar
+          cornerRadius={size * CALL_AVATAR_CORNER_RATIO}
+          name={name}
+          size={size}
+          uri={avatarUrl}
+        />
       </View>
     </View>
   );
@@ -1585,26 +1680,14 @@ function VideoAvatarPlaceholder({ avatarUrl, name }: { avatarUrl: string; name: 
   return (
     <View style={styles.videoAvatarPlaceholder}>
       <View style={styles.secondaryAvatarShadow}>
-        <Avatar name={name} size={92} uri={avatarUrl} />
+        <Avatar
+          cornerRadius={92 * CALL_AVATAR_CORNER_RATIO}
+          name={name}
+          size={92}
+          uri={avatarUrl}
+        />
       </View>
     </View>
-  );
-}
-
-function GroupFallbackAvatar({ size }: { size: number }) {
-  return (
-    <LinearGradient
-      colors={["#667EEA", "#764BA2"]}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size * 0.22,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <SymbolView name="person.3.fill" size={size * 0.45} tintColor="rgba(255,255,255,0.85)" />
-    </LinearGradient>
   );
 }
 
@@ -1614,7 +1697,7 @@ function Initial({ name, size }: { name: string; size: number }) {
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
+        borderRadius: size * CALL_AVATAR_CORNER_RATIO,
         backgroundColor: "rgba(255,255,255,0.1)",
         alignItems: "center",
         justifyContent: "center",
@@ -1656,16 +1739,35 @@ function isParticipantMuted(participant?: Participant): boolean {
 }
 
 const styles = StyleSheet.create({
+  callSurface: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1_000,
+    elevation: 1_000,
+    backgroundColor: "#000000",
+  },
   callRoot: { flex: 1, backgroundColor: "#000000" },
   directOverlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   directMinimizeRow: { paddingHorizontal: 16, paddingTop: 54, alignItems: "flex-start" },
-  identityBlock: { alignItems: "center" },
+  identityBlock: { alignItems: "center", alignSelf: "stretch", paddingHorizontal: 24 },
+  groupIdentityBlock: { paddingHorizontal: 28 },
   identityAvatarShadow: {
     shadowColor: "#FFFFFF",
     shadowOpacity: 0.2,
     shadowRadius: 20,
   },
-  callName: { color: "#FFFFFF", fontSize: 28, fontWeight: "600", marginTop: 20 },
+  callName: {
+    maxWidth: "100%",
+    color: "#FFFFFF",
+    fontSize: 28,
+    fontWeight: "600",
+    marginTop: 20,
+    textAlign: "center",
+  },
+  groupCallName: { width: "100%", fontSize: 26, lineHeight: 34 },
   callStatus: { color: "rgba(255,255,255,0.7)", fontSize: 16, marginTop: 8 },
   groupCount: { color: "rgba(255,255,255,0.6)", fontSize: 14, marginTop: 4 },
   connectedStatus: { marginTop: 8, alignItems: "center", gap: 5 },
@@ -1683,10 +1785,10 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: "rgba(0,0,0,0.48)",
-    flexDirection: "row",
-    alignItems: "center",
-    columnGap: 6,
+    alignItems: "stretch",
   },
+  liveBillingLines: { rowGap: 3 },
+  liveBillingLine: { flexDirection: "row", alignItems: "center", columnGap: 6 },
   liveBillingEndingSoon: { backgroundColor: "rgba(255,149,0,0.82)" },
   liveBillingText: {
     color: "#FFFFFF",
@@ -1859,6 +1961,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   videoGrid: {
+    alignContent: "flex-start",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 4,
@@ -1873,9 +1976,8 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 20,
   },
+  groupParticipantScroll: { flex: 1 },
   groupVideoCell: {
-    width: "49%",
-    aspectRatio: 3 / 4,
     borderRadius: 8,
     overflow: "hidden",
     backgroundColor: "#2A2A3E",

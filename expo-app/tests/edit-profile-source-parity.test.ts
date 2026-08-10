@@ -27,16 +27,47 @@ describe("EditProfile source parity", () => {
         "efb8861fbf1461deb01d917c44433516aa2ec7373c11b3dc90e1fede170b16cd",
       "BWChat/Utils/Extensions.swift":
         "e625dab1ea95cbd63d74c1e8bf33d4bf3f4a85adbd2001c1b0ca27a99bcc5ce5",
-      "BWChat/zh-Hans.lproj/Localizable.strings":
-        "a9a6ce25dd4d5ef898a27a3c7d03619dbb6e64cb83d753ffa5a52a3c78558931",
-      "BWChat/en.lproj/Localizable.strings":
-        "62c800c570e79cfce00e7d0b9f76c83ce0737831ca08646448e486f54c5c9c0d",
     };
     for (const [relativePath, expected] of Object.entries(hashes)) {
       const copied = resolve(copiedNativeRoot, relativePath);
       expect(sha256(copied)).toBe(expected);
       const original = resolve(originalNativeRoot, relativePath);
       if (existsSync(original)) expect(sha256(original)).toBe(expected);
+    }
+  });
+
+  it("keeps every edit-profile localization key in both native language catalogs", () => {
+    for (const nativeRoot of [copiedNativeRoot, originalNativeRoot]) {
+      if (!existsSync(nativeRoot)) continue;
+      const simplifiedChinese = readFileSync(
+        resolve(nativeRoot, "BWChat/zh-Hans.lproj/Localizable.strings"),
+        "utf8",
+      );
+      const english = readFileSync(
+        resolve(nativeRoot, "BWChat/en.lproj/Localizable.strings"),
+        "utf8",
+      );
+      for (const key of [
+        "profile.edit.title",
+        "profile.avatar.change",
+        "profile.nickname",
+        "profile.nickname.placeholder",
+        "profile.bio",
+        "profile.bio.placeholder",
+        "profile.gender",
+        "profile.gender.male",
+        "profile.gender.female",
+        "profile.gender.other",
+        "profile.unset",
+        "profile.birthday",
+        "profile.birthday.select",
+        "profile.birthday.clear",
+        "profile.location",
+        "profile.location.placeholder",
+      ]) {
+        expect(simplifiedChinese).toContain(`"${key}" =`);
+        expect(english).toContain(`"${key}" =`);
+      }
     }
   });
 

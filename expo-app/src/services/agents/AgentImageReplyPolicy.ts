@@ -28,6 +28,8 @@ export function agentImageReplySenderLabel(target: AgentImageReplyTarget): strin
 
 export function agentImagePath(part: AgentMessagePart): string | null {
   if (part.type === "input_image") {
+    const localContent = part.metadata.content_url?.trim();
+    if (localContent && /^(?:file|content|data|blob):/iu.test(localContent)) return localContent;
     const assetId = part.asset_id?.trim();
     return assetId ? `/agent-assets/${encodeURIComponent(assetId)}/content` : null;
   }

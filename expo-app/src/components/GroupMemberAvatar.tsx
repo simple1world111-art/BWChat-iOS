@@ -10,6 +10,7 @@ import {
   groupDetailGeneration,
   groupMemberDisplayName,
   loadCachedGroupDetailSnapshot,
+  peekCachedGroupDetail,
   saveCachedGroupDetail,
   subscribeGroupDetail,
 } from "@/services/groups/GroupDetailRepository";
@@ -28,6 +29,7 @@ export function GroupMemberAvatar({
 }) {
   const { user } = useAuth();
   const ownerId = user?.user_id ?? "";
+  const memoryDetail = peekCachedGroupDetail(ownerId, groupId)?.detail ?? null;
   const [detailState, setDetailState] = useState<GroupAvatarDetailState>({
     ownerId: "",
     groupId: 0,
@@ -48,6 +50,8 @@ export function GroupMemberAvatar({
     };
     const cacheGeneration = groupDetailGeneration(ownerId, groupId);
     const unsubscribe = subscribeGroupDetail(ownerId, apply);
+    const memorySnapshot = peekCachedGroupDetail(ownerId, groupId);
+    if (memorySnapshot) apply(memorySnapshot.detail);
     void (async () => {
       const cached = await loadCachedGroupDetailSnapshot(ownerId, groupId);
       if (!active) return;
@@ -70,7 +74,8 @@ export function GroupMemberAvatar({
   }, [groupId, ownerId]);
 
   const detailIsCurrent = detailState.ownerId === ownerId && detailState.groupId === groupId;
-  const displayed = (detailIsCurrent ? detailState.detail?.members : undefined)?.slice(0, 9) ?? [];
+  const detail = detailIsCurrent ? detailState.detail : memoryDetail;
+  const displayed = detail?.members.slice(0, 9) ?? [];
   if (displayed.length === 0) return <GroupAvatarIcon size={size} />;
 
   const columns = displayed.length === 1 ? 1 : displayed.length <= 4 ? 2 : 3;

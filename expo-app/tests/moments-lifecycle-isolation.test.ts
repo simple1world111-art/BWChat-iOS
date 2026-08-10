@@ -42,17 +42,17 @@ describe("Moments account lifecycle isolation", () => {
     expect(queue).toContain("subscribeMomentUploads(ownerId: string, listener: Listener)");
   });
 
-  it("hydrates cached feeds before showing automatic loading feedback", () => {
+  it("treats persisted empty feeds as resolved before silent revalidation", () => {
     const feed = read("src/app/moments.tsx");
     const cacheRead = feed.indexOf("await readCachedMomentFeed(ownerId, tab)");
-    const initialLoading = feed.indexOf(
-      "if (!cached && feedsRef.current[tab].moments.length === 0)",
-    );
+    const resolvedCache = feed.indexOf("hasResolved: true", cacheRead);
 
     expect(cacheRead).toBeGreaterThan(-1);
-    expect(initialLoading).toBeGreaterThan(cacheRead);
-    expect(feed).toContain("isLoading: false,\n        isRefreshing: reset && forceRefresh");
+    expect(resolvedCache).toBeGreaterThan(cacheRead);
+    expect(feed).toContain("isLoading: reset && !forceRefresh && !state.hasResolved");
     expect(feed).toContain("isShowingCachedData: false");
+    expect(feed).toContain("if (cacheIsFresh) return");
+    expect(feed).toContain("if (reset && !forceRefresh && loadedRef.current[tab]) return");
   });
 
   it("keeps automatic entry, cover media and initial pagination spinner-free", () => {
@@ -61,6 +61,7 @@ describe("Moments account lifecycle isolation", () => {
 
     expect(feed).toContain("if (isLoading) {\n    return <View style={styles.emptyState} />;");
     expect(feed).toContain("loadingFallback={<View />}");
+    expect(feed).toContain("ListFooterComponent={null}");
     expect(feed).toContain("if (didBeginScrollingRef.current) void loadFeed(selectedTab, false)");
     expect(content).toContain("fallback={<View style={imageStyle} />}");
     expect(content).toContain("loadingFallback={<View style={imageStyle} />}");

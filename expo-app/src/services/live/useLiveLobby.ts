@@ -450,9 +450,9 @@ export function useLiveLobby(
 
   const participants = useMemo(
     () =>
-      sortLiveSlots(slots).map((slot) =>
-        liveParticipant(slot, scope, participantTab === "chatted"),
-      ),
+      sortLiveSlots(slots)
+        .filter((slot) => participantTab !== "chatted" || slot.user.userId !== scope)
+        .map((slot) => liveParticipant(slot, scope, participantTab === "chatted")),
     [participantTab, scope, slots],
   );
   return {

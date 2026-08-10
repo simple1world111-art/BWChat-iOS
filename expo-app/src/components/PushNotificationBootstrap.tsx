@@ -3,6 +3,7 @@ import { useCallback, useEffect } from "react";
 import { AppState } from "react-native";
 
 import { useAuth } from "@/providers/AuthProvider";
+import { publishCallNotification } from "@/services/calls/CallNotificationBridge";
 import { useConversationUnread } from "@/services/conversations/ConversationUnreadStore";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { selectMainTabThenPush } from "@/services/main-tab/MainTabNavigation";
@@ -91,11 +92,13 @@ export function PushNotificationBootstrap() {
 
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener((notification) => {
+      handleCallNotification(notification.request.content.data);
       void applyPushSideEffects(notification.request.content.data, user?.user_id).catch((error) =>
         captureException(error, { operation: "push_received" }),
       );
     });
     const open = async (response: Notifications.NotificationResponse) => {
+      if (handleCallNotification(response.notification.request.content.data)) return;
       const target = pushOpenTarget(
         response.notification.request.content.data,
         response.notification.request.identifier,
@@ -119,6 +122,19 @@ export function PushNotificationBootstrap() {
   }, [consumePending, user?.user_id]);
 
   return null;
+}
+
+function handleCallNotification(data: unknown): boolean {
+  const result = publishCallNotification(data);
+  if (result.kind === "not_call") return false;
+  if (result.kind === "invalid") {
+    captureException(new Error("Incoming call notification payload is incomplete"), {
+      operation: "call_push_decode",
+      missing_fields: result.missingFields.join(","),
+      push_type: result.pushType,
+    });
+  }
+  return true;
 }
 
 function navigatePushTarget(target: PushOpenTarget): void {

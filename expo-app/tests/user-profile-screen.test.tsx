@@ -279,6 +279,29 @@ describe("User Profile screen state machine", () => {
     await waitFor(() => expect(view.getByText("profile.suggestions.unavailable")).toBeTruthy());
   });
 
+  it("shows recommendation nicknames without login accounts or dismiss controls", async () => {
+    mockRecommended.mockResolvedValueOnce([
+      {
+        user_id: "suggested-user",
+        username: "gray-login-account",
+        nickname: "推荐昵称",
+        avatar_url: "",
+        bio: "",
+        following_count: 0,
+        follower_count: 0,
+        followed_by_me: false,
+        follows_me: false,
+        is_friend: false,
+      },
+    ]);
+
+    const view = await render(<UserProfileScreen />);
+    await waitFor(() => expect(view.getByText("推荐昵称")).toBeTruthy());
+
+    expect(view.queryByText("gray-login-account")).toBeNull();
+    expect(view.queryByText("xmark")).toBeNull();
+  });
+
   it("starts all four recommendation fallbacks without waiting for a slow profile", async () => {
     const pendingProfile = deferred<PublicProfile>();
     mockProfile.mockReturnValueOnce(pendingProfile.promise);

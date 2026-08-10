@@ -4,6 +4,7 @@ import { refreshAccessToken } from "@/api/client";
 import {
   effectiveContactItems,
   effectiveProfileItems,
+  effectiveTabs,
   fetchRemoteConfig,
   parseRemoteConfig,
   requiresStoreUpdate,
@@ -32,6 +33,25 @@ describe("parseRemoteConfig", () => {
     expect(effectiveContactItems(config).map((item) => item.id)).toEqual([
       "friend_requests",
       "my_groups",
+    ]);
+  });
+
+  it("keeps the local test tab immediately before profile when remote tabs omit it", () => {
+    const config = parseRemoteConfig({
+      schema_version: 1,
+      config_version: "remote-tabs-without-test",
+      tabs: [
+        { id: "messages", order: 10, route: { type: "native", name: "messages" } },
+        { id: "discover", order: 40, route: { type: "native", name: "discover" } },
+        { id: "profile", order: 50, route: { type: "native", name: "profile" } },
+      ],
+    });
+
+    expect(effectiveTabs(config).map((tab) => tab.id)).toEqual([
+      "messages",
+      "discover",
+      "test",
+      "profile",
     ]);
   });
 

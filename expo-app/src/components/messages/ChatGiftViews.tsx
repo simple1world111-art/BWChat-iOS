@@ -504,7 +504,7 @@ export function ChatGiftBubble({
   const recipientName =
     payload.recipient_name?.trim() || recipientFallback || t("gift.recipientFallback");
   const recipientId = payload.recipient_id?.trim() || recipientIdFallback || "";
-  const avatar = recipientAvatarFallback ?? "";
+  const avatar = payload.recipient_avatar_url?.trim() || recipientAvatarFallback?.trim() || "";
   const recipientAvatar = (
     <View style={styles.giftRecipientAvatarFrame}>
       {recipientId ? (

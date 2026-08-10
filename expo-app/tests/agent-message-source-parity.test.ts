@@ -27,6 +27,7 @@ describe("native AgentMessageView source parity", () => {
     expect(component).toContain("onVideoPress(content)");
     expect(component).toContain("onSave?.(savePath, isVideo)");
     expect(component).toContain("onUnlock(mediaId, metadata.media_type)");
+    expect(component).toContain("<View style={styles.saveMediaSlot} />");
     expect(screen).toContain("<AgentMessageView");
     expect(screen).not.toContain("function AgentMessageRow(");
     expect(screen).not.toContain("export function PaidMediaPart(");
@@ -42,7 +43,9 @@ describe("native AgentMessageView source parity", () => {
     expect(component).not.toContain("messageParts: { maxWidth: 290, rowGap: 7 }");
     expect(screen).toContain("ItemSeparatorComponent={AgentMessageTimelineSeparator}");
     expect(screen).toContain("height: agentMessageLayout.timelineItemSpacing");
-    expect(screen).toContain("marginBottom: agentMessageLayout.timelineItemSpacing");
+    expect(screen).toContain("hasHeaderTailContent && styles.headerTailAfterMessage");
+    expect(screen).toContain("marginTop: agentMessageLayout.timelineItemSpacing");
+    expect(screen).not.toContain("marginBottom: agentMessageLayout.timelineItemSpacing");
   });
 
   it("reuses authenticated image, gallery, video and saver capabilities without forking them", () => {

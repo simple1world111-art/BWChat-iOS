@@ -40,7 +40,14 @@ interface TransferActionReceipt {
 
 const configurationCache = new Map<string, ChatMoneyConfiguration>();
 const detailCache = new Map<string, ChatMoneyDetail>();
+const configurationCachePrefix = "bwchat.chat-money.config.v1:";
+const detailCachePrefix = "bwchat.chat-money.detail.v1:";
 let activeOperation: { ownerId: string; assetId: string } | null = null;
+
+interface StoredChatMoneyValue<T> {
+  value: T;
+  savedAt: number;
+}
 
 export function resetChatMoneyMemoryForAccount(ownerId: string): void {
   const owner = ownerId.trim();
@@ -53,21 +60,24 @@ export function resetChatMoneyMemoryForAccount(ownerId: string): void {
   if (activeOperation?.ownerId === owner) activeOperation = null;
 }
 
-export async function loadChatMoneyConfiguration(
-  ownerId: string,
-): Promise<ChatMoneyConfiguration> {
+export async function loadChatMoneyConfiguration(ownerId: string): Promise<ChatMoneyConfiguration> {
+  const owner = ownerId.trim();
+  const persisted = await readStoredConfiguration(owner);
+  if (persisted) configurationCache.set(owner, persisted);
   try {
     const configuration = await getChatMoneyConfiguration();
-    configurationCache.set(ownerId, configuration);
+    configurationCache.set(owner, configuration);
+    await writeStoredValue(configurationStorageKey(owner), configuration);
     return configuration;
   } catch {
-    configurationCache.set(ownerId, unavailableChatMoneyConfiguration);
-    return unavailableChatMoneyConfiguration;
+    const fallback = configurationCache.get(owner) ?? unavailableChatMoneyConfiguration;
+    configurationCache.set(owner, fallback);
+    return fallback;
   }
 }
 
 export function cachedChatMoneyConfiguration(ownerId: string): ChatMoneyConfiguration {
-  return configurationCache.get(ownerId) ?? unavailableChatMoneyConfiguration;
+  return configurationCache.get(ownerId.trim()) ?? unavailableChatMoneyConfiguration;
 }
 
 export async function createChatMoneyRedPacket(input: {
@@ -94,10 +104,12 @@ export async function createChatMoneyRedPacket(input: {
       greeting: input.greeting,
       ...(input.receiverId ? { receiverId: input.receiverId } : {}),
       ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
-      ...(input.recipient ? {
-        recipientId: input.recipient.id,
-        recipientName: input.recipient.name,
-      } : {}),
+      ...(input.recipient
+        ? {
+            recipientId: input.recipient.id,
+            recipientName: input.recipient.name,
+          }
+        : {}),
       ...(input.amountPerPacket !== undefined ? { amountPerPacket: input.amountPerPacket } : {}),
     });
     await applyWallet(input.ownerId, result.wallet_balance);
@@ -139,13 +151,22 @@ export async function loadChatMoneyDetail(input: {
 }): Promise<ChatMoneyDetail> {
   const key = detailKey(input.ownerId, input.assetId);
   if (!input.force && detailCache.has(key)) return detailCache.get(key)!;
-  return perform(input.ownerId, input.assetId, async () => {
-    const server = await getChatMoneyDetail(input.assetId);
-    const normalized = await normalizeForLocalReceipts(input.ownerId, server);
-    const merged = mergeChatMoneyDetail(detailCache.get(key), normalized);
-    detailCache.set(key, merged);
-    return merged;
-  });
+  const persisted = await readStoredDetail(input.ownerId, input.assetId);
+  if (persisted) detailCache.set(key, persisted);
+  if (!input.force && persisted) return persisted;
+  try {
+    return await perform(input.ownerId, input.assetId, async () => {
+      const server = await getChatMoneyDetail(input.assetId);
+      const normalized = await normalizeForLocalReceipts(input.ownerId, server);
+      const merged = mergeChatMoneyDetail(detailCache.get(key), normalized);
+      detailCache.set(key, merged);
+      await writeStoredValue(detailStorageKey(input.ownerId, input.assetId), merged);
+      return merged;
+    });
+  } catch (error) {
+    if (persisted) return persisted;
+    throw error;
+  }
 }
 
 export function cachedChatMoneyDetail(ownerId: string, assetId: string): ChatMoneyDetail | null {
@@ -166,6 +187,7 @@ export async function claimChatMoneyRedPacket(input: {
     await recordViewerClaim(input, result.detail);
     const normalized = await normalizeForLocalReceipts(input.ownerId, result.detail);
     const detail = cacheDetail(input.ownerId, normalized);
+    await writeStoredValue(detailStorageKey(input.ownerId, detail.asset_id), detail);
     await applyWallet(input.ownerId, result.wallet_balance);
     return { ...result, detail };
   });
@@ -185,11 +207,17 @@ export async function returnChatMoneyTransfer(input: {
   return finalizeTransfer(input, "returned", returnTransfer);
 }
 
-export async function hasViewerClaimedChatMoney(ownerId: string, assetId: string): Promise<boolean> {
+export async function hasViewerClaimedChatMoney(
+  ownerId: string,
+  assetId: string,
+): Promise<boolean> {
   return (await claimedAssetIds(ownerId)).includes(assetId);
 }
 
-export async function hasFinalizedChatMoneyTransfer(ownerId: string, assetId: string): Promise<boolean> {
+export async function hasFinalizedChatMoneyTransfer(
+  ownerId: string,
+  assetId: string,
+): Promise<boolean> {
   const receipts = await transferReceipts(ownerId);
   return receipts[assetId] !== undefined;
 }
@@ -215,6 +243,7 @@ async function finalizeTransfer(
       can_return: false,
       finalized_at: result.detail.finalized_at ?? completedAt,
     });
+    await writeStoredValue(detailStorageKey(input.ownerId, detail.asset_id), detail);
     await applyWallet(input.ownerId, result.wallet_balance);
     return { ...result, detail };
   });
@@ -225,14 +254,18 @@ async function normalizeForLocalReceipts(
   detail: ChatMoneyDetail,
 ): Promise<ChatMoneyDetail> {
   let normalized = detail;
-  if (detail.kind === "red_packet" && await hasViewerClaimedChatMoney(ownerId, detail.asset_id)) {
+  if (detail.kind === "red_packet" && (await hasViewerClaimedChatMoney(ownerId, detail.asset_id))) {
     const receipts = await viewerClaimReceipts(ownerId);
     const receipt = receipts[detail.asset_id];
     const hasClaim = receipt && !detail.claims.some((claim) => claim.user_id === receipt.user_id);
-    const status: ChatMoneyStatus = detail.scope === "dm" || detail.packet_count === 1
-      || (detail.claimed_count !== undefined && detail.claimed_count === detail.packet_count)
-      ? "completed"
-      : detail.status === "pending" ? "partial" : detail.status;
+    const status: ChatMoneyStatus =
+      detail.scope === "dm" ||
+      detail.packet_count === 1 ||
+      (detail.claimed_count !== undefined && detail.claimed_count === detail.packet_count)
+        ? "completed"
+        : detail.status === "pending"
+          ? "partial"
+          : detail.status;
     normalized = {
       ...detail,
       status,
@@ -273,7 +306,9 @@ async function recordViewerClaim(
   receipts[input.assetId] = {
     user_id: input.ownerId,
     nickname: input.ownerName || server?.nickname || input.ownerId,
-    ...(input.ownerAvatar || server?.avatar_url ? { avatar_url: input.ownerAvatar || server?.avatar_url } : {}),
+    ...(input.ownerAvatar || server?.avatar_url
+      ? { avatar_url: input.ownerAvatar || server?.avatar_url }
+      : {}),
     amount,
     claimed_at: server?.claimed_at || new Date().toISOString(),
   };
@@ -324,7 +359,9 @@ async function claimedAssetIds(ownerId: string): Promise<string[]> {
   if (!encoded) return [];
   try {
     const parsed = JSON.parse(encoded) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
   } catch {
     return [];
   }
@@ -344,7 +381,7 @@ async function readRecord<T>(key: string): Promise<Record<string, T>> {
   try {
     const value = JSON.parse(encoded) as unknown;
     return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? value as Record<string, T>
+      ? (value as Record<string, T>)
       : {};
   } catch {
     return {};
@@ -352,7 +389,56 @@ async function readRecord<T>(key: string): Promise<Record<string, T>> {
 }
 
 function detailKey(ownerId: string, assetId: string): string {
-  return `${ownerId}|${assetId}`;
+  return `${ownerId.trim()}|${assetId.trim()}`;
+}
+
+async function readStoredConfiguration(ownerId: string): Promise<ChatMoneyConfiguration | null> {
+  const value = await readStoredValue<ChatMoneyConfiguration>(configurationStorageKey(ownerId));
+  return value &&
+    typeof value.red_packet_enabled === "boolean" &&
+    typeof value.transfer_enabled === "boolean" &&
+    value.eligibility
+    ? value
+    : null;
+}
+
+async function readStoredDetail(ownerId: string, assetId: string): Promise<ChatMoneyDetail | null> {
+  const value = await readStoredValue<ChatMoneyDetail>(detailStorageKey(ownerId, assetId));
+  return value &&
+    value.asset_id === assetId.trim() &&
+    (value.kind === "red_packet" || value.kind === "transfer")
+    ? value
+    : null;
+}
+
+async function readStoredValue<T>(key: string): Promise<T | null> {
+  if (!key) return null;
+  try {
+    const encoded = await AsyncStorage.getItem(key);
+    if (!encoded) return null;
+    const decoded = JSON.parse(encoded) as Partial<StoredChatMoneyValue<T>>;
+    return typeof decoded.savedAt === "number" && decoded.value ? decoded.value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStoredValue<T>(key: string, value: T): Promise<void> {
+  if (!key) return;
+  await AsyncStorage.setItem(key, JSON.stringify({ value, savedAt: Date.now() }));
+}
+
+function configurationStorageKey(ownerId: string): string {
+  const owner = ownerId.trim();
+  return owner ? `${configurationCachePrefix}account:${encodeURIComponent(owner)}` : "";
+}
+
+function detailStorageKey(ownerId: string, assetId: string): string {
+  const owner = ownerId.trim();
+  const asset = assetId.trim();
+  return owner && asset
+    ? `${detailCachePrefix}account:${encodeURIComponent(owner)}:asset:${encodeURIComponent(asset)}`
+    : "";
 }
 
 function claimedAssetKey(ownerId: string): string {

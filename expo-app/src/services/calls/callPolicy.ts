@@ -6,6 +6,28 @@ export const DIRECT_REMOTE_DEPARTURE_GRACE_MS = 20_000;
 export const GROUP_REMOTE_DEPARTURE_GRACE_MS = 3_000;
 export const LIVE_TERMINATION_RECONCILIATION_MS = 800;
 
+const GROUP_VIDEO_GRID_COLUMNS = 2;
+const GROUP_VIDEO_GRID_GAP = 4;
+const GROUP_VIDEO_GRID_HORIZONTAL_PADDING = 4;
+const GROUP_VIDEO_CELL_ASPECT_RATIO = 3 / 4;
+
+export interface GroupVideoCellSize {
+  width: number;
+  height: number;
+}
+
+export function groupVideoCellSize(viewportWidth: number): GroupVideoCellSize {
+  const safeWidth = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+  const contentWidth = Math.max(
+    0,
+    safeWidth -
+      GROUP_VIDEO_GRID_HORIZONTAL_PADDING * 2 -
+      GROUP_VIDEO_GRID_GAP * (GROUP_VIDEO_GRID_COLUMNS - 1),
+  );
+  const width = Math.floor(contentWidth / GROUP_VIDEO_GRID_COLUMNS);
+  return { width, height: Math.round(width / GROUP_VIDEO_CELL_ASPECT_RATIO) };
+}
+
 export interface IncomingCallSignal {
   call_id?: string | undefined;
   room_name: string;
@@ -39,19 +61,49 @@ export function parseIncomingCallSignal(
   const group = signalType === "group_call_invite";
   if (signalType !== "call_invite" && signalType !== "call_offer" && !group) return null;
   if (group) return parseIncomingGroupCallSignal(data);
-  const roomName = firstString(data, ["room_name", "room"]);
-  const callType = callTypeValue(data.call_type ?? data.media_type ?? data.type);
+  const roomName = firstString(data, ["room_name", "roomName", "room"]);
+  const callType = callTypeValue(
+    data.call_type ?? data.callType ?? data.media_type ?? data.mediaType ?? data.type,
+  );
   if (!roomName || !callType) return null;
-  const callId = firstString(data, ["call_id"]);
-  const callerId = firstString(data, ["caller_id", "from_user_id", "user_id"]) ?? "";
+  const callId = firstString(data, ["call_id", "callId", "callID"]);
+  const callerId =
+    firstString(data, [
+      "caller_id",
+      "callerId",
+      "from_user_id",
+      "fromUserId",
+      "user_id",
+      "userId",
+      "sender_id",
+      "senderId",
+    ]) ?? "";
   if (!callerId) return null;
   return {
     ...(callId ? { call_id: callId } : {}),
     room_name: roomName,
     call_type: callType,
     caller_id: callerId,
-    caller_name: firstString(data, ["caller_name", "caller_nickname", "nickname"]) ?? callerId,
-    caller_avatar: firstString(data, ["caller_avatar", "avatar_url", "avatar"]) ?? "",
+    caller_name:
+      firstString(data, [
+        "caller_name",
+        "callerName",
+        "caller_nickname",
+        "callerNickname",
+        "sender_name",
+        "senderName",
+        "nickname",
+      ]) ?? callerId,
+    caller_avatar:
+      firstString(data, [
+        "caller_avatar",
+        "callerAvatar",
+        "caller_avatar_url",
+        "callerAvatarUrl",
+        "avatar_url",
+        "avatarUrl",
+        "avatar",
+      ]) ?? "",
   };
 }
 
@@ -143,15 +195,29 @@ function callTypeValue(value: unknown): CallType | null {
 }
 
 function parseIncomingGroupCallSignal(data: Record<string, unknown>): IncomingCallSignal | null {
-  const groupId = nativeGroupIntValue(data.group_id);
-  const groupName = nativeGroupFirstString(data, ["group_name", "name"]);
-  const roomName = nativeGroupFirstString(data, ["room_name", "room"]);
-  const callType = nativeGroupCallType(data.call_type ?? data.type);
+  const groupId = nativeGroupFirstInt(data, ["group_id", "groupId"]);
+  const groupName = nativeGroupFirstString(data, ["group_name", "groupName", "name"]);
+  const roomName = nativeGroupFirstString(data, ["room_name", "roomName", "room"]);
+  const callType = nativeGroupCallType(
+    data.call_type ?? data.callType ?? data.media_type ?? data.mediaType ?? data.type,
+  );
   if (groupId === undefined || groupName === undefined || roomName === undefined || !callType) {
     return null;
   }
-  const callId = normalizeSignalIdentityValue(nativeGroupFirstString(data, ["call_id"]));
-  const callerId = nativeGroupFirstString(data, ["caller_id", "from_user_id", "user_id"]) ?? "";
+  const callId = normalizeSignalIdentityValue(
+    nativeGroupFirstString(data, ["call_id", "callId", "callID"]),
+  );
+  const callerId =
+    nativeGroupFirstString(data, [
+      "caller_id",
+      "callerId",
+      "from_user_id",
+      "fromUserId",
+      "user_id",
+      "userId",
+      "sender_id",
+      "senderId",
+    ]) ?? "";
   return {
     ...(callId !== undefined ? { call_id: callId } : {}),
     room_name: roomName,
@@ -194,6 +260,17 @@ function nativeGroupIntValue(value: unknown): number | undefined {
   if (typeof value !== "string" || !/^[+-]?\d+$/u.test(value)) return undefined;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function nativeGroupFirstInt(
+  data: Record<string, unknown>,
+  keys: readonly string[],
+): number | undefined {
+  for (const key of keys) {
+    const value = nativeGroupIntValue(data[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 interface SignalIdentity {

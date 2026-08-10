@@ -35,6 +35,15 @@ export const defaultTabs: DynamicTabDescriptor[] = [
     route: { type: "native", name: "discover" },
   },
   {
+    id: "test",
+    type: "native",
+    titleKey: "tab.test",
+    systemImage: "ladybug",
+    selectedSystemImage: "ladybug.fill",
+    order: 45,
+    route: { type: "native", name: "test" },
+  },
+  {
     id: "profile",
     type: "native",
     titleKey: "tab.profile",

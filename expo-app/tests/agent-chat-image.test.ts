@@ -96,7 +96,7 @@ describe("native agent chat image contracts", () => {
 
   it("routes owned-agent settings into the real editor and removes the migration placeholder", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/app/agent-chat.tsx"), "utf8");
-    expect(source).toContain("const agent = await getAgent(agentId)");
+    expect(source).toContain("const agent = await getAgent(settingsAgentId)");
     expect(source).toContain("if (agent.is_owner === false)");
     expect(source).toContain("rememberAgentForEditing(agent, ownerId)");
     expect(source).toContain('pathname: "/agent-creator"');
@@ -153,5 +153,27 @@ describe("native agent chat image contracts", () => {
     expect(saver).toContain('return "saveFailed"');
     expect(composer).not.toContain("readAccessToken");
     expect(saver).not.toContain("readAccessToken");
+  });
+
+  it("keeps polling discovered generated images and retries briefly unavailable binaries", () => {
+    const policy = fs.readFileSync(
+      path.join(process.cwd(), "src/services/agents/AgentChatTurnPolicy.ts"),
+      "utf8",
+    );
+    const image = fs.readFileSync(
+      path.join(process.cwd(), "src/components/AuthenticatedImage.tsx"),
+      "utf8",
+    );
+    const message = fs.readFileSync(
+      path.join(process.cwd(), "src/components/agents/AgentMessageView.tsx"),
+      "utf8",
+    );
+    expect(policy).toContain(
+      'if (mediaParts.length === 0) return expectsGeneratedMedia ? "waitForMediaPart" : "stop"',
+    );
+    expect(image).toContain("retryAttempt < retryLimit");
+    expect(message).toContain(
+      "maximumAuthenticatedRetries={generatedImageRetryPolicy.maximumRetries}",
+    );
   });
 });

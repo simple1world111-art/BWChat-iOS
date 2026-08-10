@@ -92,6 +92,9 @@ interface ImageGallerySourceProps {
   cornerRadius: number;
   disabled?: boolean;
   fallback?: ReactNode;
+  loadingFallback?: ReactNode;
+  authenticatedRetryIntervalMilliseconds?: number | undefined;
+  maximumAuthenticatedRetries?: number | undefined;
   imageStyle: StyleProp<ImageStyle>;
   onNaturalSize?: ((size: GallerySize) => void) | undefined;
   onOpen: (selection: ImageGallerySelection) => void;
@@ -109,6 +112,9 @@ export function ImageGallerySource({
   cornerRadius,
   disabled = false,
   fallback,
+  loadingFallback,
+  authenticatedRetryIntervalMilliseconds,
+  maximumAuthenticatedRetries,
   imageStyle,
   onNaturalSize,
   onOpen,
@@ -245,9 +251,13 @@ export function ImageGallerySource({
       style={style}
     >
       <AuthenticatedImage
+        authenticatedRetryIntervalMilliseconds={authenticatedRetryIntervalMilliseconds}
         contentFit={contentFit}
         fallback={fallback}
+        loadingFallback={loadingFallback}
+        maximumAuthenticatedRetries={maximumAuthenticatedRetries}
         onLoad={handleLoad}
+        retainLoadingFallbackUntilImageLoad={Boolean(loadingFallback)}
         sourceCacheKey={galleryOwnerCacheKey(ownerId, uri)}
         style={imageStyle}
         transition={0}

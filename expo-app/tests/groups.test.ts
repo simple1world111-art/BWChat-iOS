@@ -17,7 +17,9 @@ import {
   groupDetailGeneration,
   loadCachedGroupDetail,
   loadCachedGroupDetailSnapshot,
+  peekCachedGroupDetail,
   removeCachedGroupDetail,
+  resetAllGroupDetailRepositoryMemory,
   saveCachedGroupDetail,
   subscribeGroupDetail,
 } from "@/services/groups/GroupDetailRepository";
@@ -37,6 +39,7 @@ import {
 
 describe("native group-list contract", () => {
   beforeEach(async () => {
+    resetAllGroupDetailRepositoryMemory();
     await AsyncStorage.clear();
   });
 
@@ -410,6 +413,20 @@ describe("native group-list contract", () => {
       savedAt: 0,
       isFresh: false,
     });
+  });
+
+  it("keeps a synchronous account-scoped detail snapshot for remounted group avatars", async () => {
+    expect(peekCachedGroupDetail("owner-a", 21)).toBeNull();
+    await saveCachedGroupDetail("owner-a", groupDetailWithRevisions("缓存头像群", 1, 1, 1));
+
+    expect(peekCachedGroupDetail("owner-a", 21)).toMatchObject({
+      detail: { name: "缓存头像群" },
+      isFresh: true,
+    });
+    expect(peekCachedGroupDetail("owner-b", 21)).toBeNull();
+
+    await removeCachedGroupDetail("owner-a", 21);
+    expect(peekCachedGroupDetail("owner-a", 21)).toBeNull();
   });
 
   it("prevents a request captured before removal from resurrecting the group cache", async () => {

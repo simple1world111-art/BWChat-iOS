@@ -50,6 +50,13 @@ const knownTabs = {
     selected: "safari.fill",
     android: "explore",
   },
+  test: {
+    route: "test",
+    title: "测试",
+    normal: "ladybug",
+    selected: "ladybug.fill",
+    android: "bug_report",
+  },
   profile: {
     route: "profile",
     title: "我的",

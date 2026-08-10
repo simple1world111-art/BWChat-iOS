@@ -9,16 +9,15 @@ import { SymbolView } from "expo-symbols";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import {
   addMomentComment,
@@ -55,6 +54,7 @@ import { usePropInventory } from "@/providers/PropInventoryProvider";
 import { useWallet } from "@/providers/WalletProvider";
 import { normalizePropConsumption } from "@/services/props/PropInventoryModels";
 import {
+  isMomentFeedCacheFresh,
   mergeMomentFeed,
   momentMutationTabs,
   readCachedMomentFeed,
@@ -83,7 +83,7 @@ import {
   type MomentUploadStatus,
 } from "@/services/moments/MomentUploadQueue";
 import {
-  readCachedProfileMoments,
+  readCachedProfileMomentsSnapshot,
   saveCachedProfileMoments,
 } from "@/services/profile/PublicProfileContentRepository";
 import { colors } from "@/theme";
@@ -92,6 +92,7 @@ import { resolveMediaUrl } from "@/utils/mediaUrl";
 interface FeedState {
   moments: Moment[];
   hasMore: boolean;
+  hasResolved: boolean;
   isLoading: boolean;
   isLoadingMore: boolean;
   isRefreshing: boolean;
@@ -112,6 +113,7 @@ interface MomentsNavigationSnapshot {
 const emptyFeed = (): FeedState => ({
   moments: [],
   hasMore: true,
+  hasResolved: false,
   isLoading: false,
   isLoadingMore: false,
   isRefreshing: false,
@@ -121,11 +123,17 @@ const emptyFeed = (): FeedState => ({
 
 const settledFeedSnapshot = (state: FeedState): FeedState => ({
   ...state,
+  hasResolved: state.hasResolved ?? true,
   isLoading: false,
   isLoadingMore: false,
   isRefreshing: false,
   error: null,
 });
+
+const restoredFeedSnapshot = (state: FeedState): FeedState => {
+  const restored = settledFeedSnapshot(state);
+  return { ...restored, isLoading: !restored.hasResolved };
+};
 
 export default function MomentsScreen() {
   const params = useLocalSearchParams<{ mode?: string }>();
@@ -164,11 +172,16 @@ function MomentsAccountScreen({
   const [selectedTab, setSelectedTab] = useState<MomentFeedTab>(
     navigationSnapshot?.selectedTab ?? "recommended",
   );
-  const [feeds, setFeedsState] = useState<Record<MomentFeedTab, FeedState>>(
-    navigationSnapshot?.feeds ?? {
-      recommended: emptyFeed(),
-      following: emptyFeed(),
-    },
+  const [feeds, setFeedsState] = useState<Record<MomentFeedTab, FeedState>>(() =>
+    navigationSnapshot
+      ? {
+          recommended: restoredFeedSnapshot(navigationSnapshot.feeds.recommended),
+          following: restoredFeedSnapshot(navigationSnapshot.feeds.following),
+        }
+      : {
+          recommended: emptyFeed(),
+          following: emptyFeed(),
+        },
   );
   const feedsRef = useRef(feeds);
   const busyRef = useRef<Record<MomentFeedTab, boolean>>({
@@ -250,33 +263,41 @@ function MomentsAccountScreen({
       if (!ownerId || busyRef.current[tab]) return;
       const current = feedsRef.current[tab];
       if (!reset && !current.hasMore) return;
+      if (reset && !forceRefresh && loadedRef.current[tab]) return;
       busyRef.current[tab] = true;
       updateTab(tab, (state) => ({
         ...state,
         error: null,
-        isLoading: false,
+        isLoading: reset && !forceRefresh && !state.hasResolved,
         isRefreshing: reset && forceRefresh,
         isLoadingMore: !reset,
       }));
       try {
         if (reset && !forceRefresh && !loadedRef.current[tab]) {
-          const cached = isMyMoments
-            ? await readCachedProfileMoments(ownerId, ownerId)
-            : await readCachedMomentFeed(ownerId, tab);
+          const profileSnapshot = isMyMoments
+            ? await readCachedProfileMomentsSnapshot(ownerId, ownerId)
+            : null;
+          const feedSnapshot = isMyMoments ? null : await readCachedMomentFeed(ownerId, tab);
+          const cached = profileSnapshot?.page ?? feedSnapshot;
+          const cacheIsFresh = profileSnapshot
+            ? !profileSnapshot.isStale
+            : feedSnapshot
+              ? isMomentFeedCacheFresh(feedSnapshot)
+              : false;
           if (!activeRef.current) return;
-          if (cached && feedsRef.current[tab].moments.length === 0) {
+          if (cached) {
             updateTab(tab, (state) => ({
               ...state,
-              moments: cached.moments,
-              hasMore: cached.has_more,
+              ...(state.moments.length === 0
+                ? { moments: cached.moments, hasMore: cached.has_more }
+                : {}),
+              hasResolved: true,
               isLoading: false,
               isShowingCachedData: false,
             }));
           }
           loadedRef.current[tab] = true;
-          if (!cached && feedsRef.current[tab].moments.length === 0) {
-            updateTab(tab, (state) => ({ ...state, isLoading: true }));
-          }
+          if (cacheIsFresh) return;
         }
         const stateBeforeRequest = feedsRef.current[tab];
         const beforeId = reset ? undefined : stateBeforeRequest.moments.at(-1)?.id;
@@ -301,6 +322,7 @@ function MomentsAccountScreen({
           ...feedsRef.current[tab],
           moments: nextMoments,
           hasMore: page.has_more,
+          hasResolved: true,
           error: null,
           isShowingCachedData: false,
           isLoading: false,
@@ -320,6 +342,7 @@ function MomentsAccountScreen({
         updateTab(tab, (state) => ({
           ...state,
           error: hasItems ? null : errorMessage(error),
+          hasResolved: true,
           isShowingCachedData: hasItems,
         }));
       } finally {
@@ -621,11 +644,7 @@ function MomentsAccountScreen({
             onRetry={() => void loadFeed(selectedTab, true, true)}
           />
         }
-        ListFooterComponent={
-          current.isLoadingMore ? (
-            <ActivityIndicator color={colors.accent} style={styles.footer} />
-          ) : null
-        }
+        ListFooterComponent={null}
         ListHeaderComponent={header}
         onEndReached={() => {
           if (didBeginScrollingRef.current) void loadFeed(selectedTab, false);
@@ -854,7 +873,6 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 18, backgroundColor: colors.card },
   listWithComposer: { paddingBottom: 146 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
-  footer: { padding: 16 },
   uploadRetry: {
     marginLeft: 68,
     paddingBottom: 10,

@@ -1,6 +1,12 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import { getConversationSyncSnapshot } from "@/api/bwchat";
 import { apiRequest } from "@/api/client";
-import { fetchDiscoverSections } from "@/services/discover/DiscoverConfigRepository";
+import {
+  fetchDiscoverSections,
+  readDiscoverRefreshCheckpoint,
+  saveDiscoverRefreshCheckpoint,
+} from "@/services/discover/DiscoverConfigRepository";
 import { readAccessToken } from "@/storage/tokenStorage";
 
 jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
@@ -10,9 +16,10 @@ const request = jest.mocked(apiRequest);
 const accessToken = jest.mocked(readAccessToken);
 
 describe("native no-cache and optional-auth request contracts", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     request.mockReset();
     accessToken.mockReset();
+    await AsyncStorage.clear();
   });
 
   it("loads the conversation sync snapshot without URL cache reuse", async () => {
@@ -52,5 +59,12 @@ describe("native no-cache and optional-auth request contracts", () => {
       headers: { "X-App-Build": "mock", "X-App-Version": "mock" },
       timeoutMs: 8_000,
     });
+  });
+
+  it("persists discover refresh checkpoints independently for each account", async () => {
+    await saveDiscoverRefreshCheckpoint("owner/a", 123_456);
+
+    await expect(readDiscoverRefreshCheckpoint("owner/a")).resolves.toBe(123_456);
+    await expect(readDiscoverRefreshCheckpoint("owner/b")).resolves.toBe(0);
   });
 });

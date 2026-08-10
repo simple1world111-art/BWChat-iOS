@@ -1,6 +1,7 @@
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Svg, { Path } from "react-native-svg";
 
 import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
 import type { ChatMoneyPayload, ChatMoneyReceiptPayload } from "@/models";
@@ -184,9 +185,16 @@ export function ChatMoneyPlusMenuGlyph({ kind }: { kind: "red_packet" | "transfe
   }
   return (
     <View style={styles.plusEnvelope}>
-      <View style={styles.plusFlap} />
+      <Svg height={7} pointerEvents="none" style={styles.plusFlap} viewBox="0 0 21 7" width={21}>
+        <Path
+          d="M 0.75 0.75 Q 10.5 6.25 20.25 0.75"
+          fill="none"
+          stroke="#FFFFFF"
+          strokeWidth={1.5}
+        />
+      </Svg>
       <View style={styles.plusCoin}>
-        <Text style={styles.plusCoinText}>¥</Text>
+        <SymbolView name="yensign" size={5} weight="bold" tintColor="#111111" />
       </View>
     </View>
   );
@@ -382,13 +390,8 @@ const styles = StyleSheet.create({
     width: 23,
   },
   plusFlap: {
-    borderColor: "#FFFFFF",
-    borderRadius: 2,
-    borderWidth: 1.5,
-    height: 7,
     position: "absolute",
-    top: -1,
-    width: 21,
+    top: 3.5,
   },
   plusCoin: {
     alignItems: "center",
@@ -399,5 +402,4 @@ const styles = StyleSheet.create({
     marginTop: 6,
     width: 9,
   },
-  plusCoinText: { color: "#111111", fontSize: 5, fontWeight: "700" },
 });

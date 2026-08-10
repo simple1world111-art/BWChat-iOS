@@ -1,10 +1,11 @@
 import { router, Stack, useFocusEffect } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback } from "react";
-import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { WalletEmptyState, WalletWithdrawalRow } from "@/components/wallet/WalletRecords";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import type { WalletWithdrawal } from "@/models";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { useWallet } from "@/providers/WalletProvider";

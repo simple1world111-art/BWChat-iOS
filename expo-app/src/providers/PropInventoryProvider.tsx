@@ -10,7 +10,7 @@ import {
 
 import { useAuth } from "@/providers/AuthProvider";
 import { subscribeCallSettlementRefresh } from "@/services/calls/CallSettlementRefreshService";
-import { getPropBag } from "@/services/props/PropInventoryRepository";
+import { getPropBag, saveCachedPropBag } from "@/services/props/PropInventoryRepository";
 import {
   applyPropConsumption,
   canConsumeMediaUnlock,
@@ -64,6 +64,7 @@ function PropInventoryScope({ children, scope }: { children: React.ReactNode; sc
   const mountedRef = useRef(true);
   const lastSettlementSequenceRef = useRef(0);
   const [items, setItems] = useState<PropBagItem[]>([]);
+  const itemsRef = useRef<PropBagItem[]>([]);
   const [isLoading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>();
 
@@ -83,8 +84,9 @@ function PropInventoryScope({ children, scope }: { children: React.ReactNode; sc
       while (shouldReload && mountedRef.current && lifecycleGenerationRef.current === generation) {
         forcedReloadPendingRef.current = false;
         try {
-          const page = await getPropBag();
+          const page = await getPropBag(scope, forceRefresh);
           if (!mountedRef.current || lifecycleGenerationRef.current !== generation) break;
+          itemsRef.current = page.items;
           setItems(page.items);
           setErrorMessage(undefined);
           lastLoadedRef.current = Date.now();
@@ -139,31 +141,37 @@ function PropInventoryScope({ children, scope }: { children: React.ReactNode; sc
   );
   const applyLiveExperienceReservation = useCallback(
     (reservation: PropConsumption | undefined, fallback: LiveExperienceCardKind) => {
-      setItems((current) =>
-        applyPropConsumption(
-          current,
-          reservation,
-          liveExperienceDefinition(fallback),
-          "consume_for_live_experience",
-        ),
+      const next = applyPropConsumption(
+        itemsRef.current,
+        reservation,
+        liveExperienceDefinition(fallback),
+        "consume_for_live_experience",
+      );
+      itemsRef.current = next;
+      setItems(next);
+      void saveCachedPropBag(scope, { items: next, summary: propBagSummary(next) }).catch(
+        () => undefined,
       );
       lastLoadedRef.current = Date.now();
     },
-    [],
+    [scope],
   );
   const applyMediaConsumption = useCallback(
     (consumption: PropConsumption | undefined, fallback: MediaUnlockKind) => {
-      setItems((current) =>
-        applyPropConsumption(
-          current,
-          consumption,
-          mediaUnlockDefinition(fallback),
-          "consume_for_media_unlock",
-        ),
+      const next = applyPropConsumption(
+        itemsRef.current,
+        consumption,
+        mediaUnlockDefinition(fallback),
+        "consume_for_media_unlock",
+      );
+      itemsRef.current = next;
+      setItems(next);
+      void saveCachedPropBag(scope, { items: next, summary: propBagSummary(next) }).catch(
+        () => undefined,
       );
       lastLoadedRef.current = Date.now();
     },
-    [],
+    [scope],
   );
   const value = useMemo<PropInventoryContextValue>(
     () => ({

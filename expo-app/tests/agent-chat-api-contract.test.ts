@@ -112,7 +112,7 @@ describe("AgentChat thirteen backend chains", () => {
     await probe(getAgent("agent/a"));
     await probe(createAgentConversation("agent/a", "default", "conversation-key"));
     expect(request.mock.calls).toEqual([
-      ["/agents/agent%2Fa", { requiredData: true, timeoutMs: 60_000 }],
+      ["/agents/agent%2Fa", { requiredData: true, requiredSuccessCode: true, timeoutMs: 60_000 }],
       [
         "/agent-conversations",
         {

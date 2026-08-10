@@ -185,23 +185,27 @@ describe("Script Center screen interactions", () => {
     expect(mockGetScripts).toHaveBeenCalledTimes(2);
   });
 
-  it("invalidates the public request synchronously when Mine is selected", async () => {
+  it("starts the latest tab request without waiting for an obsolete request", async () => {
     const publicPage = deferred<ScriptPage>();
-    mockGetScripts
-      .mockReturnValueOnce(publicPage.promise)
-      .mockResolvedValueOnce(page([script("mine-current", "Mine 当前", "private")]));
+    const minePage = deferred<ScriptPage>();
+    mockGetScripts.mockReturnValueOnce(publicPage.promise).mockReturnValueOnce(minePage.promise);
     const view = await render(<ScriptCenterScreen />);
     await waitFor(() => expect(mockGetScripts).toHaveBeenCalledTimes(1));
 
     await fireEvent.press(view.getByLabelText("script-center-tab-mine"));
     expect(view.queryByText("Public 迟到")).toBeNull();
-    expect(mockGetScripts).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockGetScripts).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      minePage.resolve(page([script("mine-current", "Mine 当前", "private")]));
+      await minePage.promise;
+    });
+    await waitFor(() => expect(view.getByText("Mine 当前")).toBeTruthy());
 
     await act(async () => {
       publicPage.resolve(page([script("public-late", "Public 迟到")]));
       await publicPage.promise;
     });
-    await waitFor(() => expect(view.getByText("Mine 当前")).toBeTruthy());
     expect(view.queryByText("Public 迟到")).toBeNull();
     expect(view.getByText("Mine 当前")).toBeTruthy();
   });
@@ -230,6 +234,86 @@ describe("Script Center screen interactions", () => {
       await minePage.promise;
     });
     await waitFor(() => expect(view.getByText("我的一号")).toBeTruthy());
+  });
+
+  it("restores a visited top tab synchronously while its revalidation stays silent", async () => {
+    const publicRevalidation = deferred<ScriptPage>();
+    mockGetScripts
+      .mockResolvedValueOnce(page([script("public-one", "公开缓存")]))
+      .mockResolvedValueOnce(page([script("mine-one", "我的缓存", "private")]))
+      .mockReturnValueOnce(publicRevalidation.promise);
+    const view = await render(<ScriptCenterScreen />);
+    await waitFor(() => expect(view.getByText("公开缓存")).toBeTruthy());
+
+    await fireEvent.press(view.getByLabelText("script-center-tab-mine"));
+    await waitFor(() => expect(view.getByText("我的缓存")).toBeTruthy());
+
+    await fireEvent.press(view.getByLabelText("script-center-tab-public"));
+    expect(view.getByText("公开缓存")).toBeTruthy();
+    expect(view.queryByText("我的缓存")).toBeNull();
+
+    await act(async () => {
+      publicRevalidation.resolve(page([script("public-new", "公开新数据")]));
+      await publicRevalidation.promise;
+    });
+    await waitFor(() => expect(view.getByText("公开新数据")).toBeTruthy());
+  });
+
+  it("restores a visited category synchronously without hiding its label or cards", async () => {
+    const allRevalidation = deferred<ScriptPage>();
+    mockGetScripts
+      .mockResolvedValueOnce(page([script("all-one", "全部缓存")]))
+      .mockResolvedValueOnce(page([script("mystery-one", "悬疑缓存")]))
+      .mockReturnValueOnce(allRevalidation.promise);
+    const view = await render(<ScriptCenterScreen />);
+    await waitFor(() => expect(view.getByText("全部缓存")).toBeTruthy());
+
+    await fireEvent.press(view.getByText("悬疑"));
+    await waitFor(() => expect(view.getByText("悬疑缓存")).toBeTruthy());
+    expect(view.getByText("悬疑").props.numberOfLines).toBe(1);
+
+    await fireEvent.press(view.getByLabelText("全部"));
+    expect(view.getByText("全部缓存")).toBeTruthy();
+    expect(view.queryByText("悬疑缓存")).toBeNull();
+
+    await act(async () => {
+      allRevalidation.resolve(page([script("all-new", "全部新数据")]));
+      await allRevalidation.promise;
+    });
+    await waitFor(() => expect(view.getByText("全部新数据")).toBeTruthy());
+  });
+
+  it("lets a newly selected secondary tab supersede an unresolved category immediately", async () => {
+    const mysteryPage = deferred<ScriptPage>();
+    const romancePage = deferred<ScriptPage>();
+    mockGetCategories.mockResolvedValueOnce([
+      { id: "mystery", name: "悬疑", icon_url: "", sort_order: 1 },
+      { id: "romance", name: "爱情", icon_url: "", sort_order: 2 },
+    ]);
+    mockGetScripts
+      .mockResolvedValueOnce(page([script("all", "全部剧本")]))
+      .mockReturnValueOnce(mysteryPage.promise)
+      .mockReturnValueOnce(romancePage.promise);
+    const view = await render(<ScriptCenterScreen />);
+    await waitFor(() => expect(view.getByText("全部剧本")).toBeTruthy());
+
+    await fireEvent.press(view.getByText("悬疑"));
+    await waitFor(() => expect(mockGetScripts).toHaveBeenCalledTimes(2));
+    await fireEvent.press(view.getByText("爱情"));
+    await waitFor(() => expect(mockGetScripts).toHaveBeenCalledTimes(3));
+
+    await act(async () => {
+      romancePage.resolve(page([script("romance", "爱情当前")]));
+      await romancePage.promise;
+    });
+    await waitFor(() => expect(view.getByText("爱情当前")).toBeTruthy());
+
+    await act(async () => {
+      mysteryPage.resolve(page([script("mystery", "悬疑迟到")]));
+      await mysteryPage.promise;
+    });
+    expect(view.queryByText("悬疑迟到")).toBeNull();
+    expect(view.getByText("爱情当前")).toBeTruthy();
   });
 
   it("shows the refresh control only for an explicit pull refresh", async () => {

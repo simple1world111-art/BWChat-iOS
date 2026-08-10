@@ -1,13 +1,6 @@
 import { SymbolView } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  LayoutChangeEvent,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { LayoutChangeEvent, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ChatStickerArtwork } from "@/components/messages/ChatStickerArtwork";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -36,7 +29,10 @@ export function ChatStickerPanel({
 }) {
   const { activeLanguage, t } = useLocalization();
   const { config, source, refresh } = useRemoteConfig();
-  const packs = useMemo(() => effectiveChatStickerPacks(config.stickerPacks), [config.stickerPacks]);
+  const packs = useMemo(
+    () => effectiveChatStickerPacks(config.stickerPacks),
+    [config.stickerPacks],
+  );
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const selectedPack = packs.find((pack) => pack.id === selectedPackId) ?? packs[0] ?? null;
   const refreshed = useRef(false);
@@ -54,7 +50,11 @@ export function ChatStickerPanel({
     <View onLayout={onLayout} style={styles.panel}>
       {packs.length === 0 ? (
         <View style={styles.emptyState}>
-          <SymbolView name="face.smiling" size={chatStickerPanelPolicy.emptyIconSize} tintColor={colors.tertiaryText} />
+          <SymbolView
+            name="face.smiling"
+            size={chatStickerPanelPolicy.emptyIconSize}
+            tintColor={colors.tertiaryText}
+          />
           <Text style={styles.emptyText}>{t("chat.stickers.empty")}</Text>
         </View>
       ) : (
@@ -84,26 +84,30 @@ export function ChatStickerPanel({
                       style={styles.tabArtwork}
                     />
                   ) : null}
-                  <Text style={[styles.tabName, selected && styles.selectedTabName]}>{packName}</Text>
+                  <Text style={[styles.tabName, selected && styles.selectedTabName]}>
+                    {packName}
+                  </Text>
                 </Pressable>
               );
             })}
           </ScrollView>
           <View style={styles.divider} />
-          {selectedPack ? isChatEmojiPack(selectedPack) ? (
-            <EmojiGrid
-              language={activeLanguage}
-              onInsertEmoji={onInsertEmoji}
-              pack={selectedPack}
-              panelWidth={panelWidth}
-            />
-          ) : (
-            <StickerGrid
-              language={activeLanguage}
-              onSendSticker={onSendSticker}
-              pack={selectedPack}
-              panelWidth={panelWidth}
-            />
+          {selectedPack ? (
+            isChatEmojiPack(selectedPack) ? (
+              <EmojiGrid
+                language={activeLanguage}
+                onInsertEmoji={onInsertEmoji}
+                pack={selectedPack}
+                panelWidth={panelWidth}
+              />
+            ) : (
+              <StickerGrid
+                language={activeLanguage}
+                onSendSticker={onSendSticker}
+                pack={selectedPack}
+                panelWidth={panelWidth}
+              />
+            )
           ) : null}
         </>
       )}
@@ -130,7 +134,13 @@ function EmojiGrid({
     chatStickerPanelPolicy.emojiColumnSpacing,
   );
   return (
-    <ScrollView contentContainerStyle={styles.emojiGrid} style={styles.gridScroll}>
+    <ScrollView
+      automaticallyAdjustContentInsets={false}
+      automaticallyAdjustKeyboardInsets={false}
+      contentInsetAdjustmentBehavior="never"
+      contentContainerStyle={styles.emojiGrid}
+      style={styles.gridScroll}
+    >
       {items.map((item) => {
         const value = chatEmojiInsertionValue(item) ?? "";
         return (
@@ -167,7 +177,13 @@ function StickerGrid({
     chatStickerPanelPolicy.stickerColumnSpacing,
   );
   return (
-    <ScrollView contentContainerStyle={styles.stickerGrid} style={styles.gridScroll}>
+    <ScrollView
+      automaticallyAdjustContentInsets={false}
+      automaticallyAdjustKeyboardInsets={false}
+      contentInsetAdjustmentBehavior="never"
+      contentContainerStyle={styles.stickerGrid}
+      style={styles.gridScroll}
+    >
       {items.map((item) => {
         const itemName = chatStickerItemName(item, language);
         return (
@@ -182,7 +198,9 @@ function StickerGrid({
               assetKey={item.assetKey}
               style={styles.stickerArtwork}
             />
-            <Text numberOfLines={1} style={styles.stickerName}>{itemName}</Text>
+            <Text numberOfLines={1} style={styles.stickerName}>
+              {itemName}
+            </Text>
           </Pressable>
         );
       })}
@@ -190,9 +208,14 @@ function StickerGrid({
   );
 }
 
-function gridItemWidth(panelWidth: number, padding: number, columns: number, spacing: number): number {
+function gridItemWidth(
+  panelWidth: number,
+  padding: number,
+  columns: number,
+  spacing: number,
+): number {
   if (panelWidth <= 0) return 0;
-  return (panelWidth - (padding * 2) - (spacing * (columns - 1))) / columns;
+  return (panelWidth - padding * 2 - spacing * (columns - 1)) / columns;
 }
 
 const styles = StyleSheet.create({
@@ -232,6 +255,7 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
   gridScroll: { flex: 1 },
   emojiGrid: {
+    alignContent: "flex-start",
     paddingHorizontal: chatStickerPanelPolicy.emojiHorizontalPadding,
     paddingVertical: chatStickerPanelPolicy.emojiVerticalPadding,
     columnGap: chatStickerPanelPolicy.emojiColumnSpacing,
@@ -246,6 +270,7 @@ const styles = StyleSheet.create({
   },
   emojiText: { fontSize: chatStickerPanelPolicy.emojiFontSize },
   stickerGrid: {
+    alignContent: "flex-start",
     padding: chatStickerPanelPolicy.stickerPadding,
     columnGap: chatStickerPanelPolicy.stickerColumnSpacing,
     rowGap: chatStickerPanelPolicy.stickerRowSpacing,

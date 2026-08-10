@@ -31,6 +31,8 @@ import {
 import {
   fetchDiscoverSections,
   readCachedDiscoverConfig,
+  readDiscoverRefreshCheckpoint,
+  saveDiscoverRefreshCheckpoint,
 } from "@/services/discover/DiscoverConfigRepository";
 import {
   discoverRefreshDelayMs,
@@ -57,8 +59,6 @@ export default function DiscoverScreen() {
     hasNew: boolean;
   } | null>(null);
   const lastRefreshRef = useRef(0);
-  const initialAppearRef = useRef(false);
-  const lastOwnerRef = useRef<string | null>(null);
   const activeOwnerRef = useRef(ownerId);
   const refreshGenerationRef = useRef(0);
   const deferredTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -88,9 +88,11 @@ export default function DiscoverScreen() {
         nowMs: now,
         lastAttemptMs: lastRefreshRef.current,
       });
-      if (fetchConfig) lastRefreshRef.current = now;
+      if (!fetchConfig) return;
+      lastRefreshRef.current = now;
+      await saveDiscoverRefreshCheckpoint(targetOwnerId, now).catch(() => undefined);
       const [discoverResult, momentsResult] = await Promise.allSettled([
-        fetchConfig ? fetchDiscoverSections() : Promise.resolve<DiscoverSection[] | null>(null),
+        fetchDiscoverSections(),
         getMomentsUnreadInfo(),
       ]);
       if (
@@ -147,15 +149,17 @@ export default function DiscoverScreen() {
       focusedRef.current = true;
       activeOwnerRef.current = ownerId;
       let active = true;
-      void readCachedDiscoverConfig().then((cached) => {
-        if (!active || activeOwnerRef.current !== ownerId || !cached) return;
-        const sections = effectiveDiscoverSections(cached);
-        if (sections.length > 0) setEndpointSections(sections);
-      });
-      const ownerChanged = lastOwnerRef.current !== null && lastOwnerRef.current !== ownerId;
-      scheduleDeferredRefresh(!initialAppearRef.current || ownerChanged, ownerId);
-      initialAppearRef.current = true;
-      lastOwnerRef.current = ownerId;
+      void Promise.all([readCachedDiscoverConfig(), readDiscoverRefreshCheckpoint(ownerId)]).then(
+        ([cached, checkpoint]) => {
+          if (!active || activeOwnerRef.current !== ownerId) return;
+          lastRefreshRef.current = checkpoint;
+          if (cached) {
+            const sections = effectiveDiscoverSections(cached);
+            if (sections.length > 0) setEndpointSections(sections);
+          }
+          scheduleDeferredRefresh(false, ownerId);
+        },
+      );
       return () => {
         active = false;
         focusedRef.current = false;

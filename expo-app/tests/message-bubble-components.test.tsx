@@ -2,7 +2,7 @@ import { act, fireEvent, render } from "@testing-library/react-native";
 
 import { ChatCallRecordBubble } from "@/components/messages/ChatCallRecordBubble";
 import { ChatMessageDeliveryStatus } from "@/components/messages/ChatMessageDeliveryStatus";
-import { ChatMoneyReceiptTip } from "@/components/messages/ChatMoneyViews";
+import { ChatMoneyPlusMenuGlyph, ChatMoneyReceiptTip } from "@/components/messages/ChatMoneyViews";
 
 jest.mock("@/components/messages/ChatReplyViews", () => ({
   useChatMessageActivationGuard: () => () => true,
@@ -36,6 +36,18 @@ jest.mock("@/services/messages/ChatMoneyRepository", () => ({
 }));
 
 describe("MessageBubble exact-state components", () => {
+  it("uses a stable SF currency symbol for the red-packet composer entry", async () => {
+    const redPacket = await render(<ChatMoneyPlusMenuGlyph kind="red_packet" />);
+    expect(redPacket.getByText("yensign", { includeHiddenElements: true })).toBeTruthy();
+    await redPacket.unmount();
+
+    const transfer = await render(<ChatMoneyPlusMenuGlyph kind="transfer" />);
+    expect(
+      transfer.getByText("arrow.left.arrow.right", { includeHiddenElements: true }),
+    ).toBeTruthy();
+    await transfer.unmount();
+  });
+
   it("renders native call bubble copy, direction tail and 20pt symbol", async () => {
     const mine = await render(
       <ChatCallRecordBubble

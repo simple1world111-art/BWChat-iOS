@@ -88,10 +88,21 @@ describe("direct and group MessageBubble source integration", () => {
     expect(money).not.toContain("BubbleTail");
     expect(money).toContain('symbol: "checkmark.circle.fill"');
     expect(money).toContain('symbol: "arrow.uturn.backward.circle.fill"');
+    expect(money).toContain('d="M 0.75 0.75 Q 10.5 6.25 20.25 0.75"');
+    expect(money).toContain('<SymbolView name="yensign" size={5} weight="bold"');
+    expect(money).not.toContain("<Text style={styles.plusCoinText}>¥</Text>");
     expect(money).toContain("hasViewerClaimedChatMoney(ownerId, payload.asset_id)");
     expect(reply).toContain("menuOwnsTouchSequenceRef.current = true");
     expect(reply).toContain("}, 150)");
     expect(gift).toContain("canActivate={canActivate}");
+    expect(gift).toContain("payload.recipient_avatar_url?.trim()");
     expect(avatar).toContain("if (canActivate && !canActivate()) return");
+  });
+
+  it("resolves historical group gift recipients from current group member data", () => {
+    const group = source("src/app/group-chat/[id].tsx");
+    expect(group).toContain("members={groupMembers}");
+    expect(group).toContain("members.find((member) => member.user_id === recipientId)");
+    expect(group).toContain("recipientMember?.avatar_url || cachedRecipient?.avatar_url");
   });
 });

@@ -15,7 +15,9 @@ import { apiRequest } from "@/api/client";
 import { normalizeMomentsNotifications, normalizeMomentsUnreadInfo } from "@/api/normalizers";
 import type { Moment } from "@/models";
 import {
+  isMomentFeedCacheFresh,
   mergeMomentFeed,
+  momentFeedCachePolicy,
   momentMutationTabs,
   readCachedMomentFeed,
   saveCachedMomentFeed,
@@ -193,6 +195,20 @@ describe("native moments feed contracts", () => {
     await expect(readCachedMomentFeed("owner-b", "recommended")).resolves.toBeNull();
     await expect(readCachedMomentsNotifications("owner-b")).resolves.toBeNull();
     await expect(readCachedMomentsNotifications("owner-a")).resolves.toHaveLength(1);
+  });
+
+  it("treats a persisted feed as fresh until the automatic refresh interval expires", () => {
+    const now = Date.parse("2026-08-10T10:00:00.000Z");
+    expect(isMomentFeedCacheFresh({ cached_at: new Date(now - 1_000).toISOString() }, now)).toBe(
+      true,
+    );
+    expect(
+      isMomentFeedCacheFresh(
+        { cached_at: new Date(now - momentFeedCachePolicy.ttlMilliseconds).toISOString() },
+        now,
+      ),
+    ).toBe(false);
+    expect(isMomentFeedCacheFresh({ cached_at: "invalid" }, now)).toBe(false);
   });
 
   it("preserves a non-empty cache until the backend confirms an empty snapshot", () => {

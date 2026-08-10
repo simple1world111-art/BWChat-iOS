@@ -7,9 +7,10 @@ import {
 } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { getGroups } from "@/api/bwchat";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import { trimFoundationWhitespacesAndNewlines } from "@/api/normalizers";
 import { GroupAvatarIcon } from "@/components/GroupAvatarIcon";
 import { GroupMemberAvatar } from "@/components/GroupMemberAvatar";
@@ -23,6 +24,7 @@ import {
 } from "@/services/conversations/ConversationListPolicy";
 import { useConversationUnreadCount } from "@/services/conversations/ConversationUnreadStore";
 import { loadGroupsWithNativeCache } from "@/services/groups/GroupRepository";
+import { peekCachedGroupDetail } from "@/services/groups/GroupDetailRepository";
 import { runAfterNavigationInteractions } from "@/services/navigation/NavigationWorkScheduler";
 import {
   readNavigationSnapshot,
@@ -64,14 +66,21 @@ export default function GroupListScreen() {
       setListState((current) => ({
         ownerId,
         groups: current.ownerId === ownerId ? current.groups : [],
-        isLoading: forceRefresh ? current.ownerId !== ownerId : true,
+        hasResolved: current.ownerId === ownerId && current.hasResolved,
+        isLoading: !forceRefresh && !(current.ownerId === ownerId && current.hasResolved),
         isRefreshing: forceRefresh,
       }));
       try {
         const fetched = await loadGroupsWithNativeCache(ownerId, getGroups, { forceRefresh });
         if (isCurrent()) {
           writeNavigationSnapshot("group-list", ownerId, fetched);
-          setListState({ ownerId, groups: fetched, isLoading: false, isRefreshing: false });
+          setListState({
+            ownerId,
+            groups: fetched,
+            hasResolved: true,
+            isLoading: false,
+            isRefreshing: false,
+          });
         }
       } catch {
         // Keep the account-scoped cache visible, matching GroupsViewModel.
@@ -79,7 +88,7 @@ export default function GroupListScreen() {
         if (isCurrent()) {
           setListState((current) =>
             current.ownerId === ownerId
-              ? { ...current, isLoading: false, isRefreshing: false }
+              ? { ...current, hasResolved: true, isLoading: false, isRefreshing: false }
               : current,
           );
         }
@@ -106,6 +115,7 @@ export default function GroupListScreen() {
     () => ({
       title: "",
       headerShadowVisible: false,
+      headerBackButtonDisplayMode: "minimal",
       headerStyle: { backgroundColor: colors.background },
       headerTintColor: colors.text,
       headerTitle: () => <GroupModePicker mode={mode} onChange={setMode} />,
@@ -170,6 +180,7 @@ export default function GroupListScreen() {
 interface GroupListState {
   ownerId: string;
   groups: ChatGroup[];
+  hasResolved: boolean;
   isLoading: boolean;
   isRefreshing: boolean;
 }
@@ -177,6 +188,7 @@ interface GroupListState {
 const emptyGroupListState: GroupListState = {
   ownerId: "",
   groups: [],
+  hasResolved: false,
   isLoading: true,
   isRefreshing: false,
 };
@@ -184,7 +196,7 @@ const emptyGroupListState: GroupListState = {
 function restoredGroupListState(ownerId: string): GroupListState {
   const groups = readNavigationSnapshot<ChatGroup[]>("group-list", ownerId);
   return groups
-    ? { ownerId, groups, isLoading: false, isRefreshing: false }
+    ? { ownerId, groups, hasResolved: true, isLoading: false, isRefreshing: false }
     : { ...emptyGroupListState, ownerId, isLoading: Boolean(ownerId) };
 }
 
@@ -199,13 +211,14 @@ function GroupListRow({
   ownerId: string;
   t: (key: string, ...args: (string | number)[]) => string;
 }) {
+  const memoryDetail = peekCachedGroupDetail(ownerId, group.group_id)?.detail ?? null;
   const [detailState, setDetailState] = useState<GroupRowDetailState>({
     ownerId: "",
     groupId: 0,
     detail: null,
   });
   const detailIsCurrent = detailState.ownerId === ownerId && detailState.groupId === group.group_id;
-  const detail = detailIsCurrent ? detailState.detail : null;
+  const detail = detailIsCurrent ? detailState.detail : memoryDetail;
   const unread =
     useConversationUnreadCount(ownerId, `group:${group.group_id}`) ?? group.unread_count;
   const displayName =

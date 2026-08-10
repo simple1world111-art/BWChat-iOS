@@ -12,7 +12,11 @@
 "tab.contacts" = "連絡先";
 "tab.discover" = "発見";
 "tab.map" = "マップ";
+"tab.test" = "テスト";
 "tab.profile" = "自分";
+
+"test.card.title" = "テストカード";
+"test.card.subtitle" = "タップして Preview アップデートを確認";
 
 "language.title" = "言語";
 "language.option.system" = "システムに従う";
@@ -1083,11 +1087,14 @@
 "wallet.error.activityCatFoodDisabled" = "キャットフード機能は停止中です";
 "live.billing.chargedActivityCatFood" = "キャットフード消費 %d";
 "live.billing.chargedGoldCoins" = "ゴールドコイン消費 %d";
+"live.billing.earnedActivityCatFood" = "キャットフード収益 %d";
+"live.billing.awaitingBreakdown" = "サーバーの内訳精算を待っています";
+"live.billing.awaitingEarnings" = "サーバーの収益精算を待っています";
 "live.billing.totalCharged" = "合計消費 %d";
 "live.billing.balanceAfter" = "精算後：コイン %d · フード %d · 利用可能 %d";
 "live.billing.earnedGoldCoins" = "ゴールドコイン収益 %d";
 "live.billing.freePayer" = "無料残り %d 秒";
-"live.billing.freeHost" = "無料残り %d 秒 · コイン収益なし";
+"live.billing.freeHost" = "無料残り %d 秒 · 収益なし";
 "live.billing.estimatedSpendable" = "推定合計 %d · サーバー精算待ち";
 "live.billing.estimatedEarning" = "推定コイン収益 %d · 精算待ち";
 "live.billing.ratePerMinute" = "利用可能残高 %d/分";

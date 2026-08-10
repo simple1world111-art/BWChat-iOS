@@ -15,13 +15,13 @@ import {
   type NativeSyntheticEvent,
   type LayoutChangeEvent,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { GamePoster } from "@/components/games/GamePoster";
 import { GameWebViewPrewarmer } from "@/components/games/GameWebViewPrewarmer";
@@ -70,6 +70,8 @@ interface GameCenterNavigationSnapshot {
   selectedTab: GameCenterTab;
   recommended: GameCatalogPage;
   played: GameCatalogItem[];
+  recommendedResolved?: boolean | undefined;
+  playedResolved?: boolean | undefined;
 }
 
 export default function GameCenterScreen() {
@@ -97,11 +99,16 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
     navigationSnapshot?.recommended ?? { items: [] },
   );
   const [played, setPlayed] = useState<GameCatalogItem[]>(navigationSnapshot?.played ?? []);
-  const [recommendedLoading, setRecommendedLoading] = useState(
-    Boolean(ownerId && !navigationSnapshot),
+  const [recommendedResolved, setRecommendedResolved] = useState(
+    navigationSnapshot?.recommendedResolved ?? Boolean(navigationSnapshot),
   );
-  const [recommendedLoadingMore, setRecommendedLoadingMore] = useState(false);
-  const [playedLoading, setPlayedLoading] = useState(Boolean(ownerId && !navigationSnapshot));
+  const [playedResolved, setPlayedResolved] = useState(
+    navigationSnapshot?.playedResolved ?? Boolean(navigationSnapshot),
+  );
+  const [recommendedLoading, setRecommendedLoading] = useState(
+    Boolean(ownerId && !recommendedResolved),
+  );
+  const [playedLoading, setPlayedLoading] = useState(Boolean(ownerId && !playedResolved));
   const [recommendedFailed, setRecommendedFailed] = useState(false);
   const [playedFailed, setPlayedFailed] = useState(false);
   const [launchingGameID, setLaunchingGameID] = useState<string>();
@@ -115,7 +122,22 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
   const recommendedLoadRef = useRef(false);
   const recommendedMoreRef = useRef(false);
   const playedLoadRef = useRef(false);
+  const recommendedResolvedRef = useRef(recommendedResolved);
+  const playedResolvedRef = useRef(playedResolved);
   const accountScopeRef = useRef(new GameAccountScope(ownerId));
+
+  const resolveRecommended = useCallback(() => {
+    if (recommendedResolvedRef.current) return;
+    recommendedResolvedRef.current = true;
+    setRecommendedResolved(true);
+    setRecommendedLoading(false);
+  }, []);
+  const resolvePlayed = useCallback(() => {
+    if (playedResolvedRef.current) return;
+    playedResolvedRef.current = true;
+    setPlayedResolved(true);
+    setPlayedLoading(false);
+  }, []);
 
   useEffect(
     () => () => {
@@ -129,8 +151,10 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
       selectedTab,
       recommended,
       played,
+      recommendedResolved,
+      playedResolved,
     });
-  }, [ownerId, played, recommended, selectedTab]);
+  }, [ownerId, played, playedResolved, recommended, recommendedResolved, selectedTab]);
 
   const loadRecommended = useCallback(
     async (force = false) => {
@@ -138,7 +162,7 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
       const ticket = accountScopeRef.current.capture();
       const accountGuard = repositoryGuard(accountScopeRef.current, ticket);
       recommendedLoadRef.current = true;
-      setRecommendedLoading(true);
+      setRecommendedLoading(!recommendedResolvedRef.current);
       setRecommendedFailed(false);
       try {
         if (!force) {
@@ -146,14 +170,19 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
           if (!accountScopeRef.current.isCurrent(ticket)) return;
           if (cached) {
             setRecommended({ ...cached, items: deduplicateGames(cached.items) });
+            resolveRecommended();
           }
         }
         const result = await loadRecommendedGames(ownerId, force, accountGuard);
         if (!accountScopeRef.current.isCurrent(ticket)) return;
         setRecommended({ ...result.page, items: deduplicateGames(result.page.items) });
+        resolveRecommended();
         requestedCursorsRef.current.clear();
       } catch {
-        if (accountScopeRef.current.isCurrent(ticket)) setRecommendedFailed(true);
+        if (accountScopeRef.current.isCurrent(ticket)) {
+          resolveRecommended();
+          setRecommendedFailed(true);
+        }
       } finally {
         if (accountScopeRef.current.isCurrent(ticket)) {
           recommendedLoadRef.current = false;
@@ -161,7 +190,7 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
         }
       }
     },
-    [ownerId],
+    [ownerId, resolveRecommended],
   );
 
   const loadPlayed = useCallback(
@@ -170,19 +199,26 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
       const ticket = accountScopeRef.current.capture();
       const accountGuard = repositoryGuard(accountScopeRef.current, ticket);
       playedLoadRef.current = true;
-      setPlayedLoading(true);
+      setPlayedLoading(!playedResolvedRef.current);
       setPlayedFailed(false);
       try {
         if (!force) {
           const cached = await readCachedGamePage(ownerId, "played");
           if (!accountScopeRef.current.isCurrent(ticket)) return;
-          if (cached) setPlayed(deduplicateGames(cached.items));
+          if (cached) {
+            setPlayed(deduplicateGames(cached.items));
+            resolvePlayed();
+          }
         }
         const result = await loadPlayedGames(ownerId, force, accountGuard);
         if (!accountScopeRef.current.isCurrent(ticket)) return;
         setPlayed(deduplicateGames(result.page.items));
+        resolvePlayed();
       } catch {
-        if (accountScopeRef.current.isCurrent(ticket)) setPlayedFailed(true);
+        if (accountScopeRef.current.isCurrent(ticket)) {
+          resolvePlayed();
+          setPlayedFailed(true);
+        }
       } finally {
         if (accountScopeRef.current.isCurrent(ticket)) {
           playedLoadRef.current = false;
@@ -190,7 +226,7 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
         }
       }
     },
-    [ownerId],
+    [ownerId, resolvePlayed],
   );
 
   useFocusEffect(
@@ -235,7 +271,6 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
     const ticket = accountScopeRef.current.capture();
     const accountGuard = repositoryGuard(accountScopeRef.current, ticket);
     recommendedMoreRef.current = true;
-    setRecommendedLoadingMore(true);
     try {
       const page = await appendRecommendedPage(ownerId, recommended, cursor, accountGuard);
       if (!accountScopeRef.current.isCurrent(ticket)) return;
@@ -245,7 +280,6 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
     } finally {
       if (accountScopeRef.current.isCurrent(ticket)) {
         recommendedMoreRef.current = false;
-        setRecommendedLoadingMore(false);
       }
     }
   }, [ownerId, recommended]);
@@ -365,10 +399,8 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
           style={styles.listContainer}
           testID="game-center-empty-scroll"
         >
-          {loading ? (
-            <View style={styles.loadingState}>
-              <ActivityIndicator accessibilityLabel={t("common.loading")} color={colors.accent} />
-            </View>
+          {loading && !(selectedTab === "recommended" ? recommendedResolved : playedResolved) ? (
+            <View style={styles.loadingState} />
           ) : failed ? (
             <MessageState
               icon="wifi.exclamationmark"
@@ -420,9 +452,6 @@ function GameCenterAccountScreen({ ownerId }: { ownerId: string }) {
               />
             ))}
           </View>
-          {recommendedLoadingMore && selectedTab === "recommended" ? (
-            <ActivityIndicator color={colors.accent} style={styles.moreSpinner} />
-          ) : null}
         </ScrollView>
       )}
     </View>
@@ -634,7 +663,6 @@ const styles = StyleSheet.create({
     fontSize: gameCenterMetrics.retryTextSize,
     fontWeight: "600",
   },
-  moreSpinner: { paddingVertical: gameCenterMetrics.nextPageSpinnerVerticalInset },
 });
 
 function repositoryGuard(

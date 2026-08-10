@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   AppState,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +15,7 @@ import {
   View,
   type ColorSchemeName,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import {
   createAgentConversation,

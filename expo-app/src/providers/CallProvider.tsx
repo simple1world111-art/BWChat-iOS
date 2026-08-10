@@ -2,7 +2,6 @@ import { requestRecordingPermissionsAsync } from "expo-audio";
 import { Camera } from "expo-camera";
 import { randomUUID } from "expo-crypto";
 import * as Haptics from "expo-haptics";
-import * as Notifications from "expo-notifications";
 import {
   createContext,
   useCallback,
@@ -40,12 +39,12 @@ import {
   parseIncomingCallSignal,
   type IncomingCallSignal,
 } from "@/services/calls/callPolicy";
+import { subscribeCallNotifications } from "@/services/calls/CallNotificationBridge";
 import { publishCallSettlementRefresh } from "@/services/calls/CallSettlementRefreshService";
 import { playCallRingPulseAsync } from "@/services/calls/CallSounds";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import { normalizeLiveInvitationPayload } from "@/services/live/LiveInvitationPayload";
-import { flattenNotificationPayload } from "@/services/push/PushService";
 import {
   isLiveBillingInsufficient,
   liveTerminationGraceMilliseconds,
@@ -64,6 +63,7 @@ interface DirectCallTarget {
 interface GroupCallTarget {
   groupId: number;
   groupName: string;
+  inviteeUserIds?: readonly string[] | undefined;
 }
 
 interface GroupCallJoinTarget extends GroupCallTarget {
@@ -134,6 +134,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const liveReconciliationRef = useRef<{ sessionId: string; sequence: number } | null>(null);
   const liveReconciliationSequenceRef = useRef(0);
   const liveRecoveryRequestRef = useRef<{ sessionId: string; request: Promise<void> } | null>(null);
+  const pendingCallStartRef = useRef<{
+    sequence: number;
+    ownerId: string | undefined;
+  } | null>(null);
+  const pendingCallStartSequenceRef = useRef(0);
 
   const setSession = useCallback((next: CallSession | null) => {
     if (!next) sessionOwnerIdRef.current = undefined;
@@ -146,6 +151,30 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     (expectedOwnerId: string | undefined) => ownerIdRef.current === expectedOwnerId,
     [],
   );
+
+  const beginCallStart = useCallback(() => {
+    if (sessionRef.current || pendingCallStartRef.current) return null;
+    const operation = {
+      sequence: pendingCallStartSequenceRef.current + 1,
+      ownerId: ownerIdRef.current,
+    };
+    pendingCallStartSequenceRef.current = operation.sequence;
+    pendingCallStartRef.current = operation;
+    return operation;
+  }, []);
+
+  const isCurrentCallStart = useCallback(
+    (operation: { sequence: number; ownerId: string | undefined }) =>
+      pendingCallStartRef.current?.sequence === operation.sequence &&
+      isCurrentOwner(operation.ownerId),
+    [isCurrentOwner],
+  );
+
+  const finishCallStart = useCallback((operation: { sequence: number }) => {
+    if (pendingCallStartRef.current?.sequence === operation.sequence) {
+      pendingCallStartRef.current = null;
+    }
+  }, []);
 
   const stopRinging = useCallback(() => {
     if (ringTimerRef.current) clearInterval(ringTimerRef.current);
@@ -234,21 +263,29 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callType: CallType,
       expectedOwnerId: string | undefined = ownerIdRef.current,
     ): Promise<boolean> => {
-      const microphone = await requestRecordingPermissionsAsync();
-      if (!isCurrentOwner(expectedOwnerId)) return false;
-      if (!microphone.granted) {
-        setErrorToast(t("call.error.permission.microphone"));
-        return false;
-      }
-      if (callType === "video") {
-        const camera = await Camera.requestCameraPermissionsAsync();
+      try {
+        const microphone = await requestRecordingPermissionsAsync();
         if (!isCurrentOwner(expectedOwnerId)) return false;
-        if (!camera.granted) {
-          setErrorToast(t("call.error.permission.camera"));
+        if (!microphone.granted) {
+          setErrorToast(t("call.error.permission.microphone"));
           return false;
         }
+        if (callType === "video") {
+          const camera = await Camera.requestCameraPermissionsAsync();
+          if (!isCurrentOwner(expectedOwnerId)) return false;
+          if (!camera.granted) {
+            setErrorToast(t("call.error.permission.camera"));
+            return false;
+          }
+        }
+        return true;
+      } catch (error) {
+        captureException(error, { operation: "call_permissions" });
+        if (isCurrentOwner(expectedOwnerId)) {
+          setErrorToast(t("call.error.start", errorMessage(error)));
+        }
+        return false;
       }
-      return true;
     },
     [isCurrentOwner, t],
   );
@@ -296,8 +333,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const startDirectCall = useCallback(
     async (target: DirectCallTarget, callType: CallType) => {
-      if (sessionRef.current) return;
-      const operationOwnerId = ownerIdRef.current;
+      const operation = beginCallStart();
+      if (!operation) return;
+      const operationOwnerId = operation.ownerId;
+      if (!(await ensurePermissions(callType, operationOwnerId))) {
+        finishCallStart(operation);
+        return;
+      }
+      if (!isCurrentCallStart(operation) || sessionRef.current) {
+        finishCallStart(operation);
+        return;
+      }
       const next: CallSession = {
         id: randomUUID(),
         remote_user_id: target.userId,
@@ -309,13 +355,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         started_at: Date.now(),
       };
       setSession(next);
-      if (!(await ensurePermissions(callType, operationOwnerId))) {
-        endLocally(next.id);
-        return;
-      }
-      if (!isCurrentOwner(operationOwnerId)) return;
-      const currentAfterPermissions = sessionRef.current as CallSession | null;
-      if (currentAfterPermissions?.id !== next.id) return;
+      finishCallStart(operation);
       startRinging(true);
       try {
         const credentials = await api.startDirectCall(target.userId, callType);
@@ -347,9 +387,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       applyCredentials,
+      beginCallStart,
       clearRingTimeout,
       endLocally,
       ensurePermissions,
+      finishCallStart,
+      isCurrentCallStart,
       isCurrentOwner,
       reportAndClose,
       setSession,
@@ -360,8 +403,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const startGroupCall = useCallback(
     async (target: GroupCallTarget, callType: CallType) => {
-      if (sessionRef.current) return;
-      const operationOwnerId = ownerIdRef.current;
+      const operation = beginCallStart();
+      if (!operation) return;
+      const operationOwnerId = operation.ownerId;
+      if (!(await ensurePermissions(callType, operationOwnerId))) {
+        finishCallStart(operation);
+        return;
+      }
+      if (!isCurrentCallStart(operation) || sessionRef.current) {
+        finishCallStart(operation);
+        return;
+      }
       const next: CallSession = {
         id: randomUUID(),
         remote_user_id: "",
@@ -375,15 +427,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         group_name: target.groupName,
       };
       setSession(next);
-      if (!(await ensurePermissions(callType, operationOwnerId))) {
-        endLocally(next.id);
-        return;
-      }
-      if (!isCurrentOwner(operationOwnerId)) return;
-      const currentAfterPermissions = sessionRef.current as CallSession | null;
-      if (currentAfterPermissions?.id !== next.id) return;
+      finishCallStart(operation);
       try {
-        const credentials = await api.startGroupCall(target.groupId, callType);
+        const credentials = await api.startGroupCall(
+          target.groupId,
+          callType,
+          target.inviteeUserIds,
+        );
         if (!isCurrentOwner(operationOwnerId)) return;
         applyCredentials(next.id, credentials);
       } catch (error) {
@@ -398,8 +448,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       applyCredentials,
-      endLocally,
+      beginCallStart,
       ensurePermissions,
+      finishCallStart,
+      isCurrentCallStart,
       isCurrentOwner,
       reportAndClose,
       setSession,
@@ -409,8 +461,17 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const joinGroupCall = useCallback(
     async (target: GroupCallJoinTarget, callType: CallType) => {
-      if (sessionRef.current) return;
-      const operationOwnerId = ownerIdRef.current;
+      const operation = beginCallStart();
+      if (!operation) return;
+      const operationOwnerId = operation.ownerId;
+      if (!(await ensurePermissions(callType, operationOwnerId))) {
+        finishCallStart(operation);
+        return;
+      }
+      if (!isCurrentCallStart(operation) || sessionRef.current) {
+        finishCallStart(operation);
+        return;
+      }
       const next: CallSession = {
         id: randomUUID(),
         remote_user_id: "",
@@ -425,12 +486,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         group_name: target.groupName,
       };
       setSession(next);
-      if (!(await ensurePermissions(callType, operationOwnerId))) {
-        endLocally(next.id);
-        return;
-      }
-      const currentAfterPermissions = sessionRef.current as CallSession | null;
-      if (!isCurrentOwner(operationOwnerId) || currentAfterPermissions?.id !== next.id) return;
+      finishCallStart(operation);
       try {
         const credentials = await api.joinCall(target.roomName);
         if (!isCurrentOwner(operationOwnerId)) return;
@@ -447,8 +503,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [
       applyCredentials,
-      endLocally,
+      beginCallStart,
       ensurePermissions,
+      finishCallStart,
+      isCurrentCallStart,
       isCurrentOwner,
       reportAndClose,
       setSession,
@@ -591,10 +649,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   const receiveInvite = useCallback(
     (incoming: IncomingCallSignal) => {
-      if (!ownerIdRef.current) return;
+      if (!ownerIdRef.current) return false;
       const current = sessionRef.current;
       if (current) {
-        if (isDuplicateCallInvite(current, incoming)) return;
+        if (isDuplicateCallInvite(current, incoming)) return true;
         if (incoming.group_id === undefined && incoming.caller_id) {
           const payload = {
             remote_user_id: incoming.caller_id,
@@ -608,7 +666,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             .markCallBusy(incoming.call_id)
             .catch((error) => captureException(error, { operation: "call_busy_fallback" }));
         }
-        return;
+        return true;
       }
       setSession({
         id: randomUUID(),
@@ -625,6 +683,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         ...(incoming.group_name !== undefined ? { group_name: incoming.group_name } : {}),
       });
       startRinging(false);
+      return true;
     },
     [setSession, startRinging],
   );
@@ -667,7 +726,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         ...(livePayload.liveExperience ? { live_experience: livePayload.liveExperience } : {}),
       };
 
-      if (isValidLiveBillingUpdate(data)) {
+      const hasValidBillingUpdate = isValidLiveBillingUpdate(data);
+      if (hasValidBillingUpdate) {
         if (current.is_outgoing) {
           next = {
             ...next,
@@ -693,6 +753,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         } else {
           next = {
             ...next,
+            ...optionalNonNegative(
+              "confirmed_live_earning_activity_cat_food",
+              data.earned_activity_cat_food,
+            ),
             ...optionalNonNegative("confirmed_live_earning_gold_coins", data.earned_gold_coins),
           };
         }
@@ -708,7 +772,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           live_ending_message: current.is_outgoing
             ? `金币余额不足，本次${media}即将结束`
             : `对方余额不足，本次${media}即将结束`,
-          ...optionalEndingDetail(current.is_outgoing, next, data, t),
+          ...optionalEndingDetail(current.is_outgoing, next, hasValidBillingUpdate ? data : {}, t),
         };
         setMinimized(false);
         if (!liveEndingTimerRef.current) {
@@ -880,37 +944,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [recoverLiveState]);
 
   useEffect(() => {
-    const handleNotification = (notification: Notifications.Notification) => {
-      const data = flattenNotificationPayload(notification.request.content.data ?? {});
-      const rawType = stringValue(data.push_type ?? data.event_type)?.toLocaleLowerCase();
-      const signalType =
-        rawType === "call"
-          ? "call_invite"
-          : rawType === "group_call"
-            ? "group_call_invite"
-            : rawType;
-      if (signalType) handleSignal(signalType, data);
-    };
-    const received = Notifications.addNotificationReceivedListener(handleNotification);
-    const response = Notifications.addNotificationResponseReceivedListener((value) =>
-      handleNotification(value.notification),
-    );
-    void Notifications.getLastNotificationResponseAsync()
-      .then((value) => {
-        if (value) handleNotification(value.notification);
-      })
-      .catch(() => undefined);
-    return () => {
-      received.remove();
-      response.remove();
-    };
-  }, [handleSignal]);
+    return subscribeCallNotifications(receiveInvite);
+  }, [ownerId, receiveInvite]);
 
   useLayoutEffect(() => {
     ownerIdRef.current = ownerId;
     const previousOwnerId = previousOwnerIdRef.current;
     previousOwnerIdRef.current = ownerId;
     if (!ownerId || (previousOwnerId !== undefined && previousOwnerId !== ownerId)) {
+      pendingCallStartRef.current = null;
       setErrorToast(null);
       endLocally();
     }
@@ -925,6 +967,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       liveReconciliationSequenceRef.current += 1;
       liveReconciliationRef.current = null;
       liveRecoveryRequestRef.current = null;
+      pendingCallStartRef.current = null;
     },
     [clearRingTimeout, stopRinging],
   );
@@ -1076,19 +1119,30 @@ function isValidLiveBillingUpdate(data: Record<string, unknown>): boolean {
   const activity = intValue(data.charged_activity_cat_food);
   const gold = intValue(data.charged_gold_coins);
   const total = intValue(data.total_charged);
+  const earnedActivity = intValue(data.earned_activity_cat_food);
+  const earnedGold = intValue(data.earned_gold_coins);
   const values = [
     activity,
     gold,
     total,
-    intValue(data.earned_gold_coins),
+    earnedActivity,
+    earnedGold,
     intValue(data.gold_coin_balance_after),
     intValue(data.activity_cat_food_balance_after),
     intValue(data.spendable_balance_after),
   ].filter((value): value is number => value !== undefined);
   if (values.some((value) => value < 0)) return false;
-  return (
-    activity === undefined || gold === undefined || total === undefined || total === activity + gold
-  );
+  if (
+    activity !== undefined &&
+    gold !== undefined &&
+    total !== undefined &&
+    total !== activity + gold
+  )
+    return false;
+  if (earnedActivity !== undefined && activity !== undefined && earnedActivity !== activity)
+    return false;
+  if (earnedGold !== undefined && gold !== undefined && earnedGold !== gold) return false;
+  return true;
 }
 
 function optionalEndingDetail(
@@ -1102,11 +1156,9 @@ function optionalEndingDetail(
     const activity =
       intValue(data.charged_activity_cat_food) ?? session.confirmed_live_activity_cat_food_charge;
     const gold = intValue(data.charged_gold_coins) ?? session.confirmed_live_gold_coin_charge;
-    const total = intValue(data.total_charged) ?? session.confirmed_live_total_charge;
     if (activity !== undefined && activity > 0)
       lines.push(t("live.billing.chargedActivityCatFood", activity));
     if (gold !== undefined && gold > 0) lines.push(t("live.billing.chargedGoldCoins", gold));
-    if (total !== undefined) lines.push(t("live.billing.totalCharged", Math.max(total, 0)));
     const goldAfter = intValue(data.gold_coin_balance_after);
     const activityAfter = intValue(data.activity_cat_food_balance_after);
     const spendableAfter = intValue(data.spendable_balance_after);
@@ -1120,8 +1172,14 @@ function optionalEndingDetail(
         ),
       );
   } else {
-    const earned = intValue(data.earned_gold_coins) ?? session.confirmed_live_earning_gold_coins;
-    if (earned !== undefined) lines.push(t("live.billing.earnedGoldCoins", Math.max(earned, 0)));
+    const earnedActivity =
+      intValue(data.earned_activity_cat_food) ?? session.confirmed_live_earning_activity_cat_food;
+    const earnedGold =
+      intValue(data.earned_gold_coins) ?? session.confirmed_live_earning_gold_coins;
+    if (earnedActivity !== undefined)
+      lines.push(t("live.billing.earnedActivityCatFood", Math.max(earnedActivity, 0)));
+    if (earnedGold !== undefined)
+      lines.push(t("live.billing.earnedGoldCoins", Math.max(earnedGold, 0)));
   }
   return lines.length > 0 ? { live_ending_detail: lines.join("\n") } : {};
 }
@@ -1137,6 +1195,7 @@ function recoveredLiveTerminationData(state: OneToOneLiveCallState): Record<stri
       charged_activity_cat_food: state.finalBilling?.chargedActivityCatFood,
       charged_gold_coins: state.finalBilling?.chargedGoldCoins,
       total_charged: state.finalBilling?.totalCharged,
+      earned_activity_cat_food: state.finalBilling?.earnedActivityCatFood,
       earned_gold_coins: state.finalBilling?.earnedGoldCoins,
       gold_coin_balance_after: state.finalBilling?.goldCoinBalanceAfter,
       activity_cat_food_balance_after: state.finalBilling?.activityCatFoodBalanceAfter,

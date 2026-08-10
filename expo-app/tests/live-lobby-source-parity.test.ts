@@ -13,7 +13,8 @@ describe("live lobby source parity", () => {
 
   it("keeps native transient UI and submission interaction contracts", () => {
     expect(page).toContain("setTimeout(lobby.clearError, 4_000)");
-    expect(page).toContain('importantForAccessibility="no-hide-descendants"');
+    expect(page).toContain("!lobby.hasLoaded ? null");
+    expect(page).not.toContain("function SkeletonGrid");
     expect(page).toContain("disabled={isSubmitting}");
     expect(page).toContain("正在直播，无法与其他主播连线");
     expect(page).toContain("previous?.is_live_pair && !previous.is_outgoing");

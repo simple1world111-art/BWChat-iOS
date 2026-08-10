@@ -36,12 +36,13 @@ describe("native RootTabTitle parity", () => {
     expect(expo).toContain("minHeight: 28");
   });
 
-  it("routes all four native root screens through the shared localized title", () => {
+  it("routes all five native root screens through the shared localized title", () => {
     const root = resolve(__dirname, "..");
     const expectations = [
       ["src/app/(tabs)/conversations.tsx", "tab.messages"],
       ["src/app/(tabs)/contacts.tsx", "tab.contacts"],
       ["src/app/(tabs)/discover.tsx", "tab.discover"],
+      ["src/app/(tabs)/test.tsx", "tab.test"],
       ["src/app/(tabs)/profile.tsx", "tab.profile"],
     ] as const;
     for (const [relativePath, key] of expectations) {

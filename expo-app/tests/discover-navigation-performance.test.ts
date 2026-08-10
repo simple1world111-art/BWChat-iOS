@@ -52,10 +52,19 @@ describe("Discover destination navigation performance", () => {
     expect(source("src/services/live/useLiveLobby.ts")).toContain("NavigationSnapshotCache");
   });
 
-  it("keeps automatic short-drama revalidation out of the pull-to-refresh indicator", () => {
+  it("keeps persisted empty results and background revalidation animation-free", () => {
     const shortDrama = source("src/app/short-drama-series.tsx");
-    expect(shortDrama).toContain("isLoading: state.series.length === 0");
+    expect(shortDrama).toContain("isLoading: !state.hasResolved && !showRefreshIndicator");
     expect(shortDrama).toContain("refreshing={current.isRefreshing}");
     expect(shortDrama).toContain("load(filter, true, true, true)");
+    expect(shortDrama).toContain("ListFooterComponent={null}");
+
+    expect(source("src/app/moments.tsx")).toContain("ListFooterComponent={null}");
+    expect(source("src/app/game-center.tsx")).toContain("<View style={styles.loadingState} />");
+    expect(source("src/app/script-center.tsx")).toContain(
+      "const awaitingFirstSnapshot = isLoading && !hasResolvedSelection",
+    );
+    expect(source("src/app/live-lobby.tsx")).toContain("!lobby.hasLoaded ? null");
+    expect(source("src/app/activity-center.tsx")).toContain("<View style={styles.loadingState} />");
   });
 });

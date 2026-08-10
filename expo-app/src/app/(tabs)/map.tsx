@@ -1,7 +1,7 @@
 import { randomUUID } from "expo-crypto";
 import { router } from "expo-router";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -32,8 +32,8 @@ import {
   type MapCoordinate,
   type MapDatingUser,
   type MapPresence,
-  mapViewportSignature,
   parseMapPresence,
+  shouldAutomaticallyPositionMapViewport,
   viewerMapRegion,
 } from "@/services/location/MapDatingRepository";
 import {
@@ -73,6 +73,8 @@ const MAP_VISUAL_ACCEPTANCE_USERS: readonly MapDatingUser[] = [
 
 const MAP_VISUAL_ACCEPTANCE_REGION =
   viewerMapRegion(MAP_VISUAL_ACCEPTANCE_VIEWER) ?? TOKYO_STATION_REGION;
+const MAP_ATTRIBUTION_NAV_GAP = 8;
+const MAP_APPLE_LOGO_VISUAL_BOTTOM_OFFSET = 12;
 
 type MapFilter = "nearby" | "online" | "friends";
 
@@ -83,7 +85,10 @@ export default function MapScreen() {
   const ownerId = user?.user_id?.trim() || null;
   const operationFailed = t("common.operationFailed");
   const missingCoordinates = t("map.users.missingCoordinates");
-  const [region, setRegion] = useState<Region>(() =>
+  const mapViewRef = useRef<MapView | null>(null);
+  const didAutomaticallyPositionViewportRef = useRef(mapVisualAcceptanceEnabled);
+  const userHasInteractedWithViewportRef = useRef(false);
+  const [cameraTarget, setCameraTarget] = useState<Region>(() =>
     mapVisualAcceptanceEnabled ? MAP_VISUAL_ACCEPTANCE_REGION : TOKYO_STATION_REGION,
   );
   const [viewerCoordinate, setViewerCoordinate] = useState<MapCoordinate | null>(() =>
@@ -93,8 +98,22 @@ export default function MapScreen() {
     mapVisualAcceptanceEnabled ? [...MAP_VISUAL_ACCEPTANCE_USERS] : [],
   );
   const [isLoading, setIsLoading] = useState(mapVisualAcceptanceEnabled ? false : Boolean(ownerId));
+  const [isRecentering, setIsRecentering] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mapFilter, setMapFilter] = useState<MapFilter>("nearby");
+  const mapAttributionBottomInset = insets.bottom + MAP_ATTRIBUTION_NAV_GAP;
+  const appleLogoBottomInset = Math.max(
+    0,
+    mapAttributionBottomInset - MAP_APPLE_LOGO_VISUAL_BOTTOM_OFFSET,
+  );
+
+  const markMapViewportAsUserControlled = () => {
+    userHasInteractedWithViewportRef.current = true;
+  };
+  useEffect(() => {
+    didAutomaticallyPositionViewportRef.current = mapVisualAcceptanceEnabled;
+    userHasInteractedWithViewportRef.current = false;
+  }, [ownerId]);
 
   useEffect(() => {
     let active = true;
@@ -112,13 +131,22 @@ export default function MapScreen() {
     let didRecordMapVisit = false;
     let lastUploadedCoordinate: MapCoordinate | null = null;
     let lastUploadedAt = Number.NEGATIVE_INFINITY;
-    let lastAutoFitKey = "";
     let isRefreshingUsers = false;
     let refreshUsersAgain = false;
     let isResolvingLocation = false;
 
     const applyRegion = (next: Region) => {
-      if (active) setRegion(next);
+      if (active) setCameraTarget(next);
+    };
+
+    const applyAutomaticRegion = (next: Region) => {
+      const shouldPosition = shouldAutomaticallyPositionMapViewport({
+        didAutomaticallyPosition: didAutomaticallyPositionViewportRef.current,
+        userHasInteracted: userHasInteractedWithViewportRef.current,
+      });
+      if (!shouldPosition) return;
+      didAutomaticallyPositionViewportRef.current = true;
+      applyRegion(next);
     };
 
     const applyViewerCoordinate = (coordinate: MapCoordinate) => {
@@ -126,7 +154,7 @@ export default function MapScreen() {
       if (!active) return;
       setViewerCoordinate(coordinate);
       const centered = viewerMapRegion(coordinate);
-      if (centered) applyRegion(centered);
+      if (centered) applyAutomaticRegion(centered);
     };
 
     const refreshUsers = async () => {
@@ -149,12 +177,8 @@ export default function MapScreen() {
             setErrorMessage(missingCoordinates);
           }
           if (!currentCoordinate) {
-            const signature = mapViewportSignature(null, response.users);
             const fitted = fittedMapRegion(null, response.users);
-            if (fitted && signature !== lastAutoFitKey) {
-              lastAutoFitKey = signature;
-              applyRegion(fitted);
-            }
+            if (fitted) applyAutomaticRegion(fitted);
           }
         } while (refreshUsersAgain && active);
       } catch (error) {
@@ -303,6 +327,11 @@ export default function MapScreen() {
     };
   }, [missingCoordinates, operationFailed, ownerId]);
 
+  useEffect(() => {
+    if (mapVisualAcceptanceEnabled && Platform.OS === "ios") return;
+    mapViewRef.current?.animateToRegion(cameraTarget, 300);
+  }, [cameraTarget]);
+
   const mappableUsers = useMemo(() => {
     const filtered = mapUsers.filter((candidate) => {
       if (mapFilter === "online") return candidate.onlineStatus === "online";
@@ -341,6 +370,45 @@ export default function MapScreen() {
     return markers;
   }, [mappableUsers, t, user?.avatar_url, viewerCoordinate]);
 
+  const focusMapOnViewer = async () => {
+    if (isRecentering) return;
+    let coordinate = viewerCoordinate;
+    if (!coordinate) {
+      setIsRecentering(true);
+      try {
+        const granted = await requestForegroundLocationPermission();
+        if (!granted) {
+          setErrorMessage(t("map.location.permissionRefreshRequired"));
+          return;
+        }
+        const location = await requestFreshUsableLocation(5_000);
+        if (!location) {
+          setErrorMessage(t("map.location.failed"));
+          return;
+        }
+        coordinate = coordinateFromLocation(location);
+        setViewerCoordinate(coordinate);
+      } catch (error) {
+        captureException(error, { operation: "map_recenter_location" });
+        setErrorMessage(errorMessageFor(error, operationFailed));
+        return;
+      } finally {
+        setIsRecentering(false);
+      }
+    }
+    const centered = viewerMapRegion(coordinate);
+    if (!centered) {
+      setErrorMessage(t("map.location.failed"));
+      return;
+    }
+    didAutomaticallyPositionViewportRef.current = true;
+    if (mapVisualAcceptanceEnabled && Platform.OS === "ios") {
+      setCameraTarget(centered);
+      return;
+    }
+    mapViewRef.current?.animateToRegion(centered, 300);
+  };
+
   const showFilterMenu = () => {
     const filters: readonly { key: MapFilter; title: string }[] = [
       { key: "nearby", title: t("map.mode.nearby") },
@@ -371,19 +439,36 @@ export default function MapScreen() {
 
   return (
     <View style={styles.screen}>
-      {Platform.OS === "ios" ? (
+      {mapVisualAcceptanceEnabled && Platform.OS === "ios" ? (
         <BWChatNativeMap
           localeIdentifier={activeLanguage}
           markers={nativeMapMarkers}
           onMarkerPress={(userId) => {
             router.push({ pathname: "/user-profile", params: { id: userId } });
           }}
-          onRegionChange={setRegion}
-          region={region}
+          region={cameraTarget}
           style={StyleSheet.absoluteFill}
         />
       ) : (
-        <MapView onRegionChangeComplete={setRegion} region={region} style={StyleSheet.absoluteFill}>
+        <MapView
+          appleLogoInsets={{
+            bottom: appleLogoBottomInset,
+            left: 8,
+            right: 0,
+            top: 0,
+          }}
+          initialRegion={cameraTarget}
+          legalLabelInsets={{
+            bottom: mapAttributionBottomInset,
+            left: 0,
+            right: 0,
+            top: 0,
+          }}
+          onPanDrag={markMapViewportAsUserControlled}
+          onTouchStart={markMapViewportAsUserControlled}
+          ref={mapViewRef}
+          style={StyleSheet.absoluteFill}
+        >
           {viewerCoordinate ? (
             <Marker
               accessibilityLabel={t("map.myLocation")}
@@ -440,6 +525,26 @@ export default function MapScreen() {
           weight="semibold"
         />
         <Text style={styles.filterButtonText}>{t("group.search.filters")}</Text>
+      </Pressable>
+      <Pressable
+        accessibilityLabel={t("map.myLocation")}
+        accessibilityRole="button"
+        disabled={isRecentering}
+        onPress={() => {
+          void focusMapOnViewer();
+        }}
+        style={({ pressed }) => [
+          styles.recenterButton,
+          { bottom: insets.bottom + 50 },
+          (pressed || isRecentering) && styles.filterButtonPressed,
+        ]}
+        testID="map-recenter-button"
+      >
+        {isRecentering ? (
+          <ActivityIndicator color={colors.text} size="small" />
+        ) : (
+          <SymbolView name="location.fill" size={21} tintColor={colors.text} weight="semibold" />
+        )}
       </Pressable>
       {isLoading ? (
         <View style={[styles.loadingBubble, { top: insets.top + 8 }]}>
@@ -580,6 +685,20 @@ const styles = StyleSheet.create({
   },
   filterButtonPressed: { opacity: 0.72 },
   filterButtonText: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  recenterButton: {
+    position: "absolute",
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.card,
+    shadowColor: "#000000",
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
   loadingBubble: {
     position: "absolute",
     alignSelf: "center",

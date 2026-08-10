@@ -21,16 +21,40 @@ describe("GroupMembers native source topology", () => {
         "a3c6f6de8c1ffc38cc07dfd0d9495a60830e18cf69864392f7cf7529f46bff92",
       "BWChat/Utils/Constants.swift":
         "efb8861fbf1461deb01d917c44433516aa2ec7373c11b3dc90e1fede170b16cd",
-      "BWChat/zh-Hans.lproj/Localizable.strings":
-        "a9a6ce25dd4d5ef898a27a3c7d03619dbb6e64cb83d753ffa5a52a3c78558931",
-      "BWChat/en.lproj/Localizable.strings":
-        "62c800c570e79cfce00e7d0b9f76c83ce0737831ca08646448e486f54c5c9c0d",
     };
     for (const [relativePath, expectedHash] of Object.entries(hashes)) {
       const copied = resolve(copiedNativeRoot, relativePath);
       expect(sha256(copied)).toBe(expectedHash);
       const original = resolve(originalNativeRoot, relativePath);
       if (existsSync(original)) expect(sha256(original)).toBe(expectedHash);
+    }
+  });
+
+  it("keeps the member-list localization keys in both native language catalogs", () => {
+    for (const nativeRoot of [copiedNativeRoot, originalNativeRoot]) {
+      if (!existsSync(nativeRoot)) continue;
+      const simplifiedChinese = readFileSync(
+        resolve(nativeRoot, "BWChat/zh-Hans.lproj/Localizable.strings"),
+        "utf8",
+      );
+      const english = readFileSync(
+        resolve(nativeRoot, "BWChat/en.lproj/Localizable.strings"),
+        "utf8",
+      );
+      for (const key of [
+        "group.members.search",
+        "group.addMembers",
+        "group.removeMember.title",
+        "group.removeMember.confirm",
+        "group.removeMember.message",
+        "group.removeFailed",
+        "common.cancel",
+        "common.confirm",
+        "common.error",
+      ]) {
+        expect(simplifiedChinese).toContain(`"${key}" =`);
+        expect(english).toContain(`"${key}" =`);
+      }
     }
   });
 

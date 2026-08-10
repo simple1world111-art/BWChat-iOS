@@ -12,7 +12,11 @@
 "tab.contacts" = "通訊錄";
 "tab.discover" = "發現";
 "tab.map" = "地圖";
+"tab.test" = "測試";
 "tab.profile" = "我的";
+
+"test.card.title" = "測試卡片";
+"test.card.subtitle" = "點擊進入並驗證 Preview 熱更新";
 
 "language.title" = "語言";
 "language.option.system" = "跟隨系統";
@@ -1082,11 +1086,14 @@
 "wallet.error.activityCatFoodDisabled" = "貓糧功能已關閉";
 "live.billing.chargedActivityCatFood" = "貓糧消耗 %d";
 "live.billing.chargedGoldCoins" = "金幣消耗 %d";
+"live.billing.earnedActivityCatFood" = "貓糧收益 %d";
+"live.billing.awaitingBreakdown" = "等待服務端拆分結算";
+"live.billing.awaitingEarnings" = "等待服務端收益結算";
 "live.billing.totalCharged" = "總消耗 %d";
 "live.billing.balanceAfter" = "結算後：金幣 %d · 貓糧 %d · 可消費 %d";
 "live.billing.earnedGoldCoins" = "金幣收益 %d";
 "live.billing.freePayer" = "免費剩餘 %d 秒";
-"live.billing.freeHost" = "免費剩餘 %d 秒 · 暫無金幣收益";
+"live.billing.freeHost" = "免費剩餘 %d 秒 · 暫無收益";
 "live.billing.estimatedSpendable" = "預計總消耗 %d · 等待服務端結算";
 "live.billing.estimatedEarning" = "預計金幣收益 %d · 等待結算";
 "live.billing.ratePerMinute" = "%d 可消費餘額/分鐘";

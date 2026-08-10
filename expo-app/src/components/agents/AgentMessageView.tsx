@@ -34,6 +34,7 @@ import {
   resolveAgentHistoryImageReply,
   type AgentImageReplyTarget,
 } from "@/services/agents/AgentImageReplyPolicy";
+import { isAgentOptimisticMessage } from "@/services/agents/AgentChatTurnPolicy";
 import {
   agentImageThumbnailSize,
   agentMessageLayout,
@@ -45,6 +46,11 @@ import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 type Translate = (key: string, ...args: (string | number)[]) => string;
+
+const generatedImageRetryPolicy = Object.freeze({
+  intervalMilliseconds: 1_000,
+  maximumRetries: 30,
+});
 
 interface AgentMessageViewProps {
   message: AgentMessage;
@@ -59,6 +65,7 @@ interface AgentMessageViewProps {
   onImageMenuTouchSequenceStarted: () => void;
   onImageMenuTouchSequenceEnded: () => void;
   onSaveMedia: (mediaPath: string, isVideo: boolean) => void;
+  onRetrySend?: (() => void) | undefined;
   onVideoPress: (url: string) => void;
   onUnlockMedia: (mediaId: string, mediaType: string | undefined) => void;
 }
@@ -76,6 +83,7 @@ export function AgentMessageView({
   onImageMenuTouchSequenceStarted,
   onImageMenuTouchSequenceEnded,
   onSaveMedia,
+  onRetrySend,
   onVideoPress,
   onUnlockMedia,
 }: AgentMessageViewProps) {
@@ -153,6 +161,30 @@ export function AgentMessageView({
             />
           </View>
         ))}
+        {isAgentOptimisticMessage(message) ? (
+          message.status === "failed" ? (
+            <Pressable
+              accessibilityLabel={`${t("messages.sendFailed")}, ${t("common.retry")}`}
+              accessibilityRole="button"
+              disabled={!onRetrySend}
+              onPress={onRetrySend}
+              style={styles.localDelivery}
+            >
+              <SymbolView name="exclamationmark.circle.fill" size={12} tintColor={colors.danger} />
+              <Text style={styles.localDeliveryFailureText}>
+                {t("messages.sendFailed")} · {t("common.retry")}
+              </Text>
+            </Pressable>
+          ) : (
+            <View
+              accessibilityLabel={t("common.loading")}
+              accessibilityLiveRegion="polite"
+              style={styles.localDelivery}
+            >
+              <ActivityIndicator color={colors.secondaryText} size="small" />
+            </View>
+          )
+        ) : null}
       </View>
       {!isMine ? <View style={styles.messageSpacer} /> : null}
     </View>
@@ -311,6 +343,7 @@ function MediaThumbnail({
       <ImageGallerySource
         accessibilityHint={translate("message.image")}
         accessibilityLabel={`${translate("media.preview.title")}: ${translate("message.image")}`}
+        authenticatedRetryIntervalMilliseconds={generatedImageRetryPolicy.intervalMilliseconds}
         contentFit="cover"
         cornerRadius={10}
         imageStyle={[styles.mediaThumbnail, size]}
@@ -322,6 +355,7 @@ function MediaThumbnail({
         }}
         sourceId={sourceId}
         style={[styles.mediaThumbnail, size]}
+        maximumAuthenticatedRetries={generatedImageRetryPolicy.maximumRetries}
         uri={displayUrl}
       />
     </ChatMessageLongPressSurface>
@@ -367,6 +401,7 @@ export function PaidMediaPart({
   const isVideo = kind === "video";
   const content = resolveMediaUrl(contentPath, env.apiBaseUrl);
   const preview = resolveMediaUrl(previewPath, env.apiBaseUrl);
+  const unlockTransitionPreview = resolveMediaUrl(metadata.preview_url, env.apiBaseUrl);
   const rawImagePath = !isVideo ? (imageReplyTarget?.imagePath ?? contentPath) : undefined;
   const gallerySourceId = imageReplyTarget
     ? `agent-paid-${imageReplyTarget.messageId}-${imageReplyTarget.partId}`
@@ -428,37 +463,44 @@ export function PaidMediaPart({
 
   if (!isUnlocked) {
     return (
-      <View style={[styles.mediaState, size]}>
-        {preview ? (
-          <AuthenticatedImage
-            blurRadius={9}
-            contentFit="cover"
-            uri={preview}
-            style={StyleSheet.absoluteFill}
-            transition={0}
-          />
-        ) : (
-          <View style={styles.lockedMediaFallback} />
-        )}
-        <View style={styles.lockedMediaScrim} />
-        <View style={styles.lockedMediaContent}>
-          <SymbolView name="lock.fill" size={24} weight="semibold" tintColor={colors.white} />
-          <Pressable
-            accessibilityLabel={isUnlocking ? translate("mediaUnlock.unlocking") : unlockTitle}
-            accessibilityRole="button"
-            accessibilityState={{ busy: isUnlocking, disabled: isUnlocking || !canUnlock }}
-            disabled={isUnlocking || !canUnlock}
-            onPress={() => {
-              if (mediaId) onUnlock(mediaId, metadata.media_type);
-            }}
-            style={styles.unlockMediaButton}
-          >
-            {isUnlocking ? <ActivityIndicator color={colors.white} size="small" /> : null}
-            <Text style={styles.unlockMediaButtonText}>
-              {isUnlocking ? translate("mediaUnlock.unlocking") : unlockTitle}
-            </Text>
-          </Pressable>
+      <View style={styles.paidMediaColumn}>
+        <View style={[styles.mediaState, size]}>
+          {preview ? (
+            <AuthenticatedImage
+              authenticatedRetryIntervalMilliseconds={
+                generatedImageRetryPolicy.intervalMilliseconds
+              }
+              blurRadius={9}
+              contentFit="cover"
+              maximumAuthenticatedRetries={generatedImageRetryPolicy.maximumRetries}
+              uri={preview}
+              style={StyleSheet.absoluteFill}
+              transition={0}
+            />
+          ) : (
+            <View style={styles.lockedMediaFallback} />
+          )}
+          <View style={styles.lockedMediaScrim} />
+          <View style={styles.lockedMediaContent}>
+            <SymbolView name="lock.fill" size={24} weight="semibold" tintColor={colors.white} />
+            <Pressable
+              accessibilityLabel={isUnlocking ? translate("mediaUnlock.unlocking") : unlockTitle}
+              accessibilityRole="button"
+              accessibilityState={{ busy: isUnlocking, disabled: isUnlocking || !canUnlock }}
+              disabled={isUnlocking || !canUnlock}
+              onPress={() => {
+                if (mediaId) onUnlock(mediaId, metadata.media_type);
+              }}
+              style={styles.unlockMediaButton}
+            >
+              {isUnlocking ? <ActivityIndicator color={colors.white} size="small" /> : null}
+              <Text style={styles.unlockMediaButtonText}>
+                {isUnlocking ? translate("mediaUnlock.unlocking") : unlockTitle}
+              </Text>
+            </Pressable>
+          </View>
         </View>
+        <View style={styles.saveMediaSlot} />
       </View>
     );
   }
@@ -480,6 +522,18 @@ export function PaidMediaPart({
   const openLabel = isVideo
     ? translate("mediaUnlock.playVideo")
     : `${translate("media.preview.title")}: ${translate("message.image")}`;
+  const unlockedImageLoadingFallback =
+    !isVideo && unlockTransitionPreview ? (
+      <AuthenticatedImage
+        authenticatedRetryIntervalMilliseconds={generatedImageRetryPolicy.intervalMilliseconds}
+        blurRadius={9}
+        contentFit="cover"
+        maximumAuthenticatedRetries={generatedImageRetryPolicy.maximumRetries}
+        uri={unlockTransitionPreview}
+        style={StyleSheet.absoluteFill}
+        transition={0}
+      />
+    ) : undefined;
   const legacyMediaCard = (
     <Pressable
       accessibilityHint={!isVideo ? translate("message.image") : undefined}
@@ -507,7 +561,9 @@ export function PaidMediaPart({
     >
       {preview ? (
         <AuthenticatedImage
+          authenticatedRetryIntervalMilliseconds={generatedImageRetryPolicy.intervalMilliseconds}
           contentFit="cover"
+          maximumAuthenticatedRetries={generatedImageRetryPolicy.maximumRetries}
           uri={preview}
           style={StyleSheet.absoluteFill}
           transition={0}
@@ -532,9 +588,11 @@ export function PaidMediaPart({
       <ImageGallerySource
         accessibilityHint={translate("message.image")}
         accessibilityLabel={openLabel}
+        authenticatedRetryIntervalMilliseconds={generatedImageRetryPolicy.intervalMilliseconds}
         contentFit="cover"
         cornerRadius={10}
         imageStyle={StyleSheet.absoluteFill}
+        loadingFallback={unlockedImageLoadingFallback}
         onOpen={onImageOpen}
         selection={{
           media: { id: gallerySourceId, type: "image", url: rawImagePath },
@@ -543,6 +601,7 @@ export function PaidMediaPart({
         }}
         sourceId={gallerySourceId}
         style={[styles.mediaState, size]}
+        maximumAuthenticatedRetries={generatedImageRetryPolicy.maximumRetries}
         uri={content}
       />
     ) : (
@@ -644,6 +703,13 @@ const styles = StyleSheet.create({
   },
   mineText: { color: colors.white, fontSize: 15, lineHeight: 18 },
   otherText: { color: colors.text, fontSize: 15, lineHeight: 18 },
+  localDelivery: {
+    minHeight: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    columnGap: 4,
+  },
+  localDeliveryFailureText: { color: colors.danger, fontSize: 11, fontWeight: "600" },
   mediaThumbnail: { borderRadius: 10, backgroundColor: colors.separator },
   mediaState: {
     overflow: "hidden",
@@ -663,6 +729,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     columnGap: 4,
   },
+  saveMediaSlot: { height: 16 },
   saveMediaText: { color: colors.accent, fontSize: 12, fontWeight: "600" },
   mediaOverlay: {
     position: "absolute",

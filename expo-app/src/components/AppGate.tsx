@@ -1,5 +1,5 @@
 import * as Linking from "expo-linking";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useRemoteConfig } from "@/providers/RemoteConfigProvider";
 import { requiresStoreUpdate } from "@/services/remote-config/RemoteConfigService";
@@ -20,11 +20,7 @@ export function AppGate({ children }: { children: React.ReactNode }) {
           {killSwitchMessage ?? "朋友们稍等一下，服务恢复后点击重试即可。"}
         </Text>
         <Pressable style={styles.button} onPress={() => void refresh()} disabled={isRefreshing}>
-          {isRefreshing ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <Text style={styles.buttonText}>重新检查</Text>
-          )}
+          <Text style={styles.buttonText}>重新检查</Text>
         </Pressable>
       </View>
     );

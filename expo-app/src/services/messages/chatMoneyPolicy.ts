@@ -145,6 +145,14 @@ export function sanitizeChatMoneyDigits(value: string): string {
   return /^0+$/u.test(normalized) ? "0" : normalized;
 }
 
+export function chatMoneyPacketCountAfterModeChange(
+  current: string,
+  nextMode: ChatMoneyRedPacketMode,
+): string {
+  if (nextMode === "exclusive") return "1";
+  return current === "1" ? "" : current;
+}
+
 export function validateChatMoneyComposer(
   input: ChatMoneyComposerValidationInput,
   t: ChatMoneyTranslator,

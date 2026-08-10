@@ -26,9 +26,11 @@ describe("MainTab deep-link selection", () => {
   it("selects each required native root directly", () => {
     selectMainTab("messages");
     selectMainTab("discover");
+    selectMainTab("test");
     expect(mockReplace).toHaveBeenNthCalledWith(1, "/(tabs)/conversations");
     expect(mockReplace).toHaveBeenNthCalledWith(2, "/(tabs)/discover");
-    expect(mockDismissAll).toHaveBeenCalledTimes(2);
+    expect(mockReplace).toHaveBeenNthCalledWith(3, "/(tabs)/test");
+    expect(mockDismissAll).toHaveBeenCalledTimes(3);
   });
 
   it("installs the required tab underneath before pushing the destination", async () => {

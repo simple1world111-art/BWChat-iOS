@@ -20,6 +20,7 @@ import {
   callSignalMatchesSession,
   callSignalPayload,
   formatCallDuration,
+  groupVideoCellSize,
   groupCallEndSignalMatchesSession,
   isDuplicateCallInvite,
   normalizeLiveKitServerURL,
@@ -32,6 +33,12 @@ const request = jest.mocked(apiRequest);
 
 describe("native friend and group call contracts", () => {
   beforeEach(() => request.mockReset());
+
+  it("keeps two-column group video cells at a stable explicit 3:4 size", () => {
+    expect(groupVideoCellSize(430)).toEqual({ width: 209, height: 279 });
+    expect(groupVideoCellSize(0)).toEqual({ width: 0, height: 0 });
+    expect(groupVideoCellSize(Number.NaN)).toEqual({ width: 0, height: 0 });
+  });
 
   it("normalizes voice/audio/video types and all LiveKit response aliases", () => {
     expect(normalizeCallType("AUDIO")).toBe("voice");
@@ -328,6 +335,28 @@ describe("native friend and group call contracts", () => {
 
     request.mockResolvedValueOnce({ active: "true" });
     await expect(getGroupCallStatus(7)).rejects.toThrow("群通话状态响应格式无效");
+  });
+
+  it("sends only normalized selected group invitees when starting a call", async () => {
+    request.mockResolvedValueOnce(
+      credentials({
+        room_name: "room-selected",
+        call_type: "video",
+      }),
+    );
+
+    await startGroupCall(7, "video", [" member-b ", "", "member-a", "member-b"]);
+
+    expect(request).toHaveBeenCalledWith("/call/group/7/start", {
+      method: "POST",
+      body: {
+        call_type: "video",
+        invitee_user_ids: ["member-b", "member-a"],
+      },
+      requiredData: true,
+      requiredEnvelope: true,
+      transientRetries: false,
+    });
   });
 
   it("preserves native group-start URL fallback short-circuit decoding", async () => {

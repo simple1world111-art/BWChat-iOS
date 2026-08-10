@@ -9,7 +9,6 @@ import {
   type NativeSyntheticEvent,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
@@ -18,6 +17,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { getFollowers, getFollowing } from "@/api/bwchat";
 import { Avatar } from "@/components/Avatar";

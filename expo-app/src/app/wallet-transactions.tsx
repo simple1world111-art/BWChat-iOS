@@ -5,11 +5,11 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { WalletEmptyState, WalletTransactionRow } from "@/components/wallet/WalletRecords";

@@ -62,15 +62,20 @@ import { loadAgentChatPage, saveAgentChatPage } from "@/services/agents/AgentCha
 import { upsertCachedAgentConversation } from "@/services/agents/AgentCatalogRepository";
 import {
   agentGeneratedMediaPollingDecision,
+  agentMessageIdentity,
+  agentMessageTimelinesEqual,
   agentTerminalTurnNotice,
   agentTurnExpectsGeneratedMedia,
   agentTurnPollingPolicy,
   agentTurnProgressStatus,
   agentTurnResponseMessages,
+  isAgentOptimisticMessage,
   isAgentTurnTerminal,
   isRenderableAgentMessage,
+  makeAgentOptimisticMessage,
   mergeAgentTimeline,
   newestAgentTurnIds,
+  nextAgentOptimisticSequence,
   shouldWaitForAgentTerminalResponse,
   type AgentGeneratedMediaPollingDecision,
   type AgentTurnNotice,
@@ -103,6 +108,7 @@ import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 interface AgentPendingSubmission {
+  createdAt: string;
   text: string;
   imageUri: string | null;
   imageFilename: string | null;
@@ -143,6 +149,8 @@ export default function AgentChatScreen() {
   const timelineScopeRef = useRef(`pending:${conversationId}`);
   const scopeGenerationRef = useRef(0);
   const loadPromiseRef = useRef<Promise<void> | null>(null);
+  const timelineSyncPromiseRef = useRef<Promise<void> | null>(null);
+  const activeTurnPollRef = useRef<string | null>(null);
   const [draft, setDraft] = useState("");
   const initialInputHeight = chatComposerInputHeight(draft);
   const [composerImage, setComposerImage] = useState<{ uri: string; filename: string } | null>(
@@ -174,7 +182,6 @@ export default function AgentChatScreen() {
   const [isCreatingLatestVersionConversation, setCreatingLatestVersionConversation] =
     useState(false);
   const creatingLatestVersionConversationRef = useRef(false);
-  const [optimisticText, setOptimisticText] = useState<string | null>(null);
   const [turnStatus, setTurnStatus] = useState<string | null>(null);
   const [turnMediaDecision, setTurnMediaDecision] =
     useState<AgentGeneratedMediaPollingDecision | null>(null);
@@ -218,6 +225,7 @@ export default function AgentChatScreen() {
       scopeGenerationRef.current += 1;
       imagePreparationGenerationRef.current += 1;
       pollGenerationRef.current += 1;
+      activeTurnPollRef.current = null;
       unlockLifecycleRef.current += 1;
       videoRoleDialogGenerationRef.current += 1;
       sendingRef.current = false;
@@ -252,10 +260,14 @@ export default function AgentChatScreen() {
 
   const setTimeline = useCallback(
     (next: AgentMessage[]) => {
-      const previousLatest = messagesRef.current.at(-1);
+      const previous = messagesRef.current;
+      if (agentMessageTimelinesEqual(previous, next)) return;
+      const previousPersisted = previous.filter((message) => !isAgentOptimisticMessage(message));
+      const nextPersisted = next.filter((message) => !isAgentOptimisticMessage(message));
+      const previousLatest = previousPersisted.at(-1);
       messagesRef.current = next;
       setMessages(next);
-      const nextLatest = next.at(-1);
+      const nextLatest = nextPersisted.at(-1);
       let cachedConversation = conversationRef.current;
       if (
         cachedConversation &&
@@ -274,11 +286,15 @@ export default function AgentChatScreen() {
           void upsertCachedAgentConversation(ownerId, cachedConversation).catch(() => false);
         }
       }
-      if (ownerId && conversationId) {
+      if (
+        ownerId &&
+        conversationId &&
+        !agentMessageTimelinesEqual(previousPersisted, nextPersisted)
+      ) {
         void saveAgentChatPage(
           ownerId,
           conversationId,
-          next,
+          nextPersisted,
           hasMoreRef.current,
           cachedConversation,
         ).catch(() => {});
@@ -288,6 +304,7 @@ export default function AgentChatScreen() {
   );
 
   const updateHasMore = useCallback((next: boolean) => {
+    if (hasMoreRef.current === next) return;
     hasMoreRef.current = next;
     setHasMore(next);
   }, []);
@@ -317,6 +334,8 @@ export default function AgentChatScreen() {
     videoRoleDialogLoadingRef.current = false;
     cancelVideoMatch();
     loadPromiseRef.current = null;
+    timelineSyncPromiseRef.current = null;
+    activeTurnPollRef.current = null;
     messagesRef.current = [];
     hasMoreRef.current = false;
     setMessages([]);
@@ -339,7 +358,6 @@ export default function AgentChatScreen() {
     setOpeningSettings(false);
     setCreatingLatestVersionConversation(false);
     setRequiresLatestVersionConversation(false);
-    setOptimisticText(null);
     setLastFailedSubmission(null);
     setPreviewVideoUrl(null);
     setVideoRoleDialog(null);
@@ -465,6 +483,34 @@ export default function AgentChatScreen() {
     return pending;
   }, [performLoad]);
 
+  const syncLatestAgentMessages = useCallback(async () => {
+    if (!conversationId) return;
+    if (timelineSyncPromiseRef.current) return timelineSyncPromiseRef.current;
+    const requestedScope = agentMessageScope(ownerId, conversationId);
+    const scopeGeneration = scopeGenerationRef.current;
+    const isCurrentSync = () =>
+      isCurrentAgentChatOperation(
+        timelineScopeRef.current,
+        requestedScope,
+        scopeGenerationRef.current,
+        scopeGeneration,
+      );
+    const pending = (async () => {
+      try {
+        const page = await getAgentMessages(conversationId, { limit: 30 });
+        if (!isCurrentSync()) return;
+        updateHasMore(page.has_more);
+        setTimeline(mergeAgentMessages(messagesRef.current, page.messages));
+      } catch {
+        // Silent reconciliation keeps the current timeline usable while offline.
+      }
+    })().finally(() => {
+      if (timelineSyncPromiseRef.current === pending) timelineSyncPromiseRef.current = null;
+    });
+    timelineSyncPromiseRef.current = pending;
+    return pending;
+  }, [conversationId, ownerId, setTimeline, updateHasMore]);
+
   useEffect(() => {
     if (ownerId && balance === null) void refreshBalance(true);
   }, [balance, ownerId, refreshBalance]);
@@ -474,15 +520,20 @@ export default function AgentChatScreen() {
       hasResumedTurnsRef.current = false;
       setUnlockingMediaIds(new Set(unlockingMediaIdsRef.current));
       void load();
+      const syncTimer = setInterval(() => {
+        if (!sendingRef.current && !activeTurnPollRef.current) void syncLatestAgentMessages();
+      }, 4_000);
       return () => {
+        clearInterval(syncTimer);
         Keyboard.dismiss();
         pollGenerationRef.current += 1;
+        activeTurnPollRef.current = null;
         unlockLifecycleRef.current += 1;
         unlockingMediaIdsRef.current.clear();
         unlockIdempotencyKeysRef.current.clear();
         unlockOperationTokensRef.current.clear();
       };
-    }, [load]),
+    }, [load, syncLatestAgentMessages]),
   );
 
   useFocusEffect(
@@ -565,7 +616,13 @@ export default function AgentChatScreen() {
 
   const unlockMedia = useCallback(
     async (mediaId: string, mediaType: string | undefined) => {
-      if (!mediaId || unlockingMediaIdsRef.current.has(mediaId)) return;
+      if (
+        !mediaId ||
+        unlockingMediaIdsRef.current.has(mediaId) ||
+        unlockOperationTokensRef.current.has(mediaId)
+      ) {
+        return;
+      }
       const requestedScope = agentMessageScope(ownerId, conversationId);
       if (!isCurrentAgentMessageScope(timelineScopeRef.current, requestedScope)) return;
       const kind: MediaUnlockKind = mediaType?.trim().toLowerCase() === "video" ? "video" : "image";
@@ -595,17 +652,28 @@ export default function AgentChatScreen() {
         if (settlement.consumption) {
           applyMediaConsumption(settlement.consumption, kind);
         }
-        await Promise.all([
+        const unlockedTimeline = applyAgentMediaUnlockToMessages(
+          messagesRef.current,
+          mediaId,
+          result,
+        );
+        setTimeline(unlockedTimeline);
+        if (isAgentMediaUnlocked(unlockedTimeline, mediaId)) {
+          unlockingMediaIdsRef.current.delete(mediaId);
+          setUnlockingMediaIds(new Set(unlockingMediaIdsRef.current));
+        }
+        const storeReconciliation = Promise.all([
           settlement.balance
             ? applyBalance(settlement.balance)
             : settlement.refreshBalance
               ? refreshBalance(true)
               : Promise.resolve(),
           settlement.refreshInventory ? loadPropInventory(true) : Promise.resolve(),
+        ]).catch(() => undefined);
+        await Promise.all([
+          storeReconciliation,
+          refreshUntilMediaUnlockIsVisible(mediaId, generation, requestedScope, operationToken),
         ]);
-        if (!isCurrentUnlock()) return;
-        setTimeline(applyAgentMediaUnlockToMessages(messagesRef.current, mediaId, result));
-        await refreshUntilMediaUnlockIsVisible(mediaId, generation, requestedScope, operationToken);
       } catch (nextError) {
         if (isCurrentUnlock()) {
           const code = agentAPIErrorCode(nextError);
@@ -662,19 +730,18 @@ export default function AgentChatScreen() {
         Date.now() - startedAt < agentTurnPollingPolicy.maximumDurationMilliseconds
       ) {
         try {
-          const result = await getAgentTurn(turnId);
+          const [result, page] = await Promise.all([
+            getAgentTurn(turnId),
+            getAgentMessages(conversationId, { limit: 30 }),
+          ]);
           if (!isCurrentPoll()) return;
           setTurnStatus(result.turn.status);
           let timeline = messagesRef.current;
           if (result.response_message) {
             timeline = mergeAgentMessages(timeline, [result.response_message]);
-            setTimeline(timeline);
           }
-
-          const page = await getAgentMessages(conversationId, { limit: 30 });
-          if (!isCurrentPoll()) return;
           updateHasMore(page.has_more);
-          timeline = mergeAgentMessages(messagesRef.current, page.messages);
+          timeline = mergeAgentMessages(timeline, page.messages);
           setTimeline(timeline);
 
           if (isAgentTurnTerminal(result.turn.status)) {
@@ -773,6 +840,16 @@ export default function AgentChatScreen() {
     [conversationId, setTimeline, updateHasMore],
   );
 
+  const startTurnPolling = useCallback(
+    (turnId: string, generation: number, requestedScope: string, scopeGeneration: number) => {
+      activeTurnPollRef.current = turnId;
+      void pollTurn(turnId, generation, requestedScope, scopeGeneration).finally(() => {
+        if (activeTurnPollRef.current === turnId) activeTurnPollRef.current = null;
+      });
+    },
+    [pollTurn],
+  );
+
   const resumeUnfinishedTurnIfNeeded = useCallback(async () => {
     if (hasResumedTurnsRef.current || messagesRef.current.length === 0) return;
     const requestedScope = agentMessageScope(ownerId, conversationId);
@@ -824,7 +901,7 @@ export default function AgentChatScreen() {
           setTurnMediaDecision(mediaDecision);
           const generation = pollGenerationRef.current + 1;
           pollGenerationRef.current = generation;
-          void pollTurn(result.turn.id, generation, requestedScope, scopeGeneration);
+          startTurnPolling(result.turn.id, generation, requestedScope, scopeGeneration);
           return;
         }
         if (!newestSettledTurn) {
@@ -849,7 +926,7 @@ export default function AgentChatScreen() {
         ),
       );
     }
-  }, [conversationId, ownerId, pollTurn, setTimeline]);
+  }, [conversationId, ownerId, setTimeline, startTurnPolling]);
 
   useEffect(() => {
     if (!isLoading && messages.length > 0) void resumeUnfinishedTurnIfNeeded();
@@ -862,6 +939,7 @@ export default function AgentChatScreen() {
         void load().finally(() => void resumeUnfinishedTurnIfNeeded());
       } else {
         pollGenerationRef.current += 1;
+        activeTurnPollRef.current = null;
       }
     });
     return () => subscription.remove();
@@ -1044,7 +1122,8 @@ export default function AgentChatScreen() {
   );
 
   const openAgentSettings = async () => {
-    if (!agentId || openingSettingsRef.current) return;
+    const settingsAgentId = conversationRef.current?.agent_id.trim() || agentId.trim();
+    if (!settingsAgentId || openingSettingsRef.current) return;
     const requestedScope = agentMessageScope(ownerId, conversationId);
     const scopeGeneration = scopeGenerationRef.current;
     const isCurrentSettings = () =>
@@ -1059,7 +1138,7 @@ export default function AgentChatScreen() {
     setOpeningSettings(true);
     setError(null);
     try {
-      const agent = await getAgent(agentId);
+      const agent = await getAgent(settingsAgentId);
       if (!isCurrentSettings()) return;
       if (agent.is_owner === false) {
         setError("只能调整自己创建的智能体");
@@ -1217,6 +1296,7 @@ export default function AgentChatScreen() {
     }
     sendingRef.current = true;
     const submission: AgentPendingSubmission = retrySubmission ?? {
+      createdAt: new Date().toISOString(),
       text,
       imageUri: selectedImage?.uri ?? null,
       imageFilename: selectedImage?.filename ?? null,
@@ -1237,7 +1317,30 @@ export default function AgentChatScreen() {
     setAwaitingTerminalResponse(false);
     setTurnMediaDecision(null);
     setLastFailedSubmission(null);
-    setOptimisticText(text || null);
+    const previousOptimistic = messagesRef.current.find(
+      (message) =>
+        isAgentOptimisticMessage(message) &&
+        message.client_message_id === submission.clientMessageId,
+    );
+    const optimisticMessage = {
+      ...makeAgentOptimisticMessage({
+        clientMessageId: submission.clientMessageId,
+        conversationId,
+        createdAt: submission.createdAt,
+        imageUri: selectedImage?.uri,
+        ownerId,
+        replyToId: submission.replyToId,
+        sequenceNo:
+          previousOptimistic?.sequence_no ?? nextAgentOptimisticSequence(messagesRef.current),
+        text: selectedImage ? agentTransformOutboundText(text) : text,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+    setTimeline(mergeAgentMessages(messagesRef.current, [optimisticMessage]));
+    if (!retrySubmission) {
+      setDraft("");
+      detachComposerImage();
+    }
     try {
       const parts: AgentTurnInputPart[] = [];
       if (selectedImage && submission.uploadIdempotencyKey) {
@@ -1261,10 +1364,12 @@ export default function AgentChatScreen() {
         idempotencyKey: submission.turnIdempotencyKey,
       });
       if (!isCurrentSend()) return;
-      setTimeline(mergeAgentMessages(messagesRef.current, [accepted.message]));
-      setOptimisticText(null);
-      setDraft("");
-      detachComposerImage();
+      const withoutOptimistic = messagesRef.current.filter(
+        (message) =>
+          !isAgentOptimisticMessage(message) ||
+          message.client_message_id !== submission.clientMessageId,
+      );
+      setTimeline(mergeAgentMessages(withoutOptimistic, [accepted.message]));
       setTurnStatus(accepted.turn.status);
       if (selectedImage) {
         expectedMediaTurnIdsRef.current.add(accepted.turn.id);
@@ -1273,10 +1378,17 @@ export default function AgentChatScreen() {
       }
       const generation = pollGenerationRef.current + 1;
       pollGenerationRef.current = generation;
-      void pollTurn(accepted.turn.id, generation, requestedScope, scopeGeneration);
+      startTurnPolling(accepted.turn.id, generation, requestedScope, scopeGeneration);
     } catch (nextError) {
       if (!isCurrentSend()) return;
-      setOptimisticText(null);
+      setTimeline(
+        messagesRef.current.map((message) =>
+          isAgentOptimisticMessage(message) &&
+          message.client_message_id === submission.clientMessageId
+            ? { ...message, status: "failed", updated_at: new Date().toISOString() }
+            : message,
+        ),
+      );
       setLastFailedSubmission(submission);
       setError(errorMessage(nextError));
       setTurnNotice({
@@ -1284,7 +1396,6 @@ export default function AgentChatScreen() {
         allowsRetry: true,
         isFailure: true,
       });
-      setDraft((current) => current || text);
       const code = agentAPIErrorCode(nextError);
       if (code !== null && code >= 6000 && code <= 6399) {
         const refreshed = await getAgentRuntimeConfig().catch(() => null);
@@ -1319,6 +1430,13 @@ export default function AgentChatScreen() {
     isAwaitingTerminalResponse,
     mediaDecision: turnMediaDecision,
   });
+  const hasHeaderTailContent = Boolean(
+    presentedTurnStatus ||
+    turnNotice ||
+    requiresLatestVersionConversation ||
+    needsWalletTopUp ||
+    error,
+  );
   const canSubmit =
     (draft.trim().length > 0 || composerImage !== null) &&
     !isSending &&
@@ -1353,7 +1471,7 @@ export default function AgentChatScreen() {
           headerRight: () => (
             <Pressable
               accessibilityLabel="调整智能体配置"
-              disabled={isOpeningSettings || !agentId}
+              disabled={isOpeningSettings || !(conversation?.agent_id.trim() || agentId.trim())}
               hitSlop={10}
               onPress={() => void openAgentSettings()}
             >
@@ -1379,7 +1497,7 @@ export default function AgentChatScreen() {
           inverted
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          keyExtractor={(message) => message.id}
+          keyExtractor={agentMessageIdentity}
           onScrollBeginDrag={() => Keyboard.dismiss()}
           onTouchStart={() => {
             Keyboard.dismiss();
@@ -1404,11 +1522,12 @@ export default function AgentChatScreen() {
           }
           ItemSeparatorComponent={AgentMessageTimelineSeparator}
           ListHeaderComponent={
-            <View style={styles.headerTail}>
+            <View
+              style={[styles.headerTail, hasHeaderTailContent && styles.headerTailAfterMessage]}
+            >
               <ConversationTail
                 isSending={isSending}
                 notice={turnNotice}
-                optimisticText={optimisticText}
                 onRetry={() => {
                   if (lastFailedSubmission) {
                     void send(lastFailedSubmission);
@@ -1421,6 +1540,7 @@ export default function AgentChatScreen() {
                       ...payload,
                       uploadIdempotencyKey: payload.imageUri ? createIdempotencyKey() : null,
                       clientMessageId: createIdempotencyKey(),
+                      createdAt: new Date().toISOString(),
                       turnIdempotencyKey: createIdempotencyKey(),
                     });
                   }
@@ -1461,6 +1581,16 @@ export default function AgentChatScreen() {
               onImageMenuTouchSequenceStarted={claimImageMenuTouchOwnership}
               onImageMenuTouchSequenceEnded={releaseImageMenuTouchOwnership}
               onSaveMedia={(mediaPath, isVideo) => void saveAgentMedia(mediaPath, isVideo)}
+              onRetrySend={
+                isAgentOptimisticMessage(item) &&
+                item.status === "failed" &&
+                lastFailedSubmission?.clientMessageId === item.client_message_id
+                  ? () => {
+                      const failedSubmission = lastFailedSubmission;
+                      if (failedSubmission) void send(failedSubmission);
+                    }
+                  : undefined
+              }
               onVideoPress={setPreviewVideoUrl}
               onUnlockMedia={(mediaId, mediaType) => void unlockMedia(mediaId, mediaType)}
             />
@@ -1709,37 +1839,20 @@ function AgentVersionNotice({ isWorking, onStart }: { isWorking: boolean; onStar
 }
 
 function ConversationTail({
-  optimisticText,
   turnStatus,
   notice,
   isSending,
   onRetry,
 }: {
-  optimisticText: string | null;
   turnStatus: string | null;
   notice: AgentTurnNotice | null;
   isSending: boolean;
   onRetry: () => void;
 }) {
   const isWorking = turnStatus !== null;
-  if (!optimisticText && !isWorking && !notice) return null;
+  if (!isWorking && !notice) return null;
   return (
     <View style={styles.tail}>
-      {optimisticText ? (
-        <View style={styles.optimisticRow}>
-          <View style={styles.optimisticColumn}>
-            <LinearGradient
-              colors={[colors.accent, colors.accentDark]}
-              end={{ x: 1, y: 1 }}
-              start={{ x: 0, y: 0 }}
-              style={[styles.textBubble, styles.mineBubble]}
-            >
-              <Text style={styles.mineText}>{optimisticText}</Text>
-            </LinearGradient>
-            <ActivityIndicator color={colors.secondaryText} size="small" />
-          </View>
-        </View>
-      ) : null}
       {isWorking ? (
         <View style={styles.turnProgress}>
           <ActivityIndicator color={colors.secondaryText} size="small" />
@@ -1908,7 +2021,8 @@ const styles = StyleSheet.create({
   textBubble: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 16 },
   mineBubble: { alignSelf: "flex-end" },
   mineText: { color: colors.white, fontSize: 15, lineHeight: 20 },
-  headerTail: { rowGap: 10, marginBottom: agentMessageLayout.timelineItemSpacing },
+  headerTail: { rowGap: 10 },
+  headerTailAfterMessage: { marginTop: agentMessageLayout.timelineItemSpacing },
   messageSeparator: { height: agentMessageLayout.timelineItemSpacing },
   versionNotice: {
     width: "100%",
@@ -1934,13 +2048,6 @@ const styles = StyleSheet.create({
   },
   walletTopUpText: { color: colors.accent, fontSize: 13, fontWeight: "600" },
   tail: { rowGap: 10 },
-  optimisticRow: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    paddingLeft: 48,
-  },
-  optimisticColumn: { maxWidth: 290, alignItems: "flex-end", rowGap: 4 },
   turnProgress: {
     padding: 12,
     borderRadius: 12,

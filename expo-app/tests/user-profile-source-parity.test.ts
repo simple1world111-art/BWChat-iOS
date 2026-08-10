@@ -98,11 +98,24 @@ describe("UserProfile source parity", () => {
     expect(contentRepository).toContain("ttlMilliseconds: 5 * 60 * 1_000");
     expect(
       contentRepository.match(/staleRetentionMilliseconds: 30 \* 24 \* 60 \* 60 \* 1_000/gu),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(contentRepository).toContain("page.moments.slice(0, 200)");
+    expect(contentRepository).toContain("page.agents.slice(0, 200)");
     expect(contentRepository).toContain("page.series.slice(0, 200)");
     expect(contentRepository).toContain("if (seen.has(item.id)) return false");
     expect(contentRepository).toContain("if (seen.has(item.series_id)) return false");
+  });
+
+  it("keeps all tab panes mounted and prewarms persistent profile content after navigation", () => {
+    const content = sourceExpo("src/components/profile/PublicProfileContent.tsx");
+    expect(content).toContain("InteractionManager.runAfterInteractions");
+    expect(content).toContain("readCachedProfileAgentsSnapshot(ownerId, targetId)");
+    expect(content).toContain("saveCachedProfileAgents(ownerId, targetId");
+    expect(content).toContain('inactiveTab: { display: "none" }');
+    expect(content).toContain("const MomentList = memo");
+    expect(content).toContain("const AgentList = memo");
+    expect(content).toContain("const ShortDramaList = memo");
+    expect(content).not.toContain("if (!isVisible) return null");
   });
 
   it("preserves exact public-profile, follow, recommendation and content API routes", () => {
@@ -185,6 +198,14 @@ describe("UserProfile source parity", () => {
     expect(content).toContain("<AuthenticatedImage");
     expect(expo).not.toMatch(/require\([^)]*\.(png|jpe?g|webp)/u);
     expect(`${expo}\n${content}`).not.toMatch(/飞机|airplane|\bflight\b|\bplane\b/iu);
+  });
+
+  it("keeps the simplified back control and recommendation cards free of account IDs and dismiss buttons", () => {
+    const expo = sourceExpo("src/app/user-profile.tsx");
+    expect(expo).not.toContain("styles.navigationName");
+    expect(expo).not.toContain("style={styles.suggestionId}");
+    expect(expo).not.toContain("styles.dismissSuggestion");
+    expect(expo).not.toContain('name="xmark"');
   });
 });
 

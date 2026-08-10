@@ -386,7 +386,7 @@ export function effectiveTabs(config: RemoteConfig): DynamicTabDescriptor[] {
     merged.push(tab);
   }
   for (const core of defaultTabs.filter((tab) =>
-    ["messages", "discover", "profile"].includes(tab.id),
+    ["messages", "discover", "test", "profile"].includes(tab.id),
   )) {
     const id = normalizeToken(core.id);
     if (seen.has(id)) continue;

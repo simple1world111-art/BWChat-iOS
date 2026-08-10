@@ -1,3 +1,5 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import {
   acceptTransfer,
   claimRedPacket,
@@ -11,6 +13,7 @@ import { apiRequest } from "@/api/client";
 import type { ChatMoneyDetail, ChatMoneyPayload } from "@/models";
 import {
   canShowRedPacketOpenAction,
+  chatMoneyPacketCountAfterModeChange,
   chatMoneyBubblePolicy,
   chatMoneyComposerPolicy,
   chatMoneyDetailPolicy,
@@ -70,10 +73,11 @@ function redDetail(overrides: Partial<ChatMoneyDetail> = {}): ChatMoneyDetail {
 }
 
 describe("native chat-money contracts", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     request.mockReset();
     resetChatMoneyMemoryForAccount("owner-a");
     resetChatMoneyMemoryForAccount("owner-b");
+    await AsyncStorage.clear();
   });
 
   it("keeps the exact bubble, composer, envelope and color metrics", () => {
@@ -147,6 +151,12 @@ describe("native chat-money contracts", () => {
     expect(validateChatMoneyComposer({
       kind: "red_packet", scope: "group", mode: "lucky", amountText: "2", packetCountText: "3", spendableBalance: 20, memberCount: 4, limits: { minimum_amount: 1, maximum_amount: 20000, maximum_packet_count: 100, expiry_seconds: 86400, red_packet_minimum_amount: 1, red_packet_maximum_amount: 20000, transfer_minimum_amount: 1, transfer_maximum_amount: 20000, maximum_greeting_length: 60, maximum_transfer_note_length: 20 },
     }, t).canSubmit).toBe(false);
+  });
+
+  it("resets the implicit exclusive packet count when returning to a group mode", () => {
+    expect(chatMoneyPacketCountAfterModeChange("", "exclusive")).toBe("1");
+    expect(chatMoneyPacketCountAfterModeChange("1", "lucky")).toBe("");
+    expect(chatMoneyPacketCountAfterModeChange("8", "equal")).toBe("8");
   });
 
   it("enforces sender/group/local-claim/enforced-server envelope and open-action rules", () => {
@@ -232,5 +242,20 @@ describe("native chat-money contracts", () => {
     expect(cachedChatMoneyConfiguration("owner-b").red_packet_enabled).toBe(true);
     expect(cachedChatMoneyDetail("owner-a", "asset-a")).toBeNull();
     expect(cachedChatMoneyDetail("owner-b", "asset-b")).not.toBeNull();
+  });
+
+  it("restores detail and configuration caches after memory is recreated", async () => {
+    request
+      .mockResolvedValueOnce({ red_packet_enabled: true, transfer_enabled: true, eligibility: { eligible: true } })
+      .mockResolvedValueOnce(redDetail({ asset_id: "persisted-asset" }));
+    await loadChatMoneyConfiguration("owner-a");
+    await loadChatMoneyDetail({ ownerId: "owner-a", assetId: "persisted-asset", force: true });
+
+    resetChatMoneyMemoryForAccount("owner-a");
+    request.mockRejectedValueOnce(new Error("offline"));
+
+    await expect(loadChatMoneyConfiguration("owner-a")).resolves.toMatchObject({ red_packet_enabled: true });
+    await expect(loadChatMoneyDetail({ ownerId: "owner-a", assetId: "persisted-asset" })).resolves.toMatchObject({ asset_id: "persisted-asset" });
+    expect(request).toHaveBeenCalledTimes(3);
   });
 });

@@ -12,17 +12,19 @@ const mockRefreshBalance = jest.fn(async () => undefined);
 const mockRefreshActivityTransactions = jest.fn(async () => undefined);
 
 const mockInventoryState = {
-  items: [{
-    inventoryId: "image-card",
-    definitionId: "media_unlock_card_image",
-    type: "media_unlock_card",
-    name: "Test Card",
-    description: "Unlock one image",
-    quantity: 2,
-    isEquipped: false,
-    availableActions: ["consume_for_media_unlock"],
-    metadata: { mediaType: "image" },
-  }],
+  items: [
+    {
+      inventoryId: "image-card",
+      definitionId: "media_unlock_card_image",
+      type: "media_unlock_card",
+      name: "Test Card",
+      description: "Unlock one image",
+      quantity: 2,
+      isEquipped: false,
+      availableActions: ["consume_for_media_unlock"],
+      metadata: { mediaType: "image" },
+    },
+  ],
   summary: { totalQuantity: 2, equippedCount: 0, expiringCount: 0 },
   isLoading: false,
   errorMessage: undefined as string | undefined,
@@ -46,13 +48,15 @@ const mockWalletState = {
   } as WalletBalanceSnapshot | null,
   transactions: [],
   withdrawals: [],
-  activityCatFoodTransactions: [{
-    id: "check-in",
-    delta: 3,
-    balance_after: 8,
-    source: "daily_check_in_reward",
-    created_at: "2026-08-07T00:00:00Z",
-  }],
+  activityCatFoodTransactions: [
+    {
+      id: "check-in",
+      delta: 3,
+      balance_after: 8,
+      source: "daily_check_in_reward",
+      created_at: "2026-08-07T00:00:00Z",
+    },
+  ],
   activityCatFoodNextCursor: "next" as string | undefined,
   isActivityCatFoodEnabled: true,
   activityCatFoodDisabledByServer: false,
@@ -92,7 +96,11 @@ jest.mock("expo-image", () => {
 
 jest.mock("expo-linear-gradient", () => {
   const { View: MockView } = jest.requireActual("react-native");
-  return { LinearGradient: ({ children, ...props }: { children: ReactNode }) => <MockView {...props}>{children}</MockView> };
+  return {
+    LinearGradient: ({ children, ...props }: { children: ReactNode }) => (
+      <MockView {...props}>{children}</MockView>
+    ),
+  };
 });
 
 jest.mock("@/components/AuthenticatedImage", () => {
@@ -129,31 +137,37 @@ describe("prop-bag screen interactions", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockInventoryState.items = [{
-      inventoryId: "image-card",
-      definitionId: "media_unlock_card_image",
-      type: "media_unlock_card",
-      name: "Test Card",
-      description: "Unlock one image",
-      quantity: 2,
-      isEquipped: false,
-      availableActions: ["consume_for_media_unlock"],
-      metadata: { mediaType: "image" },
-    }];
+    mockInventoryState.items = [
+      {
+        inventoryId: "image-card",
+        definitionId: "media_unlock_card_image",
+        type: "media_unlock_card",
+        name: "Test Card",
+        description: "Unlock one image",
+        quantity: 2,
+        isEquipped: false,
+        availableActions: ["consume_for_media_unlock"],
+        metadata: { mediaType: "image" },
+      },
+    ];
     mockInventoryState.isLoading = false;
     mockInventoryState.errorMessage = undefined;
     mockWalletState.balance = walletBalance;
     mockWalletState.balanceError = null;
     mockWalletState.isActivityCatFoodEnabled = true;
-    mockWalletState.activityCatFoodTransactions = [{
-      id: "check-in",
-      delta: 3,
-      balance_after: 8,
-      source: "daily_check_in_reward",
-      created_at: "2026-08-07T00:00:00Z",
-    }];
+    mockWalletState.activityCatFoodTransactions = [
+      {
+        id: "check-in",
+        delta: 3,
+        balance_after: 8,
+        source: "daily_check_in_reward",
+        created_at: "2026-08-07T00:00:00Z",
+      },
+    ];
     mockWalletState.activityCatFoodNextCursor = "next";
     mockWalletState.activityCatFoodTransactionError = null;
+    mockWalletState.isLoadingBalance = false;
+    mockWalletState.isLoadingActivityCatFoodTransactions = false;
   });
 
   it("loads inventory and balance, exposes the usage rule, and routes the enabled cat-food card", async () => {
@@ -169,8 +183,11 @@ describe("prop-bag screen interactions", () => {
 
   it("opens the native usage rule and refreshes both data sources with force enabled", async () => {
     await render(<PropBagScreen />);
-    await fireEvent.press(screen.getByLabelText("Test Card, ×2"));
+    await fireEvent.press(screen.getByLabelText("Test Card, ×2"), {
+      nativeEvent: { locationX: 40, locationY: 80, pageX: 190, pageY: 300 },
+    });
     expect(screen.getByText("Unlock one image")).toBeTruthy();
+    expect(screen.getByTestId("prop-bag-usage-popover-arrow")).toBeTruthy();
     await fireEvent.press(screen.getByLabelText("common.close"));
     expect(screen.queryByText("Unlock one image")).toBeNull();
 
@@ -182,6 +199,16 @@ describe("prop-bag screen interactions", () => {
     });
     expect(mockLoadInventory).toHaveBeenCalledWith(true);
     expect(mockRefreshBalance).toHaveBeenCalledWith(true);
+  });
+
+  it("does not drive the native refresh control during initial cat-food revalidation", async () => {
+    mockWalletState.isLoadingBalance = true;
+    mockWalletState.isLoadingActivityCatFoodTransactions = true;
+    await render(<ActivityCatFoodScreen />);
+
+    expect(
+      screen.getByTestId("activity-cat-food-scroll").props.refreshControl.props.refreshing,
+    ).toBe(false);
   });
 
   it("retries a missing balance instead of opening details and disables a read-only cat-food card", async () => {
@@ -226,9 +253,10 @@ describe("prop-bag screen interactions", () => {
     expect(screen.getByText("activityCenter.checkIn.title")).toBeTruthy();
     expect(screen.getByText("activityCatFood.transaction.grant")).toBeTruthy();
     expect(screen.getByText("+3")).toBeTruthy();
-    expect(screen.getByLabelText(
-      "activityCenter.checkIn.title, +3, activityCatFood.balanceAfter|8",
-    ).props.accessible).toBe(true);
+    expect(
+      screen.getByLabelText("activityCenter.checkIn.title, +3, activityCatFood.balanceAfter|8")
+        .props.accessible,
+    ).toBe(true);
 
     mockRefreshActivityTransactions.mockClear();
     const scrolling = screen.getByTestId("activity-cat-food-scroll");

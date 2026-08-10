@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { registerGlobals } from "@livekit/react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Sentry from "@sentry/react-native";
+import { useEffect, useState } from "react";
 import { LogBox, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -26,6 +27,7 @@ import { RealtimeProvider } from "@/providers/RealtimeProvider";
 import { UpdateProvider } from "@/providers/UpdateProvider";
 import { WalletProvider } from "@/providers/WalletProvider";
 import { initializeMonitoring } from "@/services/monitoring/MonitoringService";
+import { hydrateNavigationSnapshots } from "@/services/navigation/NavigationSnapshotCache";
 import { initializePushNotifications } from "@/services/push/PushService";
 import { visualAcceptanceEnabled } from "@/services/visualAcceptance";
 
@@ -37,11 +39,25 @@ if (visualAcceptanceEnabled) LogBox.ignoreAllLogs();
 
 function BootstrapGate({ children }: { children: React.ReactNode }) {
   const { isBootstrapping } = useAuth();
+  const [isCacheBootstrapping, setCacheBootstrapping] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    void hydrateNavigationSnapshots().finally(() => {
+      if (active) setCacheBootstrapping(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (isCacheBootstrapping) return <SplashView />;
   return isBootstrapping ? <SplashView /> : children;
 }
 
 function RootLayout() {
   const colorScheme = useColorScheme();
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

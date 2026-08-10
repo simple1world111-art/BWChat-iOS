@@ -85,6 +85,51 @@ function message(parts: AgentMessagePart[], overrides: Partial<AgentMessage> = {
 }
 
 describe("AgentMessageView interaction parity", () => {
+  it("shows inline optimistic delivery state and retries a failed send from the message row", async () => {
+    const commonProps = {
+      allMessages: [],
+      avatarUrl: null,
+      galleryImagePaths: [],
+      isUnlockingMedia: () => false,
+      name: "智能体",
+      onImageMenuRequested: jest.fn(),
+      onImageMenuTouchSequenceEnded: jest.fn(),
+      onImageMenuTouchSequenceStarted: jest.fn(),
+      onImageOpen: jest.fn(),
+      onImagePress: jest.fn(),
+      onSaveMedia: jest.fn(),
+      onUnlockMedia: jest.fn(),
+      onVideoPress: jest.fn(),
+    };
+    const sending = await render(
+      <AgentMessageView
+        {...commonProps}
+        message={message([part({ text: "马上出现" })], {
+          client_message_id: "client-1",
+          source: "local_optimistic",
+          status: "sending",
+        })}
+      />,
+    );
+    expect(screen.getByLabelText("common.loading")).toBeTruthy();
+    await sending.unmount();
+
+    const onRetrySend = jest.fn();
+    await render(
+      <AgentMessageView
+        {...commonProps}
+        message={message([part({ text: "马上出现" })], {
+          client_message_id: "client-1",
+          source: "local_optimistic",
+          status: "failed",
+        })}
+        onRetrySend={onRetrySend}
+      />,
+    );
+    await fireEvent.press(screen.getByLabelText("messages.sendFailed, common.retry"));
+    expect(onRetrySend).toHaveBeenCalledTimes(1);
+  });
+
   it("renders visible text in ordinal order and hides the internal transform instruction", async () => {
     await render(
       <AgentMessageView

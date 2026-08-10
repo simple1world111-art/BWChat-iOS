@@ -13,11 +13,24 @@ const copiedNativeRoot = resolve(root, "..");
 const originalNativeRoot = resolve(root, "../../BWChat-iOS");
 const overlay = readFileSync(resolve(root, "src/components/calls/CallOverlay.tsx"), "utf8");
 const provider = readFileSync(resolve(root, "src/providers/CallProvider.tsx"), "utf8");
+const groupChat = readFileSync(resolve(root, "src/app/group-chat/[id].tsx"), "utf8");
+const memberPicker = readFileSync(
+  resolve(root, "src/components/calls/GroupCallMemberPicker.tsx"),
+  "utf8",
+);
 const api = readFileSync(resolve(root, "src/api/bwchat.ts"), "utf8");
 const apiClient = readFileSync(resolve(root, "src/api/client.ts"), "utf8");
 const normalizers = readFileSync(resolve(root, "src/api/normalizers.ts"), "utf8");
 const policy = readFileSync(resolve(root, "src/services/calls/callPolicy.ts"), "utf8");
 const pushService = readFileSync(resolve(root, "src/services/push/PushService.ts"), "utf8");
+const callNotificationBridge = readFileSync(
+  resolve(root, "src/services/calls/CallNotificationBridge.ts"),
+  "utf8",
+);
+const pushBootstrap = readFileSync(
+  resolve(root, "src/components/PushNotificationBootstrap.tsx"),
+  "utf8",
+);
 const realtime = readFileSync(
   resolve(root, "src/services/realtime/ChatRealtimeService.ts"),
   "utf8",
@@ -34,6 +47,10 @@ const groupStage = overlay.slice(
 const groupParticipants = overlay.slice(
   overlay.indexOf("function GroupVideoParticipant"),
   overlay.indexOf("function ControlButton"),
+);
+const incomingGroupStage = overlay.slice(
+  overlay.indexOf("function DirectCallStage"),
+  overlay.indexOf("function LiveBillingBadge"),
 );
 
 describe("GroupCallView source and lifecycle parity", () => {
@@ -87,7 +104,8 @@ describe("GroupCallView source and lifecycle parity", () => {
     );
 
     expect(api).toContain("`/call/group/${groupId}/start`");
-    expect(api).toContain("body: { call_type: callType }");
+    expect(api).toContain("call_type: callType");
+    expect(api).toContain("invitee_user_ids: normalizedInviteeUserIds");
     expect(api).toContain("`/call/group/${groupId}/leave`");
     expect(api).toContain("options.callId.length > 0");
     expect(api).toContain("{ call_id: options.callId }");
@@ -108,14 +126,39 @@ describe("GroupCallView source and lifecycle parity", () => {
     expect(overlay).toContain("session.token !== undefined && session.livekit_url !== undefined");
   });
 
+  it("selects group invitees before starting voice or video calls", () => {
+    expect(groupChat).toContain("<GroupCallMemberPicker");
+    expect(groupChat).toContain("setPendingGroupCallType(callType)");
+    expect(groupChat).toContain("{ groupId, groupName: groupTitle, inviteeUserIds }");
+    expect(provider).toContain("target.inviteeUserIds");
+    expect(api).toContain("invitee_user_ids: normalizedInviteeUserIds");
+  });
+
+  it("keeps the full-screen invitee picker below the native status bar", () => {
+    expect(memberPicker).toContain("<SafeAreaProvider initialMetrics={initialWindowMetrics}>");
+    expect(memberPicker).toContain('<SafeAreaView edges={["top", "bottom"]}');
+    expect(memberPicker).toContain("headerActionButton: { minWidth: 58, minHeight: 44");
+  });
+
+  it("uses the real group collage and bounds long names for voice and video invitations", () => {
+    expect(incomingGroupStage).toContain("const groupId = session.group_id");
+    expect(incomingGroupStage).toContain("const isGroupCall = groupId !== undefined");
+    expect(incomingGroupStage).toContain("<GroupMemberAvatar groupId={groupId} size={100}");
+    expect(incomingGroupStage).toContain("numberOfLines={isGroupCall ? 2 : 1}");
+    expect(incomingGroupStage).toContain("adjustsFontSizeToFit");
+    expect(incomingGroupStage).toContain("styles.groupCallName");
+    expect(overlay).toContain('groupCallName: { width: "100%", fontSize: 26, lineHeight: 34 }');
+    expect(overlay).not.toContain("function GroupFallbackAvatar");
+  });
+
   it("shares the native push-container flattening rules for group invitations", () => {
     const nativePush = nativeSource("BWChat/Services/PushService.swift");
     expect(nativePush).toContain('["data", "payload", "notification_data"]');
     expect(pushService).toContain('["data", "payload", "notification_data"]');
     expect(pushService).toContain("Object.prototype.hasOwnProperty.call(result, nestedKey)");
-    expect(provider).toContain(
-      "flattenNotificationPayload(notification.request.content.data ?? {})",
-    );
+    expect(callNotificationBridge).toContain("flattenNotificationPayload(input)");
+    expect(pushBootstrap).toContain("publishCallNotification(data)");
+    expect(provider).toContain("subscribeCallNotifications(receiveInvite)");
     expect(provider).not.toContain("function flattenNotificationData");
   });
 
@@ -200,7 +243,8 @@ describe("GroupCallView source and lifecycle parity", () => {
     expect(overlay).toContain('groupTitle: { color: "#FFFFFF", fontSize: 18, fontWeight: "600" }');
     expect(overlay).toContain("fontSize: 13");
     expect(overlay).toContain("gap: 4");
-    expect(overlay).toContain("aspectRatio: 3 / 4");
+    expect(policy).toContain("const GROUP_VIDEO_CELL_ASPECT_RATIO = 3 / 4");
+    expect(policy).toContain("height: Math.round(width / GROUP_VIDEO_CELL_ASPECT_RATIO)");
     expect(overlay).toContain("borderRadius: 8");
     expect(overlay).toContain("width: 64");
     expect(overlay).toContain("height: 64");
@@ -241,11 +285,18 @@ describe("GroupCallView source and lifecycle parity", () => {
     expect(groupStage).toContain("useSafeAreaInsets()");
     expect(groupStage).toContain("paddingTop: insets.top + 16");
     expect(overlay).toContain("paddingBottom: bottomInset + 40");
+    expect(groupStage).toContain("useWindowDimensions()");
+    expect(groupStage).toContain("groupVideoCellSize(windowWidth)");
+    expect(groupStage).toContain("style={styles.groupParticipantScroll}");
+    expect(groupParticipants).toContain("styles.groupVideoCell, cellSize");
     expect(groupStage).toContain("track?.publication.track && !track.publication.isMuted");
     expect(groupStage).toContain(
       "cameraEnabled={hasActiveVideoTrack && (!local || call.isCameraEnabled)}",
     );
     expect(groupStage).toContain("track={hasActiveVideoTrack ? track : undefined}");
+    expect(overlay).toContain("onlySubscribed: false");
+    expect(overlay).toContain("RoomEvent.TrackSubscribed");
+    expect(overlay).toContain("RoomEvent.TrackUnsubscribed");
   });
 
   it("keeps the original in-app boundary without inventing a CallKit dependency", () => {

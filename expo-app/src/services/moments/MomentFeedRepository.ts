@@ -6,6 +6,10 @@ import type { MomentMutation } from "@/services/moments/MomentMutationStore";
 
 const feedCachePrefix = "bwchat.moments-feed.v1";
 
+export const momentFeedCachePolicy = {
+  ttlMilliseconds: 5 * 60 * 1_000,
+} as const;
+
 export interface CachedMomentFeed extends MomentFeedPage {
   cached_at: string;
 }
@@ -43,6 +47,14 @@ export async function saveCachedMomentFeed(
       cached_at: new Date().toISOString(),
     }),
   );
+}
+
+export function isMomentFeedCacheFresh(
+  snapshot: Pick<CachedMomentFeed, "cached_at">,
+  now = Date.now(),
+): boolean {
+  const cachedAt = Date.parse(snapshot.cached_at);
+  return Number.isFinite(cachedAt) && now - cachedAt < momentFeedCachePolicy.ttlMilliseconds;
 }
 
 export function mergeMomentFeed(current: Moment[], incoming: Moment[]): Moment[] {

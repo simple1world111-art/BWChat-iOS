@@ -248,6 +248,9 @@ export function parseGiftMessagePayload(content: string): GiftMessagePayload | n
 export function normalizeGiftMessagePayload(value: unknown): GiftMessagePayload | null {
   const record = typeof value === "string" ? parseJSONRecord(value) : asRecord(value);
   if (!record) return null;
+  const recipientRecord = [record.recipient, record.receiver, record.to_user, record.toUser]
+    .map(asRecord)
+    .find((candidate) => candidate !== null);
   const giftId = stringValue(record.gift_id, record.giftId, record.id) ?? "";
   const fixed = fixedGiftCatalog.find((item) => item.gift_id === giftId);
   const receiverCurrency = normalizedCurrency(
@@ -276,6 +279,20 @@ export function normalizeGiftMessagePayload(value: unknown): GiftMessagePayload 
     record.receiver_name,
     record.receiver_nickname,
     record.to_nickname,
+    recipientRecord?.nickname,
+    recipientRecord?.name,
+  ));
+  assignOptional(payload, "recipient_avatar_url", stringValue(
+    record.recipient_avatar_url,
+    record.recipientAvatarUrl,
+    record.recipient_avatar,
+    record.receiver_avatar_url,
+    record.receiverAvatarUrl,
+    record.receiver_avatar,
+    record.to_avatar_url,
+    recipientRecord?.avatar_url,
+    recipientRecord?.avatarUrl,
+    recipientRecord?.avatar,
   ));
   assignOptional(payload, "sender_id", stringValue(record.sender_id, record.senderId));
   assignOptional(payload, "sender_name", stringValue(record.sender_name, record.sender_nickname));
@@ -303,7 +320,21 @@ export function makeGiftMessagePayload(
     receiver_currency: "gold_coin",
     recipient_id: recipient.id,
     recipient_name: recipient.name,
+    ...(recipient.avatar_url.trim() ? { recipient_avatar_url: recipient.avatar_url.trim() } : {}),
     ...(sender ? { sender_id: sender.id, sender_name: sender.name } : {}),
+  };
+}
+
+export function withGiftMessageRecipient(
+  payload: GiftMessagePayload,
+  recipient: GiftRecipient,
+): GiftMessagePayload {
+  const avatarUrl = payload.recipient_avatar_url?.trim() || recipient.avatar_url.trim();
+  return {
+    ...payload,
+    recipient_id: payload.recipient_id?.trim() || recipient.id,
+    recipient_name: payload.recipient_name?.trim() || recipient.name,
+    ...(avatarUrl ? { recipient_avatar_url: avatarUrl } : {}),
   };
 }
 

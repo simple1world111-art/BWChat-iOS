@@ -1,12 +1,22 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import {
   clearNavigationSnapshots,
   clearNavigationSnapshotsForOwner,
+  hydrateNavigationSnapshots,
   readNavigationSnapshot,
+  resetNavigationSnapshotCacheForTests,
+  waitForNavigationSnapshotPersistence,
   writeNavigationSnapshot,
 } from "@/services/navigation/NavigationSnapshotCache";
 
 describe("NavigationSnapshotCache", () => {
-  beforeEach(() => clearNavigationSnapshots());
+  beforeEach(async () => {
+    clearNavigationSnapshots();
+    await waitForNavigationSnapshotPersistence();
+    resetNavigationSnapshotCacheForTests();
+    await AsyncStorage.clear();
+  });
 
   it("restores visible state by destination, account and variant", () => {
     writeNavigationSnapshot("moments", "owner-a", { ids: [1] }, "feed");
@@ -50,5 +60,17 @@ describe("NavigationSnapshotCache", () => {
     expect(readNavigationSnapshot("page", "owner", "1")).toBeUndefined();
     expect(readNavigationSnapshot("page", "owner", "0")).toBe(0);
     expect(readNavigationSnapshot("page", "owner", "48")).toBe(48);
+  });
+
+  it("restores serialized snapshots after the in-memory cache is recreated", async () => {
+    writeNavigationSnapshot("short-drama-studio", "owner", { ids: ["one", "two"] });
+    await waitForNavigationSnapshotPersistence();
+
+    resetNavigationSnapshotCacheForTests();
+    await hydrateNavigationSnapshots();
+
+    expect(readNavigationSnapshot("short-drama-studio", "owner")).toEqual({
+      ids: ["one", "two"],
+    });
   });
 });

@@ -1253,8 +1253,28 @@ export function normalizeAgentGreeting(value: unknown): AgentGreeting {
 export function normalizeAgentSummary(value: unknown): AgentSummary {
   if (!isRecord(value)) throw new Error("智能体数据格式无效");
   const nested = value.agent ?? value.draft ?? value.item ?? value.summary ?? value.data;
-  if (isRecord(nested)) return normalizeAgentSummary(nested);
-  const id = flexString(value.id, value.agent_id, value.agentID);
+  const outerId = flexString(value.id, value.agent_id, value.agentID);
+  if (isRecord(nested)) {
+    const flattened: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (
+        key === "agent" ||
+        key === "draft" ||
+        key === "item" ||
+        key === "summary" ||
+        key === "data"
+      ) {
+        continue;
+      }
+      flattened[key] = entry;
+    }
+    Object.assign(flattened, nested);
+    if (!flexString(nested.id, nested.agent_id, nested.agentID) && outerId) {
+      flattened.id = outerId;
+    }
+    return normalizeAgentSummary(flattened);
+  }
+  const id = outerId;
   if (!id) throw new Error("智能体响应缺少 id/agent_id");
   const profile = isRecord(value.profile) ? normalizeAgentProfile(value.profile) : undefined;
   const capabilities = isRecord(value.capabilities)

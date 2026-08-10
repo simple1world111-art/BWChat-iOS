@@ -7,7 +7,6 @@ import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  ActivityIndicator,
   Alert,
   AppState,
   Modal,
@@ -65,7 +64,7 @@ import {
   readNavigationSnapshot,
   writeNavigationSnapshot,
 } from "@/services/navigation/NavigationSnapshotCache";
-import { colors, palette } from "@/theme";
+import { colors } from "@/theme";
 
 type ActivityTab = "benefits" | "wheel";
 type ActivityPreviewVariant =
@@ -86,7 +85,6 @@ export default function ActivityCenterScreen() {
   const previewVariant = __DEV__ && isActivityPreviewVariant(rawPreview) ? rawPreview : undefined;
   const scheme = useColorScheme();
   const reduceMotion = useReduceMotionPreference();
-  const theme = palette(scheme);
   const { width } = useWindowDimensions();
   const liveState = useActivityCenter(user?.user_id);
   const state = useMemo<ActivityCenterState>(
@@ -189,12 +187,7 @@ export default function ActivityCenterScreen() {
     <View style={[styles.screen, { backgroundColor: scheme === "dark" ? "#1C1C1E" : "#F2F2F7" }]}>
       <Stack.Screen options={headerOptions} />
       {initialLoading ? (
-        <View style={styles.loadingState}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
-            {t("common.loading")}
-          </Text>
-        </View>
+        <View style={styles.loadingState} />
       ) : state.snapshot ? (
         <View style={styles.pageArea}>
           <ScrollView
@@ -1710,7 +1703,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   pageArea: { flex: 1 },
   loadingState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14 },
-  loadingText: { fontSize: 15 },
   benefitsContent: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 32, gap: 12 },
   card: {
     padding: 18,

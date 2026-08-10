@@ -6,14 +6,15 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
   useWindowDimensions,
   View,
+  type GestureResponderEvent,
 } from "react-native";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -25,7 +26,11 @@ import {
   propMediaUnlockKind,
   type PropBagItem,
 } from "@/services/props/PropInventoryModels";
-import { propBagPalette } from "@/services/props/PropBagVisualPolicy";
+import {
+  propBagPalette,
+  propBagPopoverPlacement,
+  type PropBagAnchorRect,
+} from "@/services/props/PropBagVisualPolicy";
 
 const activityCatFoodArtwork = require("../../assets/native-original/Assets.xcassets/activity_cat_food_icon.imageset/activity_cat_food_icon.png");
 const imageUnlockArtwork = require("../../assets/native-original/Assets.xcassets/prop_image_unlock_card.imageset/prop_image_unlock_card_gift_v2.png");
@@ -46,7 +51,10 @@ export default function PropBagScreen() {
   const loadInventory = inventory.load;
   const refreshBalance = wallet.refreshBalance;
   const didLoadRef = useRef(false);
-  const [selectedItem, setSelectedItem] = useState<PropBagItem | null>(null);
+  const [selectedPopover, setSelectedPopover] = useState<{
+    anchor: PropBagAnchorRect;
+    item: PropBagItem;
+  } | null>(null);
   const itemWidth = Math.floor((width - 32 - 20) / 3);
   const showsActivityCatFood = wallet.isActivityCatFoodEnabled || wallet.balance !== null;
 
@@ -56,18 +64,14 @@ export default function PropBagScreen() {
     void Promise.all([loadInventory(), refreshBalance()]);
   }, [loadInventory, refreshBalance]);
 
-  const refresh = () => Promise.all([
-    inventory.load(true),
-    wallet.refreshBalance(true),
-  ]).then(() => undefined);
-  const isInitialLoading = inventory.isLoading
-    && inventory.items.length === 0
-    && !showsActivityCatFood;
-  const emptyError = inventory.errorMessage
-    && inventory.items.length === 0
-    && !showsActivityCatFood
-    ? inventory.errorMessage
-    : undefined;
+  const refresh = () =>
+    Promise.all([inventory.load(true), wallet.refreshBalance(true)]).then(() => undefined);
+  const isInitialLoading =
+    inventory.isLoading && inventory.items.length === 0 && !showsActivityCatFood;
+  const emptyError =
+    inventory.errorMessage && inventory.items.length === 0 && !showsActivityCatFood
+      ? inventory.errorMessage
+      : undefined;
 
   return (
     <>
@@ -81,18 +85,20 @@ export default function PropBagScreen() {
       />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={(
+        refreshControl={
           <RefreshControl
             refreshing={inventory.isLoading || wallet.isLoadingBalance}
             tintColor={theme.accent}
             onRefresh={() => void refresh()}
           />
-        )}
+        }
         showsVerticalScrollIndicator={false}
         testID="prop-bag-scroll"
       >
         {isInitialLoading ? (
-          <View style={styles.primaryState}><ActivityIndicator color={theme.accent} /></View>
+          <View style={styles.primaryState}>
+            <ActivityIndicator color={theme.accent} />
+          </View>
         ) : emptyError ? (
           <PropBagLoadError
             message={emptyError}
@@ -102,7 +108,12 @@ export default function PropBagScreen() {
             retryTitle={t("common.retry")}
           />
         ) : inventory.items.length === 0 && !showsActivityCatFood ? (
-          <PropBagEmptyState styles={styles} theme={theme} title={t("propBag.empty.title")} message={t("propBag.empty.message")} />
+          <PropBagEmptyState
+            styles={styles}
+            theme={theme}
+            title={t("propBag.empty.title")}
+            message={t("propBag.empty.message")}
+          />
         ) : (
           <View style={styles.gridSection}>
             <View style={styles.grid}>
@@ -111,9 +122,11 @@ export default function PropBagScreen() {
                   width={itemWidth}
                   title={t("activityCatFood.title")}
                   quantity={wallet.balance ? String(wallet.balance.activity_cat_food_balance) : "…"}
-                  hint={wallet.isActivityCatFoodEnabled
-                    ? wallet.balanceError ?? t("activityCatFood.card.subtitle")
-                    : t("activityCatFood.readOnly")}
+                  hint={
+                    wallet.isActivityCatFoodEnabled
+                      ? (wallet.balanceError ?? t("activityCatFood.card.subtitle"))
+                      : t("activityCatFood.readOnly")
+                  }
                   disabled={!wallet.isActivityCatFoodEnabled}
                   onPress={() => {
                     if (!wallet.balance && wallet.balanceError) void wallet.refreshBalance(true);
@@ -136,15 +149,22 @@ export default function PropBagScreen() {
                   title={resolvedName(item, t)}
                   quantity={String(item.quantity)}
                   hint={resolvedDescription(item, t) || resolvedName(item, t)}
-                  onPress={() => setSelectedItem(item)}
+                  onPopoverPress={(anchor) => setSelectedPopover({ anchor, item })}
                   styles={styles}
                 >
-                  <PropArtwork item={item} styles={styles} theme={theme} label={resolvedName(item, t)} />
+                  <PropArtwork
+                    item={item}
+                    styles={styles}
+                    theme={theme}
+                    label={resolvedName(item, t)}
+                  />
                 </PropBagGridCard>
               ))}
             </View>
             {inventory.items.length === 0 && inventory.isLoading ? (
-              <View style={styles.secondaryLoading}><ActivityIndicator color={theme.accent} /></View>
+              <View style={styles.secondaryLoading}>
+                <ActivityIndicator color={theme.accent} />
+              </View>
             ) : inventory.items.length === 0 && inventory.errorMessage ? (
               <PropBagLoadError
                 message={inventory.errorMessage}
@@ -160,15 +180,19 @@ export default function PropBagScreen() {
       </ScrollView>
 
       <UsageRulesPopover
+        anchor={selectedPopover?.anchor ?? null}
         closeTitle={t("common.close")}
-        item={selectedItem}
-        onClose={() => setSelectedItem(null)}
+        item={selectedPopover?.item ?? null}
+        key={selectedPopover?.item.inventoryId ?? "closed"}
+        onClose={() => setSelectedPopover(null)}
         styles={styles}
         theme={theme}
-        title={selectedItem ? resolvedName(selectedItem, t) : ""}
-        rule={selectedItem
-          ? resolvedDescription(selectedItem, t) || resolvedName(selectedItem, t)
-          : ""}
+        title={selectedPopover ? resolvedName(selectedPopover.item, t) : ""}
+        rule={
+          selectedPopover
+            ? resolvedDescription(selectedPopover.item, t) || resolvedName(selectedPopover.item, t)
+            : ""
+        }
       />
     </>
   );
@@ -181,6 +205,7 @@ function PropBagGridCard({
   hint,
   disabled = false,
   onPress,
+  onPopoverPress,
   children,
   styles,
 }: {
@@ -189,10 +214,26 @@ function PropBagGridCard({
   quantity: string;
   hint: string;
   disabled?: boolean;
-  onPress: () => void;
+  onPress?: (() => void) | undefined;
+  onPopoverPress?: ((anchor: PropBagAnchorRect) => void) | undefined;
   children: React.ReactNode;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const cardHeightRef = useRef(188);
+  const handlePress = (event: GestureResponderEvent) => {
+    if (!onPopoverPress) {
+      onPress?.();
+      return;
+    }
+    const { locationX, locationY, pageX, pageY } = event.nativeEvent;
+    const hasMeasuredPress = [locationX, locationY, pageX, pageY].every(Number.isFinite);
+    onPopoverPress({
+      x: hasMeasuredPress ? pageX - locationX : 16,
+      y: hasMeasuredPress ? pageY - locationY : 120,
+      width,
+      height: cardHeightRef.current,
+    });
+  };
   return (
     <Pressable
       accessibilityHint={hint}
@@ -200,19 +241,28 @@ function PropBagGridCard({
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.gridCard,
-        { width },
-        pressed && styles.pressed,
-      ]}
+      onLayout={(event) => {
+        cardHeightRef.current = event.nativeEvent.layout.height;
+      }}
+      onPress={handlePress}
+      style={({ pressed }) => [styles.gridCard, { width }, pressed && styles.pressed]}
     >
       <View style={styles.cardInner}>
         <View style={styles.artworkFrame}>{children}</View>
         <View style={styles.cardCopy}>
-          <Text allowFontScaling={false} adjustsFontSizeToFit minimumFontScale={0.76} numberOfLines={1} style={styles.cardTitle}>{title}</Text>
+          <Text
+            allowFontScaling={false}
+            adjustsFontSizeToFit
+            minimumFontScale={0.76}
+            numberOfLines={1}
+            style={styles.cardTitle}
+          >
+            {title}
+          </Text>
           <View style={styles.quantityCapsule}>
-            <Text allowFontScaling={false} style={styles.quantityText}>×{quantity}</Text>
+            <Text allowFontScaling={false} style={styles.quantityText}>
+              ×{quantity}
+            </Text>
           </View>
         </View>
       </View>
@@ -233,7 +283,14 @@ function PropArtwork({
 }) {
   const asset = propArtworkAsset(item);
   if (asset) {
-    return <Image accessibilityLabel={label} contentFit="contain" source={asset} style={styles.propArtwork} />;
+    return (
+      <Image
+        accessibilityLabel={label}
+        contentFit="contain"
+        source={asset}
+        style={styles.propArtwork}
+      />
+    );
   }
   const fallbackSymbol: SFSymbol = propLiveExperienceKind(item)
     ? "clock.badge.checkmark.fill"
@@ -255,10 +312,13 @@ function PropArtwork({
       style={styles.remoteArtwork}
       uri={item.iconUrl}
     />
-  ) : fallback;
+  ) : (
+    fallback
+  );
 }
 
 function UsageRulesPopover({
+  anchor,
   closeTitle,
   item,
   onClose,
@@ -267,6 +327,7 @@ function UsageRulesPopover({
   title,
   rule,
 }: {
+  anchor: PropBagAnchorRect | null;
   closeTitle: string;
   item: PropBagItem | null;
   onClose: () => void;
@@ -275,17 +336,58 @@ function UsageRulesPopover({
   title: string;
   rule: string;
 }) {
+  const viewport = useWindowDimensions();
+  const [popoverHeight, setPopoverHeight] = useState(110);
+  if (!item || !anchor) return null;
+  const placement = propBagPopoverPlacement(anchor, viewport, popoverHeight);
   return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={item !== null}>
-      <Pressable accessibilityLabel={closeTitle} accessibilityRole="button" onPress={onClose} style={styles.popoverBackdrop}>
-        <Pressable accessibilityRole="none" onPress={() => undefined} style={styles.popoverCard}>
-          <SymbolView name="info.circle.fill" size={18} weight="semibold" tintColor={theme.accent} />
-          <View style={styles.popoverCopy}>
-            <Text allowFontScaling={false} style={styles.popoverTitle}>{title}</Text>
-            <Text allowFontScaling={false} style={styles.popoverRule}>{rule}</Text>
+    <Modal animationType="none" onRequestClose={onClose} transparent visible>
+      <View style={styles.popoverLayer}>
+        <Pressable
+          accessibilityLabel={closeTitle}
+          accessibilityRole="button"
+          onPress={onClose}
+          style={styles.popoverDismissArea}
+        />
+        <View
+          onLayout={(event) => setPopoverHeight(event.nativeEvent.layout.height)}
+          style={[
+            styles.popoverContainer,
+            {
+              left: placement.left,
+              top: placement.top,
+              width: placement.width,
+            },
+          ]}
+          testID="prop-bag-usage-popover"
+        >
+          <View
+            pointerEvents="none"
+            style={[
+              styles.popoverArrow,
+              placement.arrowDirection === "up" ? styles.popoverArrowUp : styles.popoverArrowDown,
+              { left: placement.arrowLeft },
+            ]}
+            testID="prop-bag-usage-popover-arrow"
+          />
+          <View style={styles.popoverCard}>
+            <SymbolView
+              name="info.circle.fill"
+              size={18}
+              weight="semibold"
+              tintColor={theme.accent}
+            />
+            <View style={styles.popoverCopy}>
+              <Text allowFontScaling={false} style={styles.popoverTitle}>
+                {title}
+              </Text>
+              <Text allowFontScaling={false} style={styles.popoverRule}>
+                {rule}
+              </Text>
+            </View>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -308,9 +410,17 @@ function PropBagLoadError({
   return (
     <View style={[styles.errorCard, compact && styles.compactErrorCard]}>
       <SymbolView name="exclamationmark.triangle" size={34} tintColor={theme.warning} />
-      <Text allowFontScaling={false} style={styles.errorText}>{message}</Text>
-      <Pressable accessibilityRole="button" onPress={onRetry} style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
-        <Text allowFontScaling={false} style={styles.retryText}>{retryTitle}</Text>
+      <Text allowFontScaling={false} style={styles.errorText}>
+        {message}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
+      >
+        <Text allowFontScaling={false} style={styles.retryText}>
+          {retryTitle}
+        </Text>
       </Pressable>
     </View>
   );
@@ -333,8 +443,12 @@ function PropBagEmptyState({
         <SymbolView name="shippingbox" size={38} weight="medium" tintColor={theme.accent} />
       </View>
       <View style={styles.emptyCopy}>
-        <Text allowFontScaling={false} style={styles.emptyTitle}>{title}</Text>
-        <Text allowFontScaling={false} style={styles.emptyMessage}>{message}</Text>
+        <Text allowFontScaling={false} style={styles.emptyTitle}>
+          {title}
+        </Text>
+        <Text allowFontScaling={false} style={styles.emptyMessage}>
+          {message}
+        </Text>
       </View>
     </View>
   );
@@ -408,7 +522,13 @@ function makeStyles(theme: Theme) {
     remoteArtwork: { width: 80, height: 80 },
     fallbackArtwork: { width: 92, height: 92, alignItems: "center", justifyContent: "center" },
     cardCopy: { width: "100%", alignItems: "center", rowGap: 4 },
-    cardTitle: { width: "100%", color: theme.text, fontSize: 13, fontWeight: "600", textAlign: "center" },
+    cardTitle: {
+      width: "100%",
+      color: theme.text,
+      fontSize: 13,
+      fontWeight: "600",
+      textAlign: "center",
+    },
     quantityCapsule: {
       height: 24,
       minWidth: 32,
@@ -420,7 +540,12 @@ function makeStyles(theme: Theme) {
       borderColor: withAlpha(theme.separator, 0.7),
       backgroundColor: withAlpha(theme.card, 0.92),
     },
-    quantityText: { color: theme.text, fontSize: 16, fontWeight: "900", fontVariant: ["tabular-nums"] },
+    quantityText: {
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "900",
+      fontVariant: ["tabular-nums"],
+    },
     secondaryLoading: { minHeight: 120, alignItems: "center", justifyContent: "center" },
     pressed: { opacity: 0.72 },
     errorCard: {
@@ -434,7 +559,14 @@ function makeStyles(theme: Theme) {
     },
     compactErrorCard: { minHeight: 120 },
     errorText: { color: theme.secondaryText, fontSize: 14, textAlign: "center" },
-    retryButton: { minHeight: 34, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: theme.accent },
+    retryButton: {
+      minHeight: 34,
+      paddingHorizontal: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 8,
+      backgroundColor: theme.accent,
+    },
     retryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
     emptyCard: {
       minHeight: 280,
@@ -447,13 +579,54 @@ function makeStyles(theme: Theme) {
       borderColor: theme.separator,
       backgroundColor: theme.card,
     },
-    emptyIconCircle: { width: 88, height: 88, borderRadius: 44, alignItems: "center", justifyContent: "center", backgroundColor: theme.accentSoft },
+    emptyIconCircle: {
+      width: 88,
+      height: 88,
+      borderRadius: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.accentSoft,
+    },
     emptyCopy: { alignItems: "center", rowGap: 6 },
     emptyTitle: { color: theme.text, fontSize: 18, fontWeight: "700" },
-    emptyMessage: { color: theme.secondaryText, fontSize: 14, lineHeight: 20, fontWeight: "500", textAlign: "center" },
-    popoverBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.16)" },
+    emptyMessage: {
+      color: theme.secondaryText,
+      fontSize: 14,
+      lineHeight: 20,
+      fontWeight: "500",
+      textAlign: "center",
+    },
+    popoverLayer: { flex: 1, backgroundColor: "transparent" },
+    popoverDismissArea: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: "transparent",
+    },
+    popoverContainer: { position: "absolute" },
+    popoverArrow: {
+      position: "absolute",
+      width: 0,
+      height: 0,
+      zIndex: 2,
+      borderLeftWidth: 8,
+      borderRightWidth: 8,
+      borderLeftColor: "transparent",
+      borderRightColor: "transparent",
+    },
+    popoverArrowUp: {
+      top: -8,
+      borderBottomWidth: 8,
+      borderBottomColor: theme.card,
+    },
+    popoverArrowDown: {
+      bottom: -8,
+      borderTopWidth: 8,
+      borderTopColor: theme.card,
+    },
     popoverCard: {
-      width: 262,
       padding: 16,
       flexDirection: "row",
       alignItems: "flex-start",
@@ -467,7 +640,7 @@ function makeStyles(theme: Theme) {
       shadowRadius: 18,
       shadowOffset: { width: 0, height: 8 },
     },
-    popoverCopy: { width: 198, alignItems: "flex-start", rowGap: 6 },
+    popoverCopy: { flex: 1, minWidth: 0, alignItems: "flex-start", rowGap: 6 },
     popoverTitle: { color: theme.text, fontSize: 15, fontWeight: "700" },
     popoverRule: { color: theme.secondaryText, fontSize: 13, lineHeight: 18, fontWeight: "500" },
   });

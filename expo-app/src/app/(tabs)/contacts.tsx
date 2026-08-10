@@ -2,10 +2,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { getFriendList, getFriendRequests, getGroups } from "@/api/bwchat";
 import { Avatar } from "@/components/Avatar";
+import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import { GroupAvatarIcon } from "@/components/GroupAvatarIcon";
 import { RootTabTitle } from "@/components/RootTabTitle";
 import type { ChatGroup, FriendInfo, FriendRequest } from "@/models";

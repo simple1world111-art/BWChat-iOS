@@ -403,7 +403,7 @@ describe("native AgentCreatorView contracts", () => {
     await uninstallAgent("agent/1");
 
     expect(request.mock.calls).toEqual([
-      ["/agents/agent%2F1", { requiredData: true, timeoutMs: 60_000 }],
+      ["/agents/agent%2F1", { requiredData: true, requiredSuccessCode: true, timeoutMs: 60_000 }],
       [
         "/agents",
         {
@@ -485,6 +485,28 @@ describe("native AgentCreatorView contracts", () => {
         }),
       ),
     ).toBe("服务暂时不可用，请稍后重试");
+  });
+
+  it("retains or recovers the requested identity for nested editable agent details", async () => {
+    request
+      .mockResolvedValueOnce({
+        agent_id: "agent-outer",
+        draft: { revision: 8, profile: { name: "外层身份" } },
+      })
+      .mockResolvedValueOnce({
+        draft: { revision: 9, profile: { name: "路由身份" } },
+      });
+
+    await expect(getAgent("agent-outer")).resolves.toMatchObject({
+      id: "agent-outer",
+      revision: 8,
+      profile: { name: "外层身份" },
+    });
+    await expect(getAgent("agent-route")).resolves.toMatchObject({
+      id: "agent-route",
+      revision: 9,
+      profile: { name: "路由身份" },
+    });
   });
 });
 

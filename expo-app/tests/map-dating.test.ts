@@ -9,6 +9,7 @@ import {
   normalizeMapUsers,
   parseMapPresence,
   parseMapUsersResponse,
+  shouldAutomaticallyPositionMapViewport,
   viewerMapRegion,
 } from "@/services/location/MapDatingRepository";
 
@@ -129,6 +130,27 @@ describe("map dating repository and viewport parity", () => {
     expect(fittedMapRegion(null, dateline)).toMatchObject({ longitude: 0, longitudeDelta: 360 });
   });
 
+  it("automatically positions only before the first map movement", () => {
+    expect(
+      shouldAutomaticallyPositionMapViewport({
+        didAutomaticallyPosition: false,
+        userHasInteracted: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutomaticallyPositionMapViewport({
+        didAutomaticallyPosition: true,
+        userHasInteracted: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutomaticallyPositionMapViewport({
+        didAutomaticallyPosition: false,
+        userHasInteracted: true,
+      }),
+    ).toBe(false);
+  });
+
   it("keeps the visible Swift screen contract wired into the Expo page", () => {
     const nativeRoot = path.resolve(process.cwd(), "..");
     const swiftView = fs.readFileSync(
@@ -141,10 +163,7 @@ describe("map dating repository and viewport parity", () => {
     );
     const screen = fs.readFileSync(path.join(process.cwd(), "src/app/(tabs)/map.tsx"), "utf8");
     const nativeMapBridge = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "modules/bwchat-native-map/ios/BWChatNativeMapModule.swift",
-      ),
+      path.join(process.cwd(), "modules/bwchat-native-map/ios/BWChatNativeMapModule.swift"),
       "utf8",
     );
     const repository = fs.readFileSync(
@@ -163,14 +182,12 @@ describe("map dating repository and viewport parity", () => {
       path.join(process.cwd(), "scripts/map-acceptance-server.py"),
       "utf8",
     );
-    const rootLayout = fs.readFileSync(
-      path.join(process.cwd(), "src/app/_layout.tsx"),
-      "utf8",
-    );
+    const rootLayout = fs.readFileSync(path.join(process.cwd(), "src/app/_layout.tsx"), "utf8");
     const tabsLayout = fs.readFileSync(
       path.join(process.cwd(), "src/app/(tabs)/_layout.tsx"),
       "utf8",
     );
+    const reactNativeMapOpening = screen.match(/<MapView\n[\s\S]*?>/)?.[0] ?? "";
 
     expect(swiftModel).toContain("getMapPresence()");
     expect(swiftModel).toContain("getAllMapUsers(");
@@ -180,24 +197,44 @@ describe("map dating repository and viewport parity", () => {
     expect(screen).toContain("await getAllMapUsers(currentCoordinate, ownerId)");
     expect(screen).toContain("setErrorMessage(missingCoordinates)");
     expect(screen).not.toContain("initialRegion={TOKYO_STATION_REGION}");
-    expect(screen).toContain("region={region}");
-    expect(screen).toContain('Platform.OS === "ios"');
+    expect(screen).toContain("const MAP_ATTRIBUTION_NAV_GAP = 8");
+    expect(screen).toContain("const MAP_APPLE_LOGO_VISUAL_BOTTOM_OFFSET = 12");
+    expect(screen).toContain(
+      "const mapAttributionBottomInset = insets.bottom + MAP_ATTRIBUTION_NAV_GAP",
+    );
+    expect(screen).toContain("mapAttributionBottomInset - MAP_APPLE_LOGO_VISUAL_BOTTOM_OFFSET");
+    expect(reactNativeMapOpening).toContain("appleLogoInsets={{");
+    expect(reactNativeMapOpening).toContain("bottom: appleLogoBottomInset");
+    expect(reactNativeMapOpening).toContain("initialRegion={cameraTarget}");
+    expect(reactNativeMapOpening).toContain("legalLabelInsets={{");
+    expect(reactNativeMapOpening).toContain("bottom: mapAttributionBottomInset");
+    expect(reactNativeMapOpening).not.toContain("mapPadding");
+    expect(reactNativeMapOpening).not.toContain("onMapReady");
+    expect(reactNativeMapOpening).not.toMatch(/\sregion=/);
+    expect(reactNativeMapOpening).toContain("onPanDrag={markMapViewportAsUserControlled}");
+    expect(reactNativeMapOpening).toContain("onTouchStart={markMapViewportAsUserControlled}");
+    expect(screen).not.toContain("onRegionChangeComplete={setCameraTarget}");
+    expect(screen).toContain("mapViewRef.current?.animateToRegion(cameraTarget, 300)");
+    expect(screen).toContain("const focusMapOnViewer = async () =>");
+    expect(screen).toContain("const centered = viewerMapRegion(coordinate)");
+    expect(screen).toContain("mapViewRef.current?.animateToRegion(centered, 300)");
+    expect(screen).toContain('testID="map-recenter-button"');
+    expect(screen).toContain("{ bottom: insets.bottom + 50 }");
+    expect(screen).toContain('mapVisualAcceptanceEnabled && Platform.OS === "ios"');
     expect(screen).toContain("<BWChatNativeMap");
     expect(screen).toContain("localeIdentifier={activeLanguage}");
     expect(nativeMapBridge).toContain("Map(");
     expect(nativeMapBridge).toContain(
       "coordinateRegion: model.regionBinding(viewportWidth: proxy.size.width)",
     );
-    expect(nativeMapBridge).toContain(
-      "let legalAttributionBottomInset = tabBar.bounds.height",
-    );
+    expect(nativeMapBridge).toContain("let legalAttributionBottomInset = tabBar.bounds.height");
     expect(nativeMapBridge).toContain("window?.firstSubview(of: UITabBar.self)");
     expect(nativeMapBridge).toContain("margins.bottom = legalAttributionBottomInset");
     expect(nativeMapBridge).toContain("mapView.layoutIfNeeded()");
     expect(nativeMapBridge).toContain("verticalCameraLatitudeOffset");
     expect(nativeMapBridge).toContain("static let verticalCameraOffsetPoints = 32.0 / 3.0");
     expect(nativeMapBridge).toContain(
-      '.environment(\\.locale, Locale(identifier: model.localeIdentifier))',
+      ".environment(\\.locale, Locale(identifier: model.localeIdentifier))",
     );
     expect(screen).toContain('uploadMapLocation(location, "map_visit", mapVisitEventId)');
     expect(screen).toContain('uploadMapLocation(location, "foreground_update", randomUUID())');

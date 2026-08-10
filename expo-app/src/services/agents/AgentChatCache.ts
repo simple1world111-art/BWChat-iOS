@@ -25,6 +25,8 @@ interface StoredAgentChatPage {
   expiresAt: number;
 }
 
+const agentChatCacheWrites = new Map<string, Promise<void>>();
+
 export async function loadAgentChatPage(
   ownerId: string,
   conversationId: string,
@@ -32,6 +34,7 @@ export async function loadAgentChatPage(
 ): Promise<AgentChatCachedPage | null> {
   const key = agentChatCacheKey(ownerId, conversationId);
   if (!key) return null;
+  await agentChatCacheWrites.get(key)?.catch(() => undefined);
   const encoded = await AsyncStorage.getItem(key);
   if (!encoded) return null;
   try {
@@ -84,12 +87,29 @@ export async function saveAgentChatPage(
     updatedAt: now,
     expiresAt: now + agentChatCachePolicy.ttlMilliseconds,
   };
-  await AsyncStorage.setItem(key, JSON.stringify(stored));
+  const previous = agentChatCacheWrites.get(key) ?? Promise.resolve();
+  const write = previous
+    .catch(() => undefined)
+    .then(() => AsyncStorage.setItem(key, JSON.stringify(stored)));
+  agentChatCacheWrites.set(key, write);
+  try {
+    await write;
+  } finally {
+    if (agentChatCacheWrites.get(key) === write) agentChatCacheWrites.delete(key);
+  }
 }
 
 export async function clearAgentChatPage(ownerId: string, conversationId: string): Promise<void> {
   const key = agentChatCacheKey(ownerId, conversationId);
-  if (key) await AsyncStorage.removeItem(key);
+  if (!key) return;
+  const previous = agentChatCacheWrites.get(key) ?? Promise.resolve();
+  const removal = previous.catch(() => undefined).then(() => AsyncStorage.removeItem(key));
+  agentChatCacheWrites.set(key, removal);
+  try {
+    await removal;
+  } finally {
+    if (agentChatCacheWrites.get(key) === removal) agentChatCacheWrites.delete(key);
+  }
 }
 
 export function agentChatCacheKey(ownerId: string, conversationId: string): string | null {

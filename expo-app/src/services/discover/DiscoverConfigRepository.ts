@@ -11,6 +11,7 @@ import {
 } from "@/services/discover/DiscoverConfig";
 
 const cacheKey = "bbchat.discover.remoteConfig.v1";
+const refreshCheckpointPrefix = "bwchat.discover-refresh.v1";
 
 export async function readCachedDiscoverConfig(): Promise<DiscoverConfigData | null> {
   const raw = await AsyncStorage.getItem(cacheKey);
@@ -40,4 +41,26 @@ export async function fetchDiscoverSections(): Promise<DiscoverSection[]> {
   const sections = effectiveDiscoverSections(config);
   if (sections.length > 0) await AsyncStorage.setItem(cacheKey, JSON.stringify(config));
   return sections;
+}
+
+export async function readDiscoverRefreshCheckpoint(ownerId: string): Promise<number> {
+  try {
+    const encoded = await AsyncStorage.getItem(refreshCheckpointKey(ownerId));
+    if (!encoded) return 0;
+    const timestamp = Number(encoded);
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function saveDiscoverRefreshCheckpoint(
+  ownerId: string,
+  timestamp = Date.now(),
+): Promise<void> {
+  await AsyncStorage.setItem(refreshCheckpointKey(ownerId), String(timestamp));
+}
+
+function refreshCheckpointKey(ownerId: string): string {
+  return `${refreshCheckpointPrefix}:${encodeURIComponent(ownerId.trim() || "guest")}`;
 }

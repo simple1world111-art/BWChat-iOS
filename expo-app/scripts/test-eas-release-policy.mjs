@@ -208,6 +208,24 @@ check("locks Preview channel/environment/all-platform args", () =>
     "--non-interactive",
   ]),
 );
+check("allows an explicitly platform-scoped Preview publish", () =>
+  assert.deepEqual(previewPublishArgs("iOS preview release 001", "ios"), [
+    "update",
+    "--channel",
+    "preview",
+    "--environment",
+    "preview",
+    "--message",
+    "iOS preview release 001",
+    "--platform",
+    "ios",
+    "--json",
+    "--non-interactive",
+  ]),
+);
+check("rejects an invalid Preview platform", () =>
+  assert.throws(() => previewPublishArgs("preview release 001", "web"), /ios or android/),
+);
 check("locks Production environment rebuild and 10% args", () =>
   assert.deepEqual(productionPublishArgs("VERIFIED: both cold starts passed"), [
     "update",

@@ -655,12 +655,21 @@ export async function markCallBusy(callId: string): Promise<void> {
 export async function startGroupCall(
   groupId: number,
   callType: CallType,
+  inviteeUserIds: readonly string[] = [],
 ): Promise<GroupCallStartCredentials> {
+  const normalizedInviteeUserIds = [
+    ...new Set(inviteeUserIds.map((userId) => userId.trim()).filter(Boolean)),
+  ];
   return normalizeNativeGroupCallStartResponse(
     requireNativeGroupCallStartResponse(
       await apiRequest<unknown>(`/call/group/${groupId}/start`, {
         method: "POST",
-        body: { call_type: callType },
+        body: {
+          call_type: callType,
+          ...(normalizedInviteeUserIds.length > 0
+            ? { invitee_user_ids: normalizedInviteeUserIds }
+            : {}),
+        },
         requiredData: true,
         requiredEnvelope: true,
         transientRetries: false,
@@ -2010,8 +2019,10 @@ export async function getAgent(agentId: string): Promise<AgentSummary> {
   return normalizeRequiredAgentSummary(
     await apiRequest<unknown>(`/agents/${encodeURIComponent(agentId)}`, {
       requiredData: true,
+      requiredSuccessCode: true,
       timeoutMs: 60_000,
     }),
+    agentId,
   );
 }
 
@@ -2192,12 +2203,59 @@ export async function createAgentConversation(
   );
 }
 
-function normalizeRequiredAgentSummary(value: unknown): AgentSummary {
+function normalizeRequiredAgentSummary(value: unknown, requestedAgentId?: string): AgentSummary {
   try {
     return normalizeAgentSummary(value);
-  } catch (error) {
-    throwAgentEnvelopeError(value, error);
+  } catch (initialError) {
+    const recovered = agentSummaryPayloadWithRequestedId(value, requestedAgentId);
+    if (recovered !== value) {
+      try {
+        return normalizeAgentSummary(recovered);
+      } catch (recoveryError) {
+        throwAgentEnvelopeError(value, recoveryError);
+      }
+    }
+    throwAgentEnvelopeError(value, initialError);
   }
+}
+
+function agentSummaryPayloadWithRequestedId(
+  value: unknown,
+  requestedAgentId: string | undefined,
+): unknown {
+  const fallbackId = requestedAgentId?.trim();
+  if (!fallbackId || !isRecord(value)) return value;
+  for (const key of ["agent", "draft", "item", "summary", "data"] as const) {
+    const nested = value[key];
+    if (!isRecord(nested)) continue;
+    const recovered = agentSummaryPayloadWithRequestedId(nested, fallbackId);
+    return recovered === nested ? value : { ...value, [key]: recovered };
+  }
+  if (agentSummaryResponseId(value) || !isAgentSummaryDetail(value)) return value;
+  return { ...value, id: fallbackId };
+}
+
+function agentSummaryResponseId(value: Record<string, unknown>): string | null {
+  for (const key of ["id", "agent_id", "agentID"] as const) {
+    const candidate = value[key];
+    if (typeof candidate !== "string" && typeof candidate !== "number") continue;
+    const normalized = String(candidate).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function isAgentSummaryDetail(value: Record<string, unknown>): boolean {
+  return (
+    isRecord(value.profile) ||
+    isRecord(value.definition) ||
+    isRecord(value.capabilities) ||
+    Array.isArray(value.greetings) ||
+    typeof value.revision === "number" ||
+    typeof value.revision === "string" ||
+    "avatar_asset_id" in value ||
+    "primary_reference_asset_id" in value
+  );
 }
 
 function normalizeRequiredAgentConversation(value: unknown): AgentConversation {

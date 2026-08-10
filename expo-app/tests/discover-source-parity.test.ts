@@ -80,7 +80,9 @@ describe("Discover source parity", () => {
     expect(policy).toContain("discoverRefreshDelayMs = 280");
     expect(policy).toContain("discoverConfigMinimumRefreshIntervalMs = 5 * 60 * 1_000");
     expect(screen).toContain('AppState.addEventListener("change"');
-    expect(screen).toContain("scheduleDeferredRefresh(!initialAppearRef.current || ownerChanged");
+    expect(screen).toContain("readDiscoverRefreshCheckpoint(ownerId)");
+    expect(screen).toContain("scheduleDeferredRefresh(false, ownerId)");
+    expect(screen).toContain("saveDiscoverRefreshCheckpoint(targetOwnerId, now)");
     expect(screen).toContain("discoverRefreshMayCommit({");
     expect(screen).toContain("activeOwnerId: activeOwnerRef.current");
     expect(screen).toContain("focused: focusedRef.current");
