@@ -13,6 +13,10 @@ describe("chat-money detail presentation parity", () => {
     expect(detail).toContain("const presentsEnvelope = isRedPacket");
     expect(detail).toContain('envelopeBackdrop: { alignItems: "center", backgroundColor: "transparent"');
     expect(detail).toContain('overlayLoading: { alignItems: "center", backgroundColor: "transparent"');
+    expect(detail).toContain('animationType={isRedPacket ? "none" : "slide"}');
+    expect(detail).toContain("provisionalRedPacketDetail(");
+    expect(detail).toContain("Animated.spring(entrance");
+    expect(detail).toContain("useNativeDriver: true");
   });
 
   it("extends the red detail header behind the Dynamic Island", () => {

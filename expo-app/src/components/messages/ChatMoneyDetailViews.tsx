@@ -48,6 +48,8 @@ export function ChatMoneyDetailModal({
   ownerName,
   ownerAvatar,
   initialPayload,
+  initialSenderAvatar,
+  initialSenderName,
   isSender,
   onClose,
   onOpenWallet,
@@ -59,6 +61,8 @@ export function ChatMoneyDetailModal({
   ownerName: string;
   ownerAvatar?: string | undefined;
   initialPayload: ChatMoneyPayload | null;
+  initialSenderAvatar?: string | undefined;
+  initialSenderName?: string | undefined;
   isSender: boolean;
   onClose: () => void;
   onOpenWallet: () => void;
@@ -136,8 +140,16 @@ export function ChatMoneyDetailModal({
 
   if (!initialPayload) return null;
 
-  const activeDetail = detail?.asset_id === initialPayload.asset_id ? detail : null;
   const isRedPacket = initialPayload.kind === "red_packet";
+  const loadedDetail = detail?.asset_id === initialPayload.asset_id ? detail : null;
+  const activeDetail = loadedDetail ?? (isRedPacket
+    ? provisionalRedPacketDetail(
+        initialPayload,
+        initialSenderName,
+        initialSenderAvatar,
+        isSender,
+      )
+    : null);
   const envelopeIsOverridden = envelopeDetailOverrideAssetId === initialPayload.asset_id;
   const automaticallyShowsEnvelope = isRedPacket && !envelopeIsOverridden
     && (activeDetail
@@ -147,7 +159,7 @@ export function ChatMoneyDetailModal({
     && (showsEnvelope || automaticallyShowsEnvelope);
 
   const claim = async () => {
-    if (!detail || isOpening || claimInFlightRef.current) return;
+    if (!activeDetail || isOpening || claimInFlightRef.current) return;
     claimInFlightRef.current = true;
     setOpening(true);
     setLoadError(null);
@@ -157,7 +169,7 @@ export function ChatMoneyDetailModal({
         ownerId,
         ownerName,
         ...(ownerAvatar ? { ownerAvatar } : {}),
-        assetId: detail.asset_id,
+        assetId: activeDetail.asset_id,
       });
       const wait = chatMoneyDetailPolicy.claimMinimumAnimationMs - (Date.now() - startedAt);
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -197,7 +209,7 @@ export function ChatMoneyDetailModal({
 
   return (
     <Modal
-      animationType={isRedPacket ? "fade" : "slide"}
+      animationType={isRedPacket ? "none" : "slide"}
       onRequestClose={close}
       presentationStyle={isRedPacket ? "overFullScreen" : "fullScreen"}
       transparent={isRedPacket}
@@ -286,10 +298,25 @@ function RedPacketOpenEnvelope({
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [rotation] = useState(() => new Animated.Value(0));
+  const [entrance] = useState(() => new Animated.Value(0));
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const isDismissingRef = useRef(false);
   const envelopeWidth = Math.min(width - chatMoneyDetailPolicy.envelopeHorizontalMargin * 2, chatMoneyDetailPolicy.envelopeMaximumWidth);
   const usableHeight = height - insets.top - insets.bottom;
   const envelopeHeight = Math.min(Math.max(usableHeight * chatMoneyDetailPolicy.envelopeHeightRatio, chatMoneyDetailPolicy.envelopeMinimumHeight), chatMoneyDetailPolicy.envelopeMaximumHeight);
+
+  useEffect(() => {
+    entrance.setValue(0);
+    const animation = Animated.spring(entrance, {
+      damping: 20,
+      mass: 0.8,
+      stiffness: 260,
+      toValue: 1,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [detail.asset_id, entrance]);
 
   useEffect(() => {
     if (!isOpening) {
@@ -309,9 +336,30 @@ function RedPacketOpenEnvelope({
   const waiting = isSender && detail.mode === "exclusive"
     ? t("chatMoney.redPacket.waitingForExclusiveRecipient")
     : t("chatMoney.redPacket.waitingForRecipient");
+  const dismiss = (completion: () => void) => {
+    if (isDismissingRef.current) return;
+    isDismissingRef.current = true;
+    Animated.timing(entrance, {
+      duration: 140,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start(() => completion());
+  };
   return (
     <View style={styles.envelopeBackdrop}>
-      <View style={[styles.envelopeStack, { marginTop: insets.top }] }>
+      <Animated.View
+        style={[
+          styles.envelopeStack,
+          { marginTop: insets.top },
+          {
+            opacity: entrance,
+            transform: [
+              { scale: entrance.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+              { translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [18, -6] }) },
+            ],
+          },
+        ]}
+      >
         <View style={[styles.envelope, { height: envelopeHeight, width: envelopeWidth }] }>
           <Svg height={envelopeHeight * chatMoneyDetailPolicy.envelopeFoldRatio} style={styles.envelopeFold} width={envelopeWidth}>
             <Path
@@ -351,17 +399,41 @@ function RedPacketOpenEnvelope({
             )}
             {errorMessage ? <Text style={styles.envelopeError}>{errorMessage}</Text> : null}
             <View style={styles.envelopeFlexibleSpace} />
-            <Pressable disabled={isOpening} onPress={onViewDetails}>
+            <Pressable disabled={isOpening} onPress={() => dismiss(onViewDetails)}>
               <Text style={styles.viewDetailsText}>{t("chatMoney.redPacket.viewDetails")}</Text>
             </Pressable>
           </View>
         </View>
-        <Pressable accessibilityLabel={t("common.close")} onPress={onClose} style={styles.closeCircle}>
+        <Pressable accessibilityLabel={t("common.close")} onPress={() => dismiss(onClose)} style={styles.closeCircle}>
           <SymbolView name="xmark" size={19} weight="medium" tintColor="rgba(244,212,155,0.92)" />
         </Pressable>
-      </View>
+      </Animated.View>
     </View>
   );
+}
+
+function provisionalRedPacketDetail(
+  payload: ChatMoneyPayload,
+  senderName: string | undefined,
+  senderAvatar: string | undefined,
+  isSender: boolean,
+): ChatMoneyDetail {
+  const canClaim = shouldShowRedPacketEnvelopeFromPayload(payload, isSender, false);
+  const claimedCount = payload.claimed_count ?? 0;
+  return {
+    ...payload,
+    ...(senderName ? { sender_name: senderName } : {}),
+    ...(senderAvatar ? { sender_avatar_url: senderAvatar } : {}),
+    can_claim: canClaim,
+    can_accept: false,
+    can_return: false,
+    claims: [],
+    claimed_count: claimedCount,
+    remaining_count: payload.packet_count !== undefined
+      ? Math.max(payload.packet_count - claimedCount, 0)
+      : 1,
+    ...(canClaim ? { viewer_state: "claimable" as const } : {}),
+  };
 }
 
 function RedPacketDetailContent({ detail, ownerId, onBack, onOpenWallet, onOpenBillDetails }: { detail: ChatMoneyDetail; ownerId: string; onBack: () => void; onOpenWallet: () => void; onOpenBillDetails: () => void }) {
@@ -585,7 +657,7 @@ const styles = StyleSheet.create({
   detailSafeArea: { backgroundColor: "#FFFFFF", flex: 1 },
   overlayLoading: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
   envelopeBackdrop: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
-  envelopeStack: { alignItems: "center", gap: 22, transform: [{ translateY: -6 }] },
+  envelopeStack: { alignItems: "center", gap: 22 },
   envelope: { backgroundColor: chatMoneyTheme.envelopeRed, borderRadius: chatMoneyDetailPolicy.envelopeRadius, overflow: "hidden", shadowColor: "#000000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.26, shadowRadius: 24 },
   envelopeFold: { bottom: 0, left: 0, position: "absolute" },
   envelopeContent: { alignItems: "center", bottom: 0, left: 0, paddingBottom: 22, position: "absolute", right: 0, top: 0 },

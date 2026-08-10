@@ -41,7 +41,10 @@ import {
   isPendingChatVoice,
 } from "@/components/messages/ChatMessageDeliveryStatus";
 import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
-import { ChatMoneyComposerModal } from "@/components/messages/ChatMoneyComposerViews";
+import {
+  ChatMoneyComposerModal,
+  type ChatMoneyOptimisticCreation,
+} from "@/components/messages/ChatMoneyComposerViews";
 import { ChatMoneyDetailModal } from "@/components/messages/ChatMoneyDetailViews";
 import {
   ChatMoneyBubble,
@@ -304,6 +307,8 @@ export default function GroupChatScreen() {
   const [moneyDetail, setMoneyDetail] = useState<{
     payload: ChatMoneyPayload;
     isSender: boolean;
+    senderName?: string | undefined;
+    senderAvatar?: string | undefined;
   } | null>(null);
   const [selectionEntries, setSelectionEntries] = useState<ChatSelectionEntry[] | null>(null);
   const [forwardDraft, setForwardDraft] = useState<ForwardDraft | null>(null);
@@ -2198,7 +2203,12 @@ export default function GroupChatScreen() {
                     row={item}
                     onRetry={retryMessage}
                     onChatMoneyTap={(payload) =>
-                      setMoneyDetail({ payload, isSender: payload.sender_id === user?.user_id })
+                      setMoneyDetail({
+                        payload,
+                        isSender: payload.sender_id === user?.user_id,
+                        senderName: item.message.sender_nickname || item.message.sender_id,
+                        senderAvatar: item.message.sender_avatar,
+                      })
                     }
                     onForwardBundleTap={(bundleId) =>
                       router.push({ pathname: "/forward-bundle/[id]", params: { id: bundleId } })
@@ -2330,9 +2340,23 @@ export default function GroupChatScreen() {
           <ChatMoneyComposerModal
             kind={moneyComposerKind}
             onClose={() => setMoneyComposerKind(null)}
-            onCreated={(result) => {
-              const created = result.group_message;
-              if (!created) return;
+            onCreateFailed={(clientMessageId, message) => {
+              if (activeSessionRef.current !== sessionKey) return;
+              setMessages((current) => {
+                const next = current.filter((item) => item.client_message_id !== clientMessageId);
+                messagesRef.current = next;
+                return next;
+              });
+              Alert.alert(t("messages.sendFailed"), message);
+            }}
+            onCreated={(result, clientMessageId) => {
+              const serverMessage = result.group_message;
+              if (!serverMessage) return;
+              const created: GroupMessage = {
+                ...serverMessage,
+                client_message_id: serverMessage.client_message_id ?? clientMessageId,
+                delivery_status: "sent",
+              };
               const normalized = { ...created, group_id: groupId };
               void saveGroupChatMessages(ownerId, groupId, [normalized]).then(() =>
                 publishLatestCachedGroupConversationPreview(ownerId, groupId, t),
@@ -2340,6 +2364,28 @@ export default function GroupChatScreen() {
               if (activeSessionRef.current !== sessionKey) return;
               setMessages((current) => {
                 const merged = mergeMessages(current, normalized);
+                messagesRef.current = merged;
+                return merged;
+              });
+            }}
+            onOptimisticCreated={(creation: ChatMoneyOptimisticCreation) => {
+              if (activeSessionRef.current !== sessionKey) return;
+              const optimistic: GroupMessage = {
+                id: -Date.now(),
+                group_id: groupId,
+                sender_id: ownerId,
+                msg_type: creation.payload.kind,
+                content: encodeChatMoneyPayload(creation.payload),
+                timestamp: creation.createdAt,
+                sender_nickname: user.nickname,
+                sender_avatar: user.avatar_url,
+                mention_all: false,
+                client_message_id: creation.clientMessageId,
+                version: 1,
+                delivery_status: "sending",
+              };
+              setMessages((current) => {
+                const merged = mergeMessages(current, optimistic);
                 messagesRef.current = merged;
                 return merged;
               });
@@ -2370,6 +2416,8 @@ export default function GroupChatScreen() {
             ownerAvatar={user.avatar_url}
             ownerId={user.user_id}
             ownerName={user.nickname}
+            initialSenderAvatar={moneyDetail?.senderAvatar}
+            initialSenderName={moneyDetail?.senderName}
             visible={moneyDetail !== null}
           />
         ) : null}
@@ -2644,7 +2692,9 @@ function MessageContent({
     return (
       <ChatMoneyBubble
         isFromMe={isMine}
-        onPress={() => onChatMoneyTap(moneyPayload)}
+        onPress={() => {
+          if (message.delivery_status !== "sending") onChatMoneyTap(moneyPayload);
+        }}
         payload={moneyPayload}
         viewerId={myId}
       />

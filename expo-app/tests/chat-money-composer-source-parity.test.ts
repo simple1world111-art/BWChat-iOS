@@ -105,7 +105,11 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain("createChatMoneyRedPacket");
     expect(composer).toContain("submissionInFlightRef.current");
     expect(composer).toContain("void submit()");
-    expect(composer).toContain("requestAnimationFrame(() => onCreated(result))");
+    expect(composer).toContain("onOptimisticCreated({");
+    expect(composer).toContain("asset_id: `pending:${clientMessageId}`");
+    expect(composer).toContain("onClose();\n    void submit();");
+    expect(composer).toContain("onCreateFailed(clientMessageIdRef.current, message)");
+    expect(composer).not.toContain("requestAnimationFrame(() => onCreated(result))");
     expect(composer).not.toContain('t("chatMoney.confirm.title")');
     expect(composer).not.toContain('t("chatMoney.confirm.pay", validation.totalAmount)');
     expect(composer).not.toContain("<ActivityIndicator");

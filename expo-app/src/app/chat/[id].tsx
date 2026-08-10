@@ -38,7 +38,10 @@ import {
   isPendingChatVoice,
 } from "@/components/messages/ChatMessageDeliveryStatus";
 import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
-import { ChatMoneyComposerModal } from "@/components/messages/ChatMoneyComposerViews";
+import {
+  ChatMoneyComposerModal,
+  type ChatMoneyOptimisticCreation,
+} from "@/components/messages/ChatMoneyComposerViews";
 import { ChatMoneyDetailModal } from "@/components/messages/ChatMoneyDetailViews";
 import {
   ChatMoneyBubble,
@@ -256,6 +259,8 @@ export default function ChatScreen() {
   const [moneyDetail, setMoneyDetail] = useState<{
     payload: ChatMoneyPayload;
     isSender: boolean;
+    senderName?: string | undefined;
+    senderAvatar?: string | undefined;
   } | null>(null);
   const [selectionEntries, setSelectionEntries] = useState<ChatSelectionEntry[] | null>(null);
   const [forwardDraft, setForwardDraft] = useState<ForwardDraft | null>(null);
@@ -1713,9 +1718,15 @@ export default function ChatScreen() {
                       setComposerFocusRequest((value) => value + 1);
                     }}
                     onRetry={retryMessage}
-                    onChatMoneyTap={(payload) =>
-                      setMoneyDetail({ payload, isSender: payload.sender_id === user?.user_id })
-                    }
+                    onChatMoneyTap={(payload) => {
+                      const isSender = payload.sender_id === user?.user_id;
+                      setMoneyDetail({
+                        payload,
+                        isSender,
+                        senderName: isSender ? user?.nickname : name,
+                        senderAvatar: isSender ? user?.avatar_url : avatar,
+                      });
+                    }}
                     onForwardBundleTap={(bundleId) =>
                       router.push({ pathname: "/forward-bundle/[id]", params: { id: bundleId } })
                     }
@@ -1821,12 +1832,44 @@ export default function ChatScreen() {
           <ChatMoneyComposerModal
             kind={moneyComposerKind}
             onClose={() => setMoneyComposerKind(null)}
-            onCreated={(result) => {
+            onCreateFailed={(clientMessageId, message) => {
+              if (activeSessionRef.current !== sessionKey) return;
+              setMessages((current) => {
+                const next = current.filter((item) => item.client_message_id !== clientMessageId);
+                messagesRef.current = next;
+                return next;
+              });
+              Alert.alert(t("messages.sendFailed"), message);
+            }}
+            onCreated={(result, clientMessageId) => {
               if (activeSessionRef.current !== sessionKey || !result.direct_message) return;
-              const created = result.direct_message;
+              const created: Message = {
+                ...result.direct_message,
+                client_message_id: result.direct_message.client_message_id ?? clientMessageId,
+                delivery_status: "sent",
+              };
               void saveDirectChatMessages(ownerId, id, [created]);
               setMessages((current) => {
                 const merged = mergeMessages(current, created);
+                messagesRef.current = merged;
+                return merged;
+              });
+            }}
+            onOptimisticCreated={(creation: ChatMoneyOptimisticCreation) => {
+              if (activeSessionRef.current !== sessionKey) return;
+              const optimistic: Message = {
+                id: -Date.now(),
+                sender_id: ownerId,
+                receiver_id: id,
+                msg_type: creation.payload.kind,
+                content: encodeChatMoneyPayload(creation.payload),
+                timestamp: creation.createdAt,
+                client_message_id: creation.clientMessageId,
+                version: 1,
+                delivery_status: "sending",
+              };
+              setMessages((current) => {
+                const merged = mergeMessages(current, optimistic);
                 messagesRef.current = merged;
                 return merged;
               });
@@ -1857,6 +1900,8 @@ export default function ChatScreen() {
             ownerAvatar={user.avatar_url}
             ownerId={user.user_id}
             ownerName={user.nickname}
+            initialSenderAvatar={moneyDetail?.senderAvatar}
+            initialSenderName={moneyDetail?.senderName}
             visible={moneyDetail !== null}
           />
         ) : null}
@@ -2116,7 +2161,9 @@ function MessageContent({
     return (
       <ChatMoneyBubble
         isFromMe={isMine}
-        onPress={() => onChatMoneyTap(moneyPayload)}
+        onPress={() => {
+          if (message.delivery_status !== "sending") onChatMoneyTap(moneyPayload);
+        }}
         payload={moneyPayload}
         viewerId={myId}
       />

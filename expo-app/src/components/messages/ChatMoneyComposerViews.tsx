@@ -27,6 +27,7 @@ import type {
   ChatMoneyConfiguration,
   ChatMoneyCreationResult,
   ChatMoneyKind,
+  ChatMoneyPayload,
   ChatMoneyRecipient,
   ChatMoneyRedPacketMode,
 } from "@/models";
@@ -64,6 +65,12 @@ export type ChatMoneyConversationSource =
     groupName: string;
   };
 
+export interface ChatMoneyOptimisticCreation {
+  clientMessageId: string;
+  createdAt: string;
+  payload: ChatMoneyPayload;
+}
+
 interface LoadedGroupContext {
   recipients: ChatMoneyRecipient[];
 }
@@ -78,7 +85,9 @@ export function ChatMoneyComposerModal({
   kind,
   source,
   onClose,
+  onCreateFailed,
   onCreated,
+  onOptimisticCreated,
 }: {
   visible: boolean;
   ownerId: string;
@@ -86,7 +95,9 @@ export function ChatMoneyComposerModal({
   source: ChatMoneyConversationSource;
   onClose: () => void;
   onOpenWallet: () => void;
-  onCreated: (result: ChatMoneyCreationResult) => void;
+  onCreateFailed: (clientMessageId: string, message: string) => void;
+  onCreated: (result: ChatMoneyCreationResult, clientMessageId: string) => void;
+  onOptimisticCreated: (creation: ChatMoneyOptimisticCreation) => void;
 }) {
   const { t } = useLocalization();
   const insets = useSafeAreaInsets();
@@ -264,14 +275,13 @@ export function ChatMoneyComposerModal({
             : { groupId: source.groupId }),
         });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onClose();
-      requestAnimationFrame(() => onCreated(result));
+      onCreated(result, clientMessageIdRef.current);
     } catch (error) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const raw = error instanceof Error ? error.message : "";
-      setErrorMessage(
-        (normalizeChatMoneyErrorCode(raw, t) ?? raw) || t("chatMoney.operationFailed"),
-      );
+      const message = (normalizeChatMoneyErrorCode(raw, t) ?? raw) || t("chatMoney.operationFailed");
+      setErrorMessage(message);
+      onCreateFailed(clientMessageIdRef.current, message);
     } finally {
       submissionInFlightRef.current = false;
       setSubmitting(false);
@@ -297,6 +307,31 @@ export function ChatMoneyComposerModal({
       Alert.alert(t("common.notice"), validationMessage, [{ text: t("common.ok") }]);
       return;
     }
+    const clientMessageId = clientMessageIdRef.current;
+    const createdAt = new Date().toISOString();
+    onOptimisticCreated({
+      clientMessageId,
+      createdAt,
+      payload: {
+        schema_version: 1,
+        asset_id: `pending:${clientMessageId}`,
+        kind,
+        scope,
+        ...(kind === "red_packet" ? { mode } : {}),
+        sender_id: ownerId,
+        ...(recipient ? { recipient_id: recipient.id, recipient_name: recipient.name } : {}),
+        ...(kind === "red_packet"
+          ? {
+              greeting: messageText.trim() || t("chatMoney.redPacket.defaultGreeting"),
+              packet_count: validation.packetCount,
+              claimed_count: 0,
+            }
+          : { amount: validation.totalAmount, note: messageText.trim() }),
+        status: "pending",
+        version: 1,
+      },
+    });
+    onClose();
     void submit();
   };
 
