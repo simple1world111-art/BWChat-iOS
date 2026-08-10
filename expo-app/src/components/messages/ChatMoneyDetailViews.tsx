@@ -1,4 +1,5 @@
 import * as Haptics from "expo-haptics";
+import { StatusBar } from "expo-status-bar";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -64,6 +65,7 @@ export function ChatMoneyDetailModal({
   const [detail, setDetail] = useState<ChatMoneyDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showsEnvelope, setShowsEnvelope] = useState(false);
+  const [envelopeDetailOverrideAssetId, setEnvelopeDetailOverrideAssetId] = useState<string | null>(null);
   const [isOpening, setOpening] = useState(false);
   const [isProcessing, setProcessing] = useState(false);
   const generationRef = useRef(0);
@@ -78,6 +80,7 @@ export function ChatMoneyDetailModal({
       setDetail(loaded);
       const hasLocalClaim = await hasViewerClaimedChatMoney(ownerId, loaded.asset_id);
       if (generation !== generationRef.current) return;
+      if (hasLocalClaim) setEnvelopeDetailOverrideAssetId(loaded.asset_id);
       setShowsEnvelope(shouldShowRedPacketEnvelopeFromDetail(loaded, ownerId, isSender, hasLocalClaim));
     } catch (error) {
       if (generation === generationRef.current) {
@@ -100,6 +103,7 @@ export function ChatMoneyDetailModal({
     }).then((hasLocalClaim) => {
       if (hasLocalClaim === undefined) return;
       if (!visible) return;
+      if (hasLocalClaim) setEnvelopeDetailOverrideAssetId(initialPayload.asset_id);
       setShowsEnvelope(shouldShowRedPacketEnvelopeFromPayload(initialPayload, isSender, hasLocalClaim));
     });
     void Promise.resolve().then(() => load(initialPayload.kind === "red_packet"));
@@ -107,7 +111,34 @@ export function ChatMoneyDetailModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPayload, isSender, ownerId, visible]);
 
+  const resetEnvelopePresentation = () => {
+    setEnvelopeDetailOverrideAssetId(null);
+    setShowsEnvelope(false);
+  };
+  const close = () => {
+    resetEnvelopePresentation();
+    onClose();
+  };
+  const openWallet = () => {
+    resetEnvelopePresentation();
+    onOpenWallet();
+  };
+  const openBillDetails = () => {
+    resetEnvelopePresentation();
+    onOpenBillDetails();
+  };
+
   if (!initialPayload) return null;
+
+  const activeDetail = detail?.asset_id === initialPayload.asset_id ? detail : null;
+  const isRedPacket = initialPayload.kind === "red_packet";
+  const envelopeIsOverridden = envelopeDetailOverrideAssetId === initialPayload.asset_id;
+  const automaticallyShowsEnvelope = isRedPacket && !envelopeIsOverridden
+    && (activeDetail
+      ? shouldShowRedPacketEnvelopeFromDetail(activeDetail, ownerId, isSender, false)
+      : shouldShowRedPacketEnvelopeFromPayload(initialPayload, isSender, false));
+  const presentsEnvelope = isRedPacket && !envelopeIsOverridden
+    && (showsEnvelope || automaticallyShowsEnvelope);
 
   const claim = async () => {
     if (!detail || isOpening) return;
@@ -125,6 +156,7 @@ export function ChatMoneyDetailModal({
       const wait = chatMoneyDetailPolicy.claimMinimumAnimationMs - (Date.now() - startedAt);
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       setDetail(result.detail);
+      setEnvelopeDetailOverrideAssetId(result.detail.asset_id);
       setShowsEnvelope(false);
       onResult(result);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -154,18 +186,28 @@ export function ChatMoneyDetailModal({
   };
 
   return (
-    <Modal animationType={showsEnvelope ? "fade" : "slide"} onRequestClose={onClose} presentationStyle="fullScreen" visible={visible}>
-      {showsEnvelope ? (
-        detail ? (
+    <Modal
+      animationType={isRedPacket ? "fade" : "slide"}
+      onRequestClose={close}
+      presentationStyle={isRedPacket ? "overFullScreen" : "fullScreen"}
+      transparent={isRedPacket}
+      visible={visible}
+    >
+      {!presentsEnvelope && isRedPacket ? <StatusBar style="light" /> : null}
+      {presentsEnvelope ? (
+        activeDetail ? (
           <RedPacketOpenEnvelope
-            canOpen={canShowRedPacketOpenAction(detail, isSender)}
-            detail={detail}
+            canOpen={canShowRedPacketOpenAction(activeDetail, isSender)}
+            detail={activeDetail}
             errorMessage={loadError}
             isOpening={isOpening}
             isSender={isSender}
-            onClose={onClose}
+            onClose={close}
             onOpen={() => void claim()}
-            onViewDetails={() => setShowsEnvelope(false)}
+            onViewDetails={() => {
+              setEnvelopeDetailOverrideAssetId(activeDetail.asset_id);
+              setShowsEnvelope(false);
+            }}
           />
         ) : (
           <View style={styles.overlayLoading}>
@@ -173,20 +215,23 @@ export function ChatMoneyDetailModal({
           </View>
         )
       ) : (
-        <SafeAreaView edges={["top", "bottom"]} style={styles.detailSafeArea}>
-          {detail ? (
-            detail.kind === "red_packet" ? (
-              <RedPacketDetailContent detail={detail} onBack={onClose} onOpenBillDetails={onOpenBillDetails} onOpenWallet={onOpenWallet} ownerId={ownerId} />
+        <SafeAreaView
+          edges={isRedPacket ? ["bottom"] : ["top", "bottom"]}
+          style={styles.detailSafeArea}
+        >
+          {activeDetail ? (
+            activeDetail.kind === "red_packet" ? (
+              <RedPacketDetailContent detail={activeDetail} onBack={close} onOpenBillDetails={openBillDetails} onOpenWallet={openWallet} ownerId={ownerId} />
             ) : (
               <TransferDetailContent
-                detail={detail}
+                detail={activeDetail}
                 errorMessage={loadError}
                 isProcessing={isProcessing}
                 ownerId={ownerId}
                 onAccept={() => void performTransfer("accept")}
-                onBack={onClose}
-                onOpenBillDetails={onOpenBillDetails}
-                onOpenWallet={onOpenWallet}
+                onBack={close}
+                onOpenBillDetails={openBillDetails}
+                onOpenWallet={openWallet}
                 onReturn={() => Alert.alert(
                   t("chatMoney.transfer.returnConfirmTitle"),
                   t("chatMoney.transfer.returnConfirmMessage"),
@@ -303,19 +348,22 @@ function RedPacketOpenEnvelope({
 function RedPacketDetailContent({ detail, ownerId, onBack, onOpenWallet, onOpenBillDetails }: { detail: ChatMoneyDetail; ownerId: string; onBack: () => void; onOpenWallet: () => void; onOpenBillDetails: () => void }) {
   const { t } = useLocalization();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const headerHeight = chatMoneyDetailPolicy.headerHeight + insets.top;
+  const headerCurveStart = 115 + insets.top;
   const claimed = detail.viewer_claim_amount;
   const summary = detail.claimed_count !== undefined && detail.packet_count !== undefined
     ? t("chatMoney.redPacket.summary", detail.claimed_count, detail.packet_count)
     : t("chatMoney.redPacket.claims");
   return (
     <View style={styles.redDetailRoot}>
-      <View style={styles.redHeader}>
-        <Svg height={chatMoneyDetailPolicy.headerHeight} width="100%">
-          <Path d={`M0 0 H${width} V115 Q${width / 2} ${chatMoneyDetailPolicy.headerHeight} 0 115 Z`} fill={chatMoneyTheme.envelopeRed} />
-          <Path d={`M0 115 Q${width / 2} ${chatMoneyDetailPolicy.headerHeight} ${width} 115`} fill="none" stroke={chatMoneyTheme.gold} strokeWidth="2" />
+      <View style={[styles.redHeader, { height: headerHeight }] }>
+        <Svg height={headerHeight} width="100%">
+          <Path d={`M0 0 H${width} V${headerCurveStart} Q${width / 2} ${headerHeight} 0 ${headerCurveStart} Z`} fill={chatMoneyTheme.envelopeRed} />
+          <Path d={`M0 ${headerCurveStart} Q${width / 2} ${headerHeight} ${width} ${headerCurveStart}`} fill="none" stroke={chatMoneyTheme.gold} strokeWidth="2" />
         </Svg>
       </View>
-      <View style={styles.redHeaderNavigation}>
+      <View style={[styles.redHeaderNavigation, { top: insets.top + 4 }] }>
         <Pressable hitSlop={10} onPress={onBack} style={styles.detailNavigationButton}>
           <SymbolView name="chevron.left" size={19} weight="semibold" tintColor="#FFFFFF" />
         </Pressable>
@@ -324,7 +372,7 @@ function RedPacketDetailContent({ detail, ownerId, onBack, onOpenWallet, onOpenB
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.redDetailContent} showsVerticalScrollIndicator={false}>
-        <View style={{ height: 164 }} />
+        <View style={{ height: 164 + insets.top }} />
         <View style={styles.redSenderRow}>
           <Avatar name={detail.sender_name || t("chatMoney.sender")} size={30} uri={detail.sender_avatar_url} />
           <Text numberOfLines={1} style={styles.redSenderName}>{t("chatMoney.redPacket.sentBy", detail.sender_name || t("chatMoney.sender"))}</Text>
@@ -508,8 +556,8 @@ function chatMoneyErrorText(
 const styles = StyleSheet.create({
   center: { alignItems: "center", flex: 1, justifyContent: "center" },
   detailSafeArea: { backgroundColor: "#FFFFFF", flex: 1 },
-  overlayLoading: { alignItems: "center", backgroundColor: "rgba(0,0,0,0.52)", flex: 1, justifyContent: "center" },
-  envelopeBackdrop: { alignItems: "center", backgroundColor: "rgba(0,0,0,0.52)", flex: 1, justifyContent: "center" },
+  overlayLoading: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
+  envelopeBackdrop: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
   envelopeStack: { alignItems: "center", gap: 22, transform: [{ translateY: -6 }] },
   envelope: { backgroundColor: chatMoneyTheme.envelopeRed, borderRadius: chatMoneyDetailPolicy.envelopeRadius, overflow: "hidden", shadowColor: "#000000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.26, shadowRadius: 24 },
   envelopeFold: { bottom: 0, left: 0, position: "absolute" },
@@ -527,7 +575,7 @@ const styles = StyleSheet.create({
   viewDetailsText: { color: "rgba(244,212,155,0.94)", fontSize: 14, fontWeight: "500" },
   closeCircle: { alignItems: "center", borderColor: "rgba(244,212,155,0.82)", borderRadius: 24, borderWidth: 1.5, height: 48, justifyContent: "center", width: 48 },
   redDetailRoot: { backgroundColor: "#FFFFFF", flex: 1 },
-  redHeader: { height: chatMoneyDetailPolicy.headerHeight, left: 0, overflow: "hidden", position: "absolute", right: 0, top: 0 },
+  redHeader: { left: 0, overflow: "hidden", position: "absolute", right: 0, top: 0 },
   redHeaderNavigation: { flexDirection: "row", justifyContent: "space-between", left: 8, position: "absolute", right: 8, top: 4, zIndex: 2 },
   detailNavigationButton: { alignItems: "center", height: 36, justifyContent: "center", width: 42 },
   redDetailContent: { paddingBottom: 90 },

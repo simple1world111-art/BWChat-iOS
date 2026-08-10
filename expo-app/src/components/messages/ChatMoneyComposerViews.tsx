@@ -3,7 +3,6 @@ import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   ActionSheetIOS,
   Keyboard,
@@ -89,6 +88,7 @@ export function ChatMoneyComposerModal({
   const insets = useSafeAreaInsets();
   const clientMessageIdRef = useRef(createIdempotencyKey());
   const generationRef = useRef(0);
+  const submissionInFlightRef = useRef(false);
   const [configuration, setConfiguration] = useState<ChatMoneyConfiguration>(
     unavailableChatMoneyConfiguration,
   );
@@ -228,7 +228,8 @@ export function ChatMoneyComposerModal({
   };
 
   const submit = async () => {
-    if (!creationAllowed || isLoading || isSubmitting) return;
+    if (!creationAllowed || isLoading || isSubmitting || submissionInFlightRef.current) return;
+    submissionInFlightRef.current = true;
     setSubmitting(true);
     setErrorMessage(null);
     try {
@@ -259,8 +260,8 @@ export function ChatMoneyComposerModal({
             : { groupId: source.groupId }),
         });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onCreated(result);
       onClose();
+      requestAnimationFrame(() => onCreated(result));
     } catch (error) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const raw = error instanceof Error ? error.message : "";
@@ -268,13 +269,14 @@ export function ChatMoneyComposerModal({
         (normalizeChatMoneyErrorCode(raw, t) ?? raw) || t("chatMoney.operationFailed"),
       );
     } finally {
+      submissionInFlightRef.current = false;
       setSubmitting(false);
     }
   };
 
   const requestSubmit = () => {
     Keyboard.dismiss();
-    if (isLoading || isSubmitting) return;
+    if (isLoading || isSubmitting || submissionInFlightRef.current) return;
     if (!featureEnabled || !configuration.eligibility.eligible) {
       Alert.alert(
         t("common.notice"),
@@ -291,25 +293,7 @@ export function ChatMoneyComposerModal({
       Alert.alert(t("common.notice"), validationMessage, [{ text: t("common.ok") }]);
       return;
     }
-    const confirmationRecipient = recipient?.name
-      ?? (source.kind === "fixed" ? source.recipient.name : source.groupName);
-    Alert.alert(
-      t("chatMoney.confirm.title"),
-      t(
-        kind === "red_packet"
-          ? "chatMoney.confirm.redPacket"
-          : "chatMoney.confirm.transfer",
-        validation.totalAmount,
-        confirmationRecipient,
-      ),
-      [
-        { text: t("common.cancel"), style: "cancel" },
-        {
-          text: t("chatMoney.confirm.pay", validation.totalAmount),
-          onPress: () => void submit(),
-        },
-      ],
-    );
+    void submit();
   };
 
   const selectRecipient = (nextRecipient: ChatMoneyRecipient) => {
@@ -350,7 +334,6 @@ export function ChatMoneyComposerModal({
               errorMessage={errorMessage}
               isBusy={isLoading || isSubmitting}
               isGroup={isGroup}
-              isSubmitting={isSubmitting}
               maxGreetingLength={configuration.limits.maximum_greeting_length}
               memberCount={isGroup ? recipients.length + 1 : 1}
               messageText={messageText}
@@ -403,7 +386,6 @@ export function ChatMoneyComposerModal({
             amountText={amountText}
             errorMessage={errorMessage}
             isBusy={isLoading || isSubmitting}
-            isSubmitting={isSubmitting}
             maxNoteLength={configuration.limits.maximum_transfer_note_length}
             noteText={messageText}
             onAppendDigit={appendTransferDigit}
@@ -424,7 +406,6 @@ function ReferenceTransferComposer({
   amountText,
   errorMessage,
   isBusy,
-  isSubmitting,
   maxNoteLength,
   noteText,
   recipient,
@@ -438,7 +419,6 @@ function ReferenceTransferComposer({
   amountText: string;
   errorMessage: string | null;
   isBusy: boolean;
-  isSubmitting: boolean;
   maxNoteLength: number;
   noteText: string;
   recipient: ChatMoneyRecipient;
@@ -451,86 +431,85 @@ function ReferenceTransferComposer({
   const { t } = useLocalization();
   const [isEditingNote, setEditingNote] = useState(false);
   const noteInputRef = useRef<TextInput>(null);
-  const activateAmountEntry = () => {
+  const dismissTransferNoteInput = () => {
     noteInputRef.current?.blur();
     Keyboard.dismiss();
     setEditingNote(false);
   };
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
-      <View style={styles.transferRecipientArea}>
-        <Pressable accessibilityLabel={t("common.back")} hitSlop={12} onPress={onBack} style={styles.transferBackButton}>
-          <SymbolView name="chevron.left" size={25} weight="regular" tintColor="#111111" />
-        </Pressable>
-        <View style={styles.transferRecipientSummary}>
-          <View style={styles.transferRecipientCopy}>
-            <Text numberOfLines={1} style={styles.transferRecipientTitle}>
-              {t("chatMoney.transfer.to", recipient.name)}
-            </Text>
-            {accountId ? (
-              <Text numberOfLines={1} style={styles.transferRecipientAccount}>
-                {t("chatMoney.transfer.account", accountId)}
-              </Text>
-            ) : null}
-          </View>
-          <Avatar name={recipient.name} size={54} uri={recipient.avatar_url} />
-        </View>
-      </View>
-
-      <View style={styles.transferFormPanel}>
-        <View style={styles.transferFormContent}>
-          <Text style={styles.transferAmountTitle}>{t("chatMoney.transfer.amountTitle")}</Text>
-          <Pressable
-            accessibilityLabel={t("chatMoney.transfer.amountTitle")}
-            accessibilityRole="button"
-            onPress={activateAmountEntry}
-            style={styles.transferAmountEntry}
-          >
-            <GoldCoinIcon
-              accessibilityLabel={t("wallet.currency.goldCoins")}
-              size={44}
-              style={styles.transferCoinIcon}
-            />
-            {amountText ? <Text style={styles.transferAmountText}>{amountText}</Text> : null}
-            {!isEditingNote ? <View style={styles.transferAmountCursor} /> : null}
+      <Pressable accessible={false} onPress={dismissTransferNoteInput} style={styles.flex}>
+        <View style={styles.transferRecipientArea}>
+          <Pressable accessibilityLabel={t("common.back")} hitSlop={12} onPress={onBack} style={styles.transferBackButton}>
+            <SymbolView name="chevron.left" size={25} weight="regular" tintColor="#111111" />
           </Pressable>
-          <View style={styles.transferAmountDivider} />
-          <TextInput
-            maxLength={maxNoteLength}
-            onBlur={() => setEditingNote(false)}
-            onChangeText={onNoteChange}
-            onFocus={() => setEditingNote(true)}
-            placeholder={t("chatMoney.transfer.noteAction")}
-            placeholderTextColor="#5C719B"
-            ref={noteInputRef}
-            style={styles.transferNoteInput}
-            value={noteText}
-          />
-          {errorMessage ? <Text style={styles.transferErrorText}>{errorMessage}</Text> : null}
+          <View style={styles.transferRecipientSummary}>
+            <View style={styles.transferRecipientCopy}>
+              <Text numberOfLines={1} style={styles.transferRecipientTitle}>
+                {t("chatMoney.transfer.to", recipient.name)}
+              </Text>
+              {accountId ? (
+                <Text numberOfLines={1} style={styles.transferRecipientAccount}>
+                  {t("chatMoney.transfer.account", accountId)}
+                </Text>
+              ) : null}
+            </View>
+            <Avatar name={recipient.name} size={54} uri={recipient.avatar_url} />
+          </View>
         </View>
-        {!isEditingNote ? (
-          <TransferCoinKeypad
-            isBusy={isBusy}
-            isSubmitting={isSubmitting}
-            onAppendDigit={onAppendDigit}
-            onDeleteDigit={onDeleteDigit}
-            onSubmit={onSubmit}
-          />
-        ) : null}
-      </View>
+
+        <View style={styles.transferFormPanel}>
+          <View style={styles.transferFormContent}>
+            <Text style={styles.transferAmountTitle}>{t("chatMoney.transfer.amountTitle")}</Text>
+            <Pressable
+              accessibilityLabel={t("chatMoney.transfer.amountTitle")}
+              accessibilityRole="button"
+              onPress={dismissTransferNoteInput}
+              style={styles.transferAmountEntry}
+            >
+              <GoldCoinIcon
+                accessibilityLabel={t("wallet.currency.goldCoins")}
+                size={44}
+                style={styles.transferCoinIcon}
+              />
+              {amountText ? <Text style={styles.transferAmountText}>{amountText}</Text> : null}
+              {!isEditingNote ? <View style={styles.transferAmountCursor} /> : null}
+            </Pressable>
+            <View style={styles.transferAmountDivider} />
+            <TextInput
+              maxLength={maxNoteLength}
+              onBlur={() => setEditingNote(false)}
+              onChangeText={onNoteChange}
+              onFocus={() => setEditingNote(true)}
+              placeholder={t("chatMoney.transfer.noteAction")}
+              placeholderTextColor="#5C719B"
+              ref={noteInputRef}
+              style={styles.transferNoteInput}
+              value={noteText}
+            />
+            {errorMessage ? <Text style={styles.transferErrorText}>{errorMessage}</Text> : null}
+          </View>
+          {!isEditingNote ? (
+            <TransferCoinKeypad
+              isBusy={isBusy}
+              onAppendDigit={onAppendDigit}
+              onDeleteDigit={onDeleteDigit}
+              onSubmit={onSubmit}
+            />
+          ) : null}
+        </View>
+      </Pressable>
     </KeyboardAvoidingView>
   );
 }
 
 function TransferCoinKeypad({
   isBusy,
-  isSubmitting,
   onAppendDigit,
   onDeleteDigit,
   onSubmit,
 }: {
   isBusy: boolean;
-  isSubmitting: boolean;
   onAppendDigit: (digit: string) => void;
   onDeleteDigit: () => void;
   onSubmit: () => void;
@@ -562,9 +541,8 @@ function TransferCoinKeypad({
           accessibilityState={{ disabled: isBusy }}
           disabled={isBusy}
           onPress={onSubmit}
-          style={[styles.transferConfirmKey, isBusy && styles.submitBusy]}
+          style={styles.transferConfirmKey}
         >
-          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
           <Text style={styles.transferConfirmText}>{t("chatMoney.transfer.submit")}</Text>
         </Pressable>
       </View>
@@ -589,7 +567,7 @@ function TransferRecipientSelectionScreen({
     : recipients;
   const sections = useMemo(() => groupTransferRecipients(filtered), [filtered]);
   return (
-    <View style={styles.transferSelectionPage}>
+    <Pressable accessible={false} onPress={Keyboard.dismiss} style={styles.transferSelectionPage}>
       <View style={styles.transferSelectionTop}>
         <View style={styles.transferSelectionHeader}>
           <Pressable accessibilityLabel={t("common.close")} hitSlop={12} onPress={onClose} style={styles.transferSelectionClose}>
@@ -632,7 +610,7 @@ function TransferRecipientSelectionScreen({
           <Text key={letter} style={styles.transferAlphabetLetter}>{letter}</Text>
         ))}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -680,7 +658,6 @@ function ReferenceRedPacketComposer({
   errorMessage,
   isBusy,
   isGroup,
-  isSubmitting,
   maxGreetingLength,
   memberCount,
   messageText,
@@ -700,7 +677,6 @@ function ReferenceRedPacketComposer({
   errorMessage: string | null;
   isBusy: boolean;
   isGroup: boolean;
-  isSubmitting: boolean;
   maxGreetingLength: number;
   memberCount: number;
   messageText: string;
@@ -726,7 +702,7 @@ function ReferenceRedPacketComposer({
       : t("chatMoney.amount");
 
   return (
-    <View style={styles.referencePage}>
+    <Pressable accessible={false} onPress={Keyboard.dismiss} style={styles.referencePage}>
       <View style={styles.referenceHeader}>
         <Pressable accessibilityLabel={t("common.back")} hitSlop={12} onPress={onClose} style={styles.referenceHeaderButton}>
           <SymbolView name="chevron.left" size={25} weight="regular" tintColor="#111111" />
@@ -739,7 +715,7 @@ function ReferenceRedPacketComposer({
       <ScrollView
         contentContainerStyle={styles.referenceScrollContent}
         keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="always"
+        keyboardShouldPersistTaps="handled"
         onScrollBeginDrag={Keyboard.dismiss}
         showsVerticalScrollIndicator={false}
         style={styles.flex}
@@ -835,10 +811,6 @@ function ReferenceRedPacketComposer({
               </View>
             </View>
 
-            <Pressable style={styles.referenceCoverCard}>
-              <Text style={styles.referenceCardLabel}>{t("chatMoney.redPacket.cover")}</Text>
-              <SymbolView name="chevron.right" size={17} weight="semibold" tintColor="#888888" />
-            </Pressable>
           </View>
 
           <View style={styles.referencePaymentArea}>
@@ -856,9 +828,8 @@ function ReferenceRedPacketComposer({
                 accessibilityState={{ disabled: isBusy }}
                 disabled={isBusy}
                 onPress={onSubmit}
-                style={[styles.referenceSubmitButton, isBusy && styles.submitBusy]}
+                style={styles.referenceSubmitButton}
               >
-                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
                 <Text style={styles.referenceSubmitText}>{t("chatMoney.redPacket.submit")}</Text>
               </Pressable>
               {errorMessage ? <Text style={styles.referenceErrorText}>{errorMessage}</Text> : null}
@@ -871,7 +842,7 @@ function ReferenceRedPacketComposer({
           </View>
         </View>
       </ScrollView>
-    </View>
+    </Pressable>
   );
 }
 
@@ -943,7 +914,9 @@ function RecipientSelectionModal({
     : recipients;
   return (
     <Modal animationType="slide" onRequestClose={close} presentationStyle="fullScreen" visible={visible}>
-      <View
+      <Pressable
+        accessible={false}
+        onPress={Keyboard.dismiss}
         style={[
           styles.recipientSelectionSafeArea,
           { paddingBottom: insets.bottom, paddingTop: insets.top },
@@ -979,7 +952,7 @@ function RecipientSelectionModal({
             </Pressable>
           ))}
         </ScrollView>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -1295,17 +1268,6 @@ const styles = StyleSheet.create({
     right: -2,
     top: 13,
   },
-  referenceCoverCard: {
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 7,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginHorizontal: 16,
-    marginTop: 10,
-    minHeight: 56,
-    paddingHorizontal: 16,
-  },
   referencePaymentArea: {
     flex: 1,
     justifyContent: "space-between",
@@ -1376,5 +1338,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   recipientSelectionName: { color: "#111111", flex: 1, fontSize: 16 },
-  submitBusy: { opacity: 0.7 },
 });

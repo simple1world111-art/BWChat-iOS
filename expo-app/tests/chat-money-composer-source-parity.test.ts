@@ -39,7 +39,8 @@ describe("chat-money composer reference parity", () => {
 
   it("matches the reference card, total, button and footer hierarchy using Gold Coins", () => {
     expect(composer).toContain("styles.referenceGreetingCard");
-    expect(composer).toContain("styles.referenceCoverCard");
+    expect(composer).not.toContain("styles.referenceCoverCard");
+    expect(composer).not.toContain('t("chatMoney.redPacket.cover")');
     expect(composer).toContain("styles.referenceTotalNumber");
     expect(composer).toContain("styles.referenceSubmitButton");
     expect(composer).toContain('t("wallet.currency.goldCoins")');
@@ -58,9 +59,10 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain('t("chatMoney.transfer.account", accountId)');
     expect(composer).toContain('t("chatMoney.transfer.amountTitle")');
     expect(composer).toContain('t("chatMoney.transfer.noteAction")');
-    expect(composer).toContain("const activateAmountEntry = () =>");
+    expect(composer).toContain("const dismissTransferNoteInput = () =>");
     expect(composer).toContain("noteInputRef.current?.blur()");
-    expect(composer).toContain("onPress={activateAmountEntry}");
+    expect(composer).toContain("onPress={dismissTransferNoteInput}");
+    expect(composer).toContain('<Pressable accessible={false} onPress={dismissTransferNoteInput}');
     expect(composer).toContain('transferRecipientArea: { backgroundColor: "#EFEFEF", height: 126 }');
     expect(composer).toContain("top: 52");
   });
@@ -91,14 +93,22 @@ describe("chat-money composer reference parity", () => {
     expect(composer).not.toContain("<SafeAreaView");
   });
 
-  it("lets red-packet fields switch focus while the keyboard is visible", () => {
-    expect(composer).toContain('keyboardShouldPersistTaps="always"');
+  it("dismisses money keyboards from page backgrounds without blocking input switching", () => {
+    expect(composer).toContain('<Pressable accessible={false} onPress={Keyboard.dismiss}');
+    expect(composer).toContain('keyboardShouldPersistTaps="handled"');
+    expect(composer).toContain('style={styles.transferSelectionPage}');
+    expect(composer).toContain('styles.recipientSelectionSafeArea');
   });
 
-  it("keeps validation, confirmation and the existing Gold Coin creation API", () => {
+  it("submits directly with a stable button and the existing Gold Coin creation API", () => {
     expect(composer).toContain("validateChatMoneyComposer");
     expect(composer).toContain("createChatMoneyRedPacket");
-    expect(composer).toContain('t("chatMoney.confirm.title")');
-    expect(composer).toContain('t("chatMoney.confirm.pay", validation.totalAmount)');
+    expect(composer).toContain("submissionInFlightRef.current");
+    expect(composer).toContain("void submit()");
+    expect(composer).toContain("requestAnimationFrame(() => onCreated(result))");
+    expect(composer).not.toContain('t("chatMoney.confirm.title")');
+    expect(composer).not.toContain('t("chatMoney.confirm.pay", validation.totalAmount)');
+    expect(composer).not.toContain("<ActivityIndicator");
+    expect(composer).not.toContain("styles.submitBusy");
   });
 });
