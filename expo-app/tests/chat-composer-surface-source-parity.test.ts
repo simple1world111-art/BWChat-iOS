@@ -61,6 +61,13 @@ describe("native chat composer surface parity", () => {
     expect(expoStickerPanel.match(/alignContent: "flex-start"/gu)).toHaveLength(2);
   });
 
+  it("pins the horizontal pack tabs to their 48pt content height", () => {
+    expect(expoStickerPanel).toContain("style={styles.tabScroll}");
+    expect(expoStickerPanel).toMatch(
+      /tabScroll: \{\s*flexGrow: 0,\s*flexShrink: 0,\s*height:\s*chatStickerPanelPolicy\.tabHeight \+\s*chatStickerPanelPolicy\.tabVerticalPadding \* 2,/u,
+    );
+  });
+
   it("keeps self-chat to the album-only 108pt panel and other chats at 202pt", () => {
     expect(nativeDirect).toContain("itemCount: isSelfConversation ? 1 : 6");
     expect(expoDirect).toContain("plusItemCount={isSelfChat ? 1 : 6}");

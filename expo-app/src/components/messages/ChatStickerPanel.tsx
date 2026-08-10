@@ -63,6 +63,8 @@ export function ChatStickerPanel({
             contentContainerStyle={styles.tabs}
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.tabScroll}
+            testID="chat-sticker-pack-tabs"
           >
             {packs.map((pack) => {
               const selected = selectedPack?.id === pack.id;
@@ -231,6 +233,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyText: { color: colors.secondaryText, fontSize: chatStickerPanelPolicy.emptyTextFontSize },
+  tabScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    height: chatStickerPanelPolicy.tabHeight + chatStickerPanelPolicy.tabVerticalPadding * 2,
+  },
   tabs: {
     paddingHorizontal: chatStickerPanelPolicy.tabHorizontalPadding,
     paddingVertical: chatStickerPanelPolicy.tabVerticalPadding,
