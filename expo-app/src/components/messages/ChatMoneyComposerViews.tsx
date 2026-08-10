@@ -1,11 +1,12 @@
 import * as Haptics from "expo-haptics";
 import { SymbolView } from "expo-symbols";
-import { MenuView } from "@expo/ui/community/menu";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Modal,
   Platform,
   Pressable,
@@ -41,8 +42,6 @@ import {
   loadChatMoneyConfiguration,
 } from "@/services/messages/ChatMoneyRepository";
 import {
-  chatMoneyPacketCountAfterModeChange,
-  chatMoneyComposerPolicy,
   chatMoneyTheme,
   defaultChatMoneyLimits,
   normalizeChatMoneyErrorCode,
@@ -62,6 +61,11 @@ export type ChatMoneyConversationSource =
     groupName: string;
   };
 
+interface LoadedGroupContext {
+  avatarUrl: string;
+  recipients: ChatMoneyRecipient[];
+}
+
 export function ChatMoneyComposerModal({
   visible,
   ownerId,
@@ -80,70 +84,82 @@ export function ChatMoneyComposerModal({
   onCreated: (result: ChatMoneyCreationResult) => void;
 }) {
   const { t } = useLocalization();
-  const amountRef = useRef<TextInput>(null);
   const clientMessageIdRef = useRef(createIdempotencyKey());
-  const [configuration, setConfiguration] = useState<ChatMoneyConfiguration>(unavailableChatMoneyConfiguration);
+  const generationRef = useRef(0);
+  const [configuration, setConfiguration] = useState<ChatMoneyConfiguration>(
+    unavailableChatMoneyConfiguration,
+  );
   const [balance, setBalance] = useState(0);
+  const [conversationAvatarUrl, setConversationAvatarUrl] = useState(
+    source.kind === "fixed" ? source.recipient.avatar_url : "",
+  );
   const [recipients, setRecipients] = useState<ChatMoneyRecipient[]>([]);
   const [recipient, setRecipient] = useState<ChatMoneyRecipient | null>(null);
-  const [showsRecipientPicker, setShowsRecipientPicker] = useState(false);
-  const [mode, setMode] = useState<ChatMoneyRedPacketMode>(source.kind === "fixed" ? "direct" : "lucky");
+  const [isRecipientPickerExpanded, setRecipientPickerExpanded] = useState(false);
+  const [mode, setMode] = useState<ChatMoneyRedPacketMode>(
+    source.kind === "fixed" ? "direct" : "lucky",
+  );
   const [amountText, setAmountText] = useState("");
-  const [packetCountText, setPacketCountText] = useState(source.kind === "fixed" ? "1" : "");
+  const [packetCountText, setPacketCountText] = useState("1");
   const [messageText, setMessageText] = useState("");
   const [isLoading, setLoading] = useState(false);
   const [isSubmitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const generationRef = useRef(0);
 
   useEffect(() => {
     if (!visible) return;
     const generation = ++generationRef.current;
     clientMessageIdRef.current = createIdempotencyKey();
     const initialMode: ChatMoneyRedPacketMode = source.kind === "fixed" ? "direct" : "lucky";
+
     void (async () => {
       await Promise.resolve();
       if (generation !== generationRef.current) return;
       setMode(initialMode);
       setAmountText("");
-      setPacketCountText(source.kind === "fixed" ? "1" : "");
+      setPacketCountText("1");
       setMessageText(kind === "red_packet" ? t("chatMoney.redPacket.defaultGreeting") : "");
       setRecipient(source.kind === "fixed" ? source.recipient : null);
-      setShowsRecipientPicker(source.kind === "group" && kind === "transfer");
+      setRecipientPickerExpanded(false);
+      setConversationAvatarUrl(source.kind === "fixed" ? source.recipient.avatar_url : "");
       setConfiguration(unavailableChatMoneyConfiguration);
       setErrorMessage(null);
       setLoading(true);
       setSubmitting(false);
+
       const cachedBalance = await readCachedGiftWalletBalance(ownerId);
       if (generation !== generationRef.current) return;
       if (cachedBalance) setBalance(cachedBalance.gold_coin_balance);
-      const membersPromise = source.kind === "group"
-        ? loadGroupRecipients(ownerId, source.groupId, generation, generationRef)
-        : Promise.resolve([source.recipient]);
-      const [nextConfiguration, nextRecipients] = await Promise.all([
+
+      const groupContextPromise = source.kind === "group"
+        ? loadGroupContext(ownerId, source.groupId, generation, generationRef)
+        : Promise.resolve<LoadedGroupContext>({
+          avatarUrl: source.recipient.avatar_url,
+          recipients: [source.recipient],
+        });
+      const [nextConfiguration, groupContext] = await Promise.all([
         loadChatMoneyConfiguration(ownerId),
-        membersPromise,
+        groupContextPromise,
       ]);
       if (generation !== generationRef.current) return;
       setConfiguration(nextConfiguration);
-      setRecipients(nextRecipients);
+      setConversationAvatarUrl(groupContext.avatarUrl);
+      setRecipients(groupContext.recipients);
+
       try {
         const nextBalance = await refreshGiftWalletBalance(ownerId);
         if (generation === generationRef.current) setBalance(nextBalance.gold_coin_balance);
       } catch {
-        // Native leaves the cached balance visible on refresh failure.
+        // Keep the cached balance visible when a refresh fails.
       } finally {
         if (generation === generationRef.current) setLoading(false);
       }
-      setTimeout(() => {
-        if (generation === generationRef.current && !(source.kind === "group" && kind === "transfer")) {
-          amountRef.current?.focus();
-        }
-      }, chatMoneyComposerPolicy.focusDelayMs);
     })();
   }, [kind, ownerId, source, t, visible]);
 
   const scope = source.kind === "fixed" ? "dm" as const : "group" as const;
+  const requiresRecipient = source.kind === "group"
+    && (kind === "transfer" || mode === "exclusive");
   const validation = useMemo(() => validateChatMoneyComposer({
     kind,
     scope,
@@ -154,27 +170,44 @@ export function ChatMoneyComposerModal({
     spendableBalance: balance,
     memberCount: source.kind === "group" ? recipients.length + 1 : 1,
     limits: configuration.limits ?? defaultChatMoneyLimits,
-  }, t), [amountText, balance, configuration.limits, kind, mode, packetCountText, recipient, recipients.length, scope, source.kind, t]);
+  }, t), [
+    amountText,
+    balance,
+    configuration.limits,
+    kind,
+    mode,
+    packetCountText,
+    recipient,
+    recipients.length,
+    scope,
+    source.kind,
+    t,
+  ]);
   const featureEnabled = kind === "red_packet"
     ? configuration.red_packet_enabled
     : configuration.transfer_enabled;
-  const submitEnabled = featureEnabled && configuration.eligibility.eligible
-    && validation.canSubmit && !isSubmitting && !isLoading;
+  const creationAllowed = featureEnabled
+    && configuration.eligibility.eligible
+    && validation.canSubmit;
+  const headerRecipient = recipient ?? (source.kind === "fixed" ? source.recipient : null);
+  const conversationName = source.kind === "fixed" ? source.recipient.name : source.groupName;
+  const headerName = headerRecipient?.name ?? conversationName;
+  const headerAvatarUrl = headerRecipient?.avatar_url ?? conversationAvatarUrl;
 
   const selectMode = (nextMode: ChatMoneyRedPacketMode) => {
     Keyboard.dismiss();
     setMode(nextMode);
     setErrorMessage(null);
-    setPacketCountText((current) => chatMoneyPacketCountAfterModeChange(current, nextMode));
     if (nextMode === "exclusive") {
-      if (!recipient) setShowsRecipientPicker(true);
-    } else if (source.kind === "group") {
+      setPacketCountText("1");
+    } else {
       setRecipient(null);
+      setRecipientPickerExpanded(false);
     }
   };
 
   const submit = async () => {
-    if (!submitEnabled) return;
+    if (!creationAllowed || isLoading || isSubmitting) return;
     setSubmitting(true);
     setErrorMessage(null);
     try {
@@ -187,7 +220,9 @@ export function ChatMoneyComposerModal({
           totalAmount: validation.totalAmount,
           packetCount: validation.packetCount,
           greeting: messageText.trim() || t("chatMoney.redPacket.defaultGreeting"),
-          ...(source.kind === "fixed" ? { receiverId: source.recipient.id } : { groupId: source.groupId }),
+          ...(source.kind === "fixed"
+            ? { receiverId: source.recipient.id }
+            : { groupId: source.groupId }),
           ...(recipient && mode === "exclusive" ? { recipient } : {}),
           ...(mode === "equal" ? { amountPerPacket: validation.amount } : {}),
         })
@@ -198,7 +233,9 @@ export function ChatMoneyComposerModal({
           recipient: recipient!,
           amount: validation.totalAmount,
           note: messageText.trim(),
-          ...(source.kind === "fixed" ? { receiverId: source.recipient.id } : { groupId: source.groupId }),
+          ...(source.kind === "fixed"
+            ? { receiverId: source.recipient.id }
+            : { groupId: source.groupId }),
         });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onCreated(result);
@@ -206,133 +243,175 @@ export function ChatMoneyComposerModal({
     } catch (error) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const raw = error instanceof Error ? error.message : "";
-      setErrorMessage((normalizeChatMoneyErrorCode(raw, t) ?? raw) || t("chatMoney.operationFailed"));
+      setErrorMessage(
+        (normalizeChatMoneyErrorCode(raw, t) ?? raw) || t("chatMoney.operationFailed"),
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const selectRecipient = (next: ChatMoneyRecipient) => {
-    setRecipient(next);
-    setShowsRecipientPicker(false);
-    setTimeout(() => amountRef.current?.focus(), chatMoneyComposerPolicy.focusDelayMs);
+  const requestSubmit = () => {
+    Keyboard.dismiss();
+    if (isLoading || isSubmitting) return;
+    if (!featureEnabled || !configuration.eligibility.eligible) {
+      Alert.alert(
+        t("common.notice"),
+        configuration.eligibility.message
+          || t(featureEnabled ? "chatMoney.notEligible" : "chatMoney.featureDisabled"),
+        [{ text: t("common.ok") }],
+      );
+      return;
+    }
+    const validationMessage = requiresRecipient && recipients.length === 0
+      ? t("chatMoney.noRecipients")
+      : validation.recipientError ?? validation.packetCountError ?? validation.amountError;
+    if (validationMessage) {
+      Alert.alert(t("common.notice"), validationMessage, [{ text: t("common.ok") }]);
+      return;
+    }
+    const confirmationRecipient = recipient?.name
+      ?? (source.kind === "fixed" ? source.recipient.name : source.groupName);
+    Alert.alert(
+      t("chatMoney.confirm.title"),
+      t(
+        kind === "red_packet"
+          ? "chatMoney.confirm.redPacket"
+          : "chatMoney.confirm.transfer",
+        validation.totalAmount,
+        confirmationRecipient,
+      ),
+      [
+        { text: t("common.cancel"), style: "cancel" },
+        {
+          text: t("chatMoney.confirm.pay", validation.totalAmount),
+          onPress: () => void submit(),
+        },
+      ],
+    );
+  };
+
+  const toggleRecipientPicker = () => {
+    Keyboard.dismiss();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setRecipientPickerExpanded((current) => !current);
+  };
+
+  const selectRecipient = (nextRecipient: ChatMoneyRecipient) => {
+    Keyboard.dismiss();
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setRecipient(nextRecipient);
+    setRecipientPickerExpanded(false);
   };
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen" visible={visible}>
+    <Modal
+      animationType="slide"
+      onRequestClose={onClose}
+      presentationStyle="fullScreen"
+      visible={visible}
+    >
       <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
-        {showsRecipientPicker ? (
-          <RecipientPicker
-            onBack={kind === "transfer" ? onClose : () => setShowsRecipientPicker(false)}
-            onSelect={selectRecipient}
-            recipients={recipients}
-            selectedId={recipient?.id}
-          />
-        ) : (
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
-            <ComposerHeader kind={kind} onBack={onClose} />
-            <ScrollView
-              contentContainerStyle={styles.scrollContent}
-              keyboardDismissMode="interactive"
-              keyboardShouldPersistTaps="handled"
-              onScrollBeginDrag={Keyboard.dismiss}
-            >
-              {kind === "red_packet" && source.kind === "group" ? (
-                <ModeSelector mode={mode} onSelect={selectMode} />
-              ) : null}
-              {kind === "transfer" && recipient ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.flex}
+        >
+          <ComposerHeader kind={kind} onClose={onClose} />
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={Keyboard.dismiss}
+          >
+            <RecipientHeader
+              avatarUrl={headerAvatarUrl}
+              kind={kind}
+              name={headerName}
+            />
+            {kind === "red_packet" && source.kind === "group" ? (
+              <ModeSelector mode={mode} onSelect={selectMode} />
+            ) : null}
+            {requiresRecipient ? (
+              <InlineRecipientPicker
+                expanded={isRecipientPickerExpanded}
+                onSelect={selectRecipient}
+                onToggle={toggleRecipientPicker}
+                recipients={recipients}
+                selected={recipient}
+              />
+            ) : null}
+            <AmountCard
+              amountText={amountText}
+              kind={kind}
+              mode={mode}
+              onAmountChange={(value) => setAmountText(sanitizeChatMoneyDigits(value))}
+              onPacketCountChange={(value) => setPacketCountText(sanitizeChatMoneyDigits(value))}
+              packetCountText={packetCountText}
+              scope={scope}
+              totalAmount={validation.totalAmount}
+            />
+            <MessageCard
+              kind={kind}
+              maxLength={kind === "red_packet"
+                ? configuration.limits.maximum_greeting_length
+                : configuration.limits.maximum_transfer_note_length}
+              onChangeText={setMessageText}
+              value={messageText}
+            />
+            <View style={styles.balanceRow}>
+              <Text style={styles.balanceLabel}>{t("chatMoney.availableBalance")}</Text>
+              <View style={styles.balanceValueRow}>
+                <Text style={styles.balanceValue}>{t("chatMoney.amountValue", balance)}</Text>
                 <Pressable
-                  disabled={source.kind === "fixed"}
-                  onPress={() => setShowsRecipientPicker(true)}
-                  style={styles.transferRecipientHeader}
+                  hitSlop={8}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    onOpenWallet();
+                  }}
                 >
-                  <Avatar name={recipient.name} size={chatMoneyComposerPolicy.transferHeaderAvatarSize} uri={recipient.avatar_url} />
-                  <Text style={styles.transferRecipientText}>{t("chatMoney.transfer.to", recipient.name)}</Text>
-                </Pressable>
-              ) : null}
-              {kind === "red_packet" && mode === "exclusive" ? (
-                <RecipientRow onPress={() => setShowsRecipientPicker(true)} recipient={recipient} />
-              ) : null}
-              {kind === "red_packet" && source.kind === "group" && mode !== "exclusive" ? (
-                <>
-                  <InputRow
-                    keyboardType="number-pad"
-                    label={t("chatMoney.redPacket.count")}
-                    onChangeText={(value) => setPacketCountText(sanitizeChatMoneyDigits(value))}
-                    suffix={t("chatMoney.redPacket.unit")}
-                    value={packetCountText}
-                  />
-                  {validation.packetCountError ? <ValidationText text={validation.packetCountError} /> : null}
-                  <Text style={styles.memberHint}>
-                    {t("chatMoney.redPacket.groupMemberHint", recipients.length + 1)}
-                  </Text>
-                </>
-              ) : source.kind === "fixed" && kind === "red_packet" ? <View style={styles.directSpacer} /> : null}
-              <InputRow
-                inputRef={amountRef}
-                keyboardType="number-pad"
-                label={kind === "red_packet" && mode === "equal"
-                  ? t("chatMoney.redPacket.amountEach")
-                  : t("chatMoney.amount")}
-                onChangeText={(value) => setAmountText(sanitizeChatMoneyDigits(value))}
-                suffix={t("wallet.currency.goldCoins")}
-                value={amountText}
-                valueSize={kind === "transfer" ? chatMoneyComposerPolicy.transferAmountFontSize : chatMoneyComposerPolicy.amountFontSize}
-              />
-              {validation.amountError ? <ValidationText text={validation.amountError} /> : null}
-              <MessageRow
-                kind={kind}
-                maxLength={kind === "red_packet"
-                  ? configuration.limits.maximum_greeting_length
-                  : configuration.limits.maximum_transfer_note_length}
-                onChangeText={setMessageText}
-                value={messageText}
-              />
-              <View style={styles.balanceRow}>
-                <Text style={styles.balanceText}>{t("chatMoney.availableBalance")}</Text>
-                <Text style={styles.balanceText}>{t("chatMoney.amountValue", balance)}</Text>
-                <Pressable onPress={onOpenWallet}>
                   <Text style={styles.topUpText}>{t("chatMoney.topUp")}</Text>
                 </Pressable>
               </View>
-              <View style={styles.totalSection}>
-                <View style={styles.totalAmountRow}>
-                  <Text style={styles.totalAmount}>{validation.totalAmount}</Text>
-                  <Text style={styles.totalUnit}>{t("wallet.currency.goldCoins")}</Text>
-                </View>
-                <Pressable
-                  accessibilityState={{ disabled: !submitEnabled }}
-                  disabled={!submitEnabled}
-                  onPress={() => void submit()}
-                  style={[styles.submitButton, !submitEnabled && styles.submitDisabled]}
-                >
-                  {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
-                  <Text style={styles.submitText}>
-                    {t(kind === "red_packet" ? "chatMoney.redPacket.submit" : "chatMoney.transfer.submit")}
-                  </Text>
-                </Pressable>
-                {!featureEnabled || !configuration.eligibility.eligible ? (
-                  <Text style={styles.errorText}>
-                    {configuration.eligibility.message || t(featureEnabled ? "chatMoney.notEligible" : "chatMoney.featureDisabled")}
-                  </Text>
-                ) : null}
-                {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-                <Text style={styles.expiryText}>{t("chatMoney.expiryNotice")}</Text>
-              </View>
-            </ScrollView>
-          </KeyboardAvoidingView>
-        )}
+            </View>
+            <Pressable
+              accessibilityLabel={t(
+                kind === "red_packet"
+                  ? "chatMoney.redPacket.submit"
+                  : "chatMoney.transfer.submit",
+              )}
+              accessibilityState={{ disabled: isLoading || isSubmitting }}
+              disabled={isLoading || isSubmitting}
+              onPress={requestSubmit}
+              style={[
+                styles.submitButton,
+                kind === "transfer" && styles.transferSubmitButton,
+                (isLoading || isSubmitting) && styles.submitBusy,
+              ]}
+            >
+              {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
+              <Text style={styles.submitText}>
+                {t(
+                  kind === "red_packet"
+                    ? "chatMoney.redPacket.submit"
+                    : "chatMoney.transfer.submit",
+                )}
+              </Text>
+            </Pressable>
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            <Text style={styles.expiryText}>{t("chatMoney.expiryNotice")}</Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
 }
 
-function ComposerHeader({ kind, onBack }: { kind: ChatMoneyKind; onBack: () => void }) {
+function ComposerHeader({ kind, onClose }: { kind: ChatMoneyKind; onClose: () => void }) {
   const { t } = useLocalization();
   return (
     <View style={styles.header}>
-      <Pressable hitSlop={10} onPress={onBack} style={styles.headerButton}>
-        <SymbolView name="chevron.left" size={19} weight="semibold" tintColor="#111111" />
+      <Pressable hitSlop={10} onPress={onClose} style={styles.headerButton}>
+        <Text style={styles.cancelText}>{t("common.cancel")}</Text>
       </Pressable>
       <Text style={styles.headerTitle}>
         {t(kind === "red_packet" ? "chatMoney.redPacket.sendTitle" : "chatMoney.transfer.sendTitle")}
@@ -342,75 +421,211 @@ function ComposerHeader({ kind, onBack }: { kind: ChatMoneyKind; onBack: () => v
   );
 }
 
-function ModeSelector({ mode, onSelect }: { mode: ChatMoneyRedPacketMode; onSelect: (mode: ChatMoneyRedPacketMode) => void }) {
-  const { t } = useLocalization();
-  const modes: ChatMoneyRedPacketMode[] = ["lucky", "equal", "exclusive"];
-  return (
-    <MenuView
-      actions={modes.map((item) => ({
-        id: item,
-        state: item === mode ? "on" : "off",
-        title: t(`chatMoney.redPacket.mode.${item}`),
-      }))}
-      onPressAction={({ nativeEvent }) => {
-        const selected = modes.find((item) => item === nativeEvent.event);
-        if (selected) onSelect(selected);
-      }}
-      style={styles.modeSelector}
-    >
-      <View accessibilityRole="button" style={styles.modeTrigger}>
-        <Text style={styles.modeText}>{t(`chatMoney.redPacket.mode.${mode}`)}</Text>
-        <SymbolView
-          name="chevron.down"
-          size={11}
-          weight="semibold"
-          tintColor={chatMoneyTheme.link}
-        />
-      </View>
-    </MenuView>
-  );
-}
-
-function InputRow({
-  label,
-  suffix,
-  value,
-  onChangeText,
-  keyboardType,
-  valueSize = chatMoneyComposerPolicy.packetCountFontSize,
-  inputRef,
+function RecipientHeader({
+  avatarUrl,
+  kind,
+  name,
 }: {
-  label: string;
-  suffix: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  keyboardType: "number-pad";
-  valueSize?: number | undefined;
-  inputRef?: React.RefObject<TextInput | null> | undefined;
+  avatarUrl: string;
+  kind: ChatMoneyKind;
+  name: string;
 }) {
+  const { t } = useLocalization();
   return (
-    <View style={styles.inputRow}>
-      <Text style={styles.inputLabel}>{label}</Text>
-      <TextInput
-        keyboardType={keyboardType}
-        onChangeText={onChangeText}
-        placeholder="0"
-        placeholderTextColor="#B2B2B2"
-        ref={inputRef}
-        selectionColor={chatMoneyTheme.actionRed}
-        style={[styles.amountInput, { fontSize: valueSize }]}
-        value={value}
-      />
-      <Text style={styles.inputSuffix}>{suffix}</Text>
+    <View style={styles.recipientHeader}>
+      <Avatar name={name} size={58} uri={avatarUrl} />
+      <Text numberOfLines={1} style={styles.recipientHeaderName}>{name}</Text>
+      <Text style={styles.recipientHeaderHint}>
+        {t(
+          kind === "red_packet"
+            ? "chatMoney.redPacket.headerHint"
+            : "chatMoney.transfer.headerHint",
+        )}
+      </Text>
     </View>
   );
 }
 
-function MessageRow({ kind, value, onChangeText, maxLength }: { kind: ChatMoneyKind; value: string; onChangeText: (value: string) => void; maxLength: number }) {
+function ModeSelector({
+  mode,
+  onSelect,
+}: {
+  mode: ChatMoneyRedPacketMode;
+  onSelect: (mode: ChatMoneyRedPacketMode) => void;
+}) {
+  const { t } = useLocalization();
+  const modes: ChatMoneyRedPacketMode[] = ["lucky", "equal", "exclusive"];
+  return (
+    <View accessibilityRole="tablist" style={styles.modeSelector}>
+      {modes.map((item) => {
+        const selected = item === mode;
+        return (
+          <Pressable
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            key={item}
+            onPress={() => onSelect(item)}
+            style={[styles.modeOption, selected && styles.modeOptionSelected]}
+          >
+            <Text style={[styles.modeOptionText, selected && styles.modeOptionTextSelected]}>
+              {t(`chatMoney.redPacket.mode.${item}`)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+function InlineRecipientPicker({
+  expanded,
+  recipients,
+  selected,
+  onToggle,
+  onSelect,
+}: {
+  expanded: boolean;
+  recipients: ChatMoneyRecipient[];
+  selected: ChatMoneyRecipient | null;
+  onToggle: () => void;
+  onSelect: (recipient: ChatMoneyRecipient) => void;
+}) {
   const { t } = useLocalization();
   return (
-    <View style={styles.messageRow}>
-      <Text style={styles.messageLabel}>{t(kind === "red_packet" ? "chatMoney.greeting" : "chatMoney.note")}</Text>
+    <View style={styles.recipientPickerCard}>
+      <Pressable disabled={recipients.length === 0} onPress={onToggle} style={styles.recipientPickerTrigger}>
+        <SymbolView
+          name="person.crop.circle.badge.checkmark"
+          size={21}
+          weight="regular"
+          tintColor={chatMoneyTheme.link}
+        />
+        <Text
+          numberOfLines={1}
+          style={selected ? styles.recipientPickerValue : styles.recipientPickerPlaceholder}
+        >
+          {selected?.name ?? t("chatMoney.chooseRecipient")}
+        </Text>
+        <View style={expanded ? styles.chevronExpanded : undefined}>
+          <SymbolView name="chevron.down" size={12} weight="semibold" tintColor="#B2B2B2" />
+        </View>
+      </Pressable>
+      {expanded ? (
+        <View>
+          <View style={styles.indentedDivider} />
+          {recipients.map((item, index) => (
+            <View key={item.id}>
+              <Pressable onPress={() => onSelect(item)} style={styles.recipientOption}>
+                <Avatar name={item.name} size={36} uri={item.avatar_url} />
+                <Text numberOfLines={1} style={styles.recipientOptionName}>{item.name}</Text>
+                {item.id === selected?.id ? (
+                  <SymbolView
+                    name="checkmark.circle.fill"
+                    size={18}
+                    weight="semibold"
+                    tintColor={chatMoneyTheme.link}
+                  />
+                ) : null}
+              </Pressable>
+              {index < recipients.length - 1 ? <View style={styles.memberDivider} /> : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function AmountCard({
+  amountText,
+  packetCountText,
+  kind,
+  mode,
+  scope,
+  totalAmount,
+  onAmountChange,
+  onPacketCountChange,
+}: {
+  amountText: string;
+  packetCountText: string;
+  kind: ChatMoneyKind;
+  mode: ChatMoneyRedPacketMode;
+  scope: "dm" | "group";
+  totalAmount: number;
+  onAmountChange: (value: string) => void;
+  onPacketCountChange: (value: string) => void;
+}) {
+  const { t } = useLocalization();
+  const showsPacketCount = kind === "red_packet" && scope === "group" && mode !== "exclusive";
+  return (
+    <View style={styles.amountCard}>
+      <View style={styles.amountRow}>
+        <Text style={styles.cardLabel}>
+          {t(kind === "red_packet" && mode === "equal"
+            ? "chatMoney.redPacket.amountEach"
+            : "chatMoney.amount")}
+        </Text>
+        <TextInput
+          keyboardType="number-pad"
+          maxLength={9}
+          onChangeText={onAmountChange}
+          placeholder="0"
+          placeholderTextColor="#B2B2B2"
+          selectionColor={chatMoneyTheme.actionRed}
+          style={styles.amountInput}
+          value={amountText}
+        />
+        <Text style={styles.amountUnit}>{t("wallet.currency.goldCoins")}</Text>
+      </View>
+      {showsPacketCount ? (
+        <>
+          <View style={styles.indentedDivider} />
+          <View style={styles.packetCountRow}>
+            <Text style={styles.cardLabel}>{t("chatMoney.redPacket.count")}</Text>
+            <TextInput
+              keyboardType="number-pad"
+              maxLength={3}
+              onChangeText={onPacketCountChange}
+              placeholder="1"
+              placeholderTextColor="#B2B2B2"
+              selectionColor={chatMoneyTheme.actionRed}
+              style={styles.packetCountInput}
+              value={packetCountText}
+            />
+            <Text style={styles.cardSecondary}>{t("chatMoney.redPacket.unit")}</Text>
+          </View>
+        </>
+      ) : null}
+      {mode === "equal" && totalAmount > 0 ? (
+        <>
+          <View style={styles.indentedDivider} />
+          <View style={styles.totalRow}>
+            <Text style={styles.totalLabel}>{t("chatMoney.total")}</Text>
+            <Text style={styles.totalValue}>{t("chatMoney.amountValue", totalAmount)}</Text>
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function MessageCard({
+  kind,
+  value,
+  onChangeText,
+  maxLength,
+}: {
+  kind: ChatMoneyKind;
+  value: string;
+  onChangeText: (value: string) => void;
+  maxLength: number;
+}) {
+  const { t } = useLocalization();
+  return (
+    <View style={styles.messageCard}>
+      <Text style={styles.messageLabel}>
+        {t(kind === "red_packet" ? "chatMoney.greeting" : "chatMoney.note")}
+      </Text>
       <TextInput
         maxLength={maxLength}
         multiline
@@ -426,119 +641,152 @@ function MessageRow({ kind, value, onChangeText, maxLength }: { kind: ChatMoneyK
   );
 }
 
-function RecipientRow({ recipient, onPress }: { recipient: ChatMoneyRecipient | null; onPress: () => void }) {
-  const { t } = useLocalization();
-  return (
-    <Pressable onPress={onPress} style={styles.recipientRow}>
-      <Text style={styles.inputLabel}>{t("chatMoney.redPacket.exclusiveRecipient")}</Text>
-      <View style={styles.recipientValue}>
-        {recipient ? <Avatar name={recipient.name} size={chatMoneyComposerPolicy.recipientAvatarSize} uri={recipient.avatar_url} /> : null}
-        <Text style={recipient ? styles.recipientName : styles.recipientPlaceholder}>{recipient?.name ?? t("chatMoney.chooseRecipient")}</Text>
-        <SymbolView name="chevron.right" size={12} weight="semibold" tintColor="#B2B2B2" />
-      </View>
-    </Pressable>
-  );
-}
-
-function RecipientPicker({ recipients, selectedId, onSelect, onBack }: { recipients: ChatMoneyRecipient[]; selectedId?: string | undefined; onSelect: (recipient: ChatMoneyRecipient) => void; onBack: () => void }) {
-  const { t } = useLocalization();
-  const [search, setSearch] = useState("");
-  const filtered = recipients.filter((recipient) => `${recipient.name}\n${recipient.id}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  return (
-    <View style={styles.flex}>
-      <View style={styles.header}>
-        <Pressable hitSlop={10} onPress={onBack} style={styles.headerButton}>
-          <SymbolView name="chevron.left" size={19} weight="semibold" tintColor="#111111" />
-        </Pressable>
-        <Text style={styles.headerTitle}>{t("chatMoney.transfer.chooseRecipientTitle")}</Text>
-        <View style={styles.headerButton} />
-      </View>
-      <TextInput onChangeText={setSearch} placeholder={t("chatMoney.recipient.search")} style={styles.searchInput} value={search} />
-      <ScrollView contentContainerStyle={filtered.length === 0 ? styles.emptyRecipients : undefined} keyboardShouldPersistTaps="handled">
-        {filtered.length === 0 ? (
-          <>
-            <SymbolView name="person.2.slash" size={32} weight="regular" tintColor="#B2B2B2" />
-            <Text style={styles.emptyRecipientsText}>{t("chatMoney.noRecipients")}</Text>
-          </>
-        ) : filtered.map((item) => (
-          <Pressable key={item.id} onPress={() => onSelect(item)} style={styles.recipientPickerRow}>
-            <Avatar name={item.name} size={chatMoneyComposerPolicy.recipientPickerAvatarSize} uri={item.avatar_url} />
-            <Text numberOfLines={1} style={styles.recipientPickerName}>{item.name}</Text>
-            {item.id === selectedId ? <SymbolView name="checkmark" size={15} weight="semibold" tintColor={chatMoneyTheme.actionGreen} /> : null}
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-function ValidationText({ text }: { text: string }) {
-  return <Text style={styles.validationText}>{text}</Text>;
-}
-
-async function loadGroupRecipients(
+async function loadGroupContext(
   ownerId: string,
   groupId: number,
   generation: number,
-  generationRef: React.RefObject<number>,
-): Promise<ChatMoneyRecipient[]> {
+  generationRef: RefObject<number>,
+): Promise<LoadedGroupContext> {
   const cached = await loadCachedGroupDetail(ownerId, groupId);
+  let avatarUrl = cached?.avatar_url ?? "";
   let members = cached?.members ?? [];
   try {
     const detail = await getGroupDetail(groupId);
     if (generation === generationRef.current) await saveCachedGroupDetail(ownerId, detail);
+    avatarUrl = detail.avatar_url;
     members = detail.members;
   } catch {
     // Cache-first parity: retain the last group snapshot when refresh fails.
   }
-  return members.filter((member) => member.user_id !== ownerId).map((member) => ({
-    id: member.user_id,
-    name: member.nickname,
-    avatar_url: member.avatar_url,
-  })).sort((left, right) => left.name.localeCompare(right.name));
+  return {
+    avatarUrl,
+    recipients: members
+      .filter((member) => member.user_id !== ownerId)
+      .map((member) => ({
+        id: member.user_id,
+        name: member.nickname,
+        avatar_url: member.avatar_url,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  };
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  safeArea: { backgroundColor: chatMoneyTheme.pageBackground, flex: 1 },
-  header: { alignItems: "center", backgroundColor: "#FFFFFF", borderBottomColor: chatMoneyTheme.separator, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", height: 44, justifyContent: "space-between" },
-  headerButton: { alignItems: "center", height: 40, justifyContent: "center", width: 44 },
+  safeArea: { backgroundColor: "#F7F7F8", flex: 1 },
+  header: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderBottomColor: chatMoneyTheme.separator,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    height: 44,
+    justifyContent: "space-between",
+  },
+  headerButton: { height: 44, justifyContent: "center", paddingHorizontal: 16, width: 74 },
+  cancelText: { color: chatMoneyTheme.link, fontSize: 16 },
   headerTitle: { color: "#111111", fontSize: 17, fontWeight: "600" },
-  scrollContent: { paddingBottom: 36, paddingHorizontal: chatMoneyComposerPolicy.pageHorizontalPadding, paddingTop: 6 },
-  modeSelector: { alignSelf: "center", height: 32, marginBottom: 12 },
-  modeTrigger: { alignItems: "center", flexDirection: "row", gap: 5, height: 32, paddingHorizontal: 12 },
-  modeText: { color: chatMoneyTheme.link, fontSize: 14 },
-  directSpacer: { height: 22 },
-  inputRow: { alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 4, flexDirection: "row", gap: 10, height: chatMoneyComposerPolicy.inputRowHeight, paddingHorizontal: 16 },
-  inputLabel: { color: "#111111", fontSize: 16 },
-  amountInput: { color: "#111111", flex: 1, fontWeight: "500", maxWidth: 170, padding: 0, textAlign: "right" },
-  inputSuffix: { color: "#111111", fontSize: 16 },
-  validationText: { color: chatMoneyTheme.actionRed, fontSize: 12, marginHorizontal: 4, marginTop: 7 },
-  memberHint: { color: "#B2B2B2", fontSize: 12, marginBottom: 12, marginHorizontal: 4, marginTop: 7 },
-  messageRow: { alignItems: "flex-start", backgroundColor: "#FFFFFF", borderRadius: 4, flexDirection: "row", gap: 12, marginTop: 12, minHeight: 56, padding: 16 },
-  messageLabel: { color: "#111111", fontSize: 16, paddingTop: 2 },
-  messageInput: { color: "#111111", flex: 1, fontSize: 16, minHeight: 24, padding: 0, textAlign: "right", textAlignVertical: "top" },
-  balanceRow: { alignItems: "center", flexDirection: "row", gap: 6, marginTop: 18 },
-  balanceText: { color: chatMoneyTheme.secondary, fontSize: 13 },
-  topUpText: { color: chatMoneyTheme.link, fontSize: 13 },
-  totalSection: { alignItems: "center", marginTop: 34 },
-  totalAmountRow: { alignItems: "baseline", flexDirection: "row", gap: 6 },
-  totalAmount: { color: "#111111", fontSize: chatMoneyComposerPolicy.totalFontSize, fontWeight: "500", fontVariant: ["tabular-nums"] },
-  totalUnit: { color: "#111111", fontSize: 15 },
-  submitButton: { alignItems: "center", backgroundColor: chatMoneyTheme.actionRed, borderRadius: chatMoneyComposerPolicy.submitRadius, flexDirection: "row", gap: 8, height: chatMoneyComposerPolicy.submitHeight, justifyContent: "center", marginTop: 24, width: chatMoneyComposerPolicy.submitWidth },
-  submitDisabled: { backgroundColor: chatMoneyTheme.disabledRed },
-  submitText: { color: "#FFFFFF", fontSize: 17, fontWeight: "500" },
-  expiryText: { color: "#B2B2B2", fontSize: 12, marginTop: 12, textAlign: "center" },
-  errorText: { color: chatMoneyTheme.actionRed, fontSize: 12, marginTop: 10, textAlign: "center" },
-  recipientRow: { alignItems: "center", backgroundColor: "#FFFFFF", borderRadius: 4, flexDirection: "row", height: chatMoneyComposerPolicy.recipientRowHeight, justifyContent: "space-between", marginBottom: 12, paddingHorizontal: 16 },
-  recipientValue: { alignItems: "center", flexDirection: "row", gap: 8 },
-  recipientName: { color: "#111111", fontSize: 15 },
-  recipientPlaceholder: { color: "#B2B2B2", fontSize: 15 },
-  transferRecipientHeader: { alignItems: "center", gap: 10, paddingVertical: 24 },
-  transferRecipientText: { color: chatMoneyTheme.secondary, fontSize: 15 },
-  searchInput: { backgroundColor: "#EFEFF4", borderRadius: 10, fontSize: 15, height: 36, marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 12 },
-  emptyRecipients: { alignItems: "center", gap: 12, justifyContent: "center", minHeight: chatMoneyComposerPolicy.recipientPickerMinimumHeight },
-  emptyRecipientsText: { color: chatMoneyTheme.secondary, fontSize: 15 },
-  recipientPickerRow: { alignItems: "center", backgroundColor: "#FFFFFF", borderBottomColor: chatMoneyTheme.separator, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: "row", gap: 12, marginLeft: 16, minHeight: 64, paddingRight: 16, paddingVertical: 3 },
-  recipientPickerName: { color: "#111111", flex: 1, fontSize: 16 },
+  scrollContent: { gap: 18, padding: 20, paddingBottom: 36 },
+  recipientHeader: { alignItems: "center", gap: 10, paddingVertical: 8 },
+  recipientHeaderName: { color: "#111111", fontSize: 18, fontWeight: "600", maxWidth: "88%" },
+  recipientHeaderHint: { color: chatMoneyTheme.secondary, fontSize: 13 },
+  modeSelector: {
+    backgroundColor: "#E7E7EA",
+    borderRadius: 9,
+    flexDirection: "row",
+    padding: 2,
+  },
+  modeOption: { alignItems: "center", borderRadius: 7, flex: 1, height: 32, justifyContent: "center" },
+  modeOptionSelected: {
+    backgroundColor: "#FFFFFF",
+    elevation: 1,
+    shadowColor: "#000000",
+    shadowOffset: { height: 1, width: 0 },
+    shadowOpacity: 0.14,
+    shadowRadius: 2,
+  },
+  modeOptionText: { color: "#555555", fontSize: 13, fontWeight: "500" },
+  modeOptionTextSelected: { color: "#111111", fontWeight: "600" },
+  recipientPickerCard: { backgroundColor: "#FFFFFF", borderRadius: 15, overflow: "hidden" },
+  recipientPickerTrigger: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 54,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  recipientPickerValue: { color: "#111111", flex: 1, fontSize: 15 },
+  recipientPickerPlaceholder: { color: chatMoneyTheme.secondary, flex: 1, fontSize: 15 },
+  chevronExpanded: { transform: [{ rotate: "180deg" }] },
+  recipientOption: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 58,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+  },
+  recipientOptionName: { color: "#111111", flex: 1, fontSize: 16, fontWeight: "500" },
+  memberDivider: { backgroundColor: chatMoneyTheme.separator, height: StyleSheet.hairlineWidth, marginLeft: 64 },
+  indentedDivider: { backgroundColor: chatMoneyTheme.separator, height: StyleSheet.hairlineWidth, marginLeft: 16 },
+  amountCard: { backgroundColor: "#FFFFFF", borderRadius: 15, overflow: "hidden" },
+  amountRow: { alignItems: "baseline", flexDirection: "row", gap: 10, minHeight: 72, padding: 16 },
+  cardLabel: { color: "#111111", fontSize: 15, fontWeight: "500" },
+  amountInput: {
+    color: "#111111",
+    flex: 1,
+    fontSize: 32,
+    fontWeight: "700",
+    maxWidth: 150,
+    padding: 0,
+    textAlign: "right",
+  },
+  amountUnit: { color: chatMoneyTheme.secondary, fontSize: 14, fontWeight: "600" },
+  packetCountRow: { alignItems: "center", flexDirection: "row", minHeight: 56, padding: 16 },
+  packetCountInput: { color: "#111111", flex: 1, fontSize: 16, padding: 0, textAlign: "right" },
+  cardSecondary: { color: chatMoneyTheme.secondary, fontSize: 15, marginLeft: 10 },
+  totalRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 50, padding: 16 },
+  totalLabel: { color: chatMoneyTheme.secondary, fontSize: 14 },
+  totalValue: { color: chatMoneyTheme.secondary, fontSize: 14, fontWeight: "600" },
+  messageCard: {
+    alignItems: "flex-start",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 15,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 56,
+    padding: 16,
+  },
+  messageLabel: { color: "#111111", fontSize: 15, fontWeight: "500", paddingTop: 2 },
+  messageInput: {
+    color: "#111111",
+    flex: 1,
+    fontSize: 15,
+    maxHeight: 72,
+    minHeight: 22,
+    padding: 0,
+    textAlign: "right",
+    textAlignVertical: "top",
+  },
+  balanceRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
+  balanceLabel: { color: chatMoneyTheme.secondary, fontSize: 13 },
+  balanceValueRow: { alignItems: "center", flexDirection: "row", gap: 6 },
+  balanceValue: { color: chatMoneyTheme.secondary, fontSize: 13, fontWeight: "600" },
+  topUpText: { color: chatMoneyTheme.link, fontSize: 13, fontWeight: "600" },
+  submitButton: {
+    alignItems: "center",
+    backgroundColor: "#F06455",
+    borderRadius: 15,
+    flexDirection: "row",
+    gap: 8,
+    height: 52,
+    justifyContent: "center",
+    width: "100%",
+  },
+  transferSubmitButton: { backgroundColor: "#D8A20A" },
+  submitBusy: { opacity: 0.7 },
+  submitText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
+  expiryText: { color: "#B2B2B2", fontSize: 12, paddingHorizontal: 12, textAlign: "center" },
+  errorText: { color: chatMoneyTheme.actionRed, fontSize: 12, textAlign: "center" },
 });
