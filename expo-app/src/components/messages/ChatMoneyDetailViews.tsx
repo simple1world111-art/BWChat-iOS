@@ -75,6 +75,7 @@ export function ChatMoneyDetailModal({
   const [showsEnvelope, setShowsEnvelope] = useState(false);
   const [envelopeDetailOverrideAssetId, setEnvelopeDetailOverrideAssetId] = useState<string | null>(null);
   const [isOpening, setOpening] = useState(false);
+  const [pendingClaimResult, setPendingClaimResult] = useState<ChatMoneyActionResult | null>(null);
   const [isProcessing, setProcessing] = useState(false);
   const generationRef = useRef(0);
   const claimInFlightRef = useRef(false);
@@ -108,6 +109,7 @@ export function ChatMoneyDetailModal({
       setDetail(cachedChatMoneyDetail(ownerId, initialPayload.asset_id));
       setLoadError(null);
       setOpening(false);
+      setPendingClaimResult(null);
       setProcessing(false);
       return hasViewerClaimedChatMoney(ownerId, initialPayload.asset_id);
     }).then((hasLocalClaim) => {
@@ -124,6 +126,8 @@ export function ChatMoneyDetailModal({
   const resetEnvelopePresentation = () => {
     setEnvelopeDetailOverrideAssetId(null);
     setShowsEnvelope(false);
+    setOpening(false);
+    setPendingClaimResult(null);
   };
   const close = () => {
     resetEnvelopePresentation();
@@ -173,10 +177,7 @@ export function ChatMoneyDetailModal({
       });
       const wait = chatMoneyDetailPolicy.claimMinimumAnimationMs - (Date.now() - startedAt);
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-      setDetail(result.detail);
-      setEnvelopeDetailOverrideAssetId(result.detail.asset_id);
-      setShowsEnvelope(false);
-      onResult(result);
+      setPendingClaimResult(result);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       setLoadError(chatMoneyErrorText(error, t));
@@ -185,6 +186,16 @@ export function ChatMoneyDetailModal({
     } finally {
       claimInFlightRef.current = false;
     }
+  };
+
+  const completeClaimTransition = () => {
+    if (!pendingClaimResult) return;
+    setDetail(pendingClaimResult.detail);
+    setEnvelopeDetailOverrideAssetId(pendingClaimResult.detail.asset_id);
+    setShowsEnvelope(false);
+    setOpening(false);
+    onResult(pendingClaimResult);
+    setPendingClaimResult(null);
   };
 
   const performTransfer = async (operation: "accept" | "return") => {
@@ -220,11 +231,13 @@ export function ChatMoneyDetailModal({
         activeDetail ? (
           <RedPacketOpenEnvelope
             canOpen={canShowRedPacketOpenAction(activeDetail, isSender)}
+            claimResultReady={pendingClaimResult !== null}
             detail={activeDetail}
             errorMessage={loadError}
             isOpening={isOpening}
             isSender={isSender}
             onClose={close}
+            onClaimTransitionComplete={completeClaimTransition}
             onOpen={() => void claim()}
             onViewDetails={() => {
               setEnvelopeDetailOverrideAssetId(activeDetail.asset_id);
@@ -279,18 +292,22 @@ function RedPacketOpenEnvelope({
   detail,
   isSender,
   canOpen,
+  claimResultReady,
   isOpening,
   errorMessage,
   onClose,
+  onClaimTransitionComplete,
   onOpen,
   onViewDetails,
 }: {
   detail: ChatMoneyDetail;
   isSender: boolean;
   canOpen: boolean;
+  claimResultReady: boolean;
   isOpening: boolean;
   errorMessage: string | null;
   onClose: () => void;
+  onClaimTransitionComplete: () => void;
   onOpen: () => void;
   onViewDetails: () => void;
 }) {
@@ -299,8 +316,10 @@ function RedPacketOpenEnvelope({
   const insets = useSafeAreaInsets();
   const [rotation] = useState(() => new Animated.Value(0));
   const [entrance] = useState(() => new Animated.Value(0));
+  const [transitionBackdrop] = useState(() => new Animated.Value(0));
   const animationRef = useRef<Animated.CompositeAnimation | null>(null);
   const isDismissingRef = useRef(false);
+  const claimTransitionCompleteRef = useRef(onClaimTransitionComplete);
   const envelopeWidth = Math.min(width - chatMoneyDetailPolicy.envelopeHorizontalMargin * 2, chatMoneyDetailPolicy.envelopeMaximumWidth);
   const usableHeight = height - insets.top - insets.bottom;
   const envelopeHeight = Math.min(Math.max(usableHeight * chatMoneyDetailPolicy.envelopeHeightRatio, chatMoneyDetailPolicy.envelopeMinimumHeight), chatMoneyDetailPolicy.envelopeMaximumHeight);
@@ -333,12 +352,40 @@ function RedPacketOpenEnvelope({
     return () => animationRef.current?.stop();
   }, [isOpening, rotation]);
 
+  useEffect(() => {
+    claimTransitionCompleteRef.current = onClaimTransitionComplete;
+  }, [onClaimTransitionComplete]);
+
+  useEffect(() => {
+    if (!claimResultReady || isDismissingRef.current) return;
+    isDismissingRef.current = true;
+    entrance.stopAnimation();
+    animationRef.current?.stop();
+    const transition = Animated.parallel([
+      Animated.timing(transitionBackdrop, {
+        duration: 190,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.timing(entrance, {
+        duration: 190,
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]);
+    transition.start(({ finished }) => {
+      if (finished) claimTransitionCompleteRef.current();
+    });
+    return () => transition.stop();
+  }, [claimResultReady, entrance, transitionBackdrop]);
+
   const waiting = isSender && detail.mode === "exclusive"
     ? t("chatMoney.redPacket.waitingForExclusiveRecipient")
     : t("chatMoney.redPacket.waitingForRecipient");
   const dismiss = (completion: () => void) => {
     if (isDismissingRef.current) return;
     isDismissingRef.current = true;
+    entrance.stopAnimation();
     Animated.timing(entrance, {
       duration: 140,
       toValue: 0,
@@ -347,6 +394,14 @@ function RedPacketOpenEnvelope({
   };
   return (
     <View style={styles.envelopeBackdrop}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFill,
+          styles.claimTransitionBackdrop,
+          { opacity: transitionBackdrop },
+        ]}
+      />
       <Animated.View
         style={[
           styles.envelopeStack,
@@ -404,7 +459,7 @@ function RedPacketOpenEnvelope({
             </Pressable>
           </View>
         </View>
-        <Pressable accessibilityLabel={t("common.close")} onPress={() => dismiss(onClose)} style={styles.closeCircle}>
+        <Pressable accessibilityLabel={t("common.close")} disabled={isOpening} onPress={() => dismiss(onClose)} style={styles.closeCircle}>
           <SymbolView name="xmark" size={19} weight="medium" tintColor="rgba(244,212,155,0.92)" />
         </Pressable>
       </Animated.View>
@@ -440,14 +495,36 @@ function RedPacketDetailContent({ detail, ownerId, onBack, onOpenWallet, onOpenB
   const { t } = useLocalization();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [detailEntrance] = useState(() => new Animated.Value(0));
   const headerHeight = chatMoneyDetailPolicy.headerHeight + insets.top;
   const headerCurveStart = 115 + insets.top;
   const claimed = detail.viewer_claim_amount;
   const summary = detail.claimed_count !== undefined && detail.packet_count !== undefined
     ? t("chatMoney.redPacket.summary", detail.claimed_count, detail.packet_count)
     : t("chatMoney.redPacket.claims");
+
+  useEffect(() => {
+    const animation = Animated.timing(detailEntrance, {
+      duration: 180,
+      toValue: 1,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [detail.asset_id, detailEntrance]);
+
   return (
-    <View style={styles.redDetailRoot}>
+    <Animated.View
+      style={[
+        styles.redDetailRoot,
+        {
+          opacity: detailEntrance,
+          transform: [{
+            translateY: detailEntrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }),
+          }],
+        },
+      ]}
+    >
       <View style={[styles.redHeader, { height: headerHeight }] }>
         <Svg height={headerHeight} width="100%">
           <Path d={`M0 0 H${width} V${headerCurveStart} Q${width / 2} ${headerHeight} 0 ${headerCurveStart} Z`} fill={chatMoneyTheme.envelopeRed} />
@@ -507,7 +584,7 @@ function RedPacketDetailContent({ detail, ownerId, onBack, onOpenWallet, onOpenB
           </View>
         ) : null}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -657,6 +734,7 @@ const styles = StyleSheet.create({
   detailSafeArea: { backgroundColor: "#FFFFFF", flex: 1 },
   overlayLoading: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
   envelopeBackdrop: { alignItems: "center", backgroundColor: "transparent", flex: 1, justifyContent: "center" },
+  claimTransitionBackdrop: { backgroundColor: "#FFFFFF" },
   envelopeStack: { alignItems: "center", gap: 22 },
   envelope: { backgroundColor: chatMoneyTheme.envelopeRed, borderRadius: chatMoneyDetailPolicy.envelopeRadius, overflow: "hidden", shadowColor: "#000000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.26, shadowRadius: 24 },
   envelopeFold: { bottom: 0, left: 0, position: "absolute" },

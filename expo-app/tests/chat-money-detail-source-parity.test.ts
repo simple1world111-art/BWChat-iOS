@@ -39,4 +39,13 @@ describe("chat-money detail presentation parity", () => {
     expect(detail).not.toContain("isOpening ? <ActivityIndicator");
     expect(detail).not.toContain("isProcessing ? <ActivityIndicator");
   });
+
+  it("crossfades a claimed envelope into the red-packet detail screen", () => {
+    expect(detail).toContain("setPendingClaimResult(result)");
+    expect(detail).toContain("claimResultReady={pendingClaimResult !== null}");
+    expect(detail).toContain("Animated.parallel([");
+    expect(detail).toContain("styles.claimTransitionBackdrop");
+    expect(detail).toContain("claimTransitionCompleteRef.current()");
+    expect(detail).toContain("Animated.timing(detailEntrance");
+  });
 });
