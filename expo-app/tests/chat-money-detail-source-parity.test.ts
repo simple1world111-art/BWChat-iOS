@@ -26,4 +26,13 @@ describe("chat-money detail presentation parity", () => {
   it("does not render stale detail from a previously selected money message", () => {
     expect(detail).toContain("detail?.asset_id === initialPayload.asset_id ? detail : null");
   });
+
+  it("gives claim actions immediate feedback without replacing their labels with spinners", () => {
+    expect(detail).toContain("onPressIn={triggerMoneyActionPressFeedback}");
+    expect(detail).toContain("claimInFlightRef.current");
+    expect(detail).toContain("transferInFlightRef.current");
+    expect(detail).toContain("pressed && styles.moneyActionPressed");
+    expect(detail).not.toContain("isOpening ? <ActivityIndicator");
+    expect(detail).not.toContain("isProcessing ? <ActivityIndicator");
+  });
 });

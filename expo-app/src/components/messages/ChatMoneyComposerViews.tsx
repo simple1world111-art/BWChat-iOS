@@ -68,6 +68,10 @@ interface LoadedGroupContext {
   recipients: ChatMoneyRecipient[];
 }
 
+function triggerMoneyActionPressFeedback() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+}
+
 export function ChatMoneyComposerModal({
   visible,
   ownerId,
@@ -333,6 +337,7 @@ export function ChatMoneyComposerModal({
               amountText={amountText}
               errorMessage={errorMessage}
               isBusy={isLoading || isSubmitting}
+              isSubmitting={isSubmitting}
               isGroup={isGroup}
               maxGreetingLength={configuration.limits.maximum_greeting_length}
               memberCount={isGroup ? recipients.length + 1 : 1}
@@ -386,6 +391,7 @@ export function ChatMoneyComposerModal({
             amountText={amountText}
             errorMessage={errorMessage}
             isBusy={isLoading || isSubmitting}
+            isSubmitting={isSubmitting}
             maxNoteLength={configuration.limits.maximum_transfer_note_length}
             noteText={messageText}
             onAppendDigit={appendTransferDigit}
@@ -406,6 +412,7 @@ function ReferenceTransferComposer({
   amountText,
   errorMessage,
   isBusy,
+  isSubmitting,
   maxNoteLength,
   noteText,
   recipient,
@@ -419,6 +426,7 @@ function ReferenceTransferComposer({
   amountText: string;
   errorMessage: string | null;
   isBusy: boolean;
+  isSubmitting: boolean;
   maxNoteLength: number;
   noteText: string;
   recipient: ChatMoneyRecipient;
@@ -492,6 +500,7 @@ function ReferenceTransferComposer({
           {!isEditingNote ? (
             <TransferCoinKeypad
               isBusy={isBusy}
+              isSubmitting={isSubmitting}
               onAppendDigit={onAppendDigit}
               onDeleteDigit={onDeleteDigit}
               onSubmit={onSubmit}
@@ -505,11 +514,13 @@ function ReferenceTransferComposer({
 
 function TransferCoinKeypad({
   isBusy,
+  isSubmitting,
   onAppendDigit,
   onDeleteDigit,
   onSubmit,
 }: {
   isBusy: boolean;
+  isSubmitting: boolean;
   onAppendDigit: (digit: string) => void;
   onDeleteDigit: () => void;
   onSubmit: () => void;
@@ -541,7 +552,12 @@ function TransferCoinKeypad({
           accessibilityState={{ disabled: isBusy }}
           disabled={isBusy}
           onPress={onSubmit}
-          style={styles.transferConfirmKey}
+          onPressIn={triggerMoneyActionPressFeedback}
+          style={({ pressed }) => [
+            styles.transferConfirmKey,
+            isSubmitting && styles.moneyActionPending,
+            pressed && styles.moneyActionPressed,
+          ]}
         >
           <Text style={styles.transferConfirmText}>{t("chatMoney.transfer.submit")}</Text>
         </Pressable>
@@ -657,6 +673,7 @@ function ReferenceRedPacketComposer({
   amountText,
   errorMessage,
   isBusy,
+  isSubmitting,
   isGroup,
   maxGreetingLength,
   memberCount,
@@ -676,6 +693,7 @@ function ReferenceRedPacketComposer({
   amountText: string;
   errorMessage: string | null;
   isBusy: boolean;
+  isSubmitting: boolean;
   isGroup: boolean;
   maxGreetingLength: number;
   memberCount: number;
@@ -828,7 +846,12 @@ function ReferenceRedPacketComposer({
                 accessibilityState={{ disabled: isBusy }}
                 disabled={isBusy}
                 onPress={onSubmit}
-                style={styles.referenceSubmitButton}
+                onPressIn={triggerMoneyActionPressFeedback}
+                style={({ pressed }) => [
+                  styles.referenceSubmitButton,
+                  isSubmitting && styles.moneyActionPending,
+                  pressed && styles.moneyActionPressed,
+                ]}
               >
                 <Text style={styles.referenceSubmitText}>{t("chatMoney.redPacket.submit")}</Text>
               </Pressable>
@@ -1297,6 +1320,8 @@ const styles = StyleSheet.create({
     width: 224,
   },
   referenceSubmitText: { color: "#FFFFFF", fontSize: 19, fontWeight: "600" },
+  moneyActionPending: { opacity: 0.9 },
+  moneyActionPressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
   referenceErrorText: { color: chatMoneyTheme.actionRed, fontSize: 13, marginTop: 12, textAlign: "center" },
   referenceFootnote: {
     color: "#77777A",

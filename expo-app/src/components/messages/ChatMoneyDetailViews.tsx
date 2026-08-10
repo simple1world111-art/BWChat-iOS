@@ -38,6 +38,10 @@ import {
   shouldShowRedPacketEnvelopeFromPayload,
 } from "@/services/messages/chatMoneyPolicy";
 
+function triggerMoneyActionPressFeedback() {
+  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+}
+
 export function ChatMoneyDetailModal({
   visible,
   ownerId,
@@ -69,6 +73,8 @@ export function ChatMoneyDetailModal({
   const [isOpening, setOpening] = useState(false);
   const [isProcessing, setProcessing] = useState(false);
   const generationRef = useRef(0);
+  const claimInFlightRef = useRef(false);
+  const transferInFlightRef = useRef(false);
 
   const load = async (force: boolean) => {
     if (!initialPayload) return;
@@ -141,11 +147,11 @@ export function ChatMoneyDetailModal({
     && (showsEnvelope || automaticallyShowsEnvelope);
 
   const claim = async () => {
-    if (!detail || isOpening) return;
+    if (!detail || isOpening || claimInFlightRef.current) return;
+    claimInFlightRef.current = true;
     setOpening(true);
     setLoadError(null);
     const startedAt = Date.now();
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const result = await claimChatMoneyRedPacket({
         ownerId,
@@ -164,11 +170,14 @@ export function ChatMoneyDetailModal({
       setLoadError(chatMoneyErrorText(error, t));
       setOpening(false);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      claimInFlightRef.current = false;
     }
   };
 
   const performTransfer = async (operation: "accept" | "return") => {
-    if (!detail || isProcessing) return;
+    if (!detail || isProcessing || transferInFlightRef.current) return;
+    transferInFlightRef.current = true;
     setProcessing(true);
     setLoadError(null);
     try {
@@ -181,6 +190,7 @@ export function ChatMoneyDetailModal({
     } catch (error) {
       setLoadError(chatMoneyErrorText(error, t));
     } finally {
+      transferInFlightRef.current = false;
       setProcessing(false);
     }
   };
@@ -317,11 +327,20 @@ function RedPacketOpenEnvelope({
             <Text numberOfLines={2} style={styles.envelopeGreeting}>{detail.greeting || t("chatMoney.redPacket.defaultGreeting")}</Text>
             <View style={styles.envelopeFlexibleSpace} />
             {canOpen ? (
-              <Pressable accessibilityLabel={t("chatMoney.redPacket.claimPrompt")} disabled={isOpening} onPress={onOpen}>
+              <Pressable
+                accessibilityLabel={t("chatMoney.redPacket.claimPrompt")}
+                disabled={isOpening}
+                onPress={onOpen}
+                onPressIn={triggerMoneyActionPressFeedback}
+                style={({ pressed }) => [
+                  isOpening && styles.moneyActionPending,
+                  pressed && styles.moneyActionPressed,
+                ]}
+              >
                 <Animated.View style={[styles.openButton, {
                   transform: [{ perspective: 700 }, { rotateY: rotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "720deg"] }) }],
                 }] }>
-                  {isOpening ? <ActivityIndicator color={chatMoneyTheme.envelopeDarkRed} /> : <Text style={styles.openText}>{t("chatMoney.redPacket.open")}</Text>}
+                  <Text style={styles.openText}>{t("chatMoney.redPacket.open")}</Text>
                 </Animated.View>
               </Pressable>
             ) : (
@@ -467,8 +486,16 @@ function TransferDetailContent({ detail, ownerId, isProcessing, errorMessage, on
         {pending ? (
           <View style={styles.transferActions}>
             {detail.can_accept ? (
-              <Pressable disabled={isProcessing} onPress={onAccept} style={styles.acceptButton}>
-                {isProcessing ? <ActivityIndicator color="#FFFFFF" /> : null}
+              <Pressable
+                disabled={isProcessing}
+                onPress={onAccept}
+                onPressIn={triggerMoneyActionPressFeedback}
+                style={({ pressed }) => [
+                  styles.acceptButton,
+                  isProcessing && styles.moneyActionPending,
+                  pressed && styles.moneyActionPressed,
+                ]}
+              >
                 <Text style={styles.acceptButtonText}>{t("chatMoney.transfer.acceptShort")}</Text>
               </Pressable>
             ) : null}
@@ -627,6 +654,8 @@ const styles = StyleSheet.create({
   transferActions: { gap: 24, paddingBottom: 36, paddingHorizontal: 42, width: "100%" },
   acceptButton: { alignItems: "center", backgroundColor: chatMoneyTheme.actionGreen, borderRadius: 8, flexDirection: "row", gap: 8, height: chatMoneyDetailPolicy.transferActionHeight, justifyContent: "center" },
   acceptButtonText: { color: "#FFFFFF", fontSize: 18, fontWeight: "500" },
+  moneyActionPending: { opacity: 0.9 },
+  moneyActionPressed: { opacity: 0.82, transform: [{ scale: 0.985 }] },
   expiryActionRow: { alignItems: "center", flexDirection: "row", gap: 3, justifyContent: "center" },
   expiryActionText: { color: chatMoneyTheme.secondary, fontSize: 14, textAlign: "center" },
   returnLink: { color: chatMoneyTheme.link, fontSize: 14 },

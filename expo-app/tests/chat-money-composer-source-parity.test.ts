@@ -111,4 +111,11 @@ describe("chat-money composer reference parity", () => {
     expect(composer).not.toContain("<ActivityIndicator");
     expect(composer).not.toContain("styles.submitBusy");
   });
+
+  it("gives red-packet and transfer submit actions immediate stable press feedback", () => {
+    expect(composer).toContain("onPressIn={triggerMoneyActionPressFeedback}");
+    expect(composer).toContain("isSubmitting && styles.moneyActionPending");
+    expect(composer).toContain("pressed && styles.moneyActionPressed");
+    expect(composer).toContain("isSubmitting={isSubmitting}");
+  });
 });
