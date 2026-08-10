@@ -450,6 +450,12 @@ function ReferenceTransferComposer({
 }) {
   const { t } = useLocalization();
   const [isEditingNote, setEditingNote] = useState(false);
+  const noteInputRef = useRef<TextInput>(null);
+  const activateAmountEntry = () => {
+    noteInputRef.current?.blur();
+    Keyboard.dismiss();
+    setEditingNote(false);
+  };
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
       <View style={styles.transferRecipientArea}>
@@ -474,15 +480,20 @@ function ReferenceTransferComposer({
       <View style={styles.transferFormPanel}>
         <View style={styles.transferFormContent}>
           <Text style={styles.transferAmountTitle}>{t("chatMoney.transfer.amountTitle")}</Text>
-          <View style={styles.transferAmountEntry}>
+          <Pressable
+            accessibilityLabel={t("chatMoney.transfer.amountTitle")}
+            accessibilityRole="button"
+            onPress={activateAmountEntry}
+            style={styles.transferAmountEntry}
+          >
             <GoldCoinIcon
               accessibilityLabel={t("wallet.currency.goldCoins")}
               size={44}
               style={styles.transferCoinIcon}
             />
             {amountText ? <Text style={styles.transferAmountText}>{amountText}</Text> : null}
-            <View style={styles.transferAmountCursor} />
-          </View>
+            {!isEditingNote ? <View style={styles.transferAmountCursor} /> : null}
+          </Pressable>
           <View style={styles.transferAmountDivider} />
           <TextInput
             maxLength={maxNoteLength}
@@ -491,6 +502,7 @@ function ReferenceTransferComposer({
             onFocus={() => setEditingNote(true)}
             placeholder={t("chatMoney.transfer.noteAction")}
             placeholderTextColor="#5C719B"
+            ref={noteInputRef}
             style={styles.transferNoteInput}
             value={noteText}
           />
@@ -727,7 +739,7 @@ function ReferenceRedPacketComposer({
       <ScrollView
         contentContainerStyle={styles.referenceScrollContent}
         keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         onScrollBeginDrag={Keyboard.dismiss}
         showsVerticalScrollIndicator={false}
         style={styles.flex}
@@ -1009,7 +1021,7 @@ async function loadGroupContext(
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   transferSafeArea: { backgroundColor: "#EFEFEF", flex: 1 },
-  transferRecipientArea: { backgroundColor: "#EFEFEF", height: 154 },
+  transferRecipientArea: { backgroundColor: "#EFEFEF", height: 126 },
   transferBackButton: {
     alignItems: "center",
     height: 50,
@@ -1021,11 +1033,11 @@ const styles = StyleSheet.create({
   },
   transferRecipientSummary: {
     alignItems: "center",
-    bottom: 18,
     flexDirection: "row",
     left: 32,
     position: "absolute",
     right: 32,
+    top: 52,
   },
   transferRecipientCopy: { flex: 1, gap: 4, marginRight: 18 },
   transferRecipientTitle: { color: "#111111", fontSize: 20, fontWeight: "600" },

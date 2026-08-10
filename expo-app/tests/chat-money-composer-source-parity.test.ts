@@ -58,6 +58,11 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain('t("chatMoney.transfer.account", accountId)');
     expect(composer).toContain('t("chatMoney.transfer.amountTitle")');
     expect(composer).toContain('t("chatMoney.transfer.noteAction")');
+    expect(composer).toContain("const activateAmountEntry = () =>");
+    expect(composer).toContain("noteInputRef.current?.blur()");
+    expect(composer).toContain("onPress={activateAmountEntry}");
+    expect(composer).toContain('transferRecipientArea: { backgroundColor: "#EFEFEF", height: 126 }');
+    expect(composer).toContain("top: 52");
   });
 
   it("shows group recipient selection before the group transfer amount page", () => {
@@ -84,6 +89,10 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain("paddingTop: insets.top");
     expect(composer).toContain("paddingBottom: insets.bottom");
     expect(composer).not.toContain("<SafeAreaView");
+  });
+
+  it("lets red-packet fields switch focus while the keyboard is visible", () => {
+    expect(composer).toContain('keyboardShouldPersistTaps="always"');
   });
 
   it("keeps validation, confirmation and the existing Gold Coin creation API", () => {
