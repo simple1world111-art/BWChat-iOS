@@ -1,4 +1,5 @@
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -7,18 +8,21 @@ import {
   ActionSheetIOS,
   Keyboard,
   KeyboardAvoidingView,
+  type ImageStyle,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { createIdempotencyKey, getGroupDetail } from "@/api/bwchat";
+import { nativeAssets } from "../../assets/nativeAssets";
 import { Avatar } from "@/components/Avatar";
 import type {
   ChatMoneyConfiguration,
@@ -82,6 +86,7 @@ export function ChatMoneyComposerModal({
   onCreated: (result: ChatMoneyCreationResult) => void;
 }) {
   const { t } = useLocalization();
+  const insets = useSafeAreaInsets();
   const clientMessageIdRef = useRef(createIdempotencyKey());
   const generationRef = useRef(0);
   const [configuration, setConfiguration] = useState<ChatMoneyConfiguration>(
@@ -330,7 +335,12 @@ export function ChatMoneyComposerModal({
         presentationStyle="fullScreen"
         visible={visible}
       >
-        <SafeAreaView edges={["top", "bottom"]} style={styles.referenceSafeArea}>
+        <View
+          style={[
+            styles.referenceSafeArea,
+            { paddingBottom: insets.bottom, paddingTop: insets.top },
+          ]}
+        >
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={styles.flex}
@@ -366,7 +376,7 @@ export function ChatMoneyComposerModal({
               visible={isRecipientPickerExpanded}
             />
           ) : null}
-        </SafeAreaView>
+        </View>
       </Modal>
     );
   }
@@ -375,7 +385,12 @@ export function ChatMoneyComposerModal({
   const showGroupRecipientSelection = source.kind === "group" && !transferRecipient;
   return (
     <Modal animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen" visible={visible}>
-      <SafeAreaView edges={["top", "bottom"]} style={styles.transferSafeArea}>
+      <View
+        style={[
+          styles.transferSafeArea,
+          { paddingBottom: insets.bottom, paddingTop: insets.top },
+        ]}
+      >
         {showGroupRecipientSelection ? (
           <TransferRecipientSelectionScreen
             onClose={onClose}
@@ -399,7 +414,7 @@ export function ChatMoneyComposerModal({
             recipient={transferRecipient}
           />
         ) : null}
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -460,7 +475,11 @@ function ReferenceTransferComposer({
         <View style={styles.transferFormContent}>
           <Text style={styles.transferAmountTitle}>{t("chatMoney.transfer.amountTitle")}</Text>
           <View style={styles.transferAmountEntry}>
-            <Text style={styles.transferCoinLabel}>{t("wallet.currency.goldCoins")}</Text>
+            <GoldCoinIcon
+              accessibilityLabel={t("wallet.currency.goldCoins")}
+              size={44}
+              style={styles.transferCoinIcon}
+            />
             {amountText ? <Text style={styles.transferAmountText}>{amountText}</Text> : null}
             <View style={styles.transferAmountCursor} />
           </View>
@@ -710,6 +729,8 @@ function ReferenceRedPacketComposer({
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         onScrollBeginDrag={Keyboard.dismiss}
+        showsVerticalScrollIndicator={false}
+        style={styles.flex}
       >
         <View style={styles.referenceBody}>
           <View style={styles.referenceForm}>
@@ -778,7 +799,11 @@ function ReferenceRedPacketComposer({
                   style={styles.referenceAmountInput}
                   value={amountText}
                 />
-                <Text style={styles.referenceCurrency}>{t("wallet.currency.goldCoins")}</Text>
+                <GoldCoinIcon
+                  accessibilityLabel={t("wallet.currency.goldCoins")}
+                  size={24}
+                  style={styles.referenceCurrencyIcon}
+                />
               </View>
             </View>
 
@@ -808,7 +833,11 @@ function ReferenceRedPacketComposer({
             <View style={styles.referencePaymentBlock}>
               <View style={styles.referenceTotalRow}>
                 <Text style={styles.referenceTotalNumber}>{Math.max(totalAmount, 0)}</Text>
-                <Text style={styles.referenceTotalCurrency}>{t("wallet.currency.goldCoins")}</Text>
+                <GoldCoinIcon
+                  accessibilityLabel={t("wallet.currency.goldCoins")}
+                  size={30}
+                  style={styles.referenceTotalCurrencyIcon}
+                />
               </View>
               <Pressable
                 accessibilityLabel={t("chatMoney.redPacket.submit")}
@@ -831,6 +860,27 @@ function ReferenceRedPacketComposer({
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+function GoldCoinIcon({
+  accessibilityLabel,
+  size,
+  style,
+}: {
+  accessibilityLabel: string;
+  size: number;
+  style?: StyleProp<ImageStyle>;
+}) {
+  return (
+    <Image
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="image"
+      contentFit="contain"
+      source={nativeAssets.walletGoldCoinBadge}
+      style={[{ height: size, width: size }, style]}
+      transition={0}
+    />
   );
 }
 
@@ -865,6 +915,7 @@ function RecipientSelectionModal({
   visible: boolean;
 }) {
   const { t } = useLocalization();
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState("");
   const close = () => {
     setSearch("");
@@ -880,7 +931,12 @@ function RecipientSelectionModal({
     : recipients;
   return (
     <Modal animationType="slide" onRequestClose={close} presentationStyle="fullScreen" visible={visible}>
-      <SafeAreaView edges={["top", "bottom"]} style={styles.recipientSelectionSafeArea}>
+      <View
+        style={[
+          styles.recipientSelectionSafeArea,
+          { paddingBottom: insets.bottom, paddingTop: insets.top },
+        ]}
+      >
         <View style={styles.recipientSelectionHeader}>
           <Pressable hitSlop={10} onPress={close} style={styles.recipientSelectionHeaderButton}>
             <Text style={styles.recipientSelectionCancel}>{t("common.cancel")}</Text>
@@ -911,7 +967,7 @@ function RecipientSelectionModal({
             </Pressable>
           ))}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
@@ -953,23 +1009,23 @@ async function loadGroupContext(
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   transferSafeArea: { backgroundColor: "#EFEFEF", flex: 1 },
-  transferRecipientArea: { backgroundColor: "#EFEFEF", height: 190 },
+  transferRecipientArea: { backgroundColor: "#EFEFEF", height: 154 },
   transferBackButton: {
     alignItems: "center",
-    height: 54,
+    height: 50,
     justifyContent: "center",
     left: 0,
     position: "absolute",
-    top: 4,
+    top: 0,
     width: 54,
   },
   transferRecipientSummary: {
     alignItems: "center",
-    bottom: 28,
+    bottom: 18,
     flexDirection: "row",
-    left: 40,
+    left: 32,
     position: "absolute",
-    right: 40,
+    right: 32,
   },
   transferRecipientCopy: { flex: 1, gap: 4, marginRight: 18 },
   transferRecipientTitle: { color: "#111111", fontSize: 20, fontWeight: "600" },
@@ -981,30 +1037,30 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: "hidden",
   },
-  transferFormContent: { flex: 1, paddingHorizontal: 39, paddingTop: 29 },
+  transferFormContent: { flex: 1, paddingHorizontal: 32, paddingTop: 22 },
   transferAmountTitle: { color: "#111111", fontSize: 17, fontWeight: "500" },
-  transferAmountEntry: { alignItems: "center", flexDirection: "row", height: 105 },
-  transferCoinLabel: { color: "#111111", fontSize: 38, fontWeight: "600" },
+  transferAmountEntry: { alignItems: "center", flexDirection: "row", height: 82 },
+  transferCoinIcon: { flexShrink: 0 },
   transferAmountText: {
     color: "#111111",
-    fontSize: 48,
+    fontSize: 44,
     fontWeight: "500",
     fontVariant: ["tabular-nums"],
     marginLeft: 14,
   },
-  transferAmountCursor: { backgroundColor: "#77E4B8", height: 75, marginLeft: 10, width: 2 },
+  transferAmountCursor: { backgroundColor: "#77E4B8", height: 58, marginLeft: 10, width: 2 },
   transferAmountDivider: { backgroundColor: "#E8E8E8", height: StyleSheet.hairlineWidth },
-  transferNoteInput: { color: "#111111", fontSize: 17, height: 56, padding: 0 },
+  transferNoteInput: { color: "#111111", fontSize: 17, height: 50, padding: 0 },
   transferErrorText: { color: chatMoneyTheme.actionRed, fontSize: 13, marginTop: 4 },
   transferKeypad: {
     backgroundColor: "#F1F1F1",
     flexDirection: "row",
-    gap: 8,
-    height: 292,
-    padding: 8,
+    gap: 6,
+    height: 270,
+    padding: 6,
   },
-  transferKeypadNumberArea: { flex: 3, gap: 8 },
-  transferKeypadRow: { flex: 1, flexDirection: "row", gap: 8 },
+  transferKeypadNumberArea: { flex: 3, gap: 6 },
+  transferKeypadRow: { flex: 1, flexDirection: "row", gap: 6 },
   transferKey: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
@@ -1020,7 +1076,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   transferKeyText: { color: "#111111", fontSize: 27, fontWeight: "500" },
-  transferKeypadActionArea: { flex: 1, gap: 8 },
+  transferKeypadActionArea: { flex: 1, gap: 6 },
   transferDeleteKey: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
@@ -1098,42 +1154,42 @@ const styles = StyleSheet.create({
   referenceHeader: {
     alignItems: "center",
     flexDirection: "row",
-    height: 58,
+    height: 52,
     justifyContent: "space-between",
   },
   referenceHeaderButton: {
     alignItems: "center",
-    height: 58,
+    height: 52,
     justifyContent: "center",
-    width: 58,
+    width: 54,
   },
   referenceHeaderTitle: { color: "#111111", fontSize: 21, fontWeight: "600" },
   referenceScrollContent: { flexGrow: 1 },
   referenceBody: { flex: 1 },
-  referenceForm: { paddingTop: 13 },
+  referenceForm: { paddingTop: 4 },
   referenceModeButton: {
     alignItems: "center",
     alignSelf: "flex-start",
     flexDirection: "row",
     gap: 7,
-    height: 42,
-    marginBottom: 14,
-    marginLeft: 40,
+    height: 36,
+    marginBottom: 6,
+    marginLeft: 32,
   },
   referenceModeText: { color: "#CE9A3C", fontSize: 17, fontWeight: "600" },
-  privateModeSpacer: { height: 8 },
+  privateModeSpacer: { height: 2 },
   referenceCardRow: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 7,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginHorizontal: 20,
-    minHeight: 68,
-    paddingHorizontal: 20,
+    marginHorizontal: 16,
+    minHeight: 56,
+    paddingHorizontal: 16,
   },
   referenceLabelWithIcon: { alignItems: "center", flexDirection: "row", gap: 11 },
-  referenceCardLabel: { color: "#111111", fontSize: 20, fontWeight: "400" },
+  referenceCardLabel: { color: "#111111", fontSize: 18, fontWeight: "400" },
   referenceCardValue: { alignItems: "center", flexDirection: "row", flex: 1, gap: 12, justifyContent: "flex-end", marginLeft: 16 },
   referenceRecipientName: { color: "#555555", flexShrink: 1, fontSize: 18 },
   referencePlaceholder: { color: "#C5C5C8", flexShrink: 1, fontSize: 18 },
@@ -1175,11 +1231,12 @@ const styles = StyleSheet.create({
   referenceUnit: { color: "#222222", fontSize: 19, marginLeft: 10 },
   referenceMemberHint: {
     color: "#8B8B8E",
-    fontSize: 17,
-    marginHorizontal: 40,
-    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 18,
+    marginHorizontal: 32,
+    marginTop: 6,
   },
-  referenceAmountCard: { marginTop: 16 },
+  referenceAmountCard: { marginTop: 10 },
   luckyBadge: {
     alignItems: "center",
     backgroundColor: "#C99A43",
@@ -1198,16 +1255,16 @@ const styles = StyleSheet.create({
     padding: 0,
     textAlign: "right",
   },
-  referenceCurrency: { color: "#C5C5C8", fontSize: 18, marginLeft: 7 },
+  referenceCurrencyIcon: { flexShrink: 0, marginLeft: 7 },
   referenceGreetingCard: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 7,
     flexDirection: "row",
-    marginHorizontal: 20,
-    marginTop: 14,
-    minHeight: 78,
-    paddingHorizontal: 20,
+    marginHorizontal: 16,
+    marginTop: 10,
+    minHeight: 64,
+    paddingHorizontal: 16,
   },
   referenceGreetingInput: {
     color: "#111111",
@@ -1232,44 +1289,44 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginHorizontal: 20,
-    marginTop: 14,
-    minHeight: 78,
-    paddingHorizontal: 20,
+    marginHorizontal: 16,
+    marginTop: 10,
+    minHeight: 56,
+    paddingHorizontal: 16,
   },
   referencePaymentArea: {
     flex: 1,
     justifyContent: "space-between",
-    minHeight: 390,
-    paddingBottom: 10,
-    paddingTop: 72,
+    minHeight: 236,
+    paddingBottom: 8,
+    paddingTop: 22,
   },
   referencePaymentBlock: { alignItems: "center" },
-  referenceTotalRow: { alignItems: "baseline", flexDirection: "row", gap: 8 },
+  referenceTotalRow: { alignItems: "center", flexDirection: "row" },
   referenceTotalNumber: {
     color: "#050505",
-    fontSize: 54,
+    fontSize: 46,
     fontWeight: "600",
     fontVariant: ["tabular-nums"],
     letterSpacing: -1.5,
   },
-  referenceTotalCurrency: { color: "#111111", fontSize: 19, fontWeight: "500" },
+  referenceTotalCurrencyIcon: { flexShrink: 0, marginLeft: 8 },
   referenceSubmitButton: {
     alignItems: "center",
     backgroundColor: "#FF5B47",
     borderRadius: 7,
     flexDirection: "row",
     gap: 8,
-    height: 57,
+    height: 50,
     justifyContent: "center",
-    marginTop: 34,
+    marginTop: 18,
     width: 224,
   },
   referenceSubmitText: { color: "#FFFFFF", fontSize: 19, fontWeight: "600" },
   referenceErrorText: { color: chatMoneyTheme.actionRed, fontSize: 13, marginTop: 12, textAlign: "center" },
   referenceFootnote: {
     color: "#77777A",
-    fontSize: 15,
+    fontSize: 13,
     paddingHorizontal: 24,
     textAlign: "center",
   },

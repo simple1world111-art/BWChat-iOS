@@ -43,6 +43,8 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain("styles.referenceTotalNumber");
     expect(composer).toContain("styles.referenceSubmitButton");
     expect(composer).toContain('t("wallet.currency.goldCoins")');
+    expect(composer).toContain("nativeAssets.walletGoldCoinBadge");
+    expect(composer).toContain("<GoldCoinIcon");
     expect(composer).toContain('"chatMoney.redPacket.refundNotice"');
     expect(composer).toContain('"chatMoney.redPacket.exclusiveVisibility"');
     expect(composer).not.toContain("¥");
@@ -73,7 +75,15 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain('onAppendDigit("0")');
     expect(composer).toContain('name="delete.left.fill"');
     expect(composer).toContain('t("wallet.currency.goldCoins")');
+    expect(composer).toContain("styles.transferCoinIcon");
     expect(composer).not.toContain('onAppendDigit(".")');
+  });
+
+  it("applies inherited safe-area insets to full-screen money modals", () => {
+    expect(composer).toContain("const insets = useSafeAreaInsets()");
+    expect(composer).toContain("paddingTop: insets.top");
+    expect(composer).toContain("paddingBottom: insets.bottom");
+    expect(composer).not.toContain("<SafeAreaView");
   });
 
   it("keeps validation, confirmation and the existing Gold Coin creation API", () => {
