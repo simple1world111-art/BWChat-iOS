@@ -960,6 +960,17 @@ export default function GroupChatScreen() {
     () => ({ kind: "group" as const, groupId, groupName: groupTitle }),
     [groupId, groupTitle],
   );
+  const moneyRecipients = useMemo(
+    () => groupMembers
+      .filter((member) => member.user_id !== ownerId)
+      .map((member) => ({
+        id: member.user_id,
+        name: member.nickname || member.user_id,
+        avatar_url: member.avatar_url,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
+    [groupMembers, ownerId],
+  );
 
   const mentionCandidates = useMemo(
     () =>
@@ -2288,7 +2299,7 @@ export default function GroupChatScreen() {
               }}
               onChooseMoney={(kind) => {
                 setPanel(null);
-                setMoneyComposerKind(kind);
+                requestAnimationFrame(() => setMoneyComposerKind(kind));
               }}
               onChooseCall={(callType) => {
                 setPanel(null);
@@ -2338,6 +2349,7 @@ export default function GroupChatScreen() {
         ) : null}
         {groupId > 0 && user?.user_id && moneyComposerKind ? (
           <ChatMoneyComposerModal
+            initialRecipients={moneyRecipients}
             kind={moneyComposerKind}
             onClose={() => setMoneyComposerKind(null)}
             onCreateFailed={(clientMessageId, message) => {
@@ -3035,7 +3047,11 @@ function PlusPanel({
         <Pressable
           key={item.title}
           onPress={item.action}
-          style={[styles.plusTile, { width: itemWidth }]}
+          style={({ pressed }) => [
+            styles.plusTile,
+            { width: itemWidth },
+            pressed && styles.plusTilePressed,
+          ]}
         >
           <View style={styles.plusIcon}>
             {item.moneyKind ? (
@@ -3397,6 +3413,7 @@ const styles = StyleSheet.create({
     rowGap: 18,
   },
   plusTile: { height: 76, alignItems: "center", rowGap: 6 },
+  plusTilePressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
   plusIcon: {
     width: 56,
     height: 56,

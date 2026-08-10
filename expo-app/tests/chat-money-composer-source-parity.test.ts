@@ -85,6 +85,15 @@ describe("chat-money composer reference parity", () => {
     expect(composer).toContain('maxFontSizeMultiplier={1.15}');
   });
 
+  it("virtualizes and incrementally renders the transfer recipient directory", () => {
+    expect(composer).toContain("<SectionList");
+    expect(composer).toContain("initialNumToRender={10}");
+    expect(composer).toContain("maxToRenderPerBatch={8}");
+    expect(composer).toContain("updateCellsBatchingPeriod={24}");
+    expect(composer).toContain('const chinesePinyinCollator = new Intl.Collator("zh-Hans-u-co-pinyin")');
+    expect(composer).toContain("sameTransferRecipients(current, nextRecipients)");
+  });
+
   it("uses an integer Gold Coin keypad with delete and transfer actions", () => {
     expect(composer).toContain("<TransferCoinKeypad");
     expect(composer).toContain('const rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]');

@@ -1795,7 +1795,7 @@ export default function ChatScreen() {
               }}
               onChooseMoney={(kind) => {
                 setActivePanel(null);
-                setMoneyComposerKind(kind);
+                requestAnimationFrame(() => setMoneyComposerKind(kind));
               }}
               onChooseCall={(callType) => {
                 setActivePanel(null);
@@ -2489,7 +2489,11 @@ function PlusPanel({
         <Pressable
           key={item.title}
           onPress={item.action}
-          style={[styles.plusTile, { width: itemWidth }]}
+          style={({ pressed }) => [
+            styles.plusTile,
+            { width: itemWidth },
+            pressed && styles.plusTilePressed,
+          ]}
         >
           <View style={styles.plusIconBox}>
             {item.moneyKind ? (
@@ -2809,6 +2813,7 @@ const styles = StyleSheet.create({
     rowGap: 18,
   },
   plusTile: { height: 76, alignItems: "center", rowGap: 6 },
+  plusTilePressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
   plusIconBox: {
     width: 56,
     height: 56,

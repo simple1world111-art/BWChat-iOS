@@ -12,6 +12,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   type StyleProp,
   StyleSheet,
   Text,
@@ -84,6 +85,7 @@ export function ChatMoneyComposerModal({
   ownerId,
   kind,
   source,
+  initialRecipients = [],
   onClose,
   onCreateFailed,
   onCreated,
@@ -93,6 +95,7 @@ export function ChatMoneyComposerModal({
   ownerId: string;
   kind: ChatMoneyKind;
   source: ChatMoneyConversationSource;
+  initialRecipients?: ChatMoneyRecipient[];
   onClose: () => void;
   onOpenWallet: () => void;
   onCreateFailed: (clientMessageId: string, message: string) => void;
@@ -108,7 +111,9 @@ export function ChatMoneyComposerModal({
     unavailableChatMoneyConfiguration,
   );
   const [balance, setBalance] = useState(0);
-  const [recipients, setRecipients] = useState<ChatMoneyRecipient[]>([]);
+  const [recipients, setRecipients] = useState<ChatMoneyRecipient[]>(() =>
+    source.kind === "fixed" ? [source.recipient] : initialRecipients,
+  );
   const [recipient, setRecipient] = useState<ChatMoneyRecipient | null>(null);
   const [isRecipientPickerExpanded, setRecipientPickerExpanded] = useState(false);
   const [mode, setMode] = useState<ChatMoneyRedPacketMode>(
@@ -141,22 +146,27 @@ export function ChatMoneyComposerModal({
       setLoading(true);
       setSubmitting(false);
 
+      const applyRecipients = (nextRecipients: ChatMoneyRecipient[]) => {
+        if (generation !== generationRef.current) return;
+        setRecipients((current) => sameTransferRecipients(current, nextRecipients) ? current : nextRecipients);
+      };
+      const groupContextPromise = source.kind === "group"
+        ? loadGroupContext(ownerId, source.groupId, generation, generationRef, applyRecipients)
+        : Promise.resolve<LoadedGroupContext>({
+          recipients: [source.recipient],
+        });
+      const configurationPromise = loadChatMoneyConfiguration(ownerId);
       const cachedBalance = await readCachedGiftWalletBalance(ownerId);
       if (generation !== generationRef.current) return;
       if (cachedBalance) setBalance(cachedBalance.gold_coin_balance);
 
-      const groupContextPromise = source.kind === "group"
-        ? loadGroupContext(ownerId, source.groupId, generation, generationRef)
-        : Promise.resolve<LoadedGroupContext>({
-          recipients: [source.recipient],
-        });
       const [nextConfiguration, groupContext] = await Promise.all([
-        loadChatMoneyConfiguration(ownerId),
+        configurationPromise,
         groupContextPromise,
       ]);
       if (generation !== generationRef.current) return;
       setConfiguration(nextConfiguration);
-      setRecipients(groupContext.recipients);
+      applyRecipients(groupContext.recipients);
 
       try {
         const nextBalance = await refreshGiftWalletBalance(ownerId);
@@ -639,25 +649,33 @@ function TransferRecipientSelectionScreen({
           />
         </View>
       </View>
-      <ScrollView keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled">
-        {sections.length === 0 ? (
+      <SectionList
+        initialNumToRender={10}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={(
           <View style={styles.transferSelectionEmpty}>
             <Text maxFontSizeMultiplier={1.15} style={styles.transferSelectionEmptyText}>{t("chatMoney.noRecipients")}</Text>
           </View>
-        ) : sections.map((section) => (
-          <View key={section.initial}>
-            <Text maxFontSizeMultiplier={1.15} style={styles.transferSelectionSectionTitle}>{section.initial}</Text>
-            {section.members.map((item) => (
-              <Pressable key={item.id} onPress={() => onSelect(item)} style={styles.transferSelectionRow}>
-                <Avatar name={item.name} size={40} uri={item.avatar_url} />
-                <View style={styles.transferSelectionNameCell}>
-                  <Text maxFontSizeMultiplier={1.15} numberOfLines={1} style={styles.transferSelectionName}>{item.name}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        ))}
-      </ScrollView>
+        )}
+        maxToRenderPerBatch={8}
+        renderItem={({ item }) => (
+          <Pressable onPress={() => onSelect(item)} style={styles.transferSelectionRow}>
+            <Avatar name={item.name} size={40} uri={item.avatar_url} />
+            <View style={styles.transferSelectionNameCell}>
+              <Text maxFontSizeMultiplier={1.15} numberOfLines={1} style={styles.transferSelectionName}>{item.name}</Text>
+            </View>
+          </Pressable>
+        )}
+        renderSectionHeader={({ section }) => (
+          <Text maxFontSizeMultiplier={1.15} style={styles.transferSelectionSectionTitle}>{section.initial}</Text>
+        )}
+        sections={sections}
+        stickySectionHeadersEnabled={false}
+        updateCellsBatchingPeriod={24}
+        windowSize={7}
+      />
       <View pointerEvents="none" style={styles.transferAlphabetIndex}>
         <SymbolView name="magnifyingglass" size={11} weight="semibold" tintColor="#555555" />
         {"ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split("").map((letter) => (
@@ -670,7 +688,7 @@ function TransferRecipientSelectionScreen({
 
 function groupTransferRecipients(recipients: ChatMoneyRecipient[]): {
   initial: string;
-  members: ChatMoneyRecipient[];
+  data: ChatMoneyRecipient[];
 }[] {
   const groups = new Map<string, ChatMoneyRecipient[]>();
   recipients.forEach((recipient) => {
@@ -683,17 +701,16 @@ function groupTransferRecipients(recipients: ChatMoneyRecipient[]): {
       if (right === "#") return -1;
       return left.localeCompare(right);
     })
-    .map(([initial, members]) => ({ initial, members }));
+    .map(([initial, data]) => ({ initial, data }));
 }
 
 function transferRecipientInitial(name: string): string {
   const first = name.trim().charAt(0).toUpperCase();
   if (/^[A-Z]$/u.test(first)) return first;
   if (!/\p{Script=Han}/u.test(first)) return "#";
-  const pinyinCollator = new Intl.Collator("zh-Hans-u-co-pinyin");
   let initial = "#";
   for (const [letter, boundary] of chinesePinyinBoundaries) {
-    if (pinyinCollator.compare(first, boundary) < 0) break;
+    if (chinesePinyinCollator.compare(first, boundary) < 0) break;
     initial = letter;
   }
   return initial;
@@ -706,6 +723,8 @@ const chinesePinyinBoundaries = [
   ["Q", "期"], ["R", "然"], ["S", "撒"], ["T", "塌"], ["W", "挖"],
   ["X", "昔"], ["Y", "压"], ["Z", "匝"],
 ] as const;
+
+const chinesePinyinCollator = new Intl.Collator("zh-Hans-u-co-pinyin");
 
 function ReferenceRedPacketComposer({
   amountText,
@@ -1030,26 +1049,53 @@ async function loadGroupContext(
   groupId: number,
   generation: number,
   generationRef: RefObject<number>,
+  onRecipients: (recipients: ChatMoneyRecipient[]) => void,
 ): Promise<LoadedGroupContext> {
   const cached = await loadCachedGroupDetail(ownerId, groupId);
   let members = cached?.members ?? [];
+  if (cached && generation === generationRef.current) {
+    onRecipients(chatMoneyRecipientsFromMembers(cached.members, ownerId));
+  }
   try {
     const detail = await getGroupDetail(groupId);
-    if (generation === generationRef.current) await saveCachedGroupDetail(ownerId, detail);
     members = detail.members;
+    if (generation === generationRef.current) {
+      onRecipients(chatMoneyRecipientsFromMembers(detail.members, ownerId));
+      await saveCachedGroupDetail(ownerId, detail);
+    }
   } catch {
     // Cache-first parity: retain the last group snapshot when refresh fails.
   }
   return {
-    recipients: members
-      .filter((member) => member.user_id !== ownerId)
-      .map((member) => ({
-        id: member.user_id,
-        name: member.nickname,
-        avatar_url: member.avatar_url,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+    recipients: chatMoneyRecipientsFromMembers(members, ownerId),
   };
+}
+
+function chatMoneyRecipientsFromMembers(
+  members: Awaited<ReturnType<typeof getGroupDetail>>["members"],
+  ownerId: string,
+): ChatMoneyRecipient[] {
+  return members
+    .filter((member) => member.user_id !== ownerId)
+    .map((member) => ({
+      id: member.user_id,
+      name: member.nickname,
+      avatar_url: member.avatar_url,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function sameTransferRecipients(
+  current: ChatMoneyRecipient[],
+  next: ChatMoneyRecipient[],
+): boolean {
+  return current.length === next.length && current.every((item, index) => {
+    const candidate = next[index];
+    return candidate !== undefined
+      && item.id === candidate.id
+      && item.name === candidate.name
+      && item.avatar_url === candidate.avatar_url;
+  });
 }
 
 const styles = StyleSheet.create({

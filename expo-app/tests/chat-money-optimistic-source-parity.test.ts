@@ -16,4 +16,18 @@ describe("chat-money optimistic timeline delivery", () => {
     expect(source).toContain("onCreateFailed=");
     expect(source).toContain("current.filter((item) => item.client_message_id !== clientMessageId)");
   });
+
+  it.each([
+    ["direct", direct],
+    ["group", group],
+  ])("starts the %s money modal after the plus panel leaves the current frame", (_name, source) => {
+    expect(source).toContain("requestAnimationFrame(() => setMoneyComposerKind(kind))");
+    expect(source).toContain("pressed && styles.plusTilePressed");
+    expect(source).toContain("plusTilePressed: { opacity: 0.72");
+  });
+
+  it("reuses the already loaded group member directory for the first transfer frame", () => {
+    expect(group).toContain("const moneyRecipients = useMemo(");
+    expect(group).toContain("initialRecipients={moneyRecipients}");
+  });
 });
