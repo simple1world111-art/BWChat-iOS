@@ -12,11 +12,7 @@
 "tab.contacts" = "通讯录";
 "tab.discover" = "发现";
 "tab.map" = "地图";
-"tab.test" = "测试";
 "tab.profile" = "我的";
-
-"test.card.title" = "测试卡片";
-"test.card.subtitle" = "点击进入并验证 Preview 热更新";
 
 "language.title" = "语言";
 "language.option.system" = "跟随系统";

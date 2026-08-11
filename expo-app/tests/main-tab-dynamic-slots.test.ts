@@ -39,14 +39,13 @@ describe("MainTab stable dynamic slot registry", () => {
     const requiredCore = [
       tab("messages", { type: "native", name: "messages" }),
       tab("discover", { type: "native", name: "discover" }),
-      tab("test", { type: "native", name: "test" }),
       tab("profile", { type: "native", name: "profile" }),
     ];
     const entries = resolveMainTabEntries([...remote, ...requiredCore]);
     expect(dynamicMainTabSlotCount).toBe(20);
-    expect(entries).toHaveLength(24);
+    expect(entries).toHaveLength(23);
     expect(entries.filter((entry) => entry.slotIndex !== undefined)).toHaveLength(20);
-    expect(new Set(entries.map((entry) => entry.routeName)).size).toBe(24);
+    expect(new Set(entries.map((entry) => entry.routeName)).size).toBe(23);
   });
 
   it("dispatches known native, screen, allowlisted web and placeholder roots in Swift order", () => {
@@ -61,7 +60,7 @@ describe("MainTab stable dynamic slot registry", () => {
         tab("test", { type: "native", name: "test" }),
         defaultWebViewPolicy,
       ),
-    ).toEqual({ kind: "native", name: "test" });
+    ).toEqual({ kind: "placeholder" });
     expect(
       resolveDynamicMainTabRoot(
         tab("help", { type: "screen", screenId: "help_center" }),

@@ -12,11 +12,7 @@
 "tab.contacts" = "Контакты";
 "tab.discover" = "Обзор";
 "tab.map" = "Карта";
-"tab.test" = "Тест";
 "tab.profile" = "Я";
-
-"test.card.title" = "Тестовая карточка";
-"test.card.subtitle" = "Нажмите, чтобы проверить обновление Preview";
 
 "language.title" = "Язык";
 "language.option.system" = "Как в системе";

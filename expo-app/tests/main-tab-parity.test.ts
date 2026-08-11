@@ -41,9 +41,9 @@ describe("MainTab source and contract parity", () => {
     ]) {
       expect(nativeModel).toContain(contract);
     }
-    expect(config).toContain('const hidden = new Set(["contacts"])');
+    expect(config).toContain('const hidden = new Set(["contacts", "test"])');
     expect(config).toContain("tab.minBuild");
-    expect(config).toContain('["messages", "discover", "test", "profile"]');
+    expect(config).toContain('["messages", "discover", "profile"]');
     expect(config).toContain("return merged.sort(compareTabs)");
     const didSelect = nativeTabs.slice(
       nativeTabs.indexOf("func tabBarController(\n            _ tabBarController"),
@@ -149,7 +149,7 @@ describe("MainTab source and contract parity", () => {
     expect(expo).toContain('contacts: "/contacts"');
     expect(expo).toContain('nearby: "/nearby"');
     expect(expo).toContain(
-      'const rootTabs = new Set<MainTabID>(["messages", "map", "discover", "test", "profile"])',
+      'const rootTabs = new Set<MainTabID>(["messages", "map", "discover", "profile"])',
     );
   });
 });

@@ -5,7 +5,6 @@ import ConversationsScreen from "@/app/(tabs)/conversations";
 import DiscoverScreen from "@/app/(tabs)/discover";
 import MapScreen from "@/app/(tabs)/map";
 import ProfileScreen from "@/app/(tabs)/profile";
-import TestScreen from "@/app/(tabs)/test";
 import { DynamicScreenContent } from "@/app/dynamic-screen/[id]";
 import { InAppWebContent } from "@/app/in-app-web";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -42,8 +41,6 @@ export function DynamicMainTabDescriptorRoot({ descriptor }: { descriptor: Dynam
         return <MapScreen />;
       case "discover":
         return <DiscoverScreen />;
-      case "test":
-        return <TestScreen />;
       case "profile":
         return <ProfileScreen />;
     }

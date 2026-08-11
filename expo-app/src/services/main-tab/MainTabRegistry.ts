@@ -4,13 +4,12 @@ import { policyAllowsURL, type WebViewPolicy } from "@/services/web/WebViewPolic
 
 export const dynamicMainTabSlotCount = 20;
 
-export type MainTabID = "messages" | "map" | "discover" | "test" | "profile";
+export type MainTabID = "messages" | "map" | "discover" | "profile";
 
 let activeRouteNameByTabID: Partial<Record<MainTabID, string>> = {
   messages: "conversations",
   map: "map",
   discover: "discover",
-  test: "test",
   profile: "profile",
 };
 
@@ -19,7 +18,6 @@ const staticRouteByNativeName: Readonly<Record<string, string>> = {
   map: "map",
   nearby: "map",
   discover: "discover",
-  test: "test",
   profile: "profile",
 };
 
@@ -32,7 +30,7 @@ export interface MainTabEntry {
 export type DynamicMainTabRootResolution =
   | {
       kind: "native";
-      name: "messages" | "map" | "nearby" | "discover" | "test" | "profile";
+      name: "messages" | "map" | "nearby" | "discover" | "profile";
     }
   | { kind: "screen"; screenId: string }
   | { kind: "web"; url: string }
@@ -103,7 +101,6 @@ export function resetActiveMainTabEntriesForTests(): void {
     messages: "conversations",
     map: "map",
     discover: "discover",
-    test: "test",
     profile: "profile",
   };
 }
@@ -134,7 +131,7 @@ export function resolveDynamicMainTabRoot(
   webViewPolicy: WebViewPolicy,
 ): DynamicMainTabRootResolution {
   const nativeName = normalizedTabName(descriptor);
-  if (["messages", "map", "nearby", "discover", "test", "profile"].includes(nativeName)) {
+  if (["messages", "map", "nearby", "discover", "profile"].includes(nativeName)) {
     return {
       kind: "native",
       name: nativeName as Extract<DynamicMainTabRootResolution, { kind: "native" }>["name"],
@@ -163,7 +160,7 @@ function normalizeToken(value: string): string {
 }
 
 function isMainTabID(value: string): value is MainTabID {
-  return ["messages", "map", "discover", "test", "profile"].includes(value);
+  return ["messages", "map", "discover", "profile"].includes(value);
 }
 
 function localizedMainTabText(

@@ -14,7 +14,6 @@ const nativeDestinations: Readonly<Record<string, Href>> = {
   contacts: "/contacts",
   map: "/(tabs)/map",
   discover: "/(tabs)/discover",
-  test: "/(tabs)/test" as Href,
   profile: "/(tabs)/profile",
   moments: "/moments",
   my_moments: { pathname: "/moments", params: { mode: "mine" } },
@@ -38,7 +37,7 @@ const nativeDestinations: Readonly<Record<string, Href>> = {
   script_center: "/script-center",
 };
 
-const rootTabs = new Set<MainTabID>(["messages", "map", "discover", "test", "profile"]);
+const rootTabs = new Set<MainTabID>(["messages", "map", "discover", "profile"]);
 
 export async function openDynamicRoute(
   route: DynamicRoute | undefined,

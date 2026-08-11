@@ -12,11 +12,7 @@
 "tab.contacts" = "通訊錄";
 "tab.discover" = "發現";
 "tab.map" = "地圖";
-"tab.test" = "測試";
 "tab.profile" = "我的";
-
-"test.card.title" = "測試卡片";
-"test.card.subtitle" = "點擊進入並驗證 Preview 熱更新";
 
 "language.title" = "語言";
 "language.option.system" = "跟隨系統";

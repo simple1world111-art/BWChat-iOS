@@ -36,23 +36,20 @@ describe("parseRemoteConfig", () => {
     ]);
   });
 
-  it("keeps the local test tab immediately before profile when remote tabs omit it", () => {
+  it("removes the retired test tab even when an older remote config still sends it", () => {
     const config = parseRemoteConfig({
       schema_version: 1,
-      config_version: "remote-tabs-without-test",
+      config_version: "remote-tabs-with-retired-test",
       tabs: [
         { id: "messages", order: 10, route: { type: "native", name: "messages" } },
         { id: "discover", order: 40, route: { type: "native", name: "discover" } },
+        { id: "test", order: 45, route: { type: "native", name: "test" } },
+        { id: "legacy-test", order: 46, route: { type: "native", name: "test" } },
         { id: "profile", order: 50, route: { type: "native", name: "profile" } },
       ],
     });
 
-    expect(effectiveTabs(config).map((tab) => tab.id)).toEqual([
-      "messages",
-      "discover",
-      "test",
-      "profile",
-    ]);
+    expect(effectiveTabs(config).map((tab) => tab.id)).toEqual(["messages", "discover", "profile"]);
   });
 
   it("uses remote contact modules but removes the native-disallowed agent duplicate", () => {

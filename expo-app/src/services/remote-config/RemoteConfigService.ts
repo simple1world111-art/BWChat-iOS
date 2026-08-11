@@ -366,7 +366,10 @@ function versionParts(value: string): number[] {
 
 export function effectiveTabs(config: RemoteConfig): DynamicTabDescriptor[] {
   const build = Number(Application.nativeBuildVersion ?? "0");
-  const hidden = new Set(["contacts"]);
+  // Contacts is intentionally a pushed screen. Test was a temporary Preview
+  // surface and must stay removed even if an older server config still sends
+  // either its descriptor id or native route name.
+  const hidden = new Set(["contacts", "test"]);
   const remote = config.tabs.filter((tab) => {
     const name = normalizedTabName(tab);
     return (
@@ -386,7 +389,7 @@ export function effectiveTabs(config: RemoteConfig): DynamicTabDescriptor[] {
     merged.push(tab);
   }
   for (const core of defaultTabs.filter((tab) =>
-    ["messages", "discover", "test", "profile"].includes(tab.id),
+    ["messages", "discover", "profile"].includes(tab.id),
   )) {
     const id = normalizeToken(core.id);
     if (seen.has(id)) continue;

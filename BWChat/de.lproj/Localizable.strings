@@ -12,11 +12,7 @@
 "tab.contacts" = "Kontakte";
 "tab.discover" = "Entdecken";
 "tab.map" = "Karte";
-"tab.test" = "Test";
 "tab.profile" = "Ich";
-
-"test.card.title" = "Testkarte";
-"test.card.subtitle" = "Tippen, um das Preview-Update zu prüfen";
 
 "language.title" = "Sprache";
 "language.option.system" = "System folgen";

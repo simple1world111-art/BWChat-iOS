@@ -12,11 +12,7 @@
 "tab.contacts" = "連絡先";
 "tab.discover" = "発見";
 "tab.map" = "マップ";
-"tab.test" = "テスト";
 "tab.profile" = "自分";
-
-"test.card.title" = "テストカード";
-"test.card.subtitle" = "タップして Preview アップデートを確認";
 
 "language.title" = "言語";
 "language.option.system" = "システムに従う";

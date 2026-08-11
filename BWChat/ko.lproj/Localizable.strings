@@ -12,11 +12,7 @@
 "tab.contacts" = "연락처";
 "tab.discover" = "발견";
 "tab.map" = "지도";
-"tab.test" = "테스트";
 "tab.profile" = "나";
-
-"test.card.title" = "테스트 카드";
-"test.card.subtitle" = "탭하여 Preview 업데이트를 확인하세요";
 
 "language.title" = "언어";
 "language.option.system" = "시스템 설정 따르기";

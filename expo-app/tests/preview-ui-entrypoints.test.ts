@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const source = (relativePath: string) => readFileSync(resolve(process.cwd(), relativePath), "utf8");
@@ -25,6 +25,24 @@ describe("Preview UI entrypoints", () => {
     expect(discover).not.toContain('testID="discover-test-card"');
     expect(discover).not.toContain("TEST_DISCOVER_ITEM");
     expect(discover).not.toContain('id: "test_entry"');
+  });
+
+  it("removes the retired test tab, card route and every native route registration", () => {
+    expect(existsSync(resolve(process.cwd(), "src/app/(tabs)/test.tsx"))).toBe(false);
+    expect(existsSync(resolve(process.cwd(), "src/app/test-card.tsx"))).toBe(false);
+    for (const relativePath of [
+      "src/app/(tabs)/_layout.tsx",
+      "src/components/main-tab/DynamicMainTabRoot.tsx",
+      "src/services/main-tab/MainTabRegistry.ts",
+      "src/services/remote-config/defaultConfig.ts",
+      "src/services/web/DynamicRouteNavigator.ts",
+    ]) {
+      const file = source(relativePath);
+      expect(file).not.toContain('route: "test"');
+      expect(file).not.toContain('name: "test"');
+      expect(file).not.toContain('"/(tabs)/test"');
+      expect(file).not.toContain('"/test-card"');
+    }
   });
 
   it("removes the ID capsule beside the profile nickname", () => {
