@@ -14,7 +14,7 @@ import {
   MomentUploadConfirmationUnknownError,
   MomentUploadOwnerChangedError,
 } from "@/services/moments/MomentBackgroundUpload";
-import { deleteMoment, getUserMoments } from "@/api/bwchat";
+import { deleteMoment, getMomentDetail, getUserMoments } from "@/api/bwchat";
 import { APIError } from "@/api/client";
 import { publishMomentMutation } from "@/services/moments/MomentMutationStore";
 
@@ -34,7 +34,11 @@ jest.mock("expo-file-system", () => ({
   Paths: { document: "file:///documents" },
 }));
 
-jest.mock("@/api/bwchat", () => ({ deleteMoment: jest.fn(), getUserMoments: jest.fn() }));
+jest.mock("@/api/bwchat", () => ({
+  deleteMoment: jest.fn(),
+  getMomentDetail: jest.fn(),
+  getUserMoments: jest.fn(),
+}));
 jest.mock("@/services/cache/ImageCacheService", () => ({ adoptLocalImageFile: jest.fn() }));
 jest.mock("@/services/cache/MediaCacheService", () => ({
   adoptLocalMediaFile: jest.fn(),
@@ -76,6 +80,8 @@ describe("CreateMoment upload lifecycle isolation", () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockActiveOwnerId = "owner-a";
+    jest.mocked(getMomentDetail).mockRejectedValue(new APIError("not found", 404));
+    jest.mocked(getUserMoments).mockRejectedValue(new APIError("offline", 0));
     await AsyncStorage.clear();
   });
 
@@ -227,6 +233,76 @@ describe("CreateMoment upload lifecycle isolation", () => {
       expect.arrayContaining([expect.stringContaining("bwchat.moment-outbox.v1")]),
     );
     unsubscribe();
+  });
+
+  it("confirms an incomplete create response by server id without a feed refresh", async () => {
+    const requestId = "confirmation-server-id";
+    const confirmed = moment(406, "owner-a", requestId);
+    jest.mocked(getMomentDetail).mockResolvedValueOnce(confirmed);
+    mockUploadMomentInBackground.mockRejectedValueOnce(
+      new MomentUploadConfirmationUnknownError("response was incomplete", confirmed.id),
+    );
+
+    await enqueueMomentUpload({
+      owner: user("owner-a"),
+      clientRequestId: requestId,
+      content: "旅行",
+      media: [],
+    });
+
+    await waitFor(() =>
+      expect(publishMomentMutation).toHaveBeenCalledWith("owner-a", {
+        kind: "created",
+        moment: confirmed,
+      }),
+    );
+    expect(getMomentDetail).toHaveBeenCalledWith(confirmed.id);
+    expect(getUserMoments).not.toHaveBeenCalled();
+    expect(mockUploadMomentInBackground).toHaveBeenCalledTimes(1);
+    await expect(AsyncStorage.getAllKeys()).resolves.not.toEqual(
+      expect.arrayContaining([expect.stringContaining("bwchat.moment-outbox.v1")]),
+    );
+  });
+
+  it("confirms an incomplete create response from the owner feed without a manual refresh", async () => {
+    const requestId = "confirmation-auto-feed";
+    mockUploadMomentInBackground.mockRejectedValueOnce(
+      new MomentUploadConfirmationUnknownError("response was incomplete"),
+    );
+    jest.mocked(getUserMoments).mockImplementationOnce(async () => {
+      const tempMoment = jest
+        .mocked(publishMomentMutation)
+        .mock.calls.flatMap(([, mutation]) =>
+          mutation.kind === "created" && mutation.moment.id < 0 ? [mutation.moment] : [],
+        )[0]!;
+      return {
+        moments: [
+          {
+            ...moment(407, "owner-a", requestId),
+            content: "旅行",
+            client_request_id: undefined,
+            created_at: tempMoment.created_at,
+          },
+        ],
+        has_more: false,
+      };
+    });
+
+    await enqueueMomentUpload({
+      owner: user("owner-a"),
+      clientRequestId: requestId,
+      content: "旅行",
+      media: [],
+    });
+
+    await waitFor(() =>
+      expect(publishMomentMutation).toHaveBeenCalledWith("owner-a", {
+        kind: "created",
+        moment: expect.objectContaining({ id: 407 }),
+      }),
+    );
+    expect(getUserMoments).toHaveBeenCalledWith("owner-a", { limit: 50 });
+    expect(mockUploadMomentInBackground).toHaveBeenCalledTimes(1);
   });
 
   it("checks the server instead of uploading again after confirmation becomes unknown", async () => {

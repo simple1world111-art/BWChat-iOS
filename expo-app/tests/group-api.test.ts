@@ -36,6 +36,7 @@ describe("native create-group API contract", () => {
       method: "POST",
       body: { name: "周末群", member_ids: ["7", "8"], is_public: true },
       requiredEnvelope: true,
+      requiredSuccessCode: true,
     });
   });
 

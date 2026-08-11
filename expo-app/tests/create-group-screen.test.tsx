@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
+import { Alert } from "react-native";
 
 import CreateGroupScreen from "@/app/create-group";
+import { APIError } from "@/api/client";
 import type { FollowUser, FollowUsersPage } from "@/models";
 import type { CreateGroupInput } from "@/services/groups/CreateGroupCoordinator";
 
@@ -12,6 +14,7 @@ const mockGetFollowing = jest.fn();
 const mockGetFollowers = jest.fn();
 const mockCreateGroupWithNativeRefresh = jest.fn();
 const mockT = (key: string, ...args: (string | number)[]) => [key, ...args].join("|");
+const mockAlert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
 
 jest.mock("expo-router", () => ({
   router: { back: (...args: unknown[]) => mockBack(...args) },
@@ -172,7 +175,17 @@ describe("CreateGroup native screen parity", () => {
   });
 
   it("keeps the page open after create failure", async () => {
-    mockCreateGroupWithNativeRefresh.mockResolvedValue(false);
+    mockCreateGroupWithNativeRefresh.mockRejectedValue(
+      new APIError(
+        "部分成员已不在你的粉丝列表中",
+        422,
+        {
+          code: "GROUP_MEMBER_NOT_ELIGIBLE",
+          message: "部分成员已不在你的粉丝列表中",
+        },
+        "GROUP_MEMBER_NOT_ELIGIBLE",
+      ),
+    );
     await render(<CreateGroupScreen />);
     await waitFor(() => expect(screen.getByText("Mutual")).toBeTruthy());
     await fireEvent.changeText(
@@ -186,6 +199,9 @@ describe("CreateGroup native screen parity", () => {
 
     await waitFor(() => expect(mockCreateGroupWithNativeRefresh).toHaveBeenCalledTimes(1));
     expect(mockBack).not.toHaveBeenCalled();
+    expect(mockAlert).toHaveBeenCalledWith("common.error", "部分成员已不在你的粉丝列表中", [
+      { text: "common.confirm", style: "cancel" },
+    ]);
     await waitFor(() => expect(screen.getByText("common.create")).toBeTruthy());
   });
 

@@ -348,6 +348,7 @@ export async function createGroup(
     method: "POST",
     body: { name, member_ids: [...memberIds], is_public: isPublic },
     requiredEnvelope: true,
+    requiredSuccessCode: true,
   });
 }
 

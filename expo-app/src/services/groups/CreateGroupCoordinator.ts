@@ -12,11 +12,7 @@ export type CreateGroupInput = {
 export async function createGroupWithNativeRefresh(input: CreateGroupInput): Promise<boolean> {
   const ownerId = input.ownerId.trim();
   if (!ownerId) return false;
-  try {
-    await createGroup(input.name, input.memberIds, input.isPublic);
-  } catch {
-    return false;
-  }
+  await createGroup(input.name, input.memberIds, input.isPublic);
   if (input.isOwnerCurrent && !input.isOwnerCurrent()) return true;
   try {
     await loadGroupsWithNativeCache(ownerId, getGroups);

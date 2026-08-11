@@ -3,6 +3,7 @@ import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   type LayoutChangeEvent,
   type NativeScrollEvent,
@@ -31,6 +32,7 @@ import {
   type GroupMemberSourceKind,
 } from "@/services/groups/GroupMemberSource";
 import { createGroupWithNativeRefresh } from "@/services/groups/CreateGroupCoordinator";
+import { createGroupErrorMessage } from "@/services/groups/CreateGroupPolicy";
 import { colors } from "@/theme";
 
 type MemberSource = GroupMemberSourceKind;
@@ -129,23 +131,36 @@ export default function CreateGroupScreen() {
     const operation = {};
     submissionRef.current = operation;
     if (mountedRef.current) setCreating(true);
-    const success = await createGroupWithNativeRefresh({
-      name: trimmedName,
-      memberIds: [...selectedMemberIds],
-      isPublic,
-      ownerId,
-      isOwnerCurrent: () =>
-        ownerGenerationRef.current === generation && displayedOwnerRef.current === ownerId,
-    });
+    let success = false;
+    let failed = false;
+    let failure: unknown;
+    try {
+      success = await createGroupWithNativeRefresh({
+        name: trimmedName,
+        memberIds: [...selectedMemberIds],
+        isPublic,
+        ownerId,
+        isOwnerCurrent: () =>
+          ownerGenerationRef.current === generation && displayedOwnerRef.current === ownerId,
+      });
+    } catch (error) {
+      failed = true;
+      failure = error;
+    }
     const isCurrentOwner =
       ownerGenerationRef.current === generation && displayedOwnerRef.current === ownerId;
     if (submissionRef.current === operation) submissionRef.current = null;
     if (mountedRef.current && isCurrentOwner) setCreating(false);
+    if (failed && isCurrentOwner && !dismissedRef.current) {
+      Alert.alert(t("common.error"), createGroupErrorMessage(failure, t), [
+        { text: t("common.confirm"), style: "cancel" },
+      ]);
+    }
     if (success && isCurrentOwner && !dismissedRef.current) {
       dismissedRef.current = true;
       router.back();
     }
-  }, [canCreate, isPublic, ownerId, selectedMemberIds, trimmedName]);
+  }, [canCreate, isPublic, ownerId, selectedMemberIds, t, trimmedName]);
 
   const dismiss = useCallback(() => {
     if (dismissedRef.current) return;

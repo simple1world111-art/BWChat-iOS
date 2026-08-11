@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Directory, File, Paths } from "expo-file-system";
 
-import { deleteMoment, getUserMoments } from "@/api/bwchat";
+import { deleteMoment, getMomentDetail, getUserMoments } from "@/api/bwchat";
 import { APIError } from "@/api/client";
 import { env } from "@/config/env";
 import type { Moment, MomentUploadAsset, User } from "@/models";
@@ -63,6 +63,7 @@ const statuses = new Map<string, MomentUploadStatus>();
 const inFlight = new Set<string>();
 const cancelled = new Set<string>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const confirmationTasks = new Map<string, Promise<void>>();
 
 export async function enqueueMomentUpload(input: {
   owner: User;
@@ -129,6 +130,8 @@ export async function resumeMomentUploads(
       const task = runJobAtScheduledTime(job);
       if (options.awaitCompletion) tasks.push(task);
       else void task;
+    } else if (job.state === "confirmation_unknown") {
+      void confirmUnknownMomentUpload(job.owner_id, job.id);
     }
   }
   if (tasks.length > 0) await Promise.allSettled(tasks);
@@ -140,12 +143,7 @@ export async function retryMomentUpload(clientRequestId: string): Promise<void> 
   const job = await readJobById(clientRequestId, activeOwnerId);
   if (!job || inFlight.has(momentUploadRuntimeKey(activeOwnerId, clientRequestId))) return;
   if (job.state === "confirmation_unknown") {
-    try {
-      const page = await getUserMoments(activeOwnerId, { limit: 50 });
-      await reconcileMomentUploads(activeOwnerId, page.moments);
-    } catch (error) {
-      await saveAndEmit({ ...job, last_error: errorMessage(error) });
-    }
+    await confirmUnknownMomentUpload(activeOwnerId, clientRequestId);
     return;
   }
   cancelled.delete(momentUploadRuntimeKey(activeOwnerId, clientRequestId));
@@ -202,6 +200,7 @@ export async function reconcileMomentUploads(
 
 export const momentUploadReconciliationPolicy = {
   fallbackWindowMilliseconds: 24 * 60 * 60 * 1_000,
+  confirmationRetryDelaysMilliseconds: [0, 750, 2_000] as const,
 } as const;
 
 /**
@@ -362,6 +361,7 @@ async function runJob(job: MomentUploadJob): Promise<void> {
   await saveAndEmit(preparing);
   let activeJob = preparing;
   let shouldResumeAfterOwnerChange = false;
+  let shouldConfirmUnknown = false;
   try {
     const confirmed = await uploadMomentInBackground(
       {
@@ -431,6 +431,7 @@ async function runJob(job: MomentUploadJob): Promise<void> {
         ...(error.serverMomentId ? { server_moment_id: error.serverMomentId } : {}),
         last_error: message,
       });
+      shouldConfirmUnknown = true;
     } else if (isTransient(error) && preparing.attempt_count < 5) {
       const delay = momentRetryDelayMilliseconds(preparing.attempt_count);
       const waiting: MomentUploadJob = {
@@ -450,7 +451,58 @@ async function runJob(job: MomentUploadJob): Promise<void> {
     if (shouldResumeAfterOwnerChange) {
       void resumeParkedOwnerJob(preparing.owner_id, preparing.id);
     }
+    if (shouldConfirmUnknown) {
+      void confirmUnknownMomentUpload(preparing.owner_id, preparing.id);
+    }
   }
+}
+
+async function confirmUnknownMomentUpload(ownerId: string, clientRequestId: string): Promise<void> {
+  const runtimeKey = momentUploadRuntimeKey(ownerId, clientRequestId);
+  const existing = confirmationTasks.get(runtimeKey);
+  if (existing) return existing;
+  const task = runUnknownMomentConfirmation(ownerId, clientRequestId).finally(() => {
+    confirmationTasks.delete(runtimeKey);
+  });
+  confirmationTasks.set(runtimeKey, task);
+  return task;
+}
+
+async function runUnknownMomentConfirmation(
+  ownerId: string,
+  clientRequestId: string,
+): Promise<void> {
+  for (const delay of momentUploadReconciliationPolicy.confirmationRetryDelaysMilliseconds) {
+    if (delay > 0) await waitForConfirmation(delay);
+    const job = await readJobById(clientRequestId, ownerId);
+    if (!job || job.state !== "confirmation_unknown") return;
+
+    try {
+      const candidates = await fetchMomentConfirmationCandidates(job);
+      const reconciled = await reconcileMomentUploads(ownerId, candidates);
+      if (reconciled.has(job.temp_moment.id)) return;
+    } catch (error) {
+      await saveAndEmit({ ...job, last_error: errorMessage(error) });
+      return;
+    }
+  }
+}
+
+async function fetchMomentConfirmationCandidates(job: MomentUploadJob): Promise<Moment[]> {
+  if (job.server_moment_id) {
+    try {
+      return [await getMomentDetail(job.server_moment_id)];
+    } catch {
+      // The detail read can briefly lag behind the successful create request.
+      // Fall back to the owner's first page before the next bounded retry.
+    }
+  }
+  const page = await getUserMoments(job.owner_id, { limit: 50 });
+  return page.moments;
+}
+
+function waitForConfirmation(delay: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
 async function resumeParkedOwnerJob(ownerId: string, clientRequestId: string): Promise<void> {

@@ -61,8 +61,9 @@ describe("native CreateGroup success coordinator", () => {
   });
 
   it("keeps the page open and skips list reload when create fails", async () => {
-    create.mockRejectedValue(new Error("create failed"));
-    await expect(createGroupWithNativeRefresh(input)).resolves.toBe(false);
+    const failure = new Error("create failed");
+    create.mockRejectedValue(failure);
+    await expect(createGroupWithNativeRefresh(input)).rejects.toBe(failure);
     expect(load).not.toHaveBeenCalled();
   });
 });
