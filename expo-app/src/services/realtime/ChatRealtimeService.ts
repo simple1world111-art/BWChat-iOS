@@ -25,6 +25,7 @@ import {
 import { verifySession } from "@/api/bwchat";
 import { env } from "@/config/env";
 import { applyConversationReadReceipt } from "@/services/conversations/ConversationRepository";
+import { recordConversationNotificationRead } from "@/services/conversations/ConversationNotificationReadState";
 import { applyGroupHistoryClear } from "@/services/messages/GroupHistoryClearRepository";
 import {
   applyGroupAnnouncementUpdate,
@@ -435,6 +436,12 @@ class ChatRealtimeService {
     if (event.type === "direct_message" || event.type === "group_message") {
       await persistChatRealtimeMessage(ownerId, event);
     } else if (event.type === "conversation_read") {
+      recordConversationNotificationRead(
+        ownerId,
+        event.receipt.conversation_type,
+        event.receipt.conversation_id,
+        event.receipt.read_through_message_id,
+      );
       await applyConversationReadReceipt(ownerId, event.receipt);
     } else if (event.type === "group_history_cleared") {
       await applyGroupHistoryClear(ownerId, event.receipt);

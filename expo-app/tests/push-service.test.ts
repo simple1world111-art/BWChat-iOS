@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 
 import { apiRequest } from "@/api/client";
+import { recordConversationNotificationRead } from "@/services/conversations/ConversationNotificationReadState";
 import { reconcileConversationSnapshot } from "@/services/conversations/ConversationRepository";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import {
@@ -29,6 +30,7 @@ import {
   requestPushPermission,
   resetPushServiceForTests,
   savePendingPushOpen,
+  setActivePushOwnerId,
   shouldAlertForGroupSettings,
   takePendingPushOpen,
   wasPushEventProcessed,
@@ -168,6 +170,12 @@ describe("native push service", () => {
       presentationPolicyForPush({ sender_id: "u2", notification_mode: "badge_only" }, active),
     ).toEqual(policy(false, false));
     expect(presentationPolicyForPush({ sender_id: "u2" }, active)).toEqual(policy(true, true));
+    expect(
+      presentationPolicyForPush(
+        { conversation_id: "server-thread-1", sender_id: "u1", message_id: 8 },
+        active,
+      ),
+    ).toEqual(policy(false, false));
   });
 
   it("builds conversation/moments open targets and leaves calls to CallProvider", () => {
@@ -259,6 +267,36 @@ describe("native push service", () => {
     expect(Notifications.setNotificationHandler).toHaveBeenCalledTimes(1);
     await applyPushSideEffects({ sender_id: "u1", total_unread_count: 8 });
     expect(Notifications.setBadgeCountAsync).toHaveBeenCalledWith(8);
+    expect(chatRealtimeService.requestConversationRefresh).toHaveBeenCalledWith(
+      "push_notification",
+    );
+  });
+
+  it("suppresses a delayed foreground push after its message was already read locally", async () => {
+    recordConversationNotificationRead("owner", "dm", "u1", 42);
+    setActivePushOwnerId("owner");
+    initializePushNotifications();
+    const handler = jest.mocked(Notifications.setNotificationHandler).mock.calls[0]?.[0];
+    const behavior = await handler?.handleNotification(
+      presented("late", {
+        conversation_id: "server-thread-1",
+        sender_id: "u1",
+        message_id: 42,
+        total_unread_count: 8,
+      }),
+    );
+
+    expect(behavior).toEqual(policy(false, false));
+    await applyPushSideEffects(
+      {
+        conversation_id: "server-thread-1",
+        sender_id: "u1",
+        message_id: 42,
+        total_unread_count: 8,
+      },
+      "owner",
+    );
+    expect(Notifications.setBadgeCountAsync).not.toHaveBeenCalled();
     expect(chatRealtimeService.requestConversationRefresh).toHaveBeenCalledWith(
       "push_notification",
     );

@@ -650,6 +650,11 @@ export default function GroupChatScreen() {
     const expectedSession = sessionKey;
     let active = true;
     const applyRealtimeMessage = async (message: GroupMessage) => {
+      const shouldReadImmediately =
+        message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current;
+      if (shouldReadImmediately) {
+        void markConversationRead(ownerId, "group", String(groupId), message.id);
+      }
       await preloadChatImagePreview(ownerId, message);
       if (!active || activeSessionRef.current !== expectedSession) return;
       if (hiddenMessageIdsRef.current.has(message.id)) return;
@@ -696,9 +701,6 @@ export default function GroupChatScreen() {
             );
           }
         }
-      }
-      if (message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current) {
-        void markConversationRead(ownerId, "group", String(groupId), message.id);
       }
     };
     const unsubscribe = chatRealtimeService.subscribe((event) => {

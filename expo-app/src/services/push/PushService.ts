@@ -5,6 +5,11 @@ import { Platform } from "react-native";
 import { apiRequest } from "@/api/client";
 import { conversationListIdentity } from "@/services/conversations/ConversationListPolicy";
 import { loadCachedConversationSnapshot } from "@/services/conversations/ConversationRepository";
+import {
+  conversationNotificationRouteIdentities,
+  hydrateAndCheckConversationNotificationRead,
+  resetConversationNotificationReadStateForTests,
+} from "@/services/conversations/ConversationNotificationReadState";
 import { loadCachedGroupDetail } from "@/services/groups/GroupDetailRepository";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { incrementMomentsUnread } from "@/services/moments/MomentsUnreadStore";
@@ -91,11 +96,14 @@ export function initializePushNotifications(): void {
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const input = notification.request.content.data;
+      const route = parseNotificationRoute(input);
       const policy = presentationPolicyForPush(input, {
         isConversationActive: (type, id) => chatRealtimeService.isConversationActive(type, id),
       });
       if (!policy.shouldShowBanner || !activePushOwnerId) return policy;
-      const route = parseNotificationRoute(input);
+      if (route && (await hydrateAndCheckConversationNotificationRead(activePushOwnerId, route))) {
+        return behavior(false, false);
+      }
       if (route?.conversationType !== "group" || !route.groupId) return policy;
       try {
         const config = await readCachedRemoteConfig(activePushOwnerId);
@@ -278,7 +286,16 @@ export function presentationPolicyForPush(
   if (type === "moments_update") return behavior(true, true);
   const route = parseNotificationRoute(payload);
   if (route?.notificationMode === "badge_only") return behavior(false, false);
-  if (route && context.isConversationActive(route.conversationType, route.conversationId))
+  if (
+    route &&
+    conversationNotificationRouteIdentities(route).some((identity) => {
+      const separator = identity.indexOf(":");
+      return context.isConversationActive(
+        identity.slice(0, separator) as NotificationConversationType,
+        identity.slice(separator + 1),
+      );
+    })
+  )
     return behavior(false, false);
   return behavior(true, true);
 }
@@ -366,13 +383,22 @@ export async function applyPushSideEffects(input: unknown, ownerId = ""): Promis
     incrementMomentsUnread(ownerId);
   }
   const route = parseNotificationRoute(input);
-  if (route?.totalUnreadCount !== undefined) {
+  const alreadyRead = route
+    ? await hydrateAndCheckConversationNotificationRead(ownerId, route)
+    : false;
+  if (alreadyRead && route?.messageId !== undefined) {
+    await dismissReadConversationNotifications(
+      route.conversationType,
+      route.conversationId,
+      route.messageId,
+    );
+  } else if (route?.totalUnreadCount !== undefined) {
     await Notifications.setBadgeCountAsync(Math.max(0, route.totalUnreadCount)).catch(() => false);
   }
   chatRealtimeService.requestConversationRefresh("push_notification");
 }
 
-/** Removes only delivered notifications covered by a successful chat read receipt. */
+/** Removes delivered notifications covered by a locally visible or server-confirmed read. */
 export async function dismissReadConversationNotifications(
   conversationType: NotificationConversationType,
   conversationId: string,
@@ -484,6 +510,7 @@ export function resetPushServiceForTests(): void {
   activePushOwnerId = "";
   pendingOpenMutationChain = Promise.resolve();
   claimedPushEventIds.clear();
+  resetConversationNotificationReadStateForTests();
 }
 
 async function readPendingOpenQueue(): Promise<PushOpenTarget[]> {

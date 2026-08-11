@@ -552,6 +552,11 @@ export default function ChatScreen() {
     const expectedSession = sessionKey;
     let active = true;
     const applyRealtimeMessage = async (message: Message) => {
+      const shouldReadImmediately =
+        message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current;
+      if (shouldReadImmediately) {
+        void markConversationRead(ownerId, "dm", id, message.id);
+      }
       await preloadChatImagePreview(ownerId, message);
       if (!active || activeSessionRef.current !== expectedSession) return;
       if (hiddenMessageIdsRef.current.has(message.id)) return;
@@ -588,9 +593,6 @@ export default function ChatScreen() {
             );
           }
         }
-      }
-      if (message.sender_id !== ownerId && screenActiveRef.current) {
-        void markConversationRead(ownerId, "dm", id, message.id);
       }
     };
     const unsubscribe = chatRealtimeService.subscribe((event) => {

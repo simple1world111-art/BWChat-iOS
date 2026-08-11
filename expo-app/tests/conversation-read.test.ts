@@ -185,9 +185,10 @@ describe("native conversation read-state contracts", () => {
     await markConversationRead("owner", "dm", "u2", 9);
     await markConversationRead("owner", "dm", "u2", 9);
     expect(request).toHaveBeenCalledTimes(4);
-    expect(dismissReadNotifications).toHaveBeenNthCalledWith(1, "dm", "u1", 41);
-    expect(dismissReadNotifications).toHaveBeenNthCalledWith(2, "dm", "u1", 42);
-    expect(dismissReadNotifications).toHaveBeenNthCalledWith(3, "dm", "u2", 9);
+    expect(dismissReadNotifications).toHaveBeenCalledTimes(6);
+    expect(dismissReadNotifications).toHaveBeenCalledWith("dm", "u1", 41);
+    expect(dismissReadNotifications).toHaveBeenCalledWith("dm", "u1", 42);
+    expect(dismissReadNotifications).toHaveBeenCalledWith("dm", "u2", 9);
   });
 
   it("supports the native script-room read request when no through-message id is known", async () => {

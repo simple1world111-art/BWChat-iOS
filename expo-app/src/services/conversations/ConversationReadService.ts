@@ -4,6 +4,11 @@ import {
   applyConversationReadReceipt,
   conversationReadIdentity,
 } from "@/services/conversations/ConversationRepository";
+import {
+  recordConversationNotificationRead,
+  resetConversationNotificationReadStateForAccount,
+  resetConversationNotificationReadStateForTests,
+} from "@/services/conversations/ConversationNotificationReadState";
 import { dismissReadConversationNotifications } from "@/services/push/PushService";
 
 const submittedThrough = new Map<string, number>();
@@ -29,6 +34,12 @@ export async function markConversationRead(
           ? await markGroupMessagesRead(Number(targetId))
           : await markDirectMessagesRead(targetId);
       if (receipt?.conversation_id.trim()) {
+        recordConversationNotificationRead(
+          ownerId,
+          type,
+          targetId,
+          receipt.read_through_message_id,
+        );
         await applyConversationReadReceipt(ownerId, receipt);
         await dismissReadConversationNotifications(type, targetId, receipt.read_through_message_id);
       }
@@ -37,8 +48,17 @@ export async function markConversationRead(
       return null;
     }
   }
+  recordConversationNotificationRead(ownerId, type, targetId, throughMessageId);
+  const notificationCleanup = dismissReadConversationNotifications(
+    type,
+    targetId,
+    throughMessageId,
+  );
   const previous = submittedThrough.get(identity);
-  if (previous !== undefined && throughMessageId <= previous) return null;
+  if (previous !== undefined && throughMessageId <= previous) {
+    await notificationCleanup;
+    return null;
+  }
   submittedThrough.set(identity, throughMessageId);
   try {
     const receipt =
@@ -46,11 +66,16 @@ export async function markConversationRead(
         ? await markGroupMessagesRead(Number(targetId), { throughMessageId })
         : await markDirectMessagesRead(targetId, { throughMessageId });
     if (receipt?.conversation_id.trim()) {
+      recordConversationNotificationRead(ownerId, type, targetId, receipt.read_through_message_id);
       await applyConversationReadReceipt(ownerId, receipt);
-      await dismissReadConversationNotifications(type, targetId, receipt.read_through_message_id);
+      await notificationCleanup;
+      if (receipt.read_through_message_id > throughMessageId) {
+        await dismissReadConversationNotifications(type, targetId, receipt.read_through_message_id);
+      }
     }
     return receipt;
   } catch {
+    await notificationCleanup;
     if (submittedThrough.get(identity) === throughMessageId) {
       if (previous === undefined) submittedThrough.delete(identity);
       else submittedThrough.set(identity, previous);
@@ -65,10 +90,12 @@ export function resetConversationReadSubmissionForAccount(ownerId: string): void
   for (const identity of submittedThrough.keys()) {
     if (identity.startsWith(ownerPrefix)) submittedThrough.delete(identity);
   }
+  resetConversationNotificationReadStateForAccount(ownerId);
 }
 
 export function resetConversationReadSubmissionForTests(): void {
   submittedThrough.clear();
+  resetConversationNotificationReadStateForTests();
 }
 
 function validMessageId(value: number | undefined): value is number {

@@ -39,9 +39,8 @@ describe("push source parity", () => {
     expect(bootstrap).toContain('pathname: "/group-chat/[id]"');
     expect(bootstrap).toContain("messageId: String(route.messageId)");
     expect(service).toContain('route?.notificationMode === "badge_only"');
-    expect(service).toContain(
-      "context.isConversationActive(route.conversationType, route.conversationId)",
-    );
+    expect(service).toContain("conversationNotificationRouteIdentities(route)");
+    expect(service).toContain("hydrateAndCheckConversationNotificationRead");
     expect(service).toContain("callPushTypes.has(type)");
     for (const file of ["src/app/chat/[id].tsx", "src/app/group-chat/[id].tsx"]) {
       const screen = read(file);

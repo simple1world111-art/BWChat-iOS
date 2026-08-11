@@ -1,6 +1,6 @@
 # BBchat 后端：通知 / 会话摘要 / 消息详情一致性修复 Prompts
 
-以下 3 个 prompt 可分别执行，也可按 P0 → P1 → P2 顺序交给同一个后端 Agent。要求 Agent 直接检查并修改后端代码、迁移与测试，不只给方案。
+以下 4 个 prompt 可分别执行，也可按 P0 → P1 → P2 → P3 顺序交给同一个后端 Agent。要求 Agent 直接检查并修改后端代码、迁移与测试，不只给方案。
 
 ## P0：修复“外面看到新消息，进入详情却没有”的读写一致性
 
@@ -79,4 +79,28 @@ APNs：
 - 记录并断言 media_uploaded_at、media_ready_at、message_committed_at、event_enqueued_at、push_sent_at 的单调顺序。
 
 完成后给出根因、状态机、修改文件/迁移、失败补偿逻辑、测试结果及灰度/回滚方案。
+```
+
+## P3：取消已经读到的迟到 Push，只通知真正未读消息
+
+```text
+请直接修复 BBchat 后端“WebSocket 消息已被用户看到并标记已读，但稍后仍收到 APNs 弹窗”的竞态，并提交 worker、数据模型/迁移、指标与自动化测试。目标：普通聊天 APNs 只代表发送时仍未读的 canonical message；WebSocket 继续实时，不因 Push 防抖而延迟。
+
+必须实现：
+1. 消息事务提交后立即发送 WebSocket，但普通聊天 Push 使用可取消的延迟任务，建议 grace window 500–1000ms；不要在请求线程同步等待。
+2. Push worker 真正调用 APNs 前，必须以 recipient_id + conversation_type + conversation_id 读取权威 read_through_message_id。若 read_through_message_id >= message_id，任务标记 cancelled_read，不得调用 APNs。
+3. 已读接口成功提交后，应按 recipient + conversation 批量取消 message_id <= read_through_message_id 的 pending Push 任务。取消与 worker 抢占必须使用条件更新/行锁，保证最多一个终态：sent、cancelled_read 或 failed；禁止“先查未读、随后已读、仍继续发送”的 TOCTOU。
+4. Push 幂等键固定为 recipient_id + conversation_type + conversation_id + message_id + version；worker 重试不能重复发送。新 version 不能重新通知已经读过的 message_id，除非是明确允许的业务提醒类型。
+5. APNs payload 必须包含 canonical message_id、conversation_type、可直接打开的 conversation_id、sender_id、unread_count、total_unread_count、conversation_revision、sent_at 和 event_id。direct 的 conversation_id 必须是接收者视角下的对端用户 ID，不能使用内部 thread UUID。
+6. unread_count/total_unread_count 必须在发送前重新读取或由同一权威事务生成，禁止把消息创建时的旧未读数长期保存在延迟任务里。
+7. 通话邀请、红包到期等强时效业务不套用普通聊天 grace window；请用明确的 push_type 白名单区分，不要靠缺字段猜测。
+
+验收测试：
+- direct/group：WebSocket 到达后在 grace window 内提交已读，断言 APNs client 从未被调用，任务终态为 cancelled_read。
+- 已读恰好与 worker 并发，循环压测至少 1000 次，不得出现 read_through_message_id >= message_id 后仍 sent。
+- 未读消息超过 grace window 正常发送且只发送一次；APNs 失败重试不重复。
+- 多设备同账号任一设备提交已读后，其他设备不再收到该消息的待发送 Push。
+- 输出指标：message_committed_at、websocket_sent_at、read_committed_at、push_claimed_at、push_sent_at/cancelled_at、cancel_reason，并统计 websocket_to_push、read_cancel_rate、late_push_after_read_count；late_push_after_read_count 必须为 0。
+
+完成后请给出：根因、状态机/锁策略、修改文件与迁移、最终 Push payload、测试命令和结果、灰度参数（grace window）及回滚方案。
 ```
