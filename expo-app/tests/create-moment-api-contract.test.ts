@@ -38,7 +38,7 @@ describe("CreateMoment API and durable upload contract", () => {
     expect(transport).toContain("result.status === 401 && !didRefresh");
     expect(transport).toContain("refreshAccessToken()");
     expect(transport).toContain("decodeSuccessfulPayload<unknown>(payload, status, true, true)");
-    expect(transport).toContain("decodeMomentBackgroundUploadResponse(payload, result.status)");
+    expect(transport).toContain("decodeMomentBackgroundUploadResponse(payload, result.status, {");
     expect(transport).toContain("result.status < 200 || result.status >= 300");
     expect(transport).toContain("MomentUploadConfirmationUnknownError");
     expect(transport).toContain("latestProgress.bytesSent >= latestProgress.totalBytes");

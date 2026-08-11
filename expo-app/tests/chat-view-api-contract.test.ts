@@ -40,7 +40,13 @@ describe("direct ChatView API wrapper contract", () => {
     );
 
     for (const operation of directMutationOperations()) {
-      request.mockResolvedValueOnce(message());
+      request.mockResolvedValueOnce(
+        operation.path === "/chat/messages/image"
+          ? { ...message(), msg_type: "image", content: "/media/image.jpg" }
+          : operation.path === "/chat/messages/video"
+            ? { ...message(), msg_type: "video", content: "/media/video.mp4" }
+            : message(),
+      );
       await operation.run();
       expect(request).toHaveBeenLastCalledWith(
         operation.path,

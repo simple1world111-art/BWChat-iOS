@@ -24,14 +24,15 @@ describe("native chat composer surface parity", () => {
     expect(expoSurface).toContain("chatComposerSurfacePolicy.toggleSymbolSize");
   });
 
-  it("keeps the 250ms height/background transition and native background layers", () => {
+  it("keeps the 250ms height transition and uses an opaque keyboard backing surface", () => {
     expect(nativeDirect).toContain("Animation.easeInOut(duration: 0.25)");
     expect(nativeGroup).toContain("Animation.easeInOut(duration: 0.25)");
     expect(expoSurface).toContain("chatComposerSurfacePolicy.transitionDurationMs");
     expect(expoSurface).toContain("Easing.inOut(Easing.ease)");
-    expect(expoSurface).toContain('"rgba(255,255,255,0.82)"');
-    expect(expoSurface).toContain('"rgba(255,255,255,0.96)"');
+    expect(expoSurface).toContain("colors={[colors.card, colors.card]}");
     expect(expoSurface).toContain('backgroundColor: "rgba(242,242,247,0.98)"');
+    expect(expoSurface).toContain("keyboardHost: { backgroundColor: colors.card }");
+    expect(expoSurface).toContain("chatComposerBottomInset(");
   });
 
   it("routes both direct and group composers through the shared host and buttons", () => {
@@ -39,6 +40,7 @@ describe("native chat composer surface parity", () => {
       expect(file).toContain("<ChatComposerPanelHost");
       expect(file).toContain("<ChatComposerPanelToggleButton");
       expect(file).toContain("<ChatComposerSurfaceBackground");
+      expect(file).toContain("keyboardInset={keyboardLayout.inset}");
       expect(file).toContain('activeSystemName="face.smiling.fill"');
       expect(file).toContain('activeSystemName="xmark.circle.fill"');
     }
@@ -47,7 +49,7 @@ describe("native chat composer surface parity", () => {
   it("keeps the chat wallpaper outside keyboard and custom-panel resizing", () => {
     for (const file of [expoDirect, expoGroup]) {
       expect(file).toMatch(
-        /<View style=\{styles\.screen\}>\s*<ChatBackgroundLayer[\s\S]*?<ChatKeyboardAvoidingView style=\{styles\.chatContent\}>/u,
+        /<View style=\{styles\.screen\}>\s*<ChatBackgroundLayer[\s\S]*?<ChatKeyboardAvoidingView[\s\S]*?style=\{styles\.chatContent\}>/u,
       );
       expect(file).not.toMatch(/<View style=\{styles\.timelineSurface\}>\s*<ChatBackgroundLayer/u);
       expect(file).toContain("chatContent: { flex: 1 }");

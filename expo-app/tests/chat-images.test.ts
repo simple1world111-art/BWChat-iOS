@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import {
   sendDirectImageMessage,
   sendDirectVideoMessage,
@@ -24,7 +27,10 @@ import {
   chatVideoThumbnailFilename,
 } from "@/services/messages/chatVideoPolicy";
 
-jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
+jest.mock("@/api/client", () => {
+  const actual = jest.requireActual("@/api/client") as object;
+  return { ...actual, apiRequest: jest.fn() };
+});
 
 const request = jest.mocked(apiRequest);
 
@@ -51,17 +57,36 @@ describe("native chat image contracts", () => {
     });
   });
 
-  it("keeps the native original and thumbnail compression budgets", () => {
-    expect(chatImagePreparationPolicy.originalMaxBytes).toBe(2_000_000);
+  it("clips chat images once without drawing a visible frame or double-rounded seam", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/components/messages/ChatImageBubble.tsx"),
+      "utf8",
+    );
+    const styles = source.slice(source.indexOf("const styles = StyleSheet.create"));
+    expect(styles).toContain('frame: {\n    overflow: "hidden",\n    borderRadius: 10,');
+    expect(styles).toContain('image: { backgroundColor: "transparent" }');
+    expect(styles).not.toContain("borderWidth");
+    expect(styles).not.toContain("borderColor");
+    expect(styles).not.toContain("image: { borderRadius");
+  });
+
+  it("keeps soft compression targets without imposing an upload limit", () => {
+    expect(chatImagePreparationPolicy.originalTargetBytes).toBe(2_000_000);
     expect(chatImagePreparationPolicy.originalAttempts[0]).toEqual({
       dimension: 1200,
       quality: 0.7,
     });
-    expect(chatImagePreparationPolicy.thumbnailMaxBytes).toBe(140_000);
+    expect(chatImagePreparationPolicy.thumbnailTargetBytes).toBe(140_000);
     expect(chatImagePreparationPolicy.thumbnailAttempts[0]).toEqual({
       dimension: 360,
       quality: 0.58,
     });
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/services/messages/ChatImageService.ts"),
+      "utf8",
+    );
+    expect(source).toContain("Source size never blocks the user from sending");
+    expect(source).not.toContain("图片压缩后仍超过");
   });
 
   it("uploads direct image and thumbnail with the exact native route and timeout", async () => {
@@ -77,6 +102,7 @@ describe("native chat image contracts", () => {
 
     expect(request).toHaveBeenCalledWith("/chat/messages/image", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-direct" },
       body: expect.any(FormData),
       requiredData: true,
       requiredEnvelope: true,
@@ -87,6 +113,10 @@ describe("native chat image contracts", () => {
     expect(form.get("client_message_id")).toBe("client-direct");
     expect(form.has("image")).toBe(true);
     expect(form.has("thumbnail")).toBe(true);
+    const source = fs.readFileSync(path.join(process.cwd(), "src/api/bwchat.ts"), "utf8");
+    expect(source).toContain('appendExpoFilePart(form, "image"');
+    expect(source).toContain("bytes: () => file.bytes()");
+    expect(source).not.toContain('form.append("image", {\n    uri: image.uri');
   });
 
   it("uploads group image and thumbnail without inventing a receiver field", async () => {
@@ -101,6 +131,7 @@ describe("native chat image contracts", () => {
 
     expect(request).toHaveBeenCalledWith("/groups/31/messages/image", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-group" },
       body: expect.any(FormData),
       requiredData: true,
       requiredEnvelope: true,
@@ -111,6 +142,24 @@ describe("native chat image contracts", () => {
     expect(form.get("client_message_id")).toBe("client-group");
     expect(form.has("image")).toBe(true);
     expect(form.has("thumbnail")).toBe(true);
+  });
+
+  it("does not mark a local image as sent without an authoritative server message", async () => {
+    request.mockResolvedValueOnce({ id: 0, msg_type: "image", content: "" });
+    await expect(
+      sendDirectImageMessage("friend", imageInput(), "client-unconfirmed"),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: "unconfirmed_media_message",
+    });
+
+    request.mockResolvedValueOnce({ id: 12, group_id: 31, msg_type: "text", content: "ok" });
+    await expect(
+      sendGroupImageMessage(31, imageInput(), "group-unconfirmed"),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: "unconfirmed_media_message",
+    });
   });
 
   it("keeps the original landscape, portrait and square video footprints", () => {
@@ -184,6 +233,7 @@ describe("native chat image contracts", () => {
     await sendDirectVideoMessage("friend", videoInput(), "client-video-direct");
     expect(request).toHaveBeenCalledWith("/chat/messages/video", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-video-direct" },
       body: expect.any(FormData),
       requiredData: true,
       requiredEnvelope: true,
@@ -207,6 +257,7 @@ describe("native chat image contracts", () => {
     await sendGroupVideoMessage(31, videoInput(), "client-video-group");
     expect(request).toHaveBeenCalledWith("/groups/31/messages/video", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-video-group" },
       body: expect.any(FormData),
       requiredData: true,
       requiredEnvelope: true,
@@ -217,6 +268,38 @@ describe("native chat image contracts", () => {
     expect(form.get("client_message_id")).toBe("client-video-group");
     expect(form.has("video")).toBe(true);
     expect(form.has("thumbnail")).toBe(true);
+  });
+
+  it("does not confirm a video bubble without a canonical server record", async () => {
+    request.mockResolvedValueOnce({ id: 0, msg_type: "video", content: "" });
+    await expect(
+      sendDirectVideoMessage("friend", videoInput(), "client-video-unconfirmed"),
+    ).rejects.toMatchObject({ code: "unconfirmed_media_message", status: 502 });
+
+    request.mockResolvedValueOnce({
+      id: 15,
+      group_id: 31,
+      msg_type: "text",
+      content: "not-video",
+    });
+    await expect(
+      sendGroupVideoMessage(31, videoInput(), "group-video-unconfirmed"),
+    ).rejects.toMatchObject({ code: "unconfirmed_media_message", status: 502 });
+  });
+
+  it("retries temporarily unavailable chat image and video thumbnails in place", () => {
+    const imageBubble = fs.readFileSync(
+      path.join(process.cwd(), "src/components/messages/ChatImageBubble.tsx"),
+      "utf8",
+    );
+    const videoBubble = fs.readFileSync(
+      path.join(process.cwd(), "src/components/messages/ChatVideoBubble.tsx"),
+      "utf8",
+    );
+    for (const source of [imageBubble, videoBubble]) {
+      expect(source).toContain("chatMediaAvailabilityRetryPolicy.intervalMilliseconds");
+      expect(source).toContain("chatMediaAvailabilityRetryPolicy.maximumRetries");
+    }
   });
 });
 

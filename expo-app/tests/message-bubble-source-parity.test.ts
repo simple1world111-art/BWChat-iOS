@@ -27,7 +27,7 @@ describe("direct and group MessageBubble source integration", () => {
       );
       expect(row).not.toContain("if (isChatMoneyReceiptType(message.msg_type))");
       expect(row).toContain("<ChatMessageDeliveryStatus");
-      expect(row).toContain("disabled={parseChatCallRecord(message.content) !== null}");
+      expect(row).not.toContain("disabled={parseChatCallRecord(message.content) !== null}");
       if (path.includes("group-chat")) {
         expect(contents).toContain("function isAvailableForGroupSelection");
         expect(contents).toContain("parseChatCallRecord(message.content) === null &&");
@@ -78,6 +78,32 @@ describe("direct and group MessageBubble source integration", () => {
     const imageGallery = source("src/components/media/ImageGallery.tsx");
     expect(imageBubble).toContain("if (canActivate()) onOpen(nextSelection)");
     expect(imageGallery).toContain("export function ImageGallerySource");
+    expect(imageGallery).toContain("useChatMessageLongPressBridge()");
+    expect(imageGallery).toContain("onLongPress={longPressBridge.onLongPress}");
+    expect(imageGallery).toContain("onPressOut={longPressBridge.onPressOut}");
+  });
+
+  it("bridges every interactive message bubble into the shared message menu", () => {
+    const reply = source("src/components/messages/ChatReplyViews.tsx");
+    const video = source("src/components/messages/ChatVideoBubble.tsx");
+    const voice = source("src/components/messages/ChatVoiceBubble.tsx");
+    const money = source("src/components/messages/ChatMoneyViews.tsx");
+    const forward = source("src/components/messages/ChatForwardViews.tsx");
+    const gift = source("src/components/messages/ChatGiftViews.tsx");
+    const avatar = source("src/components/Avatar.tsx");
+    expect(reply).toContain("export function useChatMessageLongPressBridge");
+    expect(reply).toContain("onNestedLongPress: disabled ? undefined : openMessageMenu");
+    expect(reply).toContain("onNestedPressOut: disabled ? undefined : releaseMenuTouchOwnership");
+    for (const interactiveBubble of [video, voice, money, forward]) {
+      expect(interactiveBubble).toContain("useChatMessageLongPressBridge()");
+      expect(interactiveBubble).toContain("onLongPress={longPressBridge.onLongPress}");
+      expect(interactiveBubble).toContain("onPressOut={longPressBridge.onPressOut}");
+    }
+    expect(forward).toContain("if (canActivate()) onPress()");
+    expect(gift).toContain("onLongPress={longPressBridge.onLongPress}");
+    expect(gift).toContain("onPressOut={longPressBridge.onPressOut}");
+    expect(avatar).toContain("onLongPress(event)");
+    expect(avatar).toContain("onPressOut={onPressOut}");
   });
 
   it("matches native money/card and long-press ownership details", () => {

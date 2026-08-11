@@ -7,11 +7,15 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import {
+  chatMediaAvailabilityRetryPolicy,
   chatVideoThumbnailPath,
   chatVideoThumbnailSize,
   type MediaNaturalSize,
 } from "@/components/messages/chatMediaLayout";
-import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
+import {
+  useChatMessageActivationGuard,
+  useChatMessageLongPressBridge,
+} from "@/components/messages/ChatReplyViews";
 import { env } from "@/config/env";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { colors } from "@/theme";
@@ -27,6 +31,7 @@ export function ChatVideoBubble({
   url: string;
 }) {
   const canActivate = useChatMessageActivationGuard();
+  const longPressBridge = useChatMessageLongPressBridge();
   const { t } = useLocalization();
   const [naturalSize, setNaturalSize] = useState<MediaNaturalSize | undefined>();
   const displaySize = useMemo(() => chatVideoThumbnailSize(naturalSize), [naturalSize]);
@@ -40,16 +45,23 @@ export function ChatVideoBubble({
     <Pressable
       accessibilityLabel={t("message.video")}
       accessibilityRole="button"
+      delayLongPress={longPressBridge.delayLongPress}
+      onLongPress={longPressBridge.onLongPress}
       onPress={() => {
         if (canActivate()) onOpen(url);
       }}
+      onPressOut={longPressBridge.onPressOut}
       style={[styles.frame, displaySize]}
     >
       {resolvedThumbnail ? (
         <AuthenticatedImage
+          authenticatedRetryIntervalMilliseconds={
+            chatMediaAvailabilityRetryPolicy.intervalMilliseconds
+          }
           contentFit="cover"
           fallback={<VideoPlaceholder />}
           onLoad={(event: ImageLoadEventData) => setNaturalSize(event.source)}
+          maximumAuthenticatedRetries={chatMediaAvailabilityRetryPolicy.maximumRetries}
           style={styles.thumbnail}
           transition={0}
           uri={resolvedThumbnail}

@@ -12,6 +12,7 @@ import { AppGate } from "@/components/AppGate";
 import { ActivityInviteLinkHandler } from "@/components/ActivityInviteLinkHandler";
 import { GroupInviteLinkHandler } from "@/components/GroupInviteLinkHandler";
 import { MomentUploadBootstrap } from "@/components/MomentUploadBootstrap";
+import { PushBackgroundTaskBootstrap } from "@/components/PushBackgroundTaskBootstrap";
 import { PushNotificationBootstrap } from "@/components/PushNotificationBootstrap";
 import { SessionNavigationGuard } from "@/components/SessionNavigationGuard";
 import { ShortDramaUploadBootstrap } from "@/components/ShortDramaUploadBootstrap";
@@ -67,6 +68,7 @@ function RootLayout() {
               <BootstrapGate>
                 <SessionNavigationGuard />
                 {!visualAcceptanceEnabled ? <PushNotificationBootstrap /> : null}
+                {!visualAcceptanceEnabled ? <PushBackgroundTaskBootstrap /> : null}
                 <ActivityInviteLinkHandler />
                 <MomentUploadBootstrap />
                 <ShortDramaUploadBootstrap />

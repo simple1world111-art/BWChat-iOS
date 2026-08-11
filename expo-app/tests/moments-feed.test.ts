@@ -16,6 +16,7 @@ import { normalizeMomentsNotifications, normalizeMomentsUnreadInfo } from "@/api
 import type { Moment } from "@/models";
 import {
   isMomentFeedCacheFresh,
+  isPendingMomentUpload,
   mergeMomentFeed,
   momentFeedCachePolicy,
   momentMutationTabs,
@@ -233,23 +234,22 @@ describe("native moments feed contracts", () => {
   it("builds the native deterministic optimistic moment identity and local media", () => {
     const requestId = "aabbccdd-eeff-0011-2233-445566778899";
     expect(temporaryMomentId(requestId)).toBe(-Number.parseInt("aabbccddeeff", 16));
-    expect(
-      createOptimisticMoment({
-        owner: { user_id: "owner", nickname: "我", avatar_url: "/me.jpg" },
-        clientRequestId: requestId,
-        content: "正在发布",
-        media: [
-          {
-            kind: "image",
-            uri: "file:///documents/outbox/one.jpg",
-            filename: "one.jpg",
-            mime_type: "image/jpeg",
-          },
-        ],
-        unlockPriceGoldCoins: 50,
-        createdAt: "2026-08-06T10:00:00Z",
-      }),
-    ).toMatchObject({
+    const optimistic = createOptimisticMoment({
+      owner: { user_id: "owner", nickname: "我", avatar_url: "/me.jpg" },
+      clientRequestId: requestId,
+      content: "正在发布",
+      media: [
+        {
+          kind: "image",
+          uri: "file:///documents/outbox/one.jpg",
+          filename: "one.jpg",
+          mime_type: "image/jpeg",
+        },
+      ],
+      unlockPriceGoldCoins: 50,
+      createdAt: "2026-08-06T10:00:00Z",
+    });
+    expect(optimistic).toMatchObject({
       id: -Number.parseInt("aabbccddeeff", 16),
       content: "正在发布",
       client_request_id: requestId,
@@ -264,6 +264,8 @@ describe("native moments feed contracts", () => {
         },
       ],
     });
+    expect(isPendingMomentUpload(optimistic)).toBe(true);
+    expect(isPendingMomentUpload({ ...optimistic, id: 31 })).toBe(false);
   });
 });
 

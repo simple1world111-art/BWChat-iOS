@@ -2169,8 +2169,7 @@ final class APIResponseContractTests: XCTestCase {
             AgentImageGenerationPolicy(
                 isRuntimeConfigLoaded: false,
                 isGloballyEnabled: false,
-                isEnabledForAgentVersion: true,
-                hasBlockingLockedMedia: false
+                isEnabledForAgentVersion: true
             ).blockReason,
             "正在加载图片生成能力，请稍后再试"
         )
@@ -2178,8 +2177,7 @@ final class APIResponseContractTests: XCTestCase {
             AgentImageGenerationPolicy(
                 isRuntimeConfigLoaded: true,
                 isGloballyEnabled: false,
-                isEnabledForAgentVersion: true,
-                hasBlockingLockedMedia: false
+                isEnabledForAgentVersion: true
             ).blockReason,
             "图片生成功能当前未开放"
         )
@@ -2187,26 +2185,15 @@ final class APIResponseContractTests: XCTestCase {
             AgentImageGenerationPolicy(
                 isRuntimeConfigLoaded: true,
                 isGloballyEnabled: true,
-                isEnabledForAgentVersion: false,
-                hasBlockingLockedMedia: false
+                isEnabledForAgentVersion: false
             ).blockReason,
             "当前会话使用的智能体版本未开启图片能力"
-        )
-        XCTAssertEqual(
-            AgentImageGenerationPolicy(
-                isRuntimeConfigLoaded: true,
-                isGloballyEnabled: true,
-                isEnabledForAgentVersion: true,
-                hasBlockingLockedMedia: true
-            ).blockReason,
-            "请先解锁上一张图片，再继续调整图片"
         )
 
         let available = AgentImageGenerationPolicy(
             isRuntimeConfigLoaded: true,
             isGloballyEnabled: true,
-            isEnabledForAgentVersion: true,
-            hasBlockingLockedMedia: false
+            isEnabledForAgentVersion: true
         )
         XCTAssertTrue(available.canGenerate)
         XCTAssertNil(available.blockReason)

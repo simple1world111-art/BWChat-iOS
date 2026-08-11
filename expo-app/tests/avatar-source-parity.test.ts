@@ -26,8 +26,10 @@ describe("AvatarView source parity", () => {
     expect(nativeAvatar).toContain("LongPressGesture(minimumDuration: 0.45)");
     expect(nativeAvatar).toContain("now.timeIntervalSince(lastOpenAt) > 0.6");
     expect(expoAvatar).toContain("delayLongPress={450}");
-    expect(expoAvatar).toContain("now - lastOpenAt.current <= 600");
-    expect(expoAvatar).toContain("now - lastLongPressAt.current < 600");
+    expect(expoAvatar).toContain("timestamp - lastOpenAt.current <= 600");
+    expect(expoAvatar).toContain("timestamp - lastLongPressAt.current < 600");
+    expect(expoAvatar).toContain("...(normalizedName ? { name: normalizedName } : {})");
+    expect(expoAvatar).toContain("...(normalizedAvatarUrl ? { avatar: normalizedAvatarUrl } : {})");
   });
 
   it("uses the shared user-avatar behavior in direct chat, group chat and group member surfaces", () => {

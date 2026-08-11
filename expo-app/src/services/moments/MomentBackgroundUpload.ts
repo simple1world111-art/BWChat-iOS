@@ -27,6 +27,12 @@ export interface MomentMultipartField {
   value: string;
 }
 
+export interface MomentUploadConfirmationContext {
+  ownerId: string;
+  clientRequestId: string;
+  expectedMediaCount: number;
+}
+
 export function momentUploadRequestHeaders(
   clientRequestId: string,
   token: string,
@@ -81,6 +87,7 @@ export async function uploadMomentInBackground(
     body,
     hooks.onProgress,
     momentUploadTimeoutMilliseconds(input.media.some((asset) => asset.kind === "video")),
+    input.media.length,
     false,
   );
 }
@@ -110,7 +117,11 @@ export function momentUploadTimeoutMilliseconds(hasVideo: boolean): 180_000 | 60
   return hasVideo ? 600_000 : 180_000;
 }
 
-export function decodeMomentBackgroundUploadResponse(payload: unknown, status: number): Moment {
+export function decodeMomentBackgroundUploadResponse(
+  payload: unknown,
+  status: number,
+  confirmation?: MomentUploadConfirmationContext,
+): Moment {
   // Swift marks a body that cannot decode as an APIResponseWrapper as
   // confirmation-unknown because the server may already have committed it.
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
@@ -121,7 +132,28 @@ export function decodeMomentBackgroundUploadResponse(payload: unknown, status: n
   // decoder. Only malformed Moment data is confirmation-unknown.
   const data = decodeSuccessfulPayload<unknown>(payload, status, true, true);
   try {
-    return normalizeMoment(data);
+    const moment = normalizeMoment(data);
+    if (moment.id <= 0 || !moment.author.user_id.trim() || !moment.created_at.trim()) {
+      throw new Error("朋友圈动态未被服务端确认");
+    }
+    if (moment.media.some((item) => !item.url.trim())) {
+      throw new Error("朋友圈媒体未被服务端确认");
+    }
+    if (confirmation) {
+      if (moment.author.user_id.trim() !== confirmation.ownerId.trim()) {
+        throw new Error("朋友圈发布账号与服务端作者不一致");
+      }
+      if (moment.media.length !== confirmation.expectedMediaCount) {
+        throw new Error("朋友圈媒体数量与服务端确认结果不一致");
+      }
+      if (
+        moment.client_request_id &&
+        moment.client_request_id.trim() !== confirmation.clientRequestId.trim()
+      ) {
+        throw new Error("朋友圈发布请求标识与服务端确认结果不一致");
+      }
+    }
+    return moment;
   } catch (error) {
     throw new MomentUploadConfirmationUnknownError(
       error instanceof Error ? error.message : "发布成功但响应无法确认",
@@ -185,6 +217,7 @@ async function uploadPreparedBody(
   body: File,
   onProgress: ((progress: UploadProgress) => void) | undefined,
   timeoutMilliseconds: 180_000 | 600_000,
+  expectedMediaCount: number,
   didRefresh: boolean,
 ): Promise<Moment> {
   const runtimeKey = momentBackgroundUploadRuntimeKey(ownerId, clientRequestId);
@@ -227,13 +260,18 @@ async function uploadPreparedBody(
         body,
         onProgress,
         timeoutMilliseconds,
+        expectedMediaCount,
         true,
       );
     }
     if (result.status < 200 || result.status >= 300) {
       throw new APIError(responseMessage(payload, result.status), result.status, payload);
     }
-    return decodeMomentBackgroundUploadResponse(payload, result.status);
+    return decodeMomentBackgroundUploadResponse(payload, result.status, {
+      ownerId,
+      clientRequestId,
+      expectedMediaCount,
+    });
   } catch (error) {
     if (
       error instanceof APIError ||

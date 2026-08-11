@@ -87,7 +87,7 @@ describe("CreateMoment source parity", () => {
     for (const contract of [
       "uploadMaximumDimension: 1_200",
       "uploadJPEGQuality: 0.7",
-      "uploadMaximumBytes: 2_000_000",
+      "uploadTargetBytes: 2_000_000",
       "imagePreviewMaximumDimension: 360",
       "videoPreviewMaximumDimension: 320",
       "previewJPEGQuality: 0.82",
@@ -99,6 +99,8 @@ describe("CreateMoment source parity", () => {
     ]) {
       expect(preparation).toContain(contract);
     }
+    expect(preparation).toContain("Preserve publishability for arbitrary source sizes");
+    expect(preparation).not.toContain("图片压缩后仍超过");
     expect(page).toContain("prepareMomentImage(ownerId");
     expect(page).toContain("prepareMomentVideo(");
     expect(page).toContain("removeMomentDraft(ownerId");

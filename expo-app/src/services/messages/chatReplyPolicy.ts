@@ -3,20 +3,23 @@ import type { GroupMessage, GroupReplyPreview, Message, ReplyPreview } from "@/m
 export type ChatMessageLike = Message | GroupMessage;
 export type ChatReplyPreview = ReplyPreview | GroupReplyPreview;
 export type ChatMessageMenuAction =
-  | "copy"
-  | "retry"
-  | "forward"
-  | "save"
-  | "quote"
-  | "recall"
-  | "delete"
-  | "multiSelect";
+  "copy" | "retry" | "forward" | "save" | "quote" | "recall" | "delete" | "multiSelect";
 
 export interface ChatMessageAnchor {
   x: number;
   y: number;
   width: number;
   height: number;
+  press_x?: number | undefined;
+  press_y?: number | undefined;
+}
+
+export interface ChatMessageMenuTargetRef {
+  message_id: number;
+  client_message_id?: string | undefined;
+  session_key: string;
+  anchor: ChatMessageAnchor;
+  actions: ChatMessageMenuAction[];
 }
 
 export interface ChatMessageMenuLayout {
@@ -29,6 +32,8 @@ export interface ChatMessageMenuLayout {
   top: number;
   pointer_x: number;
   opens_above: boolean;
+  item_width: number;
+  item_height: number;
 }
 
 export type ChatTimelineLocatorKind =
@@ -45,7 +50,8 @@ export function resolveChatTimelineLocator(options: {
 }): ChatTimelineLocatorKind | null {
   if ((options.mentionMessageIds?.length ?? 0) > 0) return { kind: "mention" };
   if (options.replyMessageIds.length > 0) return { kind: "reply" };
-  if (options.newMessagesBelowCount > 0) return { kind: "newMessages", count: options.newMessagesBelowCount };
+  if (options.newMessagesBelowCount > 0)
+    return { kind: "newMessages", count: options.newMessagesBelowCount };
   return options.isNearBottom ? null : { kind: "bottom" };
 }
 
@@ -82,12 +88,17 @@ export function normalizeChatMessageType(
 ): string {
   const normalizedType = normalizeToken(messageType);
   const status = options.status ? normalizeToken(options.status) : "";
-  return options.isRecalled === true || Boolean(options.recalledAt) || recalledValues.has(normalizedType) || recalledValues.has(status)
+  return options.isRecalled === true ||
+    Boolean(options.recalledAt) ||
+    recalledValues.has(normalizedType) ||
+    recalledValues.has(status)
     ? "recalled"
     : messageType;
 }
 
-export function isRecalledChatMessage(message: Pick<ChatMessageLike, "msg_type" | "content">): boolean {
+export function isRecalledChatMessage(
+  message: Pick<ChatMessageLike, "msg_type" | "content">,
+): boolean {
   const type = normalizeToken(message.msg_type);
   return type === "recalled" || (type === "system" && message.content.trim().length === 0);
 }
@@ -99,7 +110,10 @@ export function chatRecallNotice(
   translate: (key: string, ...args: (string | number)[]) => string,
 ): string {
   if (senderId && senderId === viewerId) return translate("chat.recall.selfNotice");
-  return translate("chat.recall.otherNotice", senderName?.trim() || translate("chat.recall.someone"));
+  return translate(
+    "chat.recall.otherNotice",
+    senderName?.trim() || translate("chat.recall.someone"),
+  );
 }
 
 export function canRecallChatMessage(
@@ -132,9 +146,10 @@ export function actionsForChatMessage(
   if (
     normalizeToken(message.msg_type) === "system" ||
     isRecalledChatMessage(message) ||
-    options.isChatMoneyReceipt ||
-    options.isCallRecord
-  ) return [];
+    options.isChatMoneyReceipt
+  )
+    return [];
+  if (options.isCallRecord) return options.localDeleteEnabled !== false ? ["delete"] : [];
 
   const type = effectiveMessageType(message);
   let actions: ChatMessageMenuAction[];
@@ -158,10 +173,40 @@ export function actionsForChatMessage(
     actions = ["quote"];
   }
 
-  if (options.recallEnabled !== false && canRecallChatMessage(message, options.viewerId)) actions.push("recall");
+  if (options.recallEnabled !== false && canRecallChatMessage(message, options.viewerId))
+    actions.push("recall");
   if (options.localDeleteEnabled !== false) actions.push("delete");
   if (options.multiselectEnabled) actions.push("multiSelect");
   return actions;
+}
+
+export function createChatMessageMenuTarget(
+  message: Pick<ChatMessageLike, "id"> & { client_message_id?: string | undefined },
+  sessionKey: string,
+  anchor: ChatMessageAnchor,
+  actions: readonly ChatMessageMenuAction[],
+): ChatMessageMenuTargetRef {
+  return {
+    message_id: message.id,
+    ...(message.client_message_id ? { client_message_id: message.client_message_id } : {}),
+    session_key: sessionKey,
+    anchor,
+    actions: [...actions],
+  };
+}
+
+export function resolveChatMessageMenuTarget<
+  T extends Pick<ChatMessageLike, "id"> & { client_message_id?: string | undefined },
+>(messages: readonly T[], target: ChatMessageMenuTargetRef): T | null {
+  if (target.client_message_id) {
+    const clientMatch = messages.find(
+      (message) => message.client_message_id === target.client_message_id,
+    );
+    if (clientMatch) return clientMatch;
+  }
+  return target.message_id > 0
+    ? (messages.find((message) => message.id === target.message_id) ?? null)
+    : null;
 }
 
 export function resolveDirectReply(
@@ -169,9 +214,10 @@ export function resolveDirectReply(
   messages: readonly Message[],
 ): ReplyPreview | null {
   if (message.reply_to) return message.reply_to;
-  const source = message.reply_to_id === undefined
-    ? undefined
-    : messages.find((item) => item.id === message.reply_to_id);
+  const source =
+    message.reply_to_id === undefined
+      ? undefined
+      : messages.find((item) => item.id === message.reply_to_id);
   return source ? replyPreviewFromMessage(source) : null;
 }
 
@@ -180,9 +226,10 @@ export function resolveGroupReply(
   messages: readonly GroupMessage[],
 ): GroupReplyPreview | null {
   if (message.reply_to) return message.reply_to;
-  const source = message.reply_to_id === undefined
-    ? undefined
-    : messages.find((item) => item.id === message.reply_to_id);
+  const source =
+    message.reply_to_id === undefined
+      ? undefined
+      : messages.find((item) => item.id === message.reply_to_id);
   return source ? replyPreviewFromMessage(source) : null;
 }
 
@@ -203,29 +250,63 @@ export function chatReplyPreviewText(
   giftPreview?: (content: string) => string | null,
 ): string {
   switch (effectiveMessageType({ msg_type: msgType, content })) {
-    case "image": return translate("message.image");
-    case "video": return translate("message.video");
-    case "voice": return translate("message.voice");
-    case "sticker": return stickerPreview?.(content) ?? translate("message.sticker");
-    case "gift": return giftPreview?.(content) ?? translate("message.gift");
-    default: return content;
+    case "image":
+      return translate("message.image");
+    case "video":
+      return translate("message.video");
+    case "voice":
+      return translate("message.voice");
+    case "sticker":
+      return stickerPreview?.(content) ?? translate("message.sticker");
+    case "gift":
+      return giftPreview?.(content) ?? translate("message.gift");
+    default:
+      return content;
   }
 }
 
 export function calculateChatMessageMenuLayout(
   anchor: ChatMessageAnchor,
   actionCount: number,
-  viewport: { width: number; height: number; topInset?: number; bottomInset?: number },
+  viewport: {
+    width: number;
+    height: number;
+    topInset?: number;
+    bottomInset?: number;
+    itemWidth?: number;
+    itemHeight?: number;
+    maxColumns?: number;
+  },
 ): ChatMessageMenuLayout {
   const count = Math.max(actionCount, 1);
-  const columnCount = Math.min(count, chatReplyGeometry.menu_columns);
-  const rowCount = Math.max(1, Math.ceil(count / chatReplyGeometry.menu_columns));
-  const menuWidth = columnCount * chatReplyGeometry.menu_item_width + chatReplyGeometry.menu_padding * 2;
-  const menuBodyHeight = rowCount * chatReplyGeometry.menu_item_height + chatReplyGeometry.menu_padding * 2;
+  const itemWidth = Math.max(viewport.itemWidth ?? chatReplyGeometry.menu_item_width, 44);
+  const itemHeight = Math.max(viewport.itemHeight ?? chatReplyGeometry.menu_item_height, 44);
+  const widthLimitedColumns = Math.max(
+    1,
+    Math.floor(
+      (viewport.width -
+        chatReplyGeometry.menu_horizontal_inset * 2 -
+        chatReplyGeometry.menu_padding * 2) /
+        itemWidth,
+    ),
+  );
+  const columnCount = Math.min(
+    count,
+    viewport.maxColumns ?? chatReplyGeometry.menu_columns,
+    widthLimitedColumns,
+  );
+  const rowCount = Math.max(1, Math.ceil(count / columnCount));
+  const menuWidth = columnCount * itemWidth + chatReplyGeometry.menu_padding * 2;
+  const menuBodyHeight = rowCount * itemHeight + chatReplyGeometry.menu_padding * 2;
   const totalHeight = menuBodyHeight + chatReplyGeometry.menu_pointer_height;
   const topLimit = Math.max(viewport.topInset ?? 0, 8) + chatReplyGeometry.menu_edge_padding;
-  const bottomLimit = viewport.height - Math.max(viewport.bottomInset ?? 0, 8) - chatReplyGeometry.menu_edge_padding;
-  const anchorMiddleX = anchor.x + anchor.width / 2;
+  const bottomLimit =
+    viewport.height - Math.max(viewport.bottomInset ?? 0, 8) - chatReplyGeometry.menu_edge_padding;
+  const anchorMiddleX = clamp(
+    anchor.press_x ?? anchor.x + anchor.width / 2,
+    anchor.x,
+    anchor.x + anchor.width,
+  );
   const horizontalCenter = clamp(
     anchorMiddleX,
     menuWidth / 2 + chatReplyGeometry.menu_horizontal_inset,
@@ -233,7 +314,8 @@ export function calculateChatMessageMenuLayout(
   );
   const roomAbove = anchor.y - topLimit;
   const roomBelow = bottomLimit - (anchor.y + anchor.height);
-  const opensAbove = roomAbove >= totalHeight + chatReplyGeometry.menu_bubble_gap || roomAbove >= roomBelow;
+  const opensAbove =
+    roomAbove >= totalHeight + chatReplyGeometry.menu_bubble_gap || roomAbove >= roomBelow;
   const idealCenterY = opensAbove
     ? anchor.y - totalHeight / 2 - chatReplyGeometry.menu_bubble_gap
     : anchor.y + anchor.height + totalHeight / 2 + chatReplyGeometry.menu_bubble_gap;
@@ -249,6 +331,8 @@ export function calculateChatMessageMenuLayout(
     top: centerY - totalHeight / 2,
     pointer_x: clamp(anchorMiddleX - left, 18, menuWidth - 18),
     opens_above: opensAbove,
+    item_width: itemWidth,
+    item_height: itemHeight,
   };
 }
 

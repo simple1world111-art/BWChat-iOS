@@ -913,8 +913,11 @@
 "chatMoney.receipt.activity" = "Gold Coins transaction update";
 "chatMoney.redPacket.notConversationMember" = "You are no longer a member of this conversation";
 
-"chat.action.forward" = "Forward";
-"chat.action.multiSelect" = "Select";
+"chat.action.forward" = "전달";
+"chat.action.multiSelect" = "다중 선택";
+"chat.action.menu" = "메시지 작업";
+"chat.action.copied" = "복사했습니다";
+"chat.action.deleted" = "삭제했습니다";
 "chat.action.recall" = "회수";
 "chat.recall.failed" = "메시지를 회수하지 못했습니다";
 "chat.recall.selfNotice" = "메시지를 회수했습니다";

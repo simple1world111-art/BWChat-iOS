@@ -37,7 +37,10 @@ import {
   ChatMessageDeliveryStatus,
   isPendingChatVoice,
 } from "@/components/messages/ChatMessageDeliveryStatus";
-import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
+import {
+  ChatKeyboardAvoidingView,
+  useChatKeyboardLayout,
+} from "@/components/messages/ChatKeyboardAvoidingView";
 import {
   ChatMoneyComposerModal,
   type ChatMoneyOptimisticCreation,
@@ -132,6 +135,7 @@ import {
   readDirectChatCachedPage,
   saveDirectChatMessages,
 } from "@/services/messages/DirectChatHistoryRepository";
+import { reconcileChatMessageContext } from "@/services/messages/ChatMessageReconciliation";
 import {
   createDirectChatOutboxJob,
   directChatOutboxFailure,
@@ -179,13 +183,17 @@ import {
 import {
   actionsForChatMessage,
   chatRecallNotice,
+  createChatMessageMenuTarget,
   isRecalledChatMessage,
   replyPreviewFromMessage,
+  resolveChatMessageMenuTarget,
   resolveChatTimelineLocator,
   resolveDirectReply,
   type ChatMessageAnchor,
   type ChatMessageMenuAction,
+  type ChatMessageMenuTargetRef,
 } from "@/services/messages/chatReplyPolicy";
+import { useChatMessageActionFeatures } from "@/services/messages/useChatMessageActionFeatures";
 import {
   canForwardSelection,
   chatForwardMessagePreview,
@@ -198,17 +206,17 @@ import {
   type ChatSelectionEntry,
 } from "@/services/messages/chatForwardPolicy";
 import { saveImageToLibrary, saveVideoToLibrary } from "@/services/media/MediaLibrarySaver";
+import { chatImagePresentationUrlFor } from "@/services/media/ChatImageSourcePolicy";
+import {
+  preloadChatImagePreview,
+  preloadPreferredChatImagePreview,
+} from "@/services/media/ChatMediaPreviewPreloader";
+import { captureException } from "@/services/monitoring/MonitoringService";
 import { colors } from "@/theme";
 
 interface TimelineRow {
   message: Message;
   showsTime: boolean;
-}
-
-interface DirectMenuTarget {
-  message: Message;
-  anchor: ChatMessageAnchor;
-  actions: ChatMessageMenuAction[];
 }
 
 interface ForwardDraft {
@@ -218,17 +226,25 @@ interface ForwardDraft {
 }
 
 export default function ChatScreen() {
-  const { id, name, avatar, messageId } = useLocalSearchParams<{
+  const {
+    id,
+    name,
+    avatar,
+    messageId,
+    latestMessageId: latestMessageIdParam,
+  } = useLocalSearchParams<{
     id: string;
     name?: string;
     avatar?: string;
     messageId?: string;
+    latestMessageId?: string;
   }>();
   const navigation = useNavigation();
   const { user } = useAuth();
   const call = useCall();
   const ownerId = user?.user_id ?? "";
   const sessionKey = directChatSessionKey(ownerId, id);
+  const messageActionFeatures = useChatMessageActionFeatures(ownerId);
   const { t } = useLocalization();
   const appearance = useChatAppearance();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -236,7 +252,7 @@ export default function ChatScreen() {
   const [draft, setDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
-  const [menuTarget, setMenuTarget] = useState<DirectMenuTarget | null>(null);
+  const [menuTarget, setMenuTarget] = useState<ChatMessageMenuTargetRef | null>(null);
   const [recalledEditableTexts, setRecalledEditableTexts] = useState<Record<number, string>>({});
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [newMessagesBelowCount, setNewMessagesBelowCount] = useState(0);
@@ -273,10 +289,12 @@ export default function ChatScreen() {
   const screenActiveRef = useRef(false);
   const isNearBottomRef = useRef(true);
   const initialPushMessageHandledRef = useRef<string | null>(null);
+  const messageReconciliationFlightsRef = useRef(new Map<number, Promise<boolean>>());
   const activeSessionRef = useRef(sessionKey);
   const syncAttemptRef = useRef(0);
   const outboxTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const outboxInFlightRef = useRef(new Set<string>());
+  const menuActionInFlightRef = useRef(false);
   const draftSnapshotsRef = useRef(new Map<string, ChatDraftSnapshot>());
   activeSessionRef.current = sessionKey;
   if (sessionKey) {
@@ -302,6 +320,7 @@ export default function ChatScreen() {
     hasMoreRef.current = false;
     loadingMoreRef.current = false;
     initialPushMessageHandledRef.current = null;
+    messageReconciliationFlightsRef.current.clear();
     // Route identity changes require one atomic pre-paint reset; async callbacks
     // are additionally fenced by `activeSessionRef` below.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -400,6 +419,12 @@ export default function ChatScreen() {
         (message) => message.delivery_status === "sending" || message.delivery_status === "failed",
       );
       const initial = mergeMessages(currentPending, ...cachedVisible, ...pending);
+      await preloadPreferredChatImagePreview(
+        ownerId,
+        initial,
+        canonicalRouteMessageIds(messageId, latestMessageIdParam),
+      );
+      if (!isCurrent()) return;
       messagesRef.current = initial;
       setRenderSessionKey(expectedSession);
       setMessages(initial);
@@ -408,12 +433,12 @@ export default function ChatScreen() {
       setHasMore(cached.hasMore);
       setError(null);
       for (const job of pendingJobs) scheduleDirectOutboxJob(job, expectedSession);
-      const cachedReadThrough = cachedVisible.at(-1)?.id;
+      const cachedReadThrough = maximumServerMessageId(cachedVisible);
       if (cachedReadThrough !== undefined)
         void markConversationRead(ownerId, "dm", id, cachedReadThrough);
 
       const fetched: Message[] = [];
-      const latestCachedId = cached.messages.at(-1)?.id;
+      const latestCachedId = maximumServerMessageId(cached.messages);
       if (latestCachedId !== undefined) {
         let afterId = latestCachedId;
         for (
@@ -435,16 +460,44 @@ export default function ChatScreen() {
       const recent = await getMessages(id, { limit: directChatHistoryPolicy.syncPageSize });
       if (!isCurrent()) return;
       fetched.push(...recent.messages);
+      const latestMessageId = Number(latestMessageIdParam);
+      const timelineHasLatestMessage = [...cached.messages, ...fetched].some(
+        (message) => message.id === latestMessageId,
+      );
+      if (
+        Number.isSafeInteger(latestMessageId) &&
+        latestMessageId > 0 &&
+        !timelineHasLatestMessage
+      ) {
+        try {
+          // The conversation summary and message history are separate server
+          // projections. Reconcile by the summary's canonical message ID when
+          // the latest history page has not caught up yet.
+          const context = await getMessageContext(id, latestMessageId);
+          if (!isCurrent()) return;
+          fetched.push(...context);
+        } catch {
+          // Keep the cached/recent timeline usable. A focus, foreground or
+          // realtime refresh will retry this reconciliation.
+        }
+      }
       await saveDirectChatMessages(ownerId, id, fetched);
       if (!isCurrent()) return;
       const serverVisible = filterLocallyHiddenChatMessages(
         filterClearedDirectMessages(fetched, watermark),
         hiddenIds,
       );
+      await preloadPreferredChatImagePreview(
+        ownerId,
+        serverVisible,
+        canonicalRouteMessageIds(messageId, latestMessageIdParam),
+      );
+      if (!isCurrent()) return;
       const merged = mergeMessages(messagesRef.current, ...serverVisible);
       messagesRef.current = merged;
       setMessages(merged);
-      const readThrough = serverVisible.at(-1)?.id ?? cachedVisible.at(-1)?.id;
+      const readThrough =
+        maximumServerMessageId(serverVisible) ?? maximumServerMessageId(cachedVisible);
       if (readThrough !== undefined) void markConversationRead(ownerId, "dm", id, readThrough);
 
       if (!wasBackfilled) {
@@ -452,7 +505,7 @@ export default function ChatScreen() {
         setHasMore(false);
         void backfillDirectChatHistory(expectedSession);
       } else {
-        const firstServerId = merged.find((message) => message.id > 0)?.id;
+        const firstServerId = minimumServerMessageId(merged);
         const older =
           firstServerId === undefined
             ? null
@@ -469,7 +522,7 @@ export default function ChatScreen() {
       if (isCurrent()) setIsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, ownerId, sessionKey, t]);
+  }, [id, latestMessageIdParam, messageId, ownerId, sessionKey, t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -497,55 +550,65 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!ownerId || !id) return;
     const expectedSession = sessionKey;
-    return chatRealtimeService.subscribe((event) => {
-      if (activeSessionRef.current !== expectedSession) return;
+    let active = true;
+    const applyRealtimeMessage = async (message: Message) => {
+      await preloadChatImagePreview(ownerId, message);
+      if (!active || activeSessionRef.current !== expectedSession) return;
+      if (hiddenMessageIdsRef.current.has(message.id)) return;
+      if (message.id > 0 && message.id <= clearThroughMessageId) return;
+      const wasKnown = messagesRef.current.some(
+        (candidate) =>
+          candidate.id === message.id ||
+          (Boolean(candidate.client_message_id) &&
+            candidate.client_message_id === message.client_message_id),
+      );
+      setMessages((current) => {
+        const merged = mergeMessages(current, message);
+        messagesRef.current = merged;
+        return merged;
+      });
+      if (message.id > 0) void saveDirectChatMessages(ownerId, id, [message]);
+      if (!wasKnown && screenActiveRef.current) {
+        const isMine = message.sender_id === ownerId;
+        if (isMine || isNearBottomRef.current) {
+          requestAnimationFrame(() =>
+            listRef.current?.scrollToOffset({ animated: true, offset: 0 }),
+          );
+        } else {
+          setNewMessagesBelowCount((count) => count + 1);
+          const replyId = message.reply_to_id ?? message.reply_to?.id;
+          if (
+            replyId !== undefined &&
+            messagesRef.current.some(
+              (candidate) => candidate.id === replyId && candidate.sender_id === ownerId,
+            )
+          ) {
+            setReplyLocatorMessageIds((current) =>
+              current.includes(message.id) ? current : [...current, message.id],
+            );
+          }
+        }
+      }
+      if (message.sender_id !== ownerId && screenActiveRef.current) {
+        void markConversationRead(ownerId, "dm", id, message.id);
+      }
+    };
+    const unsubscribe = chatRealtimeService.subscribe((event) => {
+      if (!active || activeSessionRef.current !== expectedSession) return;
       if (event.type === "direct_message") {
         const message = event.message;
         const relevant =
           (message.sender_id === id && message.receiver_id === ownerId) ||
           (message.sender_id === ownerId && message.receiver_id === id);
-        if (!relevant || hiddenMessageIdsRef.current.has(message.id)) return;
-        if (message.id > 0 && message.id <= clearThroughMessageId) return;
-        const wasKnown = messagesRef.current.some(
-          (candidate) =>
-            candidate.id === message.id ||
-            (Boolean(candidate.client_message_id) &&
-              candidate.client_message_id === message.client_message_id),
-        );
-        setMessages((current) => {
-          const merged = mergeMessages(current, message);
-          messagesRef.current = merged;
-          return merged;
-        });
-        if (message.id > 0) void saveDirectChatMessages(ownerId, id, [message]);
-        if (!wasKnown && screenActiveRef.current) {
-          const isMine = message.sender_id === ownerId;
-          if (isMine || isNearBottomRef.current) {
-            requestAnimationFrame(() =>
-              listRef.current?.scrollToOffset({ animated: true, offset: 0 }),
-            );
-          } else {
-            setNewMessagesBelowCount((count) => count + 1);
-            const replyId = message.reply_to_id ?? message.reply_to?.id;
-            if (
-              replyId !== undefined &&
-              messagesRef.current.some(
-                (candidate) => candidate.id === replyId && candidate.sender_id === ownerId,
-              )
-            ) {
-              setReplyLocatorMessageIds((current) =>
-                current.includes(message.id) ? current : [...current, message.id],
-              );
-            }
-          }
-        }
-        if (message.sender_id !== ownerId && screenActiveRef.current) {
-          void markConversationRead(ownerId, "dm", id, message.id);
-        }
+        if (relevant) void applyRealtimeMessage(message);
       } else if (event.type === "refresh_conversations" && screenActiveRef.current) {
         void load();
       }
     });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [clearThroughMessageId, id, load, ownerId, sessionKey]);
 
   useEffect(() => {
@@ -803,7 +866,7 @@ export default function ChatScreen() {
     const cached = await readDirectChatCachedPage(ownerId, id, {
       limit: directChatHistoryPolicy.maximumCachedMessages,
     });
-    let cursor = cached.messages[0]?.id;
+    let cursor = minimumServerMessageId(cached.messages);
     if (cursor === undefined) return;
     for (
       let pageIndex = 0;
@@ -820,7 +883,7 @@ export default function ChatScreen() {
           return;
         }
         await saveDirectChatMessages(ownerId, id, page.messages);
-        const nextCursor = page.messages[0]?.id;
+        const nextCursor = minimumServerMessageId(page.messages);
         if (activeSessionRef.current === expectedSession) {
           hasMoreRef.current = true;
           setHasMore(true);
@@ -1050,13 +1113,13 @@ export default function ChatScreen() {
 
   const loadMore = useCallback(async (): Promise<Message[]> => {
     if (!id || !hasMoreRef.current || loadingMoreRef.current) return [];
-    const firstServerMessage = messagesRef.current.find((message) => message.id > 0);
-    if (!firstServerMessage) return [];
+    const firstServerMessageId = minimumServerMessageId(messagesRef.current);
+    if (firstServerMessageId === undefined) return [];
     const expectedSession = sessionKey;
     loadingMoreRef.current = true;
     setIsLoadingMore(true);
     try {
-      let cursor = firstServerMessage.id;
+      let cursor = firstServerMessageId;
       const collected: Message[] = [];
       let nextHasMore = true;
       const cached = await readDirectChatCachedPage(ownerId, id, {
@@ -1065,7 +1128,7 @@ export default function ChatScreen() {
       });
       if (activeSessionRef.current !== expectedSession) return [];
       if (cached.messages.length > 0) {
-        cursor = cached.messages[0]!.id;
+        cursor = minimumServerMessageId(cached.messages) ?? cursor;
         collected.push(
           ...filterLocallyHiddenChatMessages(
             filterClearedDirectMessages(cached.messages, clearThroughMessageId),
@@ -1091,7 +1154,7 @@ export default function ChatScreen() {
             hiddenMessageIdsRef.current,
           );
           collected.push(...visible);
-          const nextCursor = page.messages[0]?.id;
+          const nextCursor = minimumServerMessageId(page.messages);
           nextHasMore = page.hasMore;
           if (
             visible.length > 0 ||
@@ -1127,12 +1190,12 @@ export default function ChatScreen() {
 
   const loadMoreGalleryImages = useCallback(async () => {
     const existing = new Set(
-      messagesRef.current.filter(isImageMessage).map((message) => message.content),
+      messagesRef.current.filter(isImageMessage).map(chatImagePresentationUrlFor),
     );
     const older = await loadMore();
     return older
       .filter(isImageMessage)
-      .map((message) => message.content)
+      .map(chatImagePresentationUrlFor)
       .filter((url) => !existing.has(url));
   }, [loadMore]);
 
@@ -1151,33 +1214,90 @@ export default function ChatScreen() {
     return true;
   }, []);
 
-  const scrollToMessage = useCallback(
-    async (messageId: number) => {
-      if (revealMessage(messageId) || !id) return;
+  const reconcileMessage = useCallback(
+    (messageId: number): Promise<boolean> => {
+      if (messagesRef.current.some((message) => message.id === messageId))
+        return Promise.resolve(true);
+      const existing = messageReconciliationFlightsRef.current.get(messageId);
+      if (existing) return existing;
       const expectedSession = sessionKey;
-      try {
-        const fetched = await getMessageContext(id, messageId);
-        if (activeSessionRef.current !== expectedSession) return;
-        await saveDirectChatMessages(ownerId, id, fetched);
-        if (activeSessionRef.current !== expectedSession) return;
+      let task: Promise<boolean>;
+      task = (async () => {
+        const result = await reconcileChatMessageContext(
+          messageId,
+          () => getMessageContext(id, messageId),
+          { isCurrent: () => activeSessionRef.current === expectedSession },
+        );
+        if (result.status !== "found") {
+          if (result.status === "unavailable")
+            captureException(result.error, {
+              conversation_id: id,
+              message_id: String(messageId),
+              operation: "direct_message_reconciliation",
+            });
+          return false;
+        }
+        const targetMessage = result.messages.find((message) => message.id === messageId);
+        if (targetMessage) await preloadChatImagePreview(ownerId, targetMessage);
+        if (activeSessionRef.current !== expectedSession) return false;
+        await saveDirectChatMessages(ownerId, id, result.messages);
+        if (activeSessionRef.current !== expectedSession) return false;
         const context = filterLocallyHiddenChatMessages(
-          filterClearedDirectMessages(fetched, clearThroughMessageId),
+          filterClearedDirectMessages(result.messages, clearThroughMessageId),
           hiddenMessageIdsRef.current,
         );
         const merged = mergeMessages(messagesRef.current, ...context);
         messagesRef.current = merged;
         setMessages(merged);
-        setTimeout(() => revealMessage(messageId), 0);
-      } catch (nextError) {
-        if (activeSessionRef.current !== expectedSession) return;
-        Alert.alert(
-          t("messages.loadFailed"),
-          nextError instanceof Error ? nextError.message : t("common.operationFailed"),
-        );
-      }
+        return merged.some((message) => message.id === messageId);
+      })().finally(() => {
+        if (messageReconciliationFlightsRef.current.get(messageId) === task)
+          messageReconciliationFlightsRef.current.delete(messageId);
+      });
+      messageReconciliationFlightsRef.current.set(messageId, task);
+      return task;
     },
-    [clearThroughMessageId, id, ownerId, revealMessage, sessionKey, t],
+    [clearThroughMessageId, id, ownerId, sessionKey],
   );
+
+  const scrollToMessage = useCallback(
+    async (messageId: number, options: { showError?: boolean } = {}) => {
+      if (revealMessage(messageId) || !id) return true;
+      const available = await reconcileMessage(messageId);
+      if (available) {
+        setTimeout(() => revealMessage(messageId), 0);
+        return true;
+      }
+      if (options.showError !== false && activeSessionRef.current === sessionKey) {
+        Alert.alert(t("messages.loadFailed"), t("common.operationFailed"));
+      }
+      return false;
+    },
+    [id, reconcileMessage, revealMessage, sessionKey, t],
+  );
+
+  useEffect(() => {
+    const target = Number(latestMessageIdParam);
+    if (
+      isLoading ||
+      !Number.isSafeInteger(target) ||
+      target <= 0 ||
+      messagesRef.current.some((message) => message.id === target)
+    )
+      return;
+    void reconcileMessage(target);
+  }, [isLoading, latestMessageIdParam, reconcileMessage]);
+
+  useEffect(() => {
+    if (!ownerId || !id) return;
+    return chatRealtimeService.subscribe((event) => {
+      if (event.type !== "direct_message_hint" || !screenActiveRef.current) return;
+      const relevant =
+        (event.sender_id === id && event.receiver_id === ownerId) ||
+        (event.sender_id === ownerId && event.receiver_id === id);
+      if (relevant) void scrollToMessage(event.message_id, { showError: false });
+    });
+  }, [id, ownerId, scrollToMessage]);
 
   useEffect(() => {
     const target = Number(messageId);
@@ -1189,7 +1309,7 @@ export default function ChatScreen() {
     )
       return;
     initialPushMessageHandledRef.current = messageId ?? null;
-    void scrollToMessage(target);
+    void scrollToMessage(target, { showError: false });
   }, [isLoading, messageId, scrollToMessage]);
 
   const selectionEntryFor = useCallback(
@@ -1231,6 +1351,11 @@ export default function ChatScreen() {
 
   const beginSelectedForward = (mode: Exclude<ForwardMode, "single">) => {
     if (!selectionEntries || !id) return;
+    if (
+      (mode === "individual" && !messageActionFeatures.multiForwardingEnabled) ||
+      (mode === "merged" && !messageActionFeatures.mergedForwardingEnabled)
+    )
+      return;
     if (!canForwardSelection(selectionEntries, mode)) {
       setToastMessage(
         t(mode === "individual" ? "forward.unsupportedIndividual" : "forward.unsupportedMerged"),
@@ -1257,15 +1382,21 @@ export default function ChatScreen() {
   };
 
   const requestSelectionForward = () => {
-    Alert.alert(t("forward.chooseMode"), undefined, [
-      { text: t("forward.individual"), onPress: () => beginSelectedForward("individual") },
-      { text: t("forward.merged"), onPress: () => beginSelectedForward("merged") },
-      { text: t("common.cancel"), style: "cancel" },
-    ]);
+    const actions = [
+      ...(messageActionFeatures.multiForwardingEnabled
+        ? [{ text: t("forward.individual"), onPress: () => beginSelectedForward("individual") }]
+        : []),
+      ...(messageActionFeatures.mergedForwardingEnabled
+        ? [{ text: t("forward.merged"), onPress: () => beginSelectedForward("merged") }]
+        : []),
+      { text: t("common.cancel"), style: "cancel" as const },
+    ];
+    if (actions.length > 1) Alert.alert(t("forward.chooseMode"), undefined, actions);
   };
 
   const requestSelectionDelete = () => {
-    if (!selectionEntries || !id || !user?.user_id) return;
+    if (!messageActionFeatures.localDeleteEnabled || !selectionEntries || !id || !user?.user_id)
+      return;
     Alert.alert(
       t("selection.delete.title"),
       t("selection.delete.message", selectionEntries.length),
@@ -1275,15 +1406,21 @@ export default function ChatScreen() {
           text: t("common.delete"),
           style: "destructive",
           onPress: () => {
+            const expectedSession = sessionKey;
             const selectedIds = selectionEntries.map((entry) => entry.message_id);
-            void hideChatMessagesLocally(user.user_id, "dm", id, selectedIds).then((hidden) => {
-              hiddenMessageIdsRef.current = hidden;
-            });
+            void hideChatMessagesLocally(user.user_id, "dm", id, selectedIds)
+              .then((hidden) => {
+                if (activeSessionRef.current === expectedSession)
+                  hiddenMessageIdsRef.current = hidden;
+              })
+              .catch((error) => captureException(error, { operation: "direct_selection_delete" }));
             const selected = new Set(selectedIds);
             const filtered = messagesRef.current.filter((message) => !selected.has(message.id));
             messagesRef.current = filtered;
             setMessages(filtered);
-            void publishLocalDirectConversationPreview(filtered);
+            void publishLocalDirectConversationPreview(filtered).catch((error) =>
+              captureException(error, { operation: "direct_selection_delete_preview" }),
+            );
             setReplyingTo((current) => (current && selected.has(current.id) ? null : current));
             setSelectionEntries(null);
           },
@@ -1292,53 +1429,73 @@ export default function ChatScreen() {
     );
   };
 
+  const menuActionsForMessage = useCallback(
+    (message: Message): ChatMessageMenuAction[] =>
+      message.delivery_status === "failed"
+        ? [
+            ...(message.msg_type === "text" && message.content.trim() ? ["copy" as const] : []),
+            "retry",
+            ...(messageActionFeatures.localDeleteEnabled ? ["delete" as const] : []),
+          ]
+        : message.delivery_status === "sending" || message.id <= 0
+          ? []
+          : actionsForChatMessage(message, {
+              viewerId: user?.user_id,
+              isChatMoney: parseChatMoneyPayload(message.content) !== null,
+              isChatMoneyReceipt: normalizeChatMoneyReceipt(message.content) !== null,
+              isCallRecord: parseChatCallRecord(message.content) !== null,
+              forwardingEnabled: messageActionFeatures.forwardingEnabled,
+              localDeleteEnabled: messageActionFeatures.localDeleteEnabled,
+              multiselectEnabled: messageActionFeatures.multiselectEnabled,
+              recallEnabled: messageActionFeatures.recallEnabled && message.id > 0,
+            }),
+    [messageActionFeatures, user?.user_id],
+  );
+
   const openMessageMenu = useCallback(
-    (message: Message, anchor: ChatMessageAnchor) => {
-      const actions: ChatMessageMenuAction[] =
-        message.delivery_status === "failed"
-          ? [
-              ...(message.msg_type === "text" && message.content.trim() ? ["copy" as const] : []),
-              "retry",
-              "delete",
-            ]
-          : message.delivery_status === "sending" || message.id <= 0
-            ? []
-            : actionsForChatMessage(message, {
-                viewerId: user?.user_id,
-                isChatMoney: parseChatMoneyPayload(message.content) !== null,
-                isChatMoneyReceipt: normalizeChatMoneyReceipt(message.content) !== null,
-                isCallRecord: parseChatCallRecord(message.content) !== null,
-                forwardingEnabled: true,
-                localDeleteEnabled: true,
-                multiselectEnabled: true,
-                recallEnabled: message.id > 0,
-              });
-      if (actions.length > 0) setMenuTarget({ message, anchor, actions });
+    (message: Message, anchor: ChatMessageAnchor): boolean => {
+      const actions = menuActionsForMessage(message);
+      if (actions.length === 0 || !sessionKey) return false;
+      Keyboard.dismiss();
+      setActivePanel(null);
+      setMenuTarget(createChatMessageMenuTarget(message, sessionKey, anchor, actions));
+      return true;
     },
-    [user?.user_id],
+    [menuActionsForMessage, sessionKey],
   );
 
   async function handleMenuAction(action: ChatMessageMenuAction) {
     const target = menuTarget;
     setMenuTarget(null);
-    if (!target || !id || !user?.user_id) return;
-    const message = target.message;
-    switch (action) {
-      case "copy":
-        await Clipboard.setStringAsync(message.content);
-        return;
-      case "retry":
-        retryMessage(message);
-        return;
-      case "quote":
-        setReplyingTo(message);
-        setComposerFocusRequest((value) => value + 1);
-        return;
-      case "recall": {
-        const editableText =
-          message.msg_type === "text" && message.content.trim() ? message.content : null;
-        const expectedSession = sessionKey;
-        try {
+    if (
+      !target ||
+      !id ||
+      !user?.user_id ||
+      target.session_key !== activeSessionRef.current ||
+      menuActionInFlightRef.current
+    )
+      return;
+    const message = resolveChatMessageMenuTarget(messagesRef.current, target);
+    if (!message || !menuActionsForMessage(message).includes(action)) return;
+    const expectedSession = target.session_key;
+    menuActionInFlightRef.current = true;
+    try {
+      switch (action) {
+        case "copy":
+          await Clipboard.setStringAsync(message.content);
+          if (activeSessionRef.current === expectedSession)
+            setToastMessage(t("chat.action.copied"));
+          return;
+        case "retry":
+          retryMessage(message);
+          return;
+        case "quote":
+          setReplyingTo(message);
+          setComposerFocusRequest((value) => value + 1);
+          return;
+        case "recall": {
+          const editableText =
+            message.msg_type === "text" && message.content.trim() ? message.content : null;
           const recalled = await recallDirectMessage(id, message.id);
           await saveDirectChatMessages(user.user_id, id, [recalled]);
           if (activeSessionRef.current !== expectedSession) return;
@@ -1350,63 +1507,77 @@ export default function ChatScreen() {
           if (editableText)
             setRecalledEditableTexts((current) => ({ ...current, [message.id]: editableText }));
           setReplyingTo((current) => (current?.id === message.id ? null : current));
-        } catch (nextError) {
+          return;
+        }
+        case "save": {
+          const result =
+            message.msg_type === "video"
+              ? await saveVideoToLibrary(message.content)
+              : await saveImageToLibrary(chatImagePresentationUrlFor(message));
           if (activeSessionRef.current !== expectedSession) return;
-          Alert.alert(
-            t("chat.recall.failed"),
-            nextError instanceof Error ? nextError.message : t("common.operationFailed"),
-          );
+          if (result === "permissionDenied") {
+            Alert.alert(
+              t(
+                message.msg_type === "video"
+                  ? "media.videoPermissionRequired"
+                  : "media.photoPermissionRequired",
+              ),
+            );
+          } else if (result !== "saved") Alert.alert(t("media.saveFailed"));
+          else
+            setToastMessage(
+              t(message.msg_type === "video" ? "media.videoSavedToAlbum" : "media.savedToAlbum"),
+            );
+          return;
         }
-        return;
-      }
-      case "save": {
-        const result =
-          message.msg_type === "video"
-            ? await saveVideoToLibrary(message.content)
-            : await saveImageToLibrary(message.content);
-        if (result === "permissionDenied") {
-          Alert.alert(
-            t(
-              message.msg_type === "video"
-                ? "media.videoPermissionRequired"
-                : "media.photoPermissionRequired",
-            ),
+        case "delete": {
+          if (message.id > 0) {
+            const hidden = await hideChatMessagesLocally(user.user_id, "dm", id, [message.id]);
+            if (activeSessionRef.current !== expectedSession) return;
+            hiddenMessageIdsRef.current = hidden;
+          } else if (message.client_message_id) {
+            const timer = outboxTimersRef.current.get(message.client_message_id);
+            if (timer) clearTimeout(timer);
+            outboxTimersRef.current.delete(message.client_message_id);
+            if (isImageMessage(message))
+              await cancelChatImageUpload(user.user_id, message.client_message_id);
+            else if (isVideoMessage(message))
+              await cancelChatVideoUpload(user.user_id, message.client_message_id);
+            else await removeDirectChatOutboxJob(user.user_id, message.client_message_id);
+            if (activeSessionRef.current !== expectedSession) return;
+          }
+          const filtered = messagesRef.current.filter(
+            (item) => timelineIdentity(item) !== timelineIdentity(message),
           );
-        } else if (result !== "saved") Alert.alert(t("media.saveFailed"));
-        return;
-      }
-      case "delete":
-        if (message.id > 0) {
-          const hidden = await hideChatMessagesLocally(user.user_id, "dm", id, [message.id]);
-          hiddenMessageIdsRef.current = hidden;
-        } else if (message.client_message_id) {
-          const timer = outboxTimersRef.current.get(message.client_message_id);
-          if (timer) clearTimeout(timer);
-          outboxTimersRef.current.delete(message.client_message_id);
-          if (isImageMessage(message))
-            await cancelChatImageUpload(user.user_id, message.client_message_id);
-          else if (isVideoMessage(message))
-            await cancelChatVideoUpload(user.user_id, message.client_message_id);
-          else await removeDirectChatOutboxJob(user.user_id, message.client_message_id);
+          messagesRef.current = filtered;
+          setMessages(filtered);
+          void publishLocalDirectConversationPreview(filtered).catch((error) =>
+            captureException(error, { operation: "direct_message_delete_preview" }),
+          );
+          setReplyingTo((current) => (current?.id === message.id ? null : current));
+          setToastMessage(t("chat.action.deleted"));
+          return;
         }
-        const filtered = messagesRef.current.filter(
-          (item) => timelineIdentity(item) !== timelineIdentity(message),
-        );
-        messagesRef.current = filtered;
-        setMessages(filtered);
-        void publishLocalDirectConversationPreview(filtered);
-        setReplyingTo((current) => (current?.id === message.id ? null : current));
-        return;
-      case "forward":
-        setForwardDraft({
-          mode: "single",
-          sources: [forwardSource("dm", id, message)],
-          preview: chatForwardMessagePreview(message, t),
-        });
-        return;
-      case "multiSelect":
-        toggleMessageSelection(message);
-        return;
+        case "forward":
+          setForwardDraft({
+            mode: "single",
+            sources: [forwardSource("dm", id, message)],
+            preview: chatForwardMessagePreview(message, t),
+          });
+          return;
+        case "multiSelect":
+          toggleMessageSelection(message);
+          return;
+      }
+    } catch (nextError) {
+      captureException(nextError, { action, operation: "direct_message_menu_action" });
+      if (activeSessionRef.current !== expectedSession) return;
+      Alert.alert(
+        t(action === "recall" ? "chat.recall.failed" : "common.error"),
+        nextError instanceof Error ? nextError.message : t("common.operationFailed"),
+      );
+    } finally {
+      menuActionInFlightRef.current = false;
     }
   }
 
@@ -1612,7 +1783,7 @@ export default function ChatScreen() {
   };
 
   const imageUrls = useMemo(
-    () => visibleMessages.filter(isImageMessage).map((message) => message.content),
+    () => visibleMessages.filter(isImageMessage).map(chatImagePresentationUrlFor),
     [visibleMessages],
   );
   const timelineLocator = resolveChatTimelineLocator({
@@ -1639,7 +1810,7 @@ export default function ChatScreen() {
   return (
     <View style={styles.screen}>
       <ChatBackgroundLayer background={chatBackground} style={styles.backgroundLayer} />
-      <ChatKeyboardAvoidingView style={styles.chatContent}>
+      <ChatKeyboardAvoidingView reservesKeyboardInset={false} style={styles.chatContent}>
         <View style={styles.timelineSurface}>
           {error && visibleMessages.length === 0 && !isLoading ? (
             <View style={styles.blockingState}>
@@ -1765,7 +1936,11 @@ export default function ChatScreen() {
             count={selectionEntries.length}
             onDelete={requestSelectionDelete}
             onForward={requestSelectionForward}
-            showsForward
+            showsDelete={messageActionFeatures.localDeleteEnabled}
+            showsForward={
+              messageActionFeatures.multiForwardingEnabled ||
+              messageActionFeatures.mergedForwardingEnabled
+            }
           />
         ) : (
           <>
@@ -1964,7 +2139,7 @@ function MessageTimelineRow({
   peerId: string;
   peerName: string | undefined;
   messages: Message[];
-  onMenuRequested: (message: Message, anchor: ChatMessageAnchor) => void;
+  onMenuRequested: (message: Message, anchor: ChatMessageAnchor) => boolean | void;
   onQuoteTap: (messageId: number) => void;
   recalledEditableText: string | undefined;
   onReedit: (text: string) => void;
@@ -2041,10 +2216,7 @@ function MessageTimelineRow({
               messageType={message.msg_type}
               onRetry={() => onRetry(message)}
             />
-            <ChatMessageLongPressSurface
-              disabled={parseChatCallRecord(message.content) !== null}
-              onLongPress={(anchor) => onMenuRequested(message, anchor)}
-            >
+            <ChatMessageLongPressSurface onLongPress={(anchor) => onMenuRequested(message, anchor)}>
               <MessageContent
                 imageUrls={imageUrls}
                 isMine={isMine}
@@ -2123,10 +2295,11 @@ function MessageContent({
     );
   }
   if (normalizedType === "image") {
+    const presentationUrl = chatImagePresentationUrlFor(message);
     return (
       <ChatImageBubble
         imageUrls={imageUrls}
-        index={Math.max(0, imageUrls.indexOf(message.content))}
+        index={Math.max(0, imageUrls.indexOf(presentationUrl))}
         loadMoreOlder={loadMoreGalleryImages}
         messageId={timelineIdentity(message)}
         onOpen={onImageOpen}
@@ -2275,6 +2448,7 @@ function Composer({
 }) {
   const { t } = useLocalization();
   const safeAreaInsets = useSafeAreaInsets();
+  const keyboardLayout = useChatKeyboardLayout();
   const inputRef = useRef<TextInput>(null);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const selectionRef = useRef<ComposerTextSelection>({ start: draft.length, end: draft.length });
@@ -2411,6 +2585,9 @@ function Composer({
       </View>
 
       <ChatComposerPanelHost
+        isKeyboardFocused={isInputFocused}
+        keyboardEquivalentInset={keyboardLayout.equivalentInset}
+        keyboardInset={keyboardLayout.inset}
         panel={activePanel}
         plusItemCount={isSelfChat ? 1 : 6}
         plusPanel={
@@ -2515,6 +2692,13 @@ function directChatSessionKey(ownerId: string, contactId: string | undefined): s
   return owner && contact ? `${encodeURIComponent(owner)}:${encodeURIComponent(contact)}` : "";
 }
 
+function canonicalRouteMessageIds(...values: (string | undefined)[]): number[] {
+  return values.flatMap((value) => {
+    const messageId = Number(value);
+    return Number.isSafeInteger(messageId) && messageId > 0 ? [messageId] : [];
+  });
+}
+
 function makeTimeline(messages: Message[]): TimelineRow[] {
   const sorted = [...messages].sort(compareMessages);
   return sorted.map((message, index) => ({
@@ -2526,23 +2710,30 @@ function makeTimeline(messages: Message[]): TimelineRow[] {
 function mergeMessages(current: Message[], ...incoming: Message[]): Message[] {
   const next = [...current];
   for (const message of incoming) {
-    const identity = timelineIdentity(message);
-    const index = next.findIndex(
-      (candidate) =>
-        timelineIdentity(candidate) === identity ||
-        (candidate.id > 0 && message.id > 0 && candidate.id === message.id),
+    const matchingIndices = next.flatMap((candidate, index) =>
+      timelineIdentity(candidate) === timelineIdentity(message) ||
+      (candidate.id > 0 && message.id > 0 && candidate.id === message.id)
+        ? [index]
+        : [],
     );
-    if (index >= 0) {
-      const existing = next[index]!;
-      next[index] = {
-        ...message,
-        ...(message.client_message_id
-          ? {}
-          : existing.client_message_id
-            ? { client_message_id: existing.client_message_id }
-            : {}),
-      };
-    } else next.push(message);
+    if (matchingIndices.length === 0) {
+      next.push(message);
+      continue;
+    }
+    const existing = matchingIndices
+      .map((index) => next[index]!)
+      .sort((left, right) => right.version - left.version)[0]!;
+    const newest = message.version < existing.version ? existing : message;
+    const stableClientMessageId =
+      newest.client_message_id ??
+      matchingIndices.map((index) => next[index]!.client_message_id).find(Boolean);
+    const replacement = {
+      ...newest,
+      ...(stableClientMessageId ? { client_message_id: stableClientMessageId } : {}),
+    };
+    const keepIndex = matchingIndices[0]!;
+    next[keepIndex] = replacement;
+    for (const index of matchingIndices.slice(1).reverse()) next.splice(index, 1);
   }
   return next.sort(compareMessages);
 }
@@ -2554,6 +2745,16 @@ function timelineIdentity(message: Message): string {
 function compareMessages(left: Message, right: Message): number {
   const timeDifference = timestampValue(left.timestamp) - timestampValue(right.timestamp);
   return timeDifference !== 0 ? timeDifference : left.id - right.id;
+}
+
+function minimumServerMessageId(messages: readonly Message[]): number | undefined {
+  const ids = messages.flatMap((message) => (message.id > 0 ? [message.id] : []));
+  return ids.length > 0 ? Math.min(...ids) : undefined;
+}
+
+function maximumServerMessageId(messages: readonly Message[]): number | undefined {
+  const ids = messages.flatMap((message) => (message.id > 0 ? [message.id] : []));
+  return ids.length > 0 ? Math.max(...ids) : undefined;
 }
 
 function shouldShowTime(current: string, previous?: string): boolean {

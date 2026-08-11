@@ -2,16 +2,28 @@ import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import type { PropsWithChildren, ReactNode } from "react";
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  AccessibilityInfo,
   Animated,
   Easing,
+  findNodeHandle,
+  Keyboard,
   Modal,
   Pressable,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  type GestureResponderEvent,
   type View as NativeView,
   type StyleProp,
   type ViewStyle,
@@ -43,11 +55,33 @@ export interface ChatReplyRenderValue {
   msgType: string;
 }
 
-const ChatMessageActivationContext = createContext<() => boolean>(() => true);
+interface ChatMessageActivationController {
+  canActivate: () => boolean;
+  onNestedLongPress?: ((event: GestureResponderEvent) => void) | undefined;
+  onNestedPressOut?: (() => void) | undefined;
+}
+
+const ChatMessageActivationContext = createContext<ChatMessageActivationController>({
+  canActivate: () => true,
+});
 
 /** Keeps nested bubble taps from committing after the menu long press wins. */
 export function useChatMessageActivationGuard(): () => boolean {
-  return useContext(ChatMessageActivationContext);
+  return useContext(ChatMessageActivationContext).canActivate;
+}
+
+/** Lets nested media Pressables hand their long press back to the message menu. */
+export function useChatMessageLongPressBridge(): {
+  delayLongPress: number;
+  onLongPress?: ((event: GestureResponderEvent) => void) | undefined;
+  onPressOut?: (() => void) | undefined;
+} {
+  const controller = useContext(ChatMessageActivationContext);
+  return {
+    delayLongPress: chatReplyGeometry.long_press_seconds * 1_000,
+    onLongPress: controller.onNestedLongPress,
+    onPressOut: controller.onNestedPressOut,
+  };
 }
 
 export function ChatMessageHighlightSurface({
@@ -139,7 +173,7 @@ export function ChatMessageLongPressSurface({
   onTouchSequenceEnded,
 }: PropsWithChildren<{
   disabled?: boolean;
-  onLongPress: (anchor: ChatMessageAnchor) => void;
+  onLongPress: (anchor: ChatMessageAnchor) => boolean | void;
   onLongPressStart?: (() => void) | undefined;
   onTouchSequenceEnded?: (() => void) | undefined;
 }>) {
@@ -155,30 +189,56 @@ export function ChatMessageLongPressSurface({
     [],
   );
 
-  const releaseMenuTouchOwnership = () => {
+  const releaseMenuTouchOwnership = useCallback(() => {
     onTouchSequenceEnded?.();
     if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current);
     releaseTimerRef.current = setTimeout(() => {
       menuOwnsTouchSequenceRef.current = false;
       releaseTimerRef.current = null;
     }, 150);
-  };
+  }, [onTouchSequenceEnded]);
+
+  const openMessageMenu = useCallback(
+    (event: GestureResponderEvent) => {
+      if (disabled || menuOwnsTouchSequenceRef.current) return;
+      const pressX = event.nativeEvent.pageX;
+      const pressY = event.nativeEvent.pageY;
+      menuOwnsTouchSequenceRef.current = true;
+      onLongPressStart?.();
+      surfaceRef.current?.measureInWindow((x, y, width, height) => {
+        if (width <= 0 || height <= 0) return;
+        const opened = onLongPress({
+          x,
+          y,
+          width,
+          height,
+          press_x: pressX,
+          press_y: pressY,
+        });
+        if (opened !== false) {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+      });
+    },
+    [disabled, onLongPress, onLongPressStart],
+  );
+
+  const activationController = useMemo<ChatMessageActivationController>(
+    () => ({
+      canActivate,
+      onNestedLongPress: disabled ? undefined : openMessageMenu,
+      onNestedPressOut: disabled ? undefined : releaseMenuTouchOwnership,
+    }),
+    [canActivate, disabled, openMessageMenu, releaseMenuTouchOwnership],
+  );
 
   return (
-    <ChatMessageActivationContext.Provider value={canActivate}>
+    <ChatMessageActivationContext.Provider value={activationController}>
       <View ref={surfaceRef} collapsable={false}>
         <Pressable
           delayLongPress={chatReplyGeometry.long_press_seconds * 1_000}
           disabled={disabled}
-          onLongPress={() => {
-            menuOwnsTouchSequenceRef.current = true;
-            onLongPressStart?.();
-            surfaceRef.current?.measureInWindow((x, y, width, height) => {
-              if (width <= 0 || height <= 0) return;
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              onLongPress({ x, y, width, height });
-            });
-          }}
+          onLongPress={openMessageMenu}
           onPressOut={releaseMenuTouchOwnership}
           pressRetentionOffset={chatReplyGeometry.long_press_movement}
           testID="chat.message.longPressSurface"
@@ -383,19 +443,56 @@ export function ChatMessageActionOverlay({
   onSelect: (action: ChatMessageMenuAction) => void;
 }) {
   const { t } = useLocalization();
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const firstActionRef = useRef<NativeView>(null);
+  const [keyboardOcclusion, setKeyboardOcclusion] = useState(0);
+  const titles = useMemo(() => actions.map((action) => actionTitle(action, t)), [actions, t]);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardOcclusion(
+        Math.max(0, height - Math.max(insets.top, event.endCoordinates.screenY)),
+      );
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardOcclusion(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [height, insets.top]);
+
   if (!anchor || actions.length === 0) return null;
+  const longestTitle = titles.reduce((longest, title) => Math.max(longest, title.length), 0);
+  const itemWidth = Math.min(94, Math.max(58, 52 + longestTitle * 4));
+  const itemHeight = Math.min(76, Math.max(56, 56 * Math.min(fontScale, 1.35)));
   const layout = calculateChatMessageMenuLayout(anchor, actions.length, {
     width,
-    height,
+    height: height - keyboardOcclusion,
     topInset: insets.top,
     bottomInset: insets.bottom,
+    itemWidth,
+    itemHeight,
   });
+  const focusFirstAction = () => {
+    const handle = findNodeHandle(firstActionRef.current);
+    if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+  };
   return (
-    <Modal animationType="none" onRequestClose={onDismiss} statusBarTranslucent transparent visible>
-      <Pressable accessibilityViewIsModal onPress={onDismiss} style={styles.overlay}>
+    <Modal
+      animationType="fade"
+      onRequestClose={onDismiss}
+      onShow={focusFirstAction}
+      statusBarTranslucent
+      transparent
+      visible
+    >
+      <Pressable accessible={false} onPress={onDismiss} style={styles.overlay}>
         <View
+          accessibilityLabel={t("chat.action.menu")}
+          accessibilityRole="menu"
+          accessibilityViewIsModal
+          onAccessibilityEscape={onDismiss}
           onStartShouldSetResponder={() => true}
           style={[
             styles.menuContainer,
@@ -413,20 +510,31 @@ export function ChatMessageActionOverlay({
           <View
             style={[styles.menuBody, { height: layout.menu_body_height, width: layout.menu_width }]}
           >
-            {actions.map((action) => (
+            {actions.map((action, index) => (
               <Pressable
                 accessibilityLabel={actionTitle(action, t)}
+                accessibilityRole="button"
                 key={action}
                 onPress={() => onSelect(action)}
-                style={styles.menuItem}
+                ref={index === 0 ? firstActionRef : undefined}
+                style={[styles.menuItem, { width: layout.item_width, height: layout.item_height }]}
               >
                 <SymbolView
                   name={actionSymbol(action)}
                   size={20}
                   weight="regular"
-                  tintColor="#FFFFFF"
+                  tintColor={action === "delete" || action === "recall" ? "#FF8A80" : "#FFFFFF"}
                 />
-                <Text numberOfLines={1} style={styles.menuItemText}>
+                <Text
+                  adjustsFontSizeToFit
+                  maxFontSizeMultiplier={1.35}
+                  minimumFontScale={0.85}
+                  numberOfLines={2}
+                  style={[
+                    styles.menuItemText,
+                    action === "delete" || action === "recall" ? styles.destructiveMenuText : null,
+                  ]}
+                >
                   {actionTitle(action, t)}
                 </Text>
               </Pressable>
@@ -647,8 +755,9 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     shadowOffset: { width: 0, height: 2 },
   },
-  menuItem: { width: 58, height: 56, alignItems: "center", justifyContent: "center", rowGap: 5 },
-  menuItemText: { maxWidth: 56, color: "#FFFFFF", fontSize: 11 },
+  menuItem: { alignItems: "center", justifyContent: "center", rowGap: 4, paddingHorizontal: 3 },
+  menuItemText: { color: "#FFFFFF", fontSize: 11, textAlign: "center" },
+  destructiveMenuText: { color: "#FF8A80" },
   pointerRow: { height: 7, position: "relative" },
   pointer: {
     position: "absolute",

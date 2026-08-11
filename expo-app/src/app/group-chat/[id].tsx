@@ -40,7 +40,10 @@ import {
   ChatMessageDeliveryStatus,
   isPendingChatVoice,
 } from "@/components/messages/ChatMessageDeliveryStatus";
-import { ChatKeyboardAvoidingView } from "@/components/messages/ChatKeyboardAvoidingView";
+import {
+  ChatKeyboardAvoidingView,
+  useChatKeyboardLayout,
+} from "@/components/messages/ChatKeyboardAvoidingView";
 import {
   ChatMoneyComposerModal,
   type ChatMoneyOptimisticCreation,
@@ -146,6 +149,7 @@ import {
   readGroupChatCachedPage,
   saveGroupChatMessages,
 } from "@/services/messages/GroupChatHistoryRepository";
+import { reconcileChatMessageContext } from "@/services/messages/ChatMessageReconciliation";
 import {
   createGroupChatOutboxJob,
   groupChatOutboxFailure,
@@ -194,13 +198,17 @@ import {
 import {
   actionsForChatMessage,
   chatRecallNotice,
+  createChatMessageMenuTarget,
   isRecalledChatMessage,
   replyPreviewFromMessage,
+  resolveChatMessageMenuTarget,
   resolveChatTimelineLocator,
   resolveGroupReply,
   type ChatMessageAnchor,
   type ChatMessageMenuAction,
+  type ChatMessageMenuTargetRef,
 } from "@/services/messages/chatReplyPolicy";
+import { useChatMessageActionFeatures } from "@/services/messages/useChatMessageActionFeatures";
 import {
   canForwardSelection,
   chatForwardMessagePreview,
@@ -225,17 +233,17 @@ import {
   type ChatTextRange,
 } from "@/services/messages/chatMentionPolicy";
 import { saveImageToLibrary, saveVideoToLibrary } from "@/services/media/MediaLibrarySaver";
+import { chatImagePresentationUrlFor } from "@/services/media/ChatImageSourcePolicy";
+import {
+  preloadChatImagePreview,
+  preloadPreferredChatImagePreview,
+} from "@/services/media/ChatMediaPreviewPreloader";
+import { captureException } from "@/services/monitoring/MonitoringService";
 import { colors } from "@/theme";
 
 interface TimelineRow {
   message: GroupMessage;
   showsTime: boolean;
-}
-
-interface GroupMenuTarget {
-  message: GroupMessage;
-  anchor: ChatMessageAnchor;
-  actions: ChatMessageMenuAction[];
 }
 
 interface ForwardDraft {
@@ -260,6 +268,7 @@ export default function GroupChatScreen() {
   const { t } = useLocalization();
   const ownerId = user?.user_id ?? "";
   const sessionKey = groupChatSessionKey(ownerId, groupId);
+  const messageActionFeatures = useChatMessageActionFeatures(ownerId);
   const appearance = useChatAppearance();
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [renderSessionKey, setRenderSessionKey] = useState(sessionKey);
@@ -274,7 +283,7 @@ export default function GroupChatScreen() {
   const [showMentionPicker, setShowMentionPicker] = useState(false);
   const [replyingTo, setReplyingTo] = useState<GroupMessage | null>(null);
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
-  const [menuTarget, setMenuTarget] = useState<GroupMenuTarget | null>(null);
+  const [menuTarget, setMenuTarget] = useState<ChatMessageMenuTargetRef | null>(null);
   const [recalledEditableTexts, setRecalledEditableTexts] = useState<Record<number, string>>({});
   const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
   const [newMessagesBelowCount, setNewMessagesBelowCount] = useState(0);
@@ -321,11 +330,13 @@ export default function GroupChatScreen() {
   const screenActiveRef = useRef(false);
   const isNearBottomRef = useRef(true);
   const initialPushMessageHandledRef = useRef<string | null>(null);
+  const messageReconciliationFlightsRef = useRef(new Map<number, Promise<boolean>>());
   const memberRevisionRef = useRef(0);
   const activeSessionRef = useRef(sessionKey);
   const syncAttemptRef = useRef(0);
   const outboxTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const outboxInFlightRef = useRef(new Set<string>());
+  const menuActionInFlightRef = useRef(false);
   const backfillInFlightRef = useRef(new Set<string>());
   const draftSnapshotsRef = useRef(new Map<string, ChatDraftSnapshot>());
   const groupFallbackTitleRef = useRef("");
@@ -351,6 +362,7 @@ export default function GroupChatScreen() {
     loadingMoreRef.current = false;
     screenActiveRef.current = false;
     initialPushMessageHandledRef.current = null;
+    messageReconciliationFlightsRef.current.clear();
     memberRevisionRef.current = 0;
     // Route/account changes need one pre-paint reset; every async callback is
     // additionally fenced by `activeSessionRef` below.
@@ -497,6 +509,12 @@ export default function GroupChatScreen() {
         (message) => message.delivery_status === "sending" || message.delivery_status === "failed",
       );
       const initial = mergeMessages(currentPending, ...cachedVisible, ...pending);
+      await preloadPreferredChatImagePreview(
+        ownerId,
+        initial,
+        canonicalRouteMessageIds(params.messageId, params.latestMessageId),
+      );
+      if (!isCurrent()) return;
       messagesRef.current = initial;
       setRenderSessionKey(expectedSession);
       setMessages(initial);
@@ -560,6 +578,12 @@ export default function GroupChatScreen() {
         filterClearedGroupMessages(fetched, watermark),
         hiddenIds,
       );
+      await preloadPreferredChatImagePreview(
+        ownerId,
+        serverVisible,
+        canonicalRouteMessageIds(params.messageId, params.latestMessageId),
+      );
+      if (!isCurrent()) return;
       const merged = mergeMessages(messagesRef.current, ...serverVisible);
       messagesRef.current = merged;
       setMessages(merged);
@@ -595,7 +619,7 @@ export default function GroupChatScreen() {
     // The delivery/backfill functions are session-keyed and use this render
     // closure. Listing them would recreate `load` on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, ownerId, params.latestMessageId, sessionKey, t]);
+  }, [groupId, ownerId, params.latestMessageId, params.messageId, sessionKey, t]);
 
   useFocusEffect(
     useCallback(() => {
@@ -624,58 +648,67 @@ export default function GroupChatScreen() {
   useEffect(() => {
     if (!ownerId || groupId <= 0) return;
     const expectedSession = sessionKey;
-    return chatRealtimeService.subscribe((event) => {
-      if (activeSessionRef.current !== expectedSession) return;
+    let active = true;
+    const applyRealtimeMessage = async (message: GroupMessage) => {
+      await preloadChatImagePreview(ownerId, message);
+      if (!active || activeSessionRef.current !== expectedSession) return;
+      if (hiddenMessageIdsRef.current.has(message.id)) return;
+      if (message.history_sequence !== undefined && message.history_sequence <= historyWatermark)
+        return;
+      const wasKnown = messagesRef.current.some(
+        (candidate) =>
+          candidate.id === message.id ||
+          (Boolean(candidate.client_message_id) &&
+            candidate.client_message_id === message.client_message_id),
+      );
+      setMessages((current) => {
+        const merged = mergeMessages(current, message);
+        messagesRef.current = merged;
+        return merged;
+      });
+      if (message.id > 0)
+        void saveGroupChatMessages(ownerId, groupId, [message]).then(() =>
+          publishLatestCachedGroupConversationPreview(ownerId, groupId, t),
+        );
+      if (!wasKnown && screenActiveRef.current) {
+        const isMine = message.sender_id === ownerId;
+        if (isMine || isNearBottomRef.current) {
+          requestAnimationFrame(() => {
+            if (activeSessionRef.current === expectedSession)
+              listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+          });
+        } else {
+          setNewMessagesBelowCount((count) => count + 1);
+          if (message.mentions?.includes(ownerId) || message.mention_all) {
+            setMentionLocatorMessageIds((current) =>
+              current.includes(message.id) ? current : [...current, message.id],
+            );
+          }
+          const replyId = message.reply_to_id ?? message.reply_to?.id;
+          if (
+            replyId !== undefined &&
+            messagesRef.current.some(
+              (candidate) => candidate.id === replyId && candidate.sender_id === ownerId,
+            )
+          ) {
+            setReplyLocatorMessageIds((current) =>
+              current.includes(message.id) ? current : [...current, message.id],
+            );
+          }
+        }
+      }
+      if (message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current) {
+        void markConversationRead(ownerId, "group", String(groupId), message.id);
+      }
+    };
+    const unsubscribe = chatRealtimeService.subscribe((event) => {
+      if (!active || activeSessionRef.current !== expectedSession) return;
       if (event.type === "group_message" && event.message.group_id === groupId) {
         const message = event.message;
         if (hiddenMessageIdsRef.current.has(message.id)) return;
         if (message.history_sequence !== undefined && message.history_sequence <= historyWatermark)
           return;
-        const wasKnown = messagesRef.current.some(
-          (candidate) =>
-            candidate.id === message.id ||
-            (Boolean(candidate.client_message_id) &&
-              candidate.client_message_id === message.client_message_id),
-        );
-        setMessages((current) => {
-          const merged = mergeMessages(current, message);
-          messagesRef.current = merged;
-          return merged;
-        });
-        if (message.id > 0)
-          void saveGroupChatMessages(ownerId, groupId, [message]).then(() =>
-            publishLatestCachedGroupConversationPreview(ownerId, groupId, t),
-          );
-        if (!wasKnown && screenActiveRef.current) {
-          const isMine = message.sender_id === ownerId;
-          if (isMine || isNearBottomRef.current) {
-            requestAnimationFrame(() => {
-              if (activeSessionRef.current === expectedSession)
-                listRef.current?.scrollToOffset({ animated: true, offset: 0 });
-            });
-          } else {
-            setNewMessagesBelowCount((count) => count + 1);
-            if (message.mentions?.includes(ownerId) || message.mention_all) {
-              setMentionLocatorMessageIds((current) =>
-                current.includes(message.id) ? current : [...current, message.id],
-              );
-            }
-            const replyId = message.reply_to_id ?? message.reply_to?.id;
-            if (
-              replyId !== undefined &&
-              messagesRef.current.some(
-                (candidate) => candidate.id === replyId && candidate.sender_id === ownerId,
-              )
-            ) {
-              setReplyLocatorMessageIds((current) =>
-                current.includes(message.id) ? current : [...current, message.id],
-              );
-            }
-          }
-        }
-        if (message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current) {
-          void markConversationRead(ownerId, "group", String(groupId), message.id);
-        }
+        void applyRealtimeMessage(message);
       } else if (event.type === "group_renamed" && event.group_id === groupId) {
         setGroupTitle(event.name);
       } else if (
@@ -705,6 +738,10 @@ export default function GroupChatScreen() {
         void load();
       }
     });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [groupId, historyWatermark, load, ownerId, sessionKey, t]);
 
   useEffect(() => {
@@ -961,14 +998,15 @@ export default function GroupChatScreen() {
     [groupId, groupTitle],
   );
   const moneyRecipients = useMemo(
-    () => groupMembers
-      .filter((member) => member.user_id !== ownerId)
-      .map((member) => ({
-        id: member.user_id,
-        name: member.nickname || member.user_id,
-        avatar_url: member.avatar_url,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name)),
+    () =>
+      groupMembers
+        .filter((member) => member.user_id !== ownerId)
+        .map((member) => ({
+          id: member.user_id,
+          name: member.nickname || member.user_id,
+          avatar_url: member.avatar_url,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
     [groupMembers, ownerId],
   );
 
@@ -1396,12 +1434,7 @@ export default function GroupChatScreen() {
     const sendingOwnerId = user.user_id;
     const sendingGroupId = groupId;
     const key = giftIdempotencyKey(recipientId, gift.gift_id);
-    const received = await sendGroupGiftMessage(
-      sendingGroupId,
-      recipientId,
-      gift.gift_id,
-      key,
-    );
+    const received = await sendGroupGiftMessage(sendingGroupId, recipientId, gift.gift_id, key);
     completeGiftIdempotency(recipientId, gift.gift_id);
     const giftPayload = withGiftMessageRecipient(
       parseGiftMessagePayload(received.content) ??
@@ -1510,12 +1543,12 @@ export default function GroupChatScreen() {
 
   const loadMoreGalleryImages = useCallback(async () => {
     const existing = new Set(
-      messagesRef.current.filter(isImageMessage).map((message) => message.content),
+      messagesRef.current.filter(isImageMessage).map(chatImagePresentationUrlFor),
     );
     const older = await loadMore();
     return older
       .filter(isImageMessage)
-      .map((message) => message.content)
+      .map(chatImagePresentationUrlFor)
       .filter((url) => !existing.has(url));
   }, [loadMore]);
 
@@ -1664,33 +1697,79 @@ export default function GroupChatScreen() {
     [sessionKey],
   );
 
-  const scrollToMessage = useCallback(
-    async (messageId: number) => {
-      if (revealMessage(messageId) || groupId <= 0) return;
+  const reconcileMessage = useCallback(
+    (messageId: number): Promise<boolean> => {
+      if (messagesRef.current.some((message) => message.id === messageId))
+        return Promise.resolve(true);
+      const existing = messageReconciliationFlightsRef.current.get(messageId);
+      if (existing) return existing;
       const expectedSession = sessionKey;
-      try {
-        const fetched = await getGroupMessageContext(groupId, messageId);
-        if (activeSessionRef.current !== expectedSession) return;
-        await saveGroupChatMessages(ownerId, groupId, fetched);
-        if (activeSessionRef.current !== expectedSession) return;
+      let task: Promise<boolean>;
+      task = (async () => {
+        const result = await reconcileChatMessageContext(
+          messageId,
+          () => getGroupMessageContext(groupId, messageId),
+          { isCurrent: () => activeSessionRef.current === expectedSession },
+        );
+        if (result.status !== "found") {
+          if (result.status === "unavailable")
+            captureException(result.error, {
+              group_id: String(groupId),
+              message_id: String(messageId),
+              operation: "group_message_reconciliation",
+            });
+          return false;
+        }
+        const targetMessage = result.messages.find((message) => message.id === messageId);
+        if (targetMessage) await preloadChatImagePreview(ownerId, targetMessage);
+        if (activeSessionRef.current !== expectedSession) return false;
+        await saveGroupChatMessages(ownerId, groupId, result.messages);
+        if (activeSessionRef.current !== expectedSession) return false;
         const context = filterLocallyHiddenChatMessages(
-          filterClearedGroupMessages(fetched, historyWatermark),
+          filterClearedGroupMessages(result.messages, historyWatermark),
           hiddenMessageIdsRef.current,
         );
         const merged = mergeMessages(messagesRef.current, ...context);
         messagesRef.current = merged;
         setMessages(merged);
-        setTimeout(() => revealMessage(messageId), 0);
-      } catch (nextError) {
-        if (activeSessionRef.current !== expectedSession) return;
-        Alert.alert(
-          t("messages.loadFailed"),
-          nextError instanceof Error ? nextError.message : t("common.operationFailed"),
-        );
-      }
+        return merged.some((message) => message.id === messageId);
+      })().finally(() => {
+        if (messageReconciliationFlightsRef.current.get(messageId) === task)
+          messageReconciliationFlightsRef.current.delete(messageId);
+      });
+      messageReconciliationFlightsRef.current.set(messageId, task);
+      return task;
     },
-    [groupId, historyWatermark, ownerId, revealMessage, sessionKey, t],
+    [groupId, historyWatermark, ownerId, sessionKey],
   );
+
+  const scrollToMessage = useCallback(
+    async (messageId: number, options: { showError?: boolean } = {}) => {
+      if (revealMessage(messageId) || groupId <= 0) return true;
+      const available = await reconcileMessage(messageId);
+      if (available) {
+        setTimeout(() => revealMessage(messageId), 0);
+        return true;
+      }
+      if (options.showError !== false && activeSessionRef.current === sessionKey) {
+        Alert.alert(t("messages.loadFailed"), t("common.operationFailed"));
+      }
+      return false;
+    },
+    [groupId, reconcileMessage, revealMessage, sessionKey, t],
+  );
+
+  useEffect(() => {
+    const target = Number(params.latestMessageId);
+    if (
+      isLoading ||
+      !Number.isSafeInteger(target) ||
+      target <= 0 ||
+      messagesRef.current.some((message) => message.id === target)
+    )
+      return;
+    void reconcileMessage(target);
+  }, [isLoading, params.latestMessageId, reconcileMessage]);
 
   useEffect(() => {
     const target = Number(params.messageId);
@@ -1702,7 +1781,7 @@ export default function GroupChatScreen() {
     )
       return;
     initialPushMessageHandledRef.current = params.messageId ?? null;
-    void scrollToMessage(target);
+    void scrollToMessage(target, { showError: false });
   }, [isLoading, params.messageId, scrollToMessage]);
 
   useEffect(() => {
@@ -1715,7 +1794,7 @@ export default function GroupChatScreen() {
       ) {
         return;
       }
-      void scrollToMessage(event.message_id);
+      void scrollToMessage(event.message_id, { showError: false });
     });
   }, [groupId, ownerId, scrollToMessage]);
 
@@ -1757,6 +1836,11 @@ export default function GroupChatScreen() {
 
   const beginSelectedForward = (mode: Exclude<ForwardMode, "single">) => {
     if (!selectionEntries || groupId <= 0) return;
+    if (
+      (mode === "individual" && !messageActionFeatures.multiForwardingEnabled) ||
+      (mode === "merged" && !messageActionFeatures.mergedForwardingEnabled)
+    )
+      return;
     if (!canForwardSelection(selectionEntries, mode)) {
       setToastMessage(
         t(mode === "individual" ? "forward.unsupportedIndividual" : "forward.unsupportedMerged"),
@@ -1783,15 +1867,21 @@ export default function GroupChatScreen() {
   };
 
   const requestSelectionForward = () => {
-    Alert.alert(t("forward.chooseMode"), undefined, [
-      { text: t("forward.individual"), onPress: () => beginSelectedForward("individual") },
-      { text: t("forward.merged"), onPress: () => beginSelectedForward("merged") },
-      { text: t("common.cancel"), style: "cancel" },
-    ]);
+    const actions = [
+      ...(messageActionFeatures.multiForwardingEnabled
+        ? [{ text: t("forward.individual"), onPress: () => beginSelectedForward("individual") }]
+        : []),
+      ...(messageActionFeatures.mergedForwardingEnabled
+        ? [{ text: t("forward.merged"), onPress: () => beginSelectedForward("merged") }]
+        : []),
+      { text: t("common.cancel"), style: "cancel" as const },
+    ];
+    if (actions.length > 1) Alert.alert(t("forward.chooseMode"), undefined, actions);
   };
 
   const requestSelectionDelete = () => {
-    if (!selectionEntries || groupId <= 0 || !ownerId) return;
+    if (!messageActionFeatures.localDeleteEnabled || !selectionEntries || groupId <= 0 || !ownerId)
+      return;
     const expectedSession = sessionKey;
     Alert.alert(
       t("selection.delete.title"),
@@ -1829,53 +1919,73 @@ export default function GroupChatScreen() {
     );
   };
 
+  const menuActionsForMessage = useCallback(
+    (message: GroupMessage): ChatMessageMenuAction[] =>
+      message.delivery_status === "failed"
+        ? [
+            ...(message.msg_type === "text" && message.content.trim() ? ["copy" as const] : []),
+            "retry",
+            ...(messageActionFeatures.localDeleteEnabled ? ["delete" as const] : []),
+          ]
+        : message.delivery_status === "sending" || message.id <= 0
+          ? []
+          : actionsForChatMessage(message, {
+              viewerId: user?.user_id,
+              isChatMoney: parseChatMoneyPayload(message.content) !== null,
+              isChatMoneyReceipt: normalizeChatMoneyReceipt(message.content) !== null,
+              isCallRecord: parseChatCallRecord(message.content) !== null,
+              forwardingEnabled: messageActionFeatures.forwardingEnabled,
+              localDeleteEnabled: messageActionFeatures.localDeleteEnabled,
+              multiselectEnabled: messageActionFeatures.multiselectEnabled,
+              recallEnabled: messageActionFeatures.recallEnabled && message.id > 0,
+            }),
+    [messageActionFeatures, user?.user_id],
+  );
+
   const openMessageMenu = useCallback(
-    (message: GroupMessage, anchor: ChatMessageAnchor) => {
-      const actions: ChatMessageMenuAction[] =
-        message.delivery_status === "failed"
-          ? [
-              ...(message.msg_type === "text" && message.content.trim() ? ["copy" as const] : []),
-              "retry",
-              "delete",
-            ]
-          : message.delivery_status === "sending" || message.id <= 0
-            ? []
-            : actionsForChatMessage(message, {
-                viewerId: user?.user_id,
-                isChatMoney: parseChatMoneyPayload(message.content) !== null,
-                isChatMoneyReceipt: normalizeChatMoneyReceipt(message.content) !== null,
-                isCallRecord: parseChatCallRecord(message.content) !== null,
-                forwardingEnabled: true,
-                localDeleteEnabled: true,
-                multiselectEnabled: true,
-                recallEnabled: message.id > 0,
-              });
-      if (actions.length > 0) setMenuTarget({ message, anchor, actions });
+    (message: GroupMessage, anchor: ChatMessageAnchor): boolean => {
+      const actions = menuActionsForMessage(message);
+      if (actions.length === 0 || !sessionKey) return false;
+      Keyboard.dismiss();
+      setPanel(null);
+      setMenuTarget(createChatMessageMenuTarget(message, sessionKey, anchor, actions));
+      return true;
     },
-    [user?.user_id],
+    [menuActionsForMessage, sessionKey],
   );
 
   async function handleMenuAction(action: ChatMessageMenuAction) {
     const target = menuTarget;
     setMenuTarget(null);
-    if (!target || groupId <= 0 || !user?.user_id) return;
-    const expectedSession = sessionKey;
-    const message = target.message;
-    switch (action) {
-      case "copy":
-        await Clipboard.setStringAsync(message.content);
-        return;
-      case "retry":
-        retryMessage(message);
-        return;
-      case "quote":
-        setReplyingTo(message);
-        setComposerFocusRequest((value) => value + 1);
-        return;
-      case "recall": {
-        const editableText =
-          message.msg_type === "text" && message.content.trim() ? message.content : null;
-        try {
+    if (
+      !target ||
+      groupId <= 0 ||
+      !user?.user_id ||
+      target.session_key !== activeSessionRef.current ||
+      menuActionInFlightRef.current
+    )
+      return;
+    const message = resolveChatMessageMenuTarget(messagesRef.current, target);
+    if (!message || !menuActionsForMessage(message).includes(action)) return;
+    const expectedSession = target.session_key;
+    menuActionInFlightRef.current = true;
+    try {
+      switch (action) {
+        case "copy":
+          await Clipboard.setStringAsync(message.content);
+          if (activeSessionRef.current === expectedSession)
+            setToastMessage(t("chat.action.copied"));
+          return;
+        case "retry":
+          retryMessage(message);
+          return;
+        case "quote":
+          setReplyingTo(message);
+          setComposerFocusRequest((value) => value + 1);
+          return;
+        case "recall": {
+          const editableText =
+            message.msg_type === "text" && message.content.trim() ? message.content : null;
           const recalled = await recallGroupMessage(groupId, message.id);
           await saveGroupChatMessages(user.user_id, groupId, [recalled]);
           if (activeSessionRef.current !== expectedSession) return;
@@ -1886,79 +1996,91 @@ export default function GroupChatScreen() {
               owner_id: user.user_id,
               group_id: groupId,
               ...groupConversationPreviewFields(merged, user.user_id, t),
-            });
+            }).catch((error) =>
+              captureException(error, { operation: "group_message_recall_preview" }),
+            );
             return merged;
           });
           if (editableText)
             setRecalledEditableTexts((current) => ({ ...current, [message.id]: editableText }));
           setReplyingTo((current) => (current?.id === message.id ? null : current));
-        } catch (nextError) {
-          if (activeSessionRef.current !== expectedSession) return;
-          Alert.alert(
-            t("chat.recall.failed"),
-            nextError instanceof Error ? nextError.message : t("common.operationFailed"),
-          );
+          return;
         }
-        return;
-      }
-      case "save": {
-        const result =
-          message.msg_type === "video"
-            ? await saveVideoToLibrary(message.content)
-            : await saveImageToLibrary(message.content);
-        if (activeSessionRef.current !== expectedSession) return;
-        if (result === "permissionDenied") {
-          Alert.alert(
-            t(
-              message.msg_type === "video"
-                ? "media.videoPermissionRequired"
-                : "media.photoPermissionRequired",
-            ),
-          );
-        } else if (result !== "saved") Alert.alert(t("media.saveFailed"));
-        return;
-      }
-      case "delete":
-        if (message.client_message_id && message.delivery_status === "failed") {
-          if (isImageMessage(message)) {
-            await cancelChatImageUpload(user.user_id, message.client_message_id);
-          } else if (isVideoMessage(message)) {
-            await cancelChatVideoUpload(user.user_id, message.client_message_id);
-          } else {
-            await removeGroupChatOutboxJob(user.user_id, message.client_message_id);
+        case "save": {
+          const result =
+            message.msg_type === "video"
+              ? await saveVideoToLibrary(message.content)
+              : await saveImageToLibrary(chatImagePresentationUrlFor(message));
+          if (activeSessionRef.current !== expectedSession) return;
+          if (result === "permissionDenied") {
+            Alert.alert(
+              t(
+                message.msg_type === "video"
+                  ? "media.videoPermissionRequired"
+                  : "media.photoPermissionRequired",
+              ),
+            );
+          } else if (result !== "saved") Alert.alert(t("media.saveFailed"));
+          else
+            setToastMessage(
+              t(message.msg_type === "video" ? "media.videoSavedToAlbum" : "media.savedToAlbum"),
+            );
+          return;
+        }
+        case "delete": {
+          if (message.client_message_id && message.delivery_status === "failed") {
+            if (isImageMessage(message)) {
+              await cancelChatImageUpload(user.user_id, message.client_message_id);
+            } else if (isVideoMessage(message)) {
+              await cancelChatVideoUpload(user.user_id, message.client_message_id);
+            } else {
+              await removeGroupChatOutboxJob(user.user_id, message.client_message_id);
+            }
+            if (activeSessionRef.current !== expectedSession) return;
           }
-          if (activeSessionRef.current !== expectedSession) return;
-        }
-        if (message.id > 0) {
-          hiddenMessageIdsRef.current.add(message.id);
-          const hidden = await hideChatMessagesLocally(user.user_id, "group", String(groupId), [
-            message.id,
-          ]);
-          if (activeSessionRef.current !== expectedSession) return;
-          hiddenMessageIdsRef.current = hidden;
-        }
-        setMessages((current) => {
-          const next = current.filter((item) => identity(item) !== identity(message));
-          messagesRef.current = next;
-          void publishGroupConversationPreviewUpdate({
-            owner_id: user.user_id,
-            group_id: groupId,
-            ...groupConversationPreviewFields(next, user.user_id, t),
+          if (message.id > 0) {
+            const hidden = await hideChatMessagesLocally(user.user_id, "group", String(groupId), [
+              message.id,
+            ]);
+            if (activeSessionRef.current !== expectedSession) return;
+            hiddenMessageIdsRef.current = hidden;
+          }
+          setMessages((current) => {
+            const next = current.filter((item) => identity(item) !== identity(message));
+            messagesRef.current = next;
+            void publishGroupConversationPreviewUpdate({
+              owner_id: user.user_id,
+              group_id: groupId,
+              ...groupConversationPreviewFields(next, user.user_id, t),
+            }).catch((error) =>
+              captureException(error, { operation: "group_message_delete_preview" }),
+            );
+            return next;
           });
-          return next;
-        });
-        setReplyingTo((current) => (current?.id === message.id ? null : current));
-        return;
-      case "forward":
-        setForwardDraft({
-          mode: "single",
-          sources: [forwardSource("group", String(groupId), message)],
-          preview: chatForwardMessagePreview(message, t),
-        });
-        return;
-      case "multiSelect":
-        toggleMessageSelection(message);
-        return;
+          setReplyingTo((current) => (current?.id === message.id ? null : current));
+          setToastMessage(t("chat.action.deleted"));
+          return;
+        }
+        case "forward":
+          setForwardDraft({
+            mode: "single",
+            sources: [forwardSource("group", String(groupId), message)],
+            preview: chatForwardMessagePreview(message, t),
+          });
+          return;
+        case "multiSelect":
+          toggleMessageSelection(message);
+          return;
+      }
+    } catch (nextError) {
+      captureException(nextError, { action, operation: "group_message_menu_action" });
+      if (activeSessionRef.current !== expectedSession) return;
+      Alert.alert(
+        t(action === "recall" ? "chat.recall.failed" : "common.error"),
+        nextError instanceof Error ? nextError.message : t("common.operationFailed"),
+      );
+    } finally {
+      menuActionInFlightRef.current = false;
     }
   }
 
@@ -2058,7 +2180,7 @@ export default function GroupChatScreen() {
   };
 
   const imageUrls = useMemo(
-    () => visibleMessages.filter(isImageMessage).map((message) => message.content),
+    () => visibleMessages.filter(isImageMessage).map(chatImagePresentationUrlFor),
     [visibleMessages],
   );
   const timelineLocator = resolveChatTimelineLocator({
@@ -2127,7 +2249,7 @@ export default function GroupChatScreen() {
   return (
     <View style={styles.screen}>
       <ChatBackgroundLayer background={background} style={styles.backgroundLayer} />
-      <ChatKeyboardAvoidingView style={styles.chatContent}>
+      <ChatKeyboardAvoidingView reservesKeyboardInset={false} style={styles.chatContent}>
         <View style={styles.timelineSurface}>
           {error && visibleMessages.length === 0 && !isLoading ? (
             <View style={styles.blockingState}>
@@ -2270,7 +2392,11 @@ export default function GroupChatScreen() {
             count={selectionEntries.length}
             onDelete={requestSelectionDelete}
             onForward={requestSelectionForward}
-            showsForward
+            showsDelete={messageActionFeatures.localDeleteEnabled}
+            showsForward={
+              messageActionFeatures.multiForwardingEnabled ||
+              messageActionFeatures.mergedForwardingEnabled
+            }
           />
         ) : (
           <>
@@ -2500,7 +2626,7 @@ function GroupMessageRow({
   onImageOpen: (selection: ImageGallerySelection) => void;
   onVideoOpen: (url: string) => void;
   messages: GroupMessage[];
-  onMenuRequested: (message: GroupMessage, anchor: ChatMessageAnchor) => void;
+  onMenuRequested: (message: GroupMessage, anchor: ChatMessageAnchor) => boolean | void;
   onQuoteTap: (messageId: number) => void;
   recalledEditableText: string | undefined;
   onReedit: (text: string) => void;
@@ -2592,10 +2718,7 @@ function GroupMessageRow({
               messageType={message.msg_type}
               onRetry={() => onRetry(message)}
             />
-            <ChatMessageLongPressSurface
-              disabled={parseChatCallRecord(message.content) !== null}
-              onLongPress={(anchor) => onMenuRequested(message, anchor)}
-            >
+            <ChatMessageLongPressSurface onLongPress={(anchor) => onMenuRequested(message, anchor)}>
               <MessageContent
                 imageUrls={imageUrls}
                 isMine={isMine}
@@ -2668,10 +2791,11 @@ function MessageContent({
     );
   }
   if (type === "image") {
+    const presentationUrl = chatImagePresentationUrlFor(message);
     return (
       <ChatImageBubble
         imageUrls={imageUrls}
-        index={Math.max(0, imageUrls.indexOf(message.content))}
+        index={Math.max(0, imageUrls.indexOf(presentationUrl))}
         loadMoreOlder={loadMoreGalleryImages}
         messageId={identity(message)}
         onOpen={onImageOpen}
@@ -2721,9 +2845,7 @@ function MessageContent({
     const recipientMember = members.find((member) => member.user_id === recipientId);
     const cachedRecipient = recipientId ? peekCachedUserInfo(recipientId) : undefined;
     const recipientAvatar =
-      recipientId === myId
-        ? myAvatar
-        : recipientMember?.avatar_url || cachedRecipient?.avatar_url;
+      recipientId === myId ? myAvatar : recipientMember?.avatar_url || cachedRecipient?.avatar_url;
     const recipientName =
       recipientMember?.group_nickname ||
       recipientMember?.nickname ||
@@ -2833,6 +2955,7 @@ function Composer({
 }) {
   const { t } = useLocalization();
   const safeAreaInsets = useSafeAreaInsets();
+  const keyboardLayout = useChatKeyboardLayout();
   const inputRef = useRef<TextInput>(null);
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const selectionRef = useRef<ComposerTextSelection>({ start: draft.length, end: draft.length });
@@ -2970,6 +3093,9 @@ function Composer({
         ) : null}
       </View>
       <ChatComposerPanelHost
+        isKeyboardFocused={isFocused}
+        keyboardEquivalentInset={keyboardLayout.equivalentInset}
+        keyboardInset={keyboardLayout.inset}
         panel={panel}
         plusItemCount={6}
         plusPanel={
@@ -3143,6 +3269,13 @@ function groupChatSessionKey(ownerId: string, groupId: number): string {
   return owner && Number.isSafeInteger(groupId) && groupId > 0
     ? `${encodeURIComponent(owner)}:group:${groupId}`
     : "";
+}
+
+function canonicalRouteMessageIds(...values: (string | undefined)[]): number[] {
+  return values.flatMap((value) => {
+    const messageId = Number(value);
+    return Number.isSafeInteger(messageId) && messageId > 0 ? [messageId] : [];
+  });
 }
 
 function formatSeparator(value: string, yesterdayLabel: string): string {

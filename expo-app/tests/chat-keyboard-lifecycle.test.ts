@@ -3,6 +3,10 @@ import { resolve } from "node:path";
 
 import { chatKeyboardInset } from "@/components/messages/ChatKeyboardAvoidingView";
 import {
+  chatComposerBottomInset,
+  chatComposerPanelHeight,
+} from "@/components/messages/ChatComposerSurface";
+import {
   chatComposerInitialInputHeight,
   chatComposerInputHeight,
 } from "@/components/messages/ChatComposerInputHeight";
@@ -17,6 +21,15 @@ describe("chat keyboard lifecycle", () => {
     expect(chatKeyboardInset({ height: 346, screenY: 800 }, 874)).toBe(74);
     expect(chatKeyboardInset({ height: Number.NaN, screenY: 528 }, 874)).toBe(0);
     expect(chatKeyboardInset(undefined, 874)).toBe(0);
+  });
+
+  it("uses one bottom inset for keyboard and composer panels without adding their heights", () => {
+    expect(chatComposerPanelHeight("stickers", 6, 346)).toBe(346);
+    expect(chatComposerPanelHeight("plus", 6, 346)).toBe(202);
+    expect(chatComposerBottomInset("stickers", 6, 0, 346, false, 0)).toBe(346);
+    expect(chatComposerBottomInset(null, 6, 0, 346, true, 346)).toBe(346);
+    expect(chatComposerBottomInset(null, 6, 346, 346, true, 346)).toBe(346);
+    expect(chatComposerBottomInset("plus", 6, 346, 346, false, 346)).toBe(202);
   });
 
   it("makes the visible send return key submit on every chat surface", () => {
@@ -56,6 +69,16 @@ describe("chat keyboard lifecycle", () => {
       expect(page).toContain("onPress={onSend}");
       expect(page).toContain('navigation.addListener("beforeRemove"');
       expect(page).toContain("Keyboard.dismiss()");
+    }
+  });
+
+  it("lets the shared composer reserve the iOS keyboard instead of stacking parent padding", () => {
+    for (const path of ["src/app/chat/[id].tsx", "src/app/group-chat/[id].tsx"]) {
+      const page = source(path);
+      expect(page).toContain("<ChatKeyboardAvoidingView reservesKeyboardInset={false}");
+      expect(page).toContain("useChatKeyboardLayout()");
+      expect(page).toContain("keyboardInset={keyboardLayout.inset}");
+      expect(page).toContain("keyboardEquivalentInset={keyboardLayout.equivalentInset}");
     }
   });
 

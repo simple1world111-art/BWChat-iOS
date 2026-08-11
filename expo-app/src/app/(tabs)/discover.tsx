@@ -39,7 +39,13 @@ import {
   discoverRefreshMayCommit,
   shouldFetchDiscoverConfig,
 } from "@/services/discover/DiscoverRefreshPolicy";
-import { publishMomentsUnread } from "@/services/moments/MomentsUnreadStore";
+import {
+  captureMomentsUnreadRefresh,
+  clearMomentsNew,
+  publishMomentsUnreadInfo,
+  useMomentsHasNew,
+  useMomentsUnread,
+} from "@/services/moments/MomentsUnreadStore";
 import { openDynamicRoute } from "@/services/web/DynamicRouteNavigator";
 import { palette } from "@/theme";
 
@@ -51,13 +57,10 @@ export default function DiscoverScreen() {
   const { config, source } = useRemoteConfig();
   const accountOwnerId = user?.user_id.trim() ?? "";
   const ownerId = accountOwnerId || "guest";
+  const momentsUnread = useMomentsUnread(accountOwnerId);
+  const hasNewMoments = useMomentsHasNew(accountOwnerId);
   const [endpointSections, setEndpointSections] =
     useState<DiscoverSection[]>(defaultDiscoverSections);
-  const [momentsSnapshot, setMomentsSnapshot] = useState<{
-    ownerId: string;
-    unread: number;
-    hasNew: boolean;
-  } | null>(null);
   const lastRefreshRef = useRef(0);
   const activeOwnerRef = useRef(ownerId);
   const refreshGenerationRef = useRef(0);
@@ -73,8 +76,6 @@ export default function DiscoverScreen() {
     }
   }, [config.discover, source]);
   const displayedSections = remoteSections ?? endpointSections;
-  const momentsUnread = momentsSnapshot?.ownerId === ownerId ? momentsSnapshot.unread : 0;
-  const hasNewMoments = momentsSnapshot?.ownerId === ownerId ? momentsSnapshot.hasNew : false;
 
   useEffect(() => {
     activeOwnerRef.current = ownerId;
@@ -88,11 +89,13 @@ export default function DiscoverScreen() {
         nowMs: now,
         lastAttemptMs: lastRefreshRef.current,
       });
-      if (!fetchConfig) return;
-      lastRefreshRef.current = now;
-      await saveDiscoverRefreshCheckpoint(targetOwnerId, now).catch(() => undefined);
+      if (fetchConfig) {
+        lastRefreshRef.current = now;
+        await saveDiscoverRefreshCheckpoint(targetOwnerId, now).catch(() => undefined);
+      }
+      const momentsRefresh = captureMomentsUnreadRefresh(accountOwnerId);
       const [discoverResult, momentsResult] = await Promise.allSettled([
-        fetchDiscoverSections(),
+        fetchConfig ? fetchDiscoverSections() : Promise.resolve(null),
         getMomentsUnreadInfo(),
       ]);
       if (
@@ -114,12 +117,7 @@ export default function DiscoverScreen() {
         setEndpointSections(discoverResult.value);
       }
       if (momentsResult.status === "fulfilled") {
-        publishMomentsUnread(accountOwnerId, momentsResult.value.unread_count);
-        setMomentsSnapshot({
-          ownerId: targetOwnerId,
-          unread: momentsResult.value.unread_count,
-          hasNew: momentsResult.value.has_new_moments,
-        });
+        publishMomentsUnreadInfo(accountOwnerId, momentsResult.value, momentsRefresh);
       }
     },
     [accountOwnerId],
@@ -182,6 +180,7 @@ export default function DiscoverScreen() {
   const open = useCallback(
     async (item: DiscoverItem) => {
       const id = normalizeToken(item.id);
+      if (isMoments(item)) clearMomentsNew(accountOwnerId);
       if (id === "live") {
         router.push("/live-lobby" as Href);
         return;
@@ -209,7 +208,7 @@ export default function DiscoverScreen() {
       );
       if (!outcome.handled) Alert.alert(outcome.title, outcome.message, [{ text: t("common.ok") }]);
     },
-    [activeLanguage, config.webViewPolicy, t],
+    [accountOwnerId, activeLanguage, config.webViewPolicy, t],
   );
 
   return (

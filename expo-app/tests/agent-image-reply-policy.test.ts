@@ -120,7 +120,7 @@ describe("native agent image reply and gallery policy", () => {
     expect(agentUserVisibleText("普通消息")).toBe("普通消息");
   });
 
-  it("matches the native runtime, version and locked-media image generation gates", () => {
+  it("keeps runtime and version gates without blocking on historical locked media", () => {
     const runtime = {
       agents_enabled: true,
       image_input_enabled: true,
@@ -145,9 +145,7 @@ describe("native agent image reply and gallery policy", () => {
         metadata: { media_type: "image", access: "locked", generation_status: "ready" },
       }),
     ]);
-    expect(agentImageGenerationBlockReason(runtime, capabilities, [locked])).toBe(
-      "请先解锁上一张图片，再继续调整图片",
-    );
+    expect(agentImageGenerationBlockReason(runtime, capabilities, [locked])).toBeNull();
     expect(agentImageGenerationBlockReason(runtime, capabilities, [])).toBeNull();
   });
 });

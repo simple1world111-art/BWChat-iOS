@@ -20,7 +20,10 @@ import {
 import { getGroupDetail } from "@/api/bwchat";
 import { nativeAssets } from "../../assets/nativeAssets";
 import { Avatar, UserAvatarButton } from "@/components/Avatar";
-import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
+import {
+  useChatMessageActivationGuard,
+  useChatMessageLongPressBridge,
+} from "@/components/messages/ChatReplyViews";
 import type {
   GiftCatalogItem,
   GiftMessagePayload,
@@ -499,6 +502,7 @@ export function ChatGiftBubble({
   recipientAvatarFallback?: string | undefined;
 }) {
   const canActivate = useChatMessageActivationGuard();
+  const longPressBridge = useChatMessageLongPressBridge();
   const { t } = useLocalization();
   const theme = palette(useColorScheme());
   const recipientName =
@@ -512,6 +516,8 @@ export function ChatGiftBubble({
           accessibilityName={recipientName}
           avatarUrl={avatar}
           canActivate={canActivate}
+          onLongPress={longPressBridge.onLongPress}
+          onPressOut={longPressBridge.onPressOut}
           size={chatGiftBubblePolicy.recipientAvatarSize}
           userId={recipientId}
         />

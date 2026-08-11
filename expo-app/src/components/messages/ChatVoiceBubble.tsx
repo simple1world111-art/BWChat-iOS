@@ -9,7 +9,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
+import {
+  useChatMessageActivationGuard,
+  useChatMessageLongPressBridge,
+} from "@/components/messages/ChatReplyViews";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import {
   getChatVoicePlaybackSnapshot,
@@ -33,6 +36,7 @@ export function ChatVoiceBubble({
   isPending?: boolean | undefined;
 }) {
   const canActivate = useChatMessageActivationGuard();
+  const longPressBridge = useChatMessageLongPressBridge();
   const { t } = useLocalization();
   const voice = parseChatVoiceContent(content);
   const playback = useSyncExternalStore(
@@ -60,10 +64,13 @@ export function ChatVoiceBubble({
         accessibilityLabel={`${t("message.voice")} ${displayedDuration}\"`}
         accessibilityRole="button"
         accessibilityState={{ disabled: isPending || !voice.url }}
+        delayLongPress={longPressBridge.delayLongPress}
         disabled={isPending || !voice.url}
+        onLongPress={longPressBridge.onLongPress}
         onPress={() => {
           if (canActivate()) void toggleChatVoicePlayback(voice.url);
         }}
+        onPressOut={longPressBridge.onPressOut}
       >
         <LinearGradient
           colors={[colors.accent, "#764BA2"]}
@@ -81,10 +88,13 @@ export function ChatVoiceBubble({
       accessibilityLabel={`${t("message.voice")} ${displayedDuration}\"`}
       accessibilityRole="button"
       accessibilityState={{ disabled: isPending || !voice.url }}
+      delayLongPress={longPressBridge.delayLongPress}
       disabled={isPending || !voice.url}
+      onLongPress={longPressBridge.onLongPress}
       onPress={() => {
         if (canActivate()) void toggleChatVoicePlayback(voice.url);
       }}
+      onPressOut={longPressBridge.onPressOut}
       style={[styles.bubble, styles.received, { width }]}
     >
       {body}

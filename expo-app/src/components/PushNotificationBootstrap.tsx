@@ -1,5 +1,5 @@
 import * as Notifications from "expo-notifications";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { AppState } from "react-native";
 
 import { useAuth } from "@/providers/AuthProvider";
@@ -10,15 +10,18 @@ import { selectMainTabThenPush } from "@/services/main-tab/MainTabNavigation";
 import { useMomentsUnread } from "@/services/moments/MomentsUnreadStore";
 import {
   applyPushSideEffects,
+  acknowledgePendingPushOpen,
   beginNativePushUploadSession,
   cacheNativePushToken,
+  claimPendingPushOpen,
   dismissCachedReadConversationNotifications,
   ensureNativePushTokenUploaded,
   markPushEventProcessed,
   pushOpenTarget,
+  releasePendingPushOpen,
   requestPushPermission,
   savePendingPushOpen,
-  takePendingPushOpen,
+  setActivePushOwnerId,
   wasPushEventProcessed,
   type PushOpenTarget,
 } from "@/services/push/PushService";
@@ -28,6 +31,12 @@ export function PushNotificationBootstrap() {
   const ownerId = user?.user_id ?? "";
   const conversationUnread = useConversationUnread(ownerId);
   const momentsUnread = useMomentsUnread(ownerId);
+  const pendingConsumerRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    setActivePushOwnerId(ownerId);
+    return () => setActivePushOwnerId("");
+  }, [ownerId]);
 
   useEffect(() => {
     void Notifications.setBadgeCountAsync(ownerId ? conversationUnread + momentsUnread : 0).catch(
@@ -42,12 +51,29 @@ export function PushNotificationBootstrap() {
     );
   }, [ownerId]);
 
-  const consumePending = useCallback(async () => {
-    if (!user?.user_id) return;
-    const target = await takePendingPushOpen();
-    if (!target || (await wasPushEventProcessed(target.eventId))) return;
-    navigatePushTarget(target);
-    await markPushEventProcessed(target.eventId);
+  const consumePending = useCallback((): Promise<void> => {
+    if (!user?.user_id) return Promise.resolve();
+    if (pendingConsumerRef.current) return pendingConsumerRef.current;
+    const task = (async () => {
+      for (let index = 0; index < 16; index += 1) {
+        const target = await claimPendingPushOpen();
+        if (!target) return;
+        try {
+          if (!(await wasPushEventProcessed(target.eventId))) {
+            navigatePushTarget(target);
+            await markPushEventProcessed(target.eventId);
+          }
+          await acknowledgePendingPushOpen(target.eventId);
+        } catch (error) {
+          releasePendingPushOpen(target.eventId);
+          throw error;
+        }
+      }
+    })().finally(() => {
+      if (pendingConsumerRef.current === task) pendingConsumerRef.current = null;
+    });
+    pendingConsumerRef.current = task;
+    return task;
   }, [user?.user_id]);
 
   useEffect(() => {
@@ -150,6 +176,7 @@ function navigatePushTarget(target: PushOpenTarget): void {
         id: route.conversationId,
         ...(route.groupName ? { name: route.groupName } : {}),
         ...(route.messageId !== undefined ? { messageId: String(route.messageId) } : {}),
+        ...(route.messageId !== undefined ? { latestMessageId: String(route.messageId) } : {}),
       },
     });
     return;
@@ -161,6 +188,7 @@ function navigatePushTarget(target: PushOpenTarget): void {
       ...(route.senderName ? { name: route.senderName } : {}),
       ...(route.senderAvatar ? { avatar: route.senderAvatar } : {}),
       ...(route.messageId !== undefined ? { messageId: String(route.messageId) } : {}),
+      ...(route.messageId !== undefined ? { latestMessageId: String(route.messageId) } : {}),
     },
   });
 }

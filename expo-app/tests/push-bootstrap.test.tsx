@@ -18,15 +18,18 @@ import {
 } from "@/services/moments/MomentsUnreadStore";
 import {
   applyPushSideEffects,
+  acknowledgePendingPushOpen,
   beginNativePushUploadSession,
   cacheNativePushToken,
+  claimPendingPushOpen,
   dismissCachedReadConversationNotifications,
   ensureNativePushTokenUploaded,
   markPushEventProcessed,
   pushOpenTarget,
+  releasePendingPushOpen,
   requestPushPermission,
   savePendingPushOpen,
-  takePendingPushOpen,
+  setActivePushOwnerId,
   wasPushEventProcessed,
   type PushOpenTarget,
 } from "@/services/push/PushService";
@@ -53,15 +56,18 @@ jest.mock("@/services/calls/CallNotificationBridge", () => ({
 
 jest.mock("@/services/push/PushService", () => ({
   applyPushSideEffects: jest.fn(),
+  acknowledgePendingPushOpen: jest.fn(),
   beginNativePushUploadSession: jest.fn(),
   cacheNativePushToken: jest.fn(),
+  claimPendingPushOpen: jest.fn(),
   dismissCachedReadConversationNotifications: jest.fn(),
   ensureNativePushTokenUploaded: jest.fn(),
   markPushEventProcessed: jest.fn(),
   pushOpenTarget: jest.fn(),
+  releasePendingPushOpen: jest.fn(),
   requestPushPermission: jest.fn(),
   savePendingPushOpen: jest.fn(),
-  takePendingPushOpen: jest.fn(),
+  setActivePushOwnerId: jest.fn(),
   wasPushEventProcessed: jest.fn(),
 }));
 
@@ -75,7 +81,10 @@ const dismissCachedRead = jest.mocked(dismissCachedReadConversationNotifications
 const applySideEffects = jest.mocked(applyPushSideEffects);
 const parseOpenTarget = jest.mocked(pushOpenTarget);
 const saveOpenTarget = jest.mocked(savePendingPushOpen);
-const takeOpenTarget = jest.mocked(takePendingPushOpen);
+const claimOpenTarget = jest.mocked(claimPendingPushOpen);
+const acknowledgeOpenTarget = jest.mocked(acknowledgePendingPushOpen);
+const releaseOpenTarget = jest.mocked(releasePendingPushOpen);
+const setPushOwner = jest.mocked(setActivePushOwnerId);
 const wasProcessed = jest.mocked(wasPushEventProcessed);
 const markProcessed = jest.mocked(markPushEventProcessed);
 const pushRoute = jest.mocked(router.push);
@@ -118,7 +127,8 @@ describe("authenticated push bootstrap", () => {
     dismissCachedRead.mockResolvedValue(0);
     applySideEffects.mockResolvedValue();
     publishCall.mockReturnValue({ kind: "not_call" });
-    takeOpenTarget.mockResolvedValue(null);
+    claimOpenTarget.mockResolvedValue(null);
+    acknowledgeOpenTarget.mockResolvedValue();
     wasProcessed.mockResolvedValue(false);
     markProcessed.mockResolvedValue();
     saveOpenTarget.mockResolvedValue();
@@ -247,7 +257,10 @@ describe("authenticated push bootstrap", () => {
       },
     };
     currentUserId = "owner";
-    takeOpenTarget.mockResolvedValueOnce(null).mockResolvedValueOnce(target);
+    claimOpenTarget
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(target)
+      .mockResolvedValue(null);
     parseOpenTarget.mockReturnValue(target);
     const view = await render(<PushNotificationBootstrap />);
 
@@ -266,11 +279,14 @@ describe("authenticated push bootstrap", () => {
     await waitFor(() =>
       expect(pushRoute).toHaveBeenCalledWith({
         pathname: "/chat/[id]",
-        params: { id: "friend", name: "Friend", messageId: "7" },
+        params: { id: "friend", name: "Friend", messageId: "7", latestMessageId: "7" },
       }),
     );
     expect(replaceRoute).toHaveBeenCalledWith("/(tabs)/conversations");
     expect(markProcessed).toHaveBeenCalledWith(target.eventId);
+    expect(acknowledgeOpenTarget).toHaveBeenCalledWith(target.eventId);
+    expect(releaseOpenTarget).not.toHaveBeenCalled();
+    expect(setPushOwner).toHaveBeenCalledWith("owner");
 
     await view.unmount();
   });

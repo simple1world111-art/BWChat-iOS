@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
 
 import {
@@ -66,7 +66,7 @@ export function ChatComposerSurfaceBackground({
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
-        colors={["rgba(255,255,255,0.82)", "rgba(255,255,255,0.96)"]}
+        colors={[colors.card, colors.card]}
         end={{ x: 0, y: 1 }}
         start={{ x: 0, y: 0 }}
         style={StyleSheet.absoluteFill}
@@ -79,43 +79,85 @@ export function ChatComposerSurfaceBackground({
 }
 
 export function ChatComposerPanelHost({
+  isKeyboardFocused,
+  keyboardEquivalentInset,
+  keyboardInset,
   panel,
   plusItemCount,
   plusPanel,
   stickerPanel,
 }: {
+  isKeyboardFocused: boolean;
+  keyboardEquivalentInset: number;
+  keyboardInset: number;
   panel: ChatComposerPanel | null;
   plusItemCount: number;
   plusPanel: ReactNode;
   stickerPanel: ReactNode;
 }) {
-  const [height] = useState(() => new Animated.Value(panelHeight(panel, plusItemCount)));
+  const initialPanelHeight = chatComposerPanelHeight(panel, plusItemCount, keyboardEquivalentInset);
+  const [height] = useState(() => new Animated.Value(initialPanelHeight));
+  const lastPanelHeightRef = useRef(initialPanelHeight);
 
   useEffect(() => {
+    const activePanelHeight = chatComposerPanelHeight(
+      panel,
+      plusItemCount,
+      keyboardEquivalentInset,
+    );
+    if (activePanelHeight > 0) lastPanelHeightRef.current = activePanelHeight;
     height.stopAnimation();
     Animated.timing(height, {
       duration: chatComposerSurfacePolicy.transitionDurationMs,
       easing: Easing.inOut(Easing.ease),
-      toValue: panelHeight(panel, plusItemCount),
+      toValue: chatComposerBottomInset(
+        panel,
+        plusItemCount,
+        keyboardInset,
+        keyboardEquivalentInset,
+        isKeyboardFocused,
+        lastPanelHeightRef.current,
+      ),
       useNativeDriver: false,
     }).start();
-  }, [height, panel, plusItemCount]);
+  }, [height, isKeyboardFocused, keyboardEquivalentInset, keyboardInset, panel, plusItemCount]);
 
   return (
     <Animated.View
       accessibilityElementsHidden={panel === null}
       importantForAccessibility={panel === null ? "no-hide-descendants" : "auto"}
       pointerEvents={panel === null ? "none" : "auto"}
-      style={[styles.panelHost, { height }]}
+      style={[styles.panelHost, panel === null && styles.keyboardHost, { height }]}
     >
       {panel === "stickers" ? stickerPanel : panel === "plus" ? plusPanel : null}
     </Animated.View>
   );
 }
 
-function panelHeight(panel: ChatComposerPanel | null, plusItemCount: number): number {
-  if (panel === "stickers") return chatStickerPanelPolicy.preferredHeight;
+export function chatComposerPanelHeight(
+  panel: ChatComposerPanel | null,
+  plusItemCount: number,
+  keyboardEquivalentInset: number,
+): number {
+  if (panel === "stickers") {
+    return Math.max(chatStickerPanelPolicy.preferredHeight, keyboardEquivalentInset);
+  }
   if (panel === "plus") return chatComposerPlusPanelHeight(plusItemCount);
+  return 0;
+}
+
+export function chatComposerBottomInset(
+  panel: ChatComposerPanel | null,
+  plusItemCount: number,
+  keyboardInset: number,
+  keyboardEquivalentInset: number,
+  isKeyboardFocused: boolean,
+  lastPanelHeight: number,
+): number {
+  const activePanelHeight = chatComposerPanelHeight(panel, plusItemCount, keyboardEquivalentInset);
+  if (activePanelHeight > 0) return activePanelHeight;
+  if (keyboardInset > 0) return keyboardInset;
+  if (isKeyboardFocused) return Math.max(0, lastPanelHeight);
   return 0;
 }
 
@@ -132,4 +174,5 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     width: "100%",
   },
+  keyboardHost: { backgroundColor: colors.card },
 });

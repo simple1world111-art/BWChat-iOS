@@ -6,7 +6,7 @@
 
 - 分支：`codex/hot`
 - iOS Bundle ID / Android package：`com.bwchat.app`
-- Runtime：Expo fingerprint policy
+- Runtime：Android 使用 Expo fingerprint policy；iOS 使用 Expo 推荐的 appVersion policy
 - Channel：`development`、`preview`、`production`
 - Production OTA：发布脚本强制从 10% rollout 开始
 - 迁移状态：目前仍是逐页迁移阶段，不能把入口或占位页视为原版已还原
@@ -49,4 +49,4 @@ pnpm exec expo export --platform ios --output-dir dist-ios
 
 ## 关键边界
 
-蒲公英安装的旧 Swift 二进制不包含 `expo-updates`，不能接收 EAS Update。所有朋友必须先安装一次新的 EAS 构建；之后只要 runtime fingerprint 兼容，JavaScript、TypeScript 与打包资源更新即可通过 OTA 下发。新增/升级原生模块、权限、原生配置或 SDK 导致 fingerprint 改变时，仍需重新构建并让用户安装新二进制。
+蒲公英安装的旧 Swift 二进制不包含 `expo-updates`，不能接收 EAS Update。所有朋友必须先安装一次新的 EAS 构建；之后只要 runtime 兼容，JavaScript、TypeScript 与打包资源更新即可通过 OTA 下发。Android 原生变更会产生新的 fingerprint；iOS 新增/升级原生模块、权限、原生配置或 SDK 时必须同步提升 App Version，再重新构建并让用户安装新二进制。

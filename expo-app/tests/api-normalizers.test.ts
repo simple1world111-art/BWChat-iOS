@@ -45,6 +45,8 @@ describe("native-compatible API normalizers", () => {
       lastMessageTime: "2026-08-06T10:00:00Z",
       unread: "8",
       groupID: "31",
+      lastMessageId: "44",
+      readThroughMessageId: "42",
       memberCount: "4",
       isMuted: 1,
     });
@@ -56,6 +58,8 @@ describe("native-compatible API normalizers", () => {
       unread_count: 8,
       group_id: 31,
       member_count: 4,
+      last_message_id: 44,
+      read_through_message_id: 42,
       is_muted: true,
     });
   });

@@ -34,6 +34,7 @@ import Animated, {
 
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { TopToast } from "@/components/TopToast";
+import { useChatMessageLongPressBridge } from "@/components/messages/ChatReplyViews";
 import {
   aspectFitRect,
   dedupeGalleryUrls,
@@ -124,6 +125,7 @@ export function ImageGallerySource({
   uri,
 }: ImageGallerySourceProps) {
   const { user } = useAuth();
+  const longPressBridge = useChatMessageLongPressBridge();
   const ownerId = user?.user_id ?? "";
   const scopedSourceId = galleryOwnerSourceId(ownerId, sourceId);
   const sourceRef = useRef<View>(null);
@@ -244,9 +246,12 @@ export function ImageGallerySource({
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       collapsable={false}
+      delayLongPress={longPressBridge.delayLongPress}
       disabled={disabled}
+      onLongPress={longPressBridge.onLongPress}
       onPress={handleOpen}
       onPressIn={handlePressIn}
+      onPressOut={longPressBridge.onPressOut}
       ref={sourceRef}
       style={style}
     >

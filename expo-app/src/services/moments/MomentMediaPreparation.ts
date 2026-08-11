@@ -19,7 +19,8 @@ export const momentMediaPreparationPolicy = {
   maximumVideoCount: 1,
   uploadMaximumDimension: 1_200,
   uploadJPEGQuality: 0.7,
-  uploadMaximumBytes: 2_000_000,
+  // A soft network optimization target; never a publish limit.
+  uploadTargetBytes: 2_000_000,
   imagePreviewMaximumDimension: 360,
   videoPreviewMaximumDimension: 320,
   previewJPEGQuality: 0.82,
@@ -129,8 +130,9 @@ export function shouldPrepareImage(asset: {
   mimeType?: string | null | undefined;
 }): boolean {
   return (
-    (asset.fileSize ?? Number.POSITIVE_INFINITY) >
-      momentMediaPreparationPolicy.uploadMaximumBytes ||
+    asset.width <= 0 ||
+    asset.height <= 0 ||
+    (asset.fileSize ?? Number.POSITIVE_INFINITY) > momentMediaPreparationPolicy.uploadTargetBytes ||
     Math.max(asset.width, asset.height) > momentMediaPreparationPolicy.uploadMaximumDimension ||
     asset.mimeType?.toLowerCase() !== "image/jpeg"
   );
@@ -144,18 +146,33 @@ async function renderJPEG(
   quality: number,
   forceRender: boolean,
 ): Promise<PreparedImageFile> {
-  if (!forceRender && Math.max(width, height) <= maximumDimension) {
+  const hasKnownDimensions = width > 0 && height > 0;
+  if (!forceRender && hasKnownDimensions && Math.max(width, height) <= maximumDimension) {
     return { uri, disposable: false };
   }
   const context = ImageManipulator.manipulate(uri);
   try {
-    if (Math.max(width, height) > maximumDimension) {
+    if (hasKnownDimensions && Math.max(width, height) > maximumDimension) {
       if (width >= height) context.resize({ width: maximumDimension });
       else context.resize({ height: maximumDimension });
     }
     const rendered = await context.renderAsync();
     try {
       const saved = await rendered.saveAsync({ compress: quality, format: SaveFormat.JPEG });
+      if (!hasKnownDimensions && Math.max(rendered.width, rendered.height) > maximumDimension) {
+        try {
+          return await renderJPEG(
+            saved.uri,
+            rendered.width,
+            rendered.height,
+            maximumDimension,
+            quality,
+            true,
+          );
+        } finally {
+          removeTemporaryFile(saved.uri);
+        }
+      }
       return { uri: saved.uri, disposable: true };
     } finally {
       rendered.release();
@@ -174,6 +191,7 @@ async function prepareImageUpload(asset: ImagePicker.ImagePickerAsset): Promise<
   if (!shouldPrepareImage(asset)) return { uri: asset.uri, disposable: false };
   const qualities = [momentMediaPreparationPolicy.uploadJPEGQuality, 0.65, 0.55, 0.45, 0.35];
   let maximumDimension: number = momentMediaPreparationPolicy.uploadMaximumDimension;
+  const minimumDimension = 360;
   let best: PreparedImageFile | undefined;
   try {
     while (true) {
@@ -190,14 +208,16 @@ async function prepareImageUpload(asset: ImagePicker.ImagePickerAsset): Promise<
         best = candidate;
         if (
           (new File(candidate.uri).size ?? Number.MAX_SAFE_INTEGER) <=
-          momentMediaPreparationPolicy.uploadMaximumBytes
+          momentMediaPreparationPolicy.uploadTargetBytes
         ) {
           return candidate;
         }
       }
-      if (maximumDimension <= 640) break;
-      maximumDimension = Math.max(640, maximumDimension * 0.75);
+      if (maximumDimension <= minimumDimension) break;
+      maximumDimension = Math.max(minimumDimension, maximumDimension * 0.75);
     }
+    // Preserve publishability for arbitrary source sizes. The best derivative
+    // is uploaded even when high-detail content stays above the soft target.
     if (best) return best;
     throw new Error("图片处理失败");
   } catch (error) {

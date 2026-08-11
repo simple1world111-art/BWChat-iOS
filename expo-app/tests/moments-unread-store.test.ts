@@ -3,11 +3,15 @@ import path from "node:path";
 
 import {
   activateMomentsUnreadOwner,
+  captureMomentsUnreadRefresh,
+  clearMomentsNew,
   clearMomentsUnread,
   incrementMomentsUnread,
+  momentsHasNewSnapshot,
   momentsUnreadBadgeText,
   momentsUnreadSnapshot,
   publishMomentsUnread,
+  publishMomentsUnreadInfo,
   resetMomentsUnreadStoreForTests,
   subscribeMomentsUnread,
 } from "@/services/moments/MomentsUnreadStore";
@@ -48,6 +52,31 @@ describe("owner-scoped moments native-tab unread store", () => {
     unsubscribe();
   });
 
+  it("clears the new-feed dot immediately and rejects a response captured before the clear", () => {
+    activateMomentsUnreadOwner("owner-a");
+    publishMomentsUnreadInfo("owner-a", { unread_count: 4, has_new_moments: true });
+    const staleRefresh = captureMomentsUnreadRefresh("owner-a");
+
+    clearMomentsNew("owner-a");
+    expect(momentsHasNewSnapshot("owner-a")).toBe(false);
+    expect(momentsUnreadSnapshot("owner-a")).toBe(4);
+
+    publishMomentsUnreadInfo("owner-a", { unread_count: 7, has_new_moments: true }, staleRefresh);
+    expect(momentsHasNewSnapshot("owner-a")).toBe(false);
+    expect(momentsUnreadSnapshot("owner-a")).toBe(4);
+  });
+
+  it("does not let an in-flight unread response restore an optimistically cleared badge", () => {
+    activateMomentsUnreadOwner("owner-a");
+    publishMomentsUnread("owner-a", 5);
+    const staleRefresh = captureMomentsUnreadRefresh("owner-a");
+
+    clearMomentsUnread("owner-a");
+    publishMomentsUnread("owner-a", 5, staleRefresh);
+
+    expect(momentsUnreadSnapshot("owner-a")).toBe(0);
+  });
+
   it("wires server fetch, push increment and optimistic clear into product consumers", () => {
     const root = process.cwd();
     const discover = read(root, "src/app/(tabs)/discover.tsx");
@@ -56,9 +85,12 @@ describe("owner-scoped moments native-tab unread store", () => {
     const push = read(root, "src/services/push/PushService.ts");
     const tabs = read(root, "src/app/(tabs)/_layout.tsx");
     expect(discover).toContain(
-      "publishMomentsUnread(accountOwnerId, momentsResult.value.unread_count)",
+      "publishMomentsUnreadInfo(accountOwnerId, momentsResult.value, momentsRefresh)",
     );
-    expect(moments).toContain("publishMomentsUnread(ownerId, info.unread_count)");
+    expect(discover).toContain("useMomentsHasNew(accountOwnerId)");
+    expect(discover).toContain("clearMomentsNew(accountOwnerId)");
+    expect(moments).toContain("publishMomentsUnread(ownerId, info.unread_count, momentsRefresh)");
+    expect(moments).toContain("clearMomentsNew(ownerId)");
     expect(moments).toContain("clearMomentsUnread(ownerId)");
     expect(notifications).toContain("clearMomentsUnread(ownerId)");
     expect(push).toContain('pushOpenTarget(input, "received")?.kind === "moments"');

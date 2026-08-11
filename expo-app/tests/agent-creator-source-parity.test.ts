@@ -96,6 +96,20 @@ describe("AgentCreatorView source parity", () => {
     expect(page).toContain('importantForAccessibility="no-hide-descendants"');
   });
 
+  it("keeps the creator form compact, keyboard-safe and adaptive in dark mode", () => {
+    const page = sourceExpo("src/app/agent-creator.tsx");
+    expect(page).toContain("automaticallyAdjustKeyboardInsets");
+    expect(page).toContain('contentInsetAdjustmentBehavior="automatic"');
+    expect(page).toContain(
+      "content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 48, gap: 18 }",
+    );
+    expect(page).toContain('sectionCard: { overflow: "hidden", borderRadius: 14');
+    expect(page).toContain("color: theme.secondaryText");
+    expect(page).not.toContain('color: "#000000"');
+    expect(page).toContain('menuPicker: { width: 150, height: 48 }');
+    expect(page).toContain("maxFontSizeMultiplier={1.25}");
+  });
+
   it("keeps native save lifecycle, conflict recovery, cache invalidation and back navigation", () => {
     const page = sourceExpo("src/app/agent-creator.tsx");
     const transaction = sourceExpo("src/services/agents/AgentCreatorTransaction.ts");

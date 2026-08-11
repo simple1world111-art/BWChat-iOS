@@ -49,31 +49,30 @@ describe("native avatar parity", () => {
   });
 
   it("opens a trimmed user id once within the native 0.6 second throttle", async () => {
-    const now = jest.spyOn(Date, "now").mockReturnValue(1_000);
     const view = await render(
       <UserAvatarButton accessibilityName="Alice" avatarUrl="" size={36} userId=" user-1 " />,
     );
     const button = view.getByLabelText("profile.open:Alice");
-    await act(async () => fireEvent.press(button));
-    await act(async () => fireEvent.press(button));
+    await act(async () => fireEvent.press(button, { nativeEvent: { timestamp: 1_000 } }));
+    await act(async () => fireEvent.press(button, { nativeEvent: { timestamp: 1_000 } }));
     expect(mockPush).toHaveBeenCalledTimes(1);
-    expect(mockPush).toHaveBeenCalledWith({ pathname: "/user-profile", params: { id: "user-1" } });
-    now.mockRestore();
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: "/user-profile",
+      params: { id: "user-1", name: "Alice" },
+    });
     await view.unmount();
   });
 
   it("keeps a 0.45 second avatar long press exclusive from profile navigation", async () => {
-    const now = jest.spyOn(Date, "now").mockReturnValue(2_000);
     const onLongPress = jest.fn();
     const view = await render(
       <UserAvatarButton avatarUrl="" onLongPress={onLongPress} size={36} userId="user-2" />,
     );
     const button = view.getByLabelText("profile.open.default");
-    await act(async () => fireEvent(button, "longPress"));
-    await act(async () => fireEvent.press(button));
+    await act(async () => fireEvent(button, "longPress", { nativeEvent: { timestamp: 2_000 } }));
+    await act(async () => fireEvent.press(button, { nativeEvent: { timestamp: 2_000 } }));
     expect(onLongPress).toHaveBeenCalledTimes(1);
     expect(mockPush).not.toHaveBeenCalled();
-    now.mockRestore();
     await view.unmount();
   });
 

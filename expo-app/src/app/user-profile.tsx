@@ -1,18 +1,8 @@
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SymbolView, type SFSymbol } from "expo-symbols";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -24,6 +14,7 @@ import {
   getRecommendedUsers,
   unfollowUser,
 } from "@/api/bwchat";
+import { normalizePublicProfile } from "@/api/normalizers";
 import { Avatar } from "@/components/Avatar";
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import {
@@ -53,6 +44,10 @@ import {
   saveCachedPublicProfile,
 } from "@/services/profile/PublicProfileRepository";
 import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
+import {
   optimisticPublicProfileFollow,
   reconcilePublicProfileRelationship,
 } from "@/services/profile/PublicProfileRelationship";
@@ -73,14 +68,23 @@ import { resolveMediaUrl } from "@/utils/mediaUrl";
 type ProfileTab = PublicProfileContentTab;
 type MoreAction = "share" | "copyLink" | "about" | "qrCode" | "report" | "restrict" | "block";
 
+interface UserProfileNavigationSnapshot {
+  profile: PublicProfile;
+  suggestions: FollowUser[];
+  selectedTab: ProfileTab;
+  loadedMomentCount: number;
+}
+
 export default function UserProfileScreen() {
-  const params = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{ id?: string; name?: string; avatar?: string }>();
   const targetId = params.id?.trim() ?? "";
   const { user: currentUser } = useAuth();
   const ownerId = currentUser?.user_id ?? "";
   return (
     <UserProfileAccountScreen
       currentUser={currentUser}
+      initialAvatarUrl={params.avatar?.trim() ?? ""}
+      initialName={params.name?.trim() ?? ""}
       key={userProfileIdentity(ownerId, targetId)}
       ownerId={ownerId}
       targetId={targetId}
@@ -90,29 +94,51 @@ export default function UserProfileScreen() {
 
 function UserProfileAccountScreen({
   currentUser,
+  initialAvatarUrl,
+  initialName,
   ownerId,
   targetId,
 }: {
   currentUser: User | null;
+  initialAvatarUrl: string;
+  initialName: string;
   ownerId: string;
   targetId: string;
 }) {
   const { t } = useLocalization();
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<UserProfileNavigationSnapshot>("user-profile", ownerId, targetId),
+  );
+  const [initialProfile] = useState(
+    () =>
+      navigationSnapshot?.profile ??
+      routeProfilePreview(
+        targetId,
+        targetId === ownerId ? currentUser?.nickname || initialName : initialName,
+        targetId === ownerId ? currentUser?.avatar_url || initialAvatarUrl : initialAvatarUrl,
+      ),
+  );
   const [scrollViewportHeight, setScrollViewportHeight] = useState(0);
-  const [profile, setProfileState] = useState<PublicProfile | null>(null);
-  const profileRef = useRef<PublicProfile | null>(null);
-  const [suggestions, setSuggestions] = useState<FollowUser[]>([]);
+  const [profile, setProfileState] = useState<PublicProfile | null>(initialProfile);
+  const profileRef = useRef<PublicProfile | null>(initialProfile);
+  const [suggestions, setSuggestions] = useState<FollowUser[]>(
+    navigationSnapshot?.suggestions ?? [],
+  );
   const [isLoadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [isLoading, setLoading] = useState(Boolean(ownerId && targetId));
+  const [isLoading, setLoading] = useState(Boolean(ownerId && targetId && !initialProfile));
   const [isRefreshing, setRefreshing] = useState(false);
   const [isUpdatingFollow, setUpdatingFollow] = useState(false);
   const [updatingSuggestionIds, setUpdatingSuggestionIds] = useState<Set<string>>(() => new Set());
   const updatingSuggestionIdsRef = useRef<Set<string>>(new Set());
   const profileFollowBusyRef = useRef(new UserProfileGenerationBusySet());
-  const [selectedTab, setSelectedTab] = useState<ProfileTab>("moments");
+  const [selectedTab, setSelectedTab] = useState<ProfileTab>(
+    navigationSnapshot?.selectedTab ?? "moments",
+  );
   const [showsMore, setShowsMore] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [loadedMomentCount, setLoadedMomentCount] = useState(0);
+  const [loadedMomentCount, setLoadedMomentCount] = useState(
+    navigationSnapshot?.loadedMomentCount ?? 0,
+  );
   const didLoadRef = useRef(false);
   const contentRef = useRef<PublicProfileContentHandle>(null);
   const [requestScope] = useState(() => {
@@ -143,7 +169,7 @@ function UserProfileAccountScreen({
         : await readCachedPublicProfileSnapshot(ownerId, targetId).catch(() => null);
       if (!scope.isCurrent(ticket)) return;
       const cached = cachedSnapshot?.isRetained ? cachedSnapshot.profile : null;
-      if (!profileRef.current && cached) setProfile(cached);
+      if (cached) setProfile(cached);
       const shouldFetchProfile = refresh || !cachedSnapshot || cachedSnapshot.isStale;
       if (targetId !== ownerId) setLoadingSuggestions(true);
       // Start these together, then publish each branch independently just like
@@ -212,6 +238,16 @@ function UserProfileAccountScreen({
 
   useEffect(() => () => requestScope.invalidate(), [requestScope]);
 
+  useEffect(() => {
+    if (!ownerId || !targetId || !profile) return;
+    writeNavigationSnapshot<UserProfileNavigationSnapshot>(
+      "user-profile",
+      ownerId,
+      { profile, suggestions, selectedTab, loadedMomentCount },
+      targetId,
+    );
+  }, [loadedMomentCount, ownerId, profile, selectedTab, suggestions, targetId]);
+
   useFocusEffect(
     useCallback(() => {
       if (didLoadRef.current || !ownerId || !targetId) return;
@@ -276,47 +312,50 @@ function UserProfileAccountScreen({
     }
   };
 
-  const toggleSuggestion = async (target: FollowUser) => {
-    if (updatingSuggestionIdsRef.current.has(target.user_id)) return;
-    const scope = requestScope;
-    const ticket = scope.current();
-    const previous = target;
-    const targetState = !target.followed_by_me;
-    const optimistic = {
-      ...target,
-      followed_by_me: targetState,
-      follower_count: Math.max(0, target.follower_count + (targetState ? 1 : -1)),
-    };
-    setSuggestions((current) =>
-      current.map((item) => (item.user_id === target.user_id ? optimistic : item)),
-    );
-    const updating = new Set(updatingSuggestionIdsRef.current).add(target.user_id);
-    updatingSuggestionIdsRef.current = updating;
-    setUpdatingSuggestionIds(updating);
-    try {
-      const relationship = targetState
-        ? await followUser(target.user_id)
-        : await unfollowUser(target.user_id);
-      if (!scope.isCurrent(ticket)) return;
-      publishFollowRelationship({ relationship, user: optimistic }, ownerId);
-    } catch (error) {
-      if (!scope.isCurrent(ticket)) return;
+  const toggleSuggestion = useCallback(
+    async (target: FollowUser) => {
+      if (updatingSuggestionIdsRef.current.has(target.user_id)) return;
+      const scope = requestScope;
+      const ticket = scope.current();
+      const previous = target;
+      const targetState = !target.followed_by_me;
+      const optimistic = {
+        ...target,
+        followed_by_me: targetState,
+        follower_count: Math.max(0, target.follower_count + (targetState ? 1 : -1)),
+      };
       setSuggestions((current) =>
-        current.map((item) => (item.user_id === target.user_id ? previous : item)),
+        current.map((item) => (item.user_id === target.user_id ? optimistic : item)),
       );
-      setToastMessage(
-        error instanceof Error && error.message ? error.message : t("common.operationFailed"),
-      );
-    } finally {
-      if (!scope.isCurrent(ticket)) return;
-      setUpdatingSuggestionIds((current) => {
-        const next = new Set(current);
-        next.delete(target.user_id);
-        updatingSuggestionIdsRef.current = next;
-        return next;
-      });
-    }
-  };
+      const updating = new Set(updatingSuggestionIdsRef.current).add(target.user_id);
+      updatingSuggestionIdsRef.current = updating;
+      setUpdatingSuggestionIds(updating);
+      try {
+        const relationship = targetState
+          ? await followUser(target.user_id)
+          : await unfollowUser(target.user_id);
+        if (!scope.isCurrent(ticket)) return;
+        publishFollowRelationship({ relationship, user: optimistic }, ownerId);
+      } catch (error) {
+        if (!scope.isCurrent(ticket)) return;
+        setSuggestions((current) =>
+          current.map((item) => (item.user_id === target.user_id ? previous : item)),
+        );
+        setToastMessage(
+          error instanceof Error && error.message ? error.message : t("common.operationFailed"),
+        );
+      } finally {
+        if (!scope.isCurrent(ticket)) return;
+        setUpdatingSuggestionIds((current) => {
+          const next = new Set(current);
+          next.delete(target.user_id);
+          updatingSuggestionIdsRef.current = next;
+          return next;
+        });
+      }
+    },
+    [ownerId, requestScope, t],
+  );
 
   const handleMoreAction = async (action: MoreAction) => {
     if (!profile) return;
@@ -474,7 +513,7 @@ function UserProfileAccountScreen({
         showsVerticalScrollIndicator={false}
       >
         {isLoading && !profile ? (
-          <ActivityIndicator color={colors.accent} style={styles.profileLoading} />
+          <View accessibilityLabel={t("common.loading")} style={styles.profileLoading} />
         ) : profile ? (
           <>
             <ProfileHeader fallbackPostsCount={loadedMomentCount} profile={profile} />
@@ -521,11 +560,10 @@ function UserProfileAccountScreen({
                 </Pressable>
               </View>
             ) : null}
-            {!isMe ? (
+            {!isMe && (!isLoadingSuggestions || suggestions.length > 0) ? (
               <Suggestions
                 excludeUserId={profile.user_id}
-                isLoading={isLoadingSuggestions}
-                onToggle={(item) => void toggleSuggestion(item)}
+                onToggle={toggleSuggestion}
                 suggestions={suggestions}
                 updatingIds={updatingSuggestionIds}
               />
@@ -551,11 +589,7 @@ function UserProfileAccountScreen({
                             uri={resolveMediaUrl(highlight.cover_url, env.apiBaseUrl)!}
                             sourceCacheKey={`${resolveMediaUrl(highlight.cover_url, env.apiBaseUrl)}?profile-highlight=1`}
                             contentFit="cover"
-                            loadingFallback={
-                              <View style={styles.highlightImageFallback}>
-                                <ActivityIndicator color={colors.accent} size="small" />
-                              </View>
-                            }
+                            loadingFallback={<View style={styles.highlightImageFallback} />}
                             errorFallback={
                               <View style={styles.highlightImageFallback}>
                                 <SymbolView
@@ -647,7 +681,7 @@ function UserProfileAccountScreen({
   );
 }
 
-function ProfileHeader({
+const ProfileHeader = memo(function ProfileHeader({
   profile,
   fallbackPostsCount,
 }: {
@@ -768,7 +802,7 @@ function ProfileHeader({
       </View>
     </View>
   );
-}
+});
 
 function Stat({
   value,
@@ -828,15 +862,13 @@ function MutualFollowers({ profile }: { profile: PublicProfile }) {
   ) : null;
 }
 
-function Suggestions({
+const Suggestions = memo(function Suggestions({
   excludeUserId,
-  isLoading,
   suggestions,
   updatingIds,
   onToggle,
 }: {
   excludeUserId: string;
-  isLoading: boolean;
   suggestions: FollowUser[];
   updatingIds: ReadonlySet<string>;
   onToggle: (user: FollowUser) => void;
@@ -862,9 +894,7 @@ function Suggestions({
           <Text style={styles.showAll}>{t("profile.suggestions.showAll")}</Text>
         </Pressable>
       </View>
-      {isLoading && suggestions.length === 0 ? (
-        <ActivityIndicator color={colors.accent} style={styles.suggestionsLoading} />
-      ) : suggestions.length === 0 ? (
+      {suggestions.length === 0 ? (
         <Text style={styles.suggestionsEmpty}>{t("profile.suggestions.unavailable")}</Text>
       ) : (
         <ScrollView
@@ -920,7 +950,7 @@ function Suggestions({
       )}
     </View>
   );
-}
+});
 
 function ProfileTabs({
   selected,
@@ -1053,6 +1083,23 @@ function MoreSection({
 function isSafety(action: MoreAction) {
   return action === "report" || action === "restrict" || action === "block";
 }
+
+function routeProfilePreview(
+  userId: string,
+  nickname: string | undefined,
+  avatarUrl: string | undefined,
+): PublicProfile | null {
+  const normalizedUserId = userId.trim();
+  const normalizedNickname = nickname?.trim() ?? "";
+  const normalizedAvatarUrl = avatarUrl?.trim() ?? "";
+  if (!normalizedUserId || (!normalizedNickname && !normalizedAvatarUrl)) return null;
+  return normalizePublicProfile({
+    user_id: normalizedUserId,
+    nickname: normalizedNickname || undefined,
+    avatar_url: normalizedAvatarUrl,
+  });
+}
+
 function profileAsFollowUser(profile: PublicProfile): FollowUser {
   return {
     user_id: profile.user_id,
@@ -1101,7 +1148,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  profileLoading: { marginTop: userProfileMetrics.content.topStateInset },
+  profileLoading: { height: userProfileMetrics.content.topStateInset },
   header: {
     paddingHorizontal: userProfileMetrics.header.horizontalInset,
     paddingTop: userProfileMetrics.header.topInset,
@@ -1242,7 +1289,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: userProfileMetrics.suggestions.horizontalInset,
     columnGap: userProfileMetrics.suggestions.cardsGap,
   },
-  suggestionsLoading: { height: userProfileMetrics.suggestions.loadingHeight },
   suggestionsEmpty: {
     paddingVertical: userProfileMetrics.suggestions.emptyVerticalInset,
     color: colors.secondaryText,

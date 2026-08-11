@@ -16,13 +16,18 @@ describe("batch action source parity", () => {
   });
 
   it("keeps the audited source geometry, states, target types and confirmation flow", () => {
-    const source = fs.readFileSync(path.join(root, "src/components/messages/ChatForwardViews.tsx"), "utf8");
+    const source = fs.readFileSync(
+      path.join(root, "src/components/messages/ChatForwardViews.tsx"),
+      "utf8",
+    );
     for (const expected of [
       "width: 230",
       "padding: 12",
       "borderRadius: 12",
       "height: 310",
-      "width: 36, height: 5",
+      "confirmationHandle: {",
+      "width: 36",
+      "height: 5",
       "size={42}",
       "size={22}",
       "Promise.allSettled([getFriendList(), getGroups()])",
@@ -30,6 +35,7 @@ describe("batch action source parity", () => {
       "sortForwardTargets(selected)",
       "client_operation_id: clientOperationId",
       "export function ForwardBundleDetailModal",
-    ]) expect(source).toContain(expected);
+    ])
+      expect(source).toContain(expected);
   });
 });

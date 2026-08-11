@@ -42,6 +42,7 @@ describe("local Expo/EAS configuration", () => {
     expect(config.owner).toBe("wegpt");
     expect(config.slug).toBe("bbchat");
     expect(config.runtimeVersion).toEqual({ policy: "fingerprint" });
+    expect(config.ios?.runtimeVersion).toEqual({ policy: "appVersion" });
     expect(config.updates).toMatchObject({
       enabled: true,
       checkAutomatically: "NEVER",

@@ -913,8 +913,11 @@
 "chatMoney.receipt.activity" = "Gold Coins transaction update";
 "chatMoney.redPacket.notConversationMember" = "You are no longer a member of this conversation";
 
-"chat.action.forward" = "Forward";
-"chat.action.multiSelect" = "Select";
+"chat.action.forward" = "Encaminhar";
+"chat.action.multiSelect" = "Seleção múltipla";
+"chat.action.menu" = "Ações da mensagem";
+"chat.action.copied" = "Copiado";
+"chat.action.deleted" = "Excluído";
 "chat.action.recall" = "Retirar";
 "chat.recall.failed" = "Não foi possível retirar a mensagem";
 "chat.recall.selfNotice" = "Você retirou uma mensagem";

@@ -32,10 +32,11 @@ export async function readDirectChatCachedPage(
   const all = await readDirectChatCachedMessages(ownerId, contactId);
   const candidates =
     options.beforeId === undefined ? all : all.filter((message) => message.id < options.beforeId!);
+  const byServerId = [...candidates].sort((left, right) => left.id - right.id);
   const limit = Math.max(1, Math.trunc(options.limit ?? directChatHistoryPolicy.visiblePageSize));
-  const start = Math.max(0, candidates.length - limit);
+  const start = Math.max(0, byServerId.length - limit);
   return {
-    messages: candidates.slice(start),
+    messages: byServerId.slice(start).sort(compareMessages),
     hasMore: start > 0,
     totalCount: all.length,
   };

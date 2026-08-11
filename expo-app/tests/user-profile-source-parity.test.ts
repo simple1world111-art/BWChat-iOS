@@ -107,15 +107,34 @@ describe("UserProfile source parity", () => {
   });
 
   it("keeps all tab panes mounted and prewarms persistent profile content after navigation", () => {
+    const profile = sourceExpo("src/app/user-profile.tsx");
     const content = sourceExpo("src/components/profile/PublicProfileContent.tsx");
     expect(content).toContain("InteractionManager.runAfterInteractions");
     expect(content).toContain("readCachedProfileAgentsSnapshot(ownerId, targetId)");
     expect(content).toContain("saveCachedProfileAgents(ownerId, targetId");
-    expect(content).toContain('inactiveTab: { display: "none" }');
+    expect(profile).toContain("readNavigationSnapshot<UserProfileNavigationSnapshot>");
+    expect(profile).toContain("writeNavigationSnapshot<UserProfileNavigationSnapshot>");
+    expect(content).toContain("readNavigationSnapshot<PublicProfileContentNavigationSnapshot>");
+    expect(content).toContain("writeNavigationSnapshot<PublicProfileContentNavigationSnapshot>");
+    expect(profile).toContain("routeProfilePreview(");
+    expect(profile).not.toContain("<ActivityIndicator");
+    expect(content).toContain("return <View style={styles.contentLoading} />");
+    expect(content).toContain(
+      'paneHost: { position: "relative", width: "100%", overflow: "hidden" }',
+    );
+    expect(content).toContain("tabPane: {");
+    expect(content).toContain("style={[styles.paneHost, { height: presentedPaneHeight }]}");
+    expect(content).not.toContain('display: "none"');
     expect(content).toContain("const MomentList = memo");
+    expect(content).toContain("const MomentListItem = memo");
     expect(content).toContain("const AgentList = memo");
     expect(content).toContain("const ShortDramaList = memo");
+    expect(profile).toContain("const ProfileHeader = memo");
+    expect(profile).toContain("const Suggestions = memo");
     expect(content).not.toContain("if (!isVisible) return null");
+    expect(content).toContain("presentedTabRef.current === tab");
+    expect(content).toContain("InteractionManager.runAfterInteractions");
+    expect(content).toContain("inactivePersistentTab: { opacity: 1");
   });
 
   it("preserves exact public-profile, follow, recommendation and content API routes", () => {

@@ -28,6 +28,7 @@
       "distribution": "internal",
       "channel": "preview",
       "environment": "preview",
+      "autoIncrement": true,
       "env": {
         "APP_ENV": "preview",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",

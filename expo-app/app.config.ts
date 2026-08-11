@@ -130,6 +130,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       appleTeamId: "A5U93R249R",
       bundleIdentifier: "com.bwchat.app",
       buildNumber: "8",
+      runtimeVersion: { policy: "appVersion" },
       bitcode: false,
       supportsTablet: false,
       icon: "./assets/images/bwchat/icon.png",
@@ -200,6 +201,17 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ],
       "expo-secure-store",
       "expo-notifications",
+      [
+        "./plugins/with-notification-service",
+        {
+          apiBaseUrl,
+          appleTeamId: "A5U93R249R",
+          buildNumber: process.env.EAS_BUILD_IOS_BUILD_NUMBER?.trim() || "8",
+          bundleIdentifier: "com.bwchat.app.BWChatNotificationServiceExtension",
+          deploymentTarget: "16.4",
+          version: "1.0.0",
+        },
+      ],
       ["expo-image-picker", { photosPermission: "允许 BBchat 选择要发送的照片和视频。" }],
       [
         "expo-media-library",
@@ -260,7 +272,21 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       webSocketUrl,
       remoteConfigUrl,
       ...(sentryDsn ? { sentryDsn } : {}),
-      eas: { projectId },
+      eas: {
+        projectId,
+        build: {
+          experimental: {
+            ios: {
+              appExtensions: [
+                {
+                  targetName: "BWChatNotificationService",
+                  bundleIdentifier: "com.bwchat.app.BWChatNotificationServiceExtension",
+                },
+              ],
+            },
+          },
+        },
+      },
     },
   };
 };

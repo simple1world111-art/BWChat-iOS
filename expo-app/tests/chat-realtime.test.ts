@@ -65,6 +65,21 @@ describe("native WebSocket event contracts", () => {
     ]);
   });
 
+  it("accepts wrapped create/update events without dropping the canonical message", () => {
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "message_updated",
+        data: { message: directMessage(61) },
+      }),
+    ).toMatchObject([{ type: "direct_message", message: { id: 61 } }]);
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "group_message_updated",
+        data: { message: groupMessage(62) },
+      }),
+    ).toMatchObject([{ type: "group_message", message: { id: 62, group_id: 7 } }]);
+  });
+
   it("resolves only account-scoped direct-message cache identities", () => {
     expect(directMessageContactId("me", directMessage(1))).toBe("u1");
     expect(
@@ -231,6 +246,31 @@ describe("native WebSocket event contracts", () => {
       { type: "group_message_hint", group_id: 7, message_id: 52 },
     ]);
     expect(parseChatRealtimeEnvelope({ type: "pong" })).toEqual([]);
+  });
+
+  it("retains the canonical direct message ID from contact previews for timeline reconciliation", () => {
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "contact_update",
+        data: {
+          senderId: "u1",
+          receiver_id: "me",
+          lastMessageID: "53",
+          last_message: "[图片]",
+        },
+      }),
+    ).toEqual([
+      { type: "refresh_conversations", reason: "contact_update" },
+      {
+        type: "direct_message_hint",
+        sender_id: "u1",
+        receiver_id: "me",
+        message_id: 53,
+      },
+    ]);
+    expect(parseChatRealtimeEnvelope({ type: "contact_update", data: {} })).toEqual([
+      { type: "refresh_conversations", reason: "contact_update" },
+    ]);
   });
 
   it("separates canonical and legacy live events from ordinary friend calls", () => {

@@ -915,6 +915,9 @@
 
 "chat.action.forward" = "Forward";
 "chat.action.multiSelect" = "Select";
+"chat.action.menu" = "Message actions";
+"chat.action.copied" = "Copied";
+"chat.action.deleted" = "Deleted";
 "chat.action.recall" = "Recall";
 "chat.recall.failed" = "Couldn't recall this message";
 "chat.recall.selfNotice" = "You recalled a message";

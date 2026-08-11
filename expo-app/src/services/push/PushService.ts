@@ -5,6 +5,7 @@ import { Platform } from "react-native";
 import { apiRequest } from "@/api/client";
 import { conversationListIdentity } from "@/services/conversations/ConversationListPolicy";
 import { loadCachedConversationSnapshot } from "@/services/conversations/ConversationRepository";
+import { loadCachedGroupDetail } from "@/services/groups/GroupDetailRepository";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { incrementMomentsUnread } from "@/services/moments/MomentsUnreadStore";
 import {
@@ -12,6 +13,11 @@ import {
   writeCachedNativePushToken,
 } from "@/services/push/PushTokenStore";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
+import {
+  featureFlagEnabled,
+  readCachedRemoteConfig,
+} from "@/services/remote-config/RemoteConfigService";
+import type { GroupNotificationSettings } from "@/models";
 
 export { readCachedNativePushToken } from "@/services/push/PushTokenStore";
 
@@ -50,7 +56,8 @@ export interface PushPresentationPolicy {
   shouldSetBadge: boolean;
 }
 
-const pendingOpenKey = "bwchat.push.pending-open.v1";
+const legacyPendingOpenKey = "bwchat.push.pending-open.v1";
+const pendingOpenQueueKey = "bwchat.push.pending-open.v2";
 const processedEventIdsKey = "bwchat.push.processed-event-ids.v1";
 const groupPushTypes = new Set([
   "group",
@@ -60,31 +67,84 @@ const groupPushTypes = new Set([
   "groupchat",
 ]);
 const callPushTypes = new Set(["call", "call_invite", "group_call", "group_call_invite"]);
+const directPushTypes = new Set([
+  "chat",
+  "chat_message",
+  "direct_message",
+  "dm",
+  "message",
+  "new_message",
+]);
+const maximumPendingOpenCount = 16;
 const uploadFlights = new Map<string, Promise<void>>();
 const uploadedSessions = new Set<string>();
 const uploadSessionGenerations = new Map<string, number>();
 let initialized = false;
 let processedEventIdsPromise: Promise<Set<string>> | null = null;
+let activePushOwnerId = "";
+let pendingOpenMutationChain: Promise<unknown> = Promise.resolve();
+const claimedPushEventIds = new Set<string>();
 
 export function initializePushNotifications(): void {
   if (initialized) return;
   initialized = true;
   Notifications.setNotificationHandler({
-    handleNotification: async (notification) =>
-      presentationPolicyForPush(notification.request.content.data, {
+    handleNotification: async (notification) => {
+      const input = notification.request.content.data;
+      const policy = presentationPolicyForPush(input, {
         isConversationActive: (type, id) => chatRealtimeService.isConversationActive(type, id),
-      }),
+      });
+      if (!policy.shouldShowBanner || !activePushOwnerId) return policy;
+      const route = parseNotificationRoute(input);
+      if (route?.conversationType !== "group" || !route.groupId) return policy;
+      try {
+        const config = await readCachedRemoteConfig(activePushOwnerId);
+        if (
+          !config ||
+          !featureFlagEnabled(config, "group_notification_settings_v1", activePushOwnerId, false)
+        )
+          return policy;
+        const detail = await loadCachedGroupDetail(activePushOwnerId, route.groupId);
+        return detail && !shouldAlertForGroupSettings(detail.notification_settings, route)
+          ? behavior(false, false)
+          : policy;
+      } catch (error) {
+        captureException(error, { operation: "push_group_foreground_policy" });
+        return policy;
+      }
+    },
     handleError: (_notificationId, error) =>
       captureException(error, { operation: "push_foreground_handler" }),
   });
   if (Platform.OS === "android") {
-    void Notifications.setNotificationChannelAsync("default", {
-      importance: Notifications.AndroidImportance.MAX,
-      name: "消息",
-      sound: "default",
-    }).catch((error) => captureException(error, { operation: "push_android_channel" }));
+    const channels = [
+      ["messages", "消息", Notifications.AndroidImportance.HIGH, "default"],
+      ["mentions", "提及与重要消息", Notifications.AndroidImportance.MAX, "default"],
+      ["calls", "通话", Notifications.AndroidImportance.MAX, "default"],
+      ["silent", "静默同步", Notifications.AndroidImportance.LOW, null],
+      ["default", "消息（兼容）", Notifications.AndroidImportance.HIGH, "default"],
+    ] as const;
+    for (const [id, name, importance, sound] of channels) {
+      void Notifications.setNotificationChannelAsync(id, { importance, name, sound }).catch(
+        (error) => captureException(error, { channel_id: id, operation: "push_android_channel" }),
+      );
+    }
   }
   void refreshNativePushToken().catch(() => undefined);
+}
+
+export function setActivePushOwnerId(ownerId: string): void {
+  activePushOwnerId = ownerId.trim();
+}
+
+export function shouldAlertForGroupSettings(
+  settings: GroupNotificationSettings,
+  route: Pick<NotificationRoute, "senderId" | "isDirectMention" | "isMentionAll">,
+): boolean {
+  if (!settings.muted) return true;
+  if (route.isDirectMention && settings.notify_mentions_me) return true;
+  if (route.isMentionAll && settings.notify_mentions_all) return true;
+  return Boolean(route.senderId && settings.important_member_ids.includes(route.senderId));
 }
 
 export function flattenNotificationPayload(input: unknown): Record<string, unknown> {
@@ -119,7 +179,9 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
       ? (explicitConversationId ?? (groupId !== undefined ? String(groupId) : undefined))
       : (explicitConversationId ?? senderId);
   if (!conversationId) return null;
-  const messageId = firstInteger(payload, ["message_id", "messageId", "msg_id", "id"]);
+  // A bare `id` is frequently a notification, sender or group identity. Only
+  // message-specific keys are safe for timeline reconciliation.
+  const messageId = firstInteger(payload, ["message_id", "messageId", "msg_id"]);
   const suppliedEventId = firstString(payload, ["event_id", "eventId"]);
   const sentAt = firstString(payload, ["sent_at", "timestamp", "last_message_time"]);
   const eventId =
@@ -150,7 +212,9 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
     ...optionalNumber("totalUnreadCount", totalUnreadCount),
     ...optionalString(
       "senderName",
-      firstString(payload, ["sender_name", "senderName", "sender_nickname", "nickname"]),
+      notificationDisplayText(
+        firstString(payload, ["sender_name", "senderName", "sender_nickname", "nickname"]),
+      ),
     ),
     ...optionalString(
       "senderAvatar",
@@ -166,7 +230,9 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
     ),
     ...optionalString(
       "groupName",
-      firstString(payload, ["group_name", "groupName", "conversation_name"]),
+      notificationDisplayText(
+        firstString(payload, ["group_name", "groupName", "conversation_name"]),
+      ),
     ),
     ...optionalString(
       "groupAvatar",
@@ -232,6 +298,7 @@ export function pushOpenTarget(input: unknown, fallbackEventId: string): PushOpe
       eventId: firstString(payload, ["event_id", "eventId"]) ?? `moments:${fallbackEventId}`,
     };
   }
+  if (type && !directPushTypes.has(type) && !groupPushTypes.has(type)) return null;
   const route = parseNotificationRoute(payload);
   return route ? { kind: "conversation", eventId: route.eventId, route } : null;
 }
@@ -360,19 +427,40 @@ export async function dismissReadMomentsNotifications(): Promise<number> {
 }
 
 export async function savePendingPushOpen(target: PushOpenTarget): Promise<void> {
-  await AsyncStorage.setItem(pendingOpenKey, JSON.stringify(target));
+  await mutatePendingOpenQueue((current) => {
+    const deduplicated = current.filter((item) => item.eventId !== target.eventId);
+    return [...deduplicated, target].slice(-maximumPendingOpenCount);
+  });
 }
 
 export async function takePendingPushOpen(): Promise<PushOpenTarget | null> {
-  const encoded = await AsyncStorage.getItem(pendingOpenKey);
-  if (!encoded) return null;
-  await AsyncStorage.removeItem(pendingOpenKey);
+  const target = await claimPendingPushOpen();
+  if (target) await acknowledgePendingPushOpen(target.eventId);
+  return target;
+}
+
+export async function claimPendingPushOpen(): Promise<PushOpenTarget | null> {
+  await pendingOpenMutationChain;
+  const queue = await readPendingOpenQueue();
+  const target = queue.find((item) => !claimedPushEventIds.has(item.eventId)) ?? null;
+  if (target) claimedPushEventIds.add(target.eventId);
+  return target;
+}
+
+export async function acknowledgePendingPushOpen(eventId: string): Promise<void> {
+  const normalized = eventId.trim();
+  if (!normalized) return;
   try {
-    const parsed = JSON.parse(encoded) as unknown;
-    return validOpenTarget(parsed) ? parsed : null;
-  } catch {
-    return null;
+    await mutatePendingOpenQueue((current) =>
+      current.filter((target) => target.eventId !== normalized),
+    );
+  } finally {
+    claimedPushEventIds.delete(normalized);
   }
+}
+
+export function releasePendingPushOpen(eventId: string): void {
+  claimedPushEventIds.delete(eventId.trim());
 }
 
 export async function wasPushEventProcessed(eventId: string): Promise<boolean> {
@@ -393,6 +481,47 @@ export function resetPushServiceForTests(): void {
   uploadedSessions.clear();
   uploadFlights.clear();
   uploadSessionGenerations.clear();
+  activePushOwnerId = "";
+  pendingOpenMutationChain = Promise.resolve();
+  claimedPushEventIds.clear();
+}
+
+async function readPendingOpenQueue(): Promise<PushOpenTarget[]> {
+  const [encodedQueue, legacyEncoded] = await AsyncStorage.multiGet([
+    pendingOpenQueueKey,
+    legacyPendingOpenKey,
+  ]);
+  const queue = parsePendingOpenQueue(encodedQueue?.[1] ?? null);
+  const legacy = parsePendingOpenQueue(legacyEncoded?.[1] ?? null);
+  return [...legacy, ...queue]
+    .filter(
+      (target, index, values) =>
+        values.findIndex((candidate) => candidate.eventId === target.eventId) === index,
+    )
+    .slice(-maximumPendingOpenCount);
+}
+
+function mutatePendingOpenQueue(
+  mutation: (current: PushOpenTarget[]) => PushOpenTarget[],
+): Promise<void> {
+  const task = pendingOpenMutationChain.then(async () => {
+    const next = mutation(await readPendingOpenQueue()).slice(-maximumPendingOpenCount);
+    await AsyncStorage.multiSet([[pendingOpenQueueKey, JSON.stringify(next)]]);
+    await AsyncStorage.removeItem(legacyPendingOpenKey);
+  });
+  pendingOpenMutationChain = task.catch(() => undefined);
+  return task;
+}
+
+function parsePendingOpenQueue(encoded: string | null): PushOpenTarget[] {
+  if (!encoded) return [];
+  try {
+    const parsed = JSON.parse(encoded) as unknown;
+    const values = Array.isArray(parsed) ? parsed : [parsed];
+    return values.filter(validOpenTarget);
+  } catch {
+    return [];
+  }
 }
 
 async function dismissPresentedNotifications(
@@ -497,6 +626,20 @@ function behavior(show: boolean, sound: boolean): PushPresentationPolicy {
     shouldPlaySound: sound,
     shouldSetBadge: false,
   };
+}
+
+/**
+ * Preview is the deployment environment, not part of a sender or group name.
+ * Keep the cleanup deliberately suffix-only so legitimate text such as
+ * "Preview Club" or a message body containing "preview" remains untouched.
+ */
+export function notificationDisplayText(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim();
+  const cleaned = normalized
+    .replace(/(?:\s+|[-–—·|｜]\s*|\(\s*|（\s*|\[\s*|【\s*)preview\s*(?:\)|）|\]|】)?$/iu, "")
+    .trim();
+  return cleaned || normalized;
 }
 
 function validOpenTarget(value: unknown): value is PushOpenTarget {

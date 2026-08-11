@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
-import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
+import {
+  useChatMessageActivationGuard,
+  useChatMessageLongPressBridge,
+} from "@/components/messages/ChatReplyViews";
 import type { ChatMoneyPayload, ChatMoneyReceiptPayload } from "@/models";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { hasViewerClaimedChatMoney } from "@/services/messages/ChatMoneyRepository";
@@ -32,6 +35,7 @@ export function ChatMoneyBubble({
   onPress: () => void;
 }) {
   const canActivate = useChatMessageActivationGuard();
+  const longPressBridge = useChatMessageLongPressBridge();
   const { t } = useLocalization();
   const ownerId = viewerId?.trim() ?? "";
   const claimLookupKey =
@@ -63,9 +67,12 @@ export function ChatMoneyBubble({
       <Pressable
         accessibilityLabel={t("chatMoney.redPacket.detailTitle")}
         accessibilityRole="button"
+        delayLongPress={longPressBridge.delayLongPress}
+        onLongPress={longPressBridge.onLongPress}
         onPress={() => {
           if (canActivate()) onPress();
         }}
+        onPressOut={longPressBridge.onPressOut}
         style={[styles.card, styles.redPacketCard]}
         testID={`chatMoney.bubble.${payload.asset_id}`}
       >
@@ -86,9 +93,12 @@ export function ChatMoneyBubble({
     <Pressable
       accessibilityLabel={t("chatMoney.transfer.detailTitle")}
       accessibilityRole="button"
+      delayLongPress={longPressBridge.delayLongPress}
+      onLongPress={longPressBridge.onLongPress}
       onPress={() => {
         if (canActivate()) onPress();
       }}
+      onPressOut={longPressBridge.onPressOut}
       style={[styles.card, styles.transferCard]}
       testID={`chatMoney.bubble.${payload.asset_id}`}
     >

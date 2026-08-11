@@ -42,6 +42,7 @@ import { readAccessToken } from "@/storage/tokenStorage";
 
 export type ChatRealtimeEvent =
   | { type: "direct_message"; message: Message }
+  | { type: "direct_message_hint"; sender_id: string; receiver_id: string; message_id: number }
   | { type: "group_message"; message: GroupMessage }
   | { type: "group_message_hint"; group_id: number; message_id: number }
   | { type: "conversation_read"; receipt: ConversationReadReceipt }
@@ -121,9 +122,11 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
   try {
     switch (type) {
       case "new_message":
-        return [{ type: "direct_message", message: normalizeMessage(payload) }];
+      case "message_updated":
+        return [{ type: "direct_message", message: normalizeMessage(messagePayload(payload)) }];
       case "new_group_message":
-        return [{ type: "group_message", message: normalizeGroupMessage(payload) }];
+      case "group_message_updated":
+        return [{ type: "group_message", message: normalizeGroupMessage(messagePayload(payload)) }];
       case "conversation_read_state": {
         const receipt = normalizeConversationReadReceipt(payload);
         return receipt.conversation_id ? [{ type: "conversation_read", receipt }] : [];
@@ -177,6 +180,42 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
       }
       case "chat_money_updated":
         return chatMoneyMessageEvents(payload);
+      case "contact_update": {
+        const events: ChatRealtimeEvent[] = [{ type: "refresh_conversations", reason: type }];
+        const senderId =
+          flexString(
+            payload.sender_id,
+            payload.senderId,
+            payload.from_user_id,
+            payload.fromUserId,
+          ) ?? "";
+        const receiverId =
+          flexString(
+            payload.receiver_id,
+            payload.receiverId,
+            payload.recipient_id,
+            payload.recipientId,
+            payload.to_user_id,
+            payload.toUserId,
+          ) ?? "";
+        const messageId =
+          flexInt(
+            payload.message_id,
+            payload.messageId,
+            payload.last_message_id,
+            payload.lastMessageId,
+            payload.lastMessageID,
+          ) ?? 0;
+        if (senderId && receiverId && messageId > 0) {
+          events.push({
+            type: "direct_message_hint",
+            sender_id: senderId,
+            receiver_id: receiverId,
+            message_id: messageId,
+          });
+        }
+        return events;
+      }
       case "script_turn_state": {
         if (envelope.type !== "script_turn_state") return [];
         if (!isRecord(envelope.data)) return [];
@@ -200,7 +239,6 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
         return events;
       }
       case "group_created":
-      case "contact_update":
       case "friend_request":
       case "friend_accepted":
       case "chat_reset":
@@ -496,6 +534,10 @@ function parseEnvelope(value: unknown): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function messagePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(payload.message) ? payload.message : payload;
 }
 
 function normalizeEventType(value: string): string {

@@ -64,13 +64,11 @@ struct AgentImageGenerationPolicy: Equatable {
     let isRuntimeConfigLoaded: Bool
     let isGloballyEnabled: Bool
     let isEnabledForAgentVersion: Bool
-    let hasBlockingLockedMedia: Bool
 
     var blockReason: String? {
         if !isRuntimeConfigLoaded { return "正在加载图片生成能力，请稍后再试" }
         if !isGloballyEnabled { return "图片生成功能当前未开放" }
         if !isEnabledForAgentVersion { return "当前会话使用的智能体版本未开启图片能力" }
-        if hasBlockingLockedMedia { return "请先解锁上一张图片，再继续调整图片" }
         return nil
     }
 
@@ -233,15 +231,7 @@ final class AgentChatViewModel: ObservableObject {
             isGloballyEnabled: runtimeConfig?.agentsEnabled == true
                 && runtimeConfig?.imageInputEnabled == true
                 && runtimeConfig?.paidImagesEnabled == true,
-            isEnabledForAgentVersion: conversation.agentCapabilities.paidImages,
-            hasBlockingLockedMedia: messages.contains { message in
-                message.parts.contains { part in
-                    guard part.type == "paid_media", part.metadata.mediaType != "video" else { return false }
-                    let status = AgentPaidMediaStatePolicy.displayStatus(for: part.metadata)
-                    return ["queued", "generating", "ready_locked"].contains(status)
-                        && part.metadata.access != "unlocked"
-                }
-            }
+            isEnabledForAgentVersion: conversation.agentCapabilities.paidImages
         )
     }
 

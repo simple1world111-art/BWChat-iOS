@@ -9,6 +9,7 @@ import { SymbolView } from "expo-symbols";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -55,6 +56,7 @@ import { useWallet } from "@/providers/WalletProvider";
 import { normalizePropConsumption } from "@/services/props/PropInventoryModels";
 import {
   isMomentFeedCacheFresh,
+  isPendingMomentUpload,
   mergeMomentFeed,
   momentMutationTabs,
   readCachedMomentFeed,
@@ -72,7 +74,13 @@ import {
   subscribeMomentMutation,
 } from "@/services/moments/MomentMutationStore";
 import { markMomentsNotificationsReadEverywhere } from "@/services/moments/MomentsReadService";
-import { clearMomentsUnread, publishMomentsUnread } from "@/services/moments/MomentsUnreadStore";
+import {
+  captureMomentsUnreadRefresh,
+  clearMomentsNew,
+  clearMomentsUnread,
+  publishMomentsUnread,
+  useMomentsUnread,
+} from "@/services/moments/MomentsUnreadStore";
 import {
   cancelMomentUpload,
   momentUploadStatus,
@@ -192,7 +200,7 @@ function MomentsAccountScreen({
     recommended: false,
     following: false,
   });
-  const [unreadCount, setUnreadCount] = useState(0);
+  const unreadCount = useMomentsUnread(ownerId);
   const [activeComment, setActiveComment] = useState<ActiveComment | null>(null);
   const [mediaSelection, setMediaSelection] = useState<MediaSelection | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -306,7 +314,7 @@ function MomentsAccountScreen({
           reset &&
           !shouldAcceptMomentFeedFirstPage(
             page,
-            stateBeforeRequest.moments.filter((item) => !item.client_request_id).length,
+            stateBeforeRequest.moments.filter((item) => !isPendingMomentUpload(item)).length,
           )
         ) {
           throw new Error("朋友圈列表响应不完整");
@@ -314,7 +322,7 @@ function MomentsAccountScreen({
         await reconcileMomentUploads(ownerId, page.moments);
         const nextMoments = mergeMomentFeed(
           reset
-            ? stateBeforeRequest.moments.filter((item) => item.client_request_id)
+            ? stateBeforeRequest.moments.filter(isPendingMomentUpload)
             : stateBeforeRequest.moments,
           page.moments,
         );
@@ -367,12 +375,13 @@ function MomentsAccountScreen({
   useEffect(() => {
     if (!ownerId || isMyMoments) return;
     let active = true;
+    clearMomentsNew(ownerId);
+    const momentsRefresh = captureMomentsUnreadRefresh(ownerId);
     const cancel = runAfterNavigationInteractions(() => {
       void getMomentsUnreadInfo()
         .then((info) => {
           if (active) {
-            setUnreadCount(info.unread_count);
-            publishMomentsUnread(ownerId, info.unread_count);
+            publishMomentsUnread(ownerId, info.unread_count, momentsRefresh);
           }
         })
         .catch(() => undefined);
@@ -446,7 +455,7 @@ function MomentsAccountScreen({
   );
 
   const handleLike = async (moment: Moment) => {
-    if (moment.client_request_id) return;
+    if (isPendingMomentUpload(moment)) return;
     try {
       const liked = await toggleMomentLike(moment.id);
       if (!activeRef.current) return;
@@ -491,7 +500,7 @@ function MomentsAccountScreen({
 
   const handleDelete = async (momentId: number) => {
     const pending = findMoment(feedsRef.current, momentId);
-    if (pending?.client_request_id) {
+    if (pending && isPendingMomentUpload(pending) && pending.client_request_id) {
       await cancelMomentUpload(pending.client_request_id);
       return;
     }
@@ -544,7 +553,6 @@ function MomentsAccountScreen({
   };
 
   const openNotifications = useCallback(() => {
-    setUnreadCount(0);
     clearMomentsUnread(ownerId);
     void markMomentsNotificationsReadEverywhere().catch(() => undefined);
     router.push("/moments-notifications");
@@ -660,42 +668,52 @@ function MomentsAccountScreen({
             tintColor={colors.accent}
           />
         }
-        renderItem={({ item }) => (
-          <View>
-            <MomentRow
-              moment={item}
-              onComment={(target) => {
-                if (!item.client_request_id) {
-                  setActiveComment({ momentId: item.id, target });
-                }
-              }}
-              onDelete={() => void handleDelete(item.id)}
-              onLike={() => void handleLike(item)}
-              onMedia={setMediaSelection}
-              onUnlock={() => {
-                if (!item.client_request_id) void handleUnlock(item);
-              }}
-              viewerId={ownerId}
-            />
-            {item.client_request_id &&
-            (
-              uploadStatuses[item.client_request_id] ??
-              momentUploadStatus(ownerId, item.client_request_id)
-            )?.state === "failed" ? (
-              <Pressable
-                onPress={() => void retryMomentUpload(item.client_request_id!)}
-                style={styles.uploadRetry}
-              >
-                <SymbolView
-                  name="exclamationmark.circle.fill"
-                  size={12}
-                  tintColor={colors.danger}
-                />
-                <Text style={styles.uploadRetryText}>{t("common.retry")}</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        )}
+        renderItem={({ item }) => {
+          const isPending = isPendingMomentUpload(item);
+          const requestId = isPending ? item.client_request_id : undefined;
+          const uploadStatus = requestId
+            ? (uploadStatuses[requestId] ?? momentUploadStatus(ownerId, requestId))
+            : undefined;
+          const canRetry =
+            uploadStatus?.state === "failed" || uploadStatus?.state === "confirmation_unknown";
+          return (
+            <View>
+              <MomentRow
+                moment={item}
+                onComment={(target) => {
+                  if (!isPending) setActiveComment({ momentId: item.id, target });
+                }}
+                onDelete={() => void handleDelete(item.id)}
+                onLike={() => void handleLike(item)}
+                onMedia={setMediaSelection}
+                onUnlock={() => {
+                  if (!isPending) void handleUnlock(item);
+                }}
+                viewerId={ownerId}
+              />
+              {requestId ? (
+                canRetry ? (
+                  <Pressable
+                    onPress={() => void retryMomentUpload(requestId)}
+                    style={styles.uploadStatus}
+                  >
+                    <SymbolView
+                      name="exclamationmark.circle.fill"
+                      size={12}
+                      tintColor={colors.danger}
+                    />
+                    <Text style={styles.uploadRetryText}>{t("common.retry")}</Text>
+                  </Pressable>
+                ) : (
+                  <View style={styles.uploadStatus}>
+                    <ActivityIndicator color={colors.secondaryText} size="small" />
+                    <Text style={styles.uploadPendingText}>{t("common.uploading")}</Text>
+                  </View>
+                )
+              ) : null}
+            </View>
+          );
+        }}
         showsVerticalScrollIndicator={false}
       />
 
@@ -873,13 +891,14 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 18, backgroundColor: colors.card },
   listWithComposer: { paddingBottom: 146 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.separator },
-  uploadRetry: {
+  uploadStatus: {
     marginLeft: 68,
     paddingBottom: 10,
     flexDirection: "row",
     alignItems: "center",
     columnGap: 4,
   },
+  uploadPendingText: { color: colors.secondaryText, fontSize: 12, fontWeight: "500" },
   uploadRetryText: { color: colors.danger, fontSize: 12, fontWeight: "500" },
   headerButton: {
     width: 36,

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import type { ReactNode } from "react";
 
 import { getGroupDetail } from "@/api/bwchat";
 import { ChatMentionPicker } from "@/components/messages/ChatMentionPicker";
@@ -39,6 +40,19 @@ jest.mock("@/components/Avatar", () => {
   const { Text: MockText } = jest.requireActual("react-native");
   return { Avatar: ({ name }: { name: string }) => <MockText>{`avatar:${name}`}</MockText> };
 });
+jest.mock("react-native-safe-area-context", () => {
+  const ReactModule = jest.requireActual<typeof import("react")>("react");
+  const { View: MockView } = jest.requireActual("react-native");
+  return {
+    initialWindowMetrics: {
+      frame: { x: 0, y: 0, width: 390, height: 844 },
+      insets: { top: 47, right: 0, bottom: 34, left: 0 },
+    },
+    SafeAreaProvider: ({ children }: { children: ReactNode }) =>
+      ReactModule.createElement(ReactModule.Fragment, null, children),
+    SafeAreaView: MockView,
+  };
+});
 
 const request = jest.mocked(getGroupDetail);
 const readCache = jest.mocked(loadCachedGroupDetail);
@@ -49,6 +63,14 @@ describe("mention picker UI", () => {
     jest.clearAllMocks();
     readCache.mockResolvedValue(null);
     request.mockRejectedValue(new Error("offline"));
+  });
+
+  it("owns the full-screen modal safe area instead of drawing under the status bar", async () => {
+    const view = await renderPicker();
+    const modal = view.getByTestId("mention.fullScreenModal");
+    expect(modal.props.presentationStyle).toBe("fullScreen");
+    expect(modal.props.statusBarTranslucent).toBe(false);
+    expect(view.getByTestId("mention.safeAreaScreen")).toBeTruthy();
   });
 
   it("shows mention-all only for an empty search and filters by nickname or user id", async () => {

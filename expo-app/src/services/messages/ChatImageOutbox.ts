@@ -6,6 +6,7 @@ import { APIError } from "@/api/client";
 import type { GroupMessage, Message, User } from "@/models";
 import { env } from "@/config/env";
 import { adoptLocalImageFile } from "@/services/cache/ImageCacheService";
+import { galleryOwnerCacheKey } from "@/components/media/imageGalleryMath";
 import { prepareChatImage, type PreparedChatImage } from "@/services/messages/ChatImageService";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
@@ -265,6 +266,7 @@ async function runJob(input: ChatImageJob): Promise<void> {
         uploading.id,
       );
       if (cancelled.has(key)) return;
+      assertDirectImageConfirmation(uploading, confirmed);
       await adoptConfirmedImage(uploading, confirmed);
       await removeJob(uploading);
       emit({
@@ -286,6 +288,7 @@ async function runJob(input: ChatImageJob): Promise<void> {
         uploading.id,
       );
       if (cancelled.has(key)) return;
+      assertGroupImageConfirmation(uploading, confirmed, groupId);
       await adoptConfirmedImage(uploading, confirmed);
       await removeJob(uploading);
       emit({
@@ -340,6 +343,8 @@ async function adoptConfirmedImage(
   const keys = [confirmed.content, confirmed.thumbnail_url ?? ""].flatMap((value) => [
     value,
     resolveMediaUrl(value, env.apiBaseUrl) ?? "",
+    galleryOwnerCacheKey(job.owner_id, value),
+    galleryOwnerCacheKey(job.owner_id, resolveMediaUrl(value, env.apiBaseUrl) ?? ""),
   ]);
   await adoptLocalImageFile(sourceUri, keys);
 }
@@ -386,6 +391,28 @@ function uploadInput(prepared: PreparedChatImage | undefined) {
     thumbnailUri: prepared.thumbnail_uri,
     thumbnailFilename: prepared.thumbnail_filename,
   };
+}
+
+function assertDirectImageConfirmation(job: DirectChatImageJob, message: Message): void {
+  if (
+    (message.sender_id.trim() && message.sender_id.trim() !== job.owner_id.trim()) ||
+    (message.receiver_id.trim() && message.receiver_id.trim() !== job.target_id.trim())
+  ) {
+    throw new APIError("图片消息的服务端账号确认不一致，请重新登录后重试", 409, message);
+  }
+}
+
+function assertGroupImageConfirmation(
+  job: GroupChatImageJob,
+  message: GroupMessage,
+  groupId: number,
+): void {
+  if (
+    (message.sender_id.trim() && message.sender_id.trim() !== job.owner_id.trim()) ||
+    (message.group_id > 0 && message.group_id !== groupId)
+  ) {
+    throw new APIError("群图片消息的服务端账号确认不一致，请重新登录后重试", 409, message);
+  }
 }
 
 function scheduleRetry(job: ChatImageJob): void {

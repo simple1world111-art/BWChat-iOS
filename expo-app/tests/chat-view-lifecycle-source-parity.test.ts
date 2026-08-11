@@ -26,6 +26,21 @@ describe("direct ChatView lifecycle source parity", () => {
     expect(source).toContain("maximumBackfillPages");
   });
 
+  it("reconciles a conversation-list preview whose canonical message is absent from history", () => {
+    expect(conversationSource).toContain("latestMessageId: String(conversation.last_message_id)");
+    expect(source).toContain("const latestMessageId = Number(latestMessageIdParam)");
+    expect(source).toContain("!timelineHasLatestMessage");
+    expect(source).toContain("getMessageContext(id, latestMessageId)");
+    expect(source).toContain('event.type !== "direct_message_hint"');
+    expect(source).toContain("void scrollToMessage(event.message_id, { showError: false })");
+  });
+
+  it("preloads the routed image thumbnail before publishing it to the timeline", () => {
+    expect(source).toContain("preloadPreferredChatImagePreview(");
+    expect(source).toContain("canonicalRouteMessageIds(messageId, latestMessageIdParam)");
+    expect(source).toContain("await preloadChatImagePreview(ownerId, targetMessage)");
+  });
+
   it("resyncs on foreground, reconciles selection, closes panels for calls and cancels media", () => {
     expect(source).toContain('state === "active" && previousState !== "active"');
     expect(source).toContain("if (call.session === null) return");

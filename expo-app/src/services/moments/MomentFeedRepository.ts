@@ -79,6 +79,10 @@ export function mergeMomentFeed(current: Moment[], incoming: Moment[]): Moment[]
   });
 }
 
+export function isPendingMomentUpload(moment: Pick<Moment, "id" | "client_request_id">): boolean {
+  return moment.id <= 0 && Boolean(moment.client_request_id?.trim());
+}
+
 export function shouldAcceptMomentFeedFirstPage(
   page: MomentFeedPage,
   replacingLocalCount: number,

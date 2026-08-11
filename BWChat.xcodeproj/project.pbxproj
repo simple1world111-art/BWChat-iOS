@@ -1103,7 +1103,7 @@
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = BWChatNotificationService;
+				INFOPLIST_KEY_CFBundleDisplayName = BBchat;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1129,7 +1129,7 @@
 				DEVELOPMENT_TEAM = A5U93R249R;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = BWChatNotificationService/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = BWChatNotificationService;
+				INFOPLIST_KEY_CFBundleDisplayName = BBchat;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

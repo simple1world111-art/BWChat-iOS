@@ -27,6 +27,9 @@ describe("native agent chat image contracts", () => {
     });
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.has("image")).toBe(true);
+    const source = fs.readFileSync(path.join(process.cwd(), "src/api/bwchat.ts"), "utf8");
+    expect(source).toContain("bytes: () => image.bytes()");
+    expect(source).not.toContain('form.append("image", {\n    uri,\n    name: filename');
   });
 
   it("keeps the native picker and upload JPEG bounds", () => {
@@ -129,6 +132,12 @@ describe("native agent chat image contracts", () => {
     expect(source).toContain("galleryImagePaths={galleryImagePaths}");
     expect(message).toContain("onImageOpen={onImageOpen}");
     expect(message).toContain("images: galleryImages");
+    const gallery = fs.readFileSync(
+      path.join(process.cwd(), "src/components/media/ImageGallery.tsx"),
+      "utf8",
+    );
+    expect(gallery).toContain("onLongPress={longPressBridge.onLongPress}");
+    expect(gallery).toContain("onPressOut={longPressBridge.onPressOut}");
     expect(source).not.toContain("setPreviewUrl");
   });
 

@@ -60,6 +60,7 @@ for (const profile of profiles) {
     assert.equal(appConfig.owner, "wegpt");
     assert.equal(appConfig.slug, "bbchat");
     assert.deepEqual(appConfig.runtimeVersion, { policy: "fingerprint" });
+    assert.deepEqual(appConfig.ios.runtimeVersion, { policy: "appVersion" });
     assert.equal(appConfig.updates.enabled, true);
     assert.equal(appConfig.updates.checkAutomatically, "NEVER");
     assert.equal(appConfig.updates.fallbackToCacheTimeout, 0);

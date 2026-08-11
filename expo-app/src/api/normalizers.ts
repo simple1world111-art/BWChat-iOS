@@ -2838,8 +2838,8 @@ export function normalizeGroupMessageSearchPage(value: unknown): GroupMessageSea
 
 export function normalizeConversation(value: unknown): Conversation {
   if (!isRecord(value)) throw new Error("会话数据格式无效");
-  const groupId = flexInt(value.group_id, value.groupID);
-  const id = flexString(value.id, value.conversation_id, groupId) ?? "";
+  const groupId = flexInt(value.group_id, value.groupId, value.groupID);
+  const id = flexString(value.id, value.conversation_id, value.conversationId, groupId) ?? "";
   const rawType = flexString(value.type);
   const type = normalizeConversationType(rawType, groupId, id);
   const lastMessage = flexContent(value.last_message, value.lastMessage);
@@ -2865,13 +2865,20 @@ export function normalizeConversation(value: unknown): Conversation {
     ...optionalString(value, "agent_id", "agentID"),
     ...optionalString(value, "agent_avatar_asset_id", "agentAvatarAssetID"),
     ...optionalString(value, "agent_greeting_id", "agentGreetingID"),
-    ...(flexInt(value.last_message_id, value.lastMessageID) !== undefined
-      ? { last_message_id: flexInt(value.last_message_id, value.lastMessageID) }
+    ...(flexInt(value.last_message_id, value.lastMessageId, value.lastMessageID) !== undefined
+      ? {
+          last_message_id: flexInt(value.last_message_id, value.lastMessageId, value.lastMessageID),
+        }
       : {}),
-    ...(flexInt(value.read_through_message_id, value.readThroughMessageID) !== undefined
+    ...(flexInt(
+      value.read_through_message_id,
+      value.readThroughMessageId,
+      value.readThroughMessageID,
+    ) !== undefined
       ? {
           read_through_message_id: flexInt(
             value.read_through_message_id,
+            value.readThroughMessageId,
             value.readThroughMessageID,
           ),
         }

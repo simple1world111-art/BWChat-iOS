@@ -222,7 +222,7 @@ function gridItemWidth(
 
 const styles = StyleSheet.create({
   panel: {
-    height: chatStickerPanelPolicy.preferredHeight,
+    flex: 1,
     minHeight: chatStickerPanelPolicy.minimumHeight,
     backgroundColor: "rgba(242,242,247,0.98)",
   },

@@ -914,6 +914,9 @@
 "chatMoney.redPacket.notConversationMember" = "你已不是该会话成员，无法领取";
 "chat.action.forward" = "转发";
 "chat.action.multiSelect" = "多选";
+"chat.action.menu" = "消息操作";
+"chat.action.copied" = "已复制";
+"chat.action.deleted" = "已删除";
 "chat.action.recall" = "撤回";
 "chat.recall.failed" = "消息撤回失败";
 "chat.recall.selfNotice" = "你撤回了一条消息";

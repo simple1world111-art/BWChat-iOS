@@ -398,7 +398,9 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
 
       <Pressable onPress={Keyboard.dismiss} style={styles.dismissArea}>
         <ScrollView
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.content}
+          contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -465,7 +467,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
             value={values.tagline}
           />
           <InputSection
-            minHeight={92}
+            minHeight={84}
             multiline
             onChangeText={(value) => setField("descriptionText", value)}
             placeholder="补充角色背景、特点和用途"
@@ -502,7 +504,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
           />
 
           <InputSection
-            minHeight={92}
+            minHeight={84}
             multiline
             onChangeText={(value) => setField("identity", value)}
             placeholder="身份设定"
@@ -539,7 +541,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
           />
 
           <InputSection
-            minHeight={72}
+            minHeight={64}
             multiline
             onChangeText={(value) => setField("greeting", value)}
             placeholder="开场白"
@@ -660,7 +662,9 @@ function FormSection({
 }) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionHeader}>{title}</Text>
+      <Text maxFontSizeMultiplier={1.25} style={styles.sectionHeader}>
+        {title}
+      </Text>
       <View style={styles.sectionCard}>{children}</View>
     </View>
   );
@@ -687,6 +691,7 @@ function InputSection({
     <FormSection title={title} styles={styles}>
       <TextInput
         accessibilityLabel={title}
+        maxFontSizeMultiplier={1.25}
         multiline={multiline}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -724,7 +729,7 @@ function MenuSection({
   return (
     <FormSection title={title} styles={styles}>
       <View style={styles.menuRow}>
-        <Text pointerEvents="none" style={styles.menuLabel}>
+        <Text maxFontSizeMultiplier={1.25} pointerEvents="none" style={styles.menuLabel}>
           {label}
         </Text>
         <Host
@@ -813,26 +818,27 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: theme.background },
     dismissArea: { flex: 1 },
-    content: { paddingHorizontal: 20, paddingTop: 13, paddingBottom: 40, gap: 31 },
+    content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 48, gap: 18 },
     headerAction: { minWidth: 44, height: 36, alignItems: "flex-end", justifyContent: "center" },
-    headerActionText: { color: theme.text, fontSize: 17, fontWeight: "600" },
+    headerActionText: { color: theme.text, fontSize: 16, fontWeight: "600" },
     headerActionDisabled: { opacity: 0.38 },
     headerSpinner: { transform: [{ scale: 0.8 }] },
-    section: { gap: 7 },
+    section: { gap: 6 },
     sectionHeader: {
-      paddingLeft: 20,
-      color: "#000000",
-      fontSize: agentCreatorPolicy.sectionHeaderSize,
+      paddingLeft: 4,
+      color: theme.secondaryText,
+      fontSize: 13,
       fontWeight: "600",
+      lineHeight: 18,
     },
-    sectionCard: { overflow: "hidden", borderRadius: 22, backgroundColor: theme.card },
+    sectionCard: { overflow: "hidden", borderRadius: 14, backgroundColor: theme.card },
     referenceRow: {
-      minHeight: 94,
-      paddingHorizontal: 20,
-      paddingVertical: 15,
+      minHeight: 84,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
       flexDirection: "row",
       alignItems: "center",
-      gap: agentCreatorPolicy.referenceRowSpacing,
+      gap: 12,
     },
     referencePreview: {
       width: agentCreatorPolicy.referenceSize,
@@ -850,7 +856,7 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
       justifyContent: "center",
       backgroundColor: theme.accentSoft,
     },
-    referenceCopy: { flex: 1, gap: agentCreatorPolicy.referenceCopySpacing },
+    referenceCopy: { flex: 1, gap: 4 },
     referenceTitle: {
       color: theme.text,
       fontSize: agentCreatorPolicy.referenceTitleSize,
@@ -859,35 +865,37 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     referenceDetail: {
       color: theme.secondaryText,
       fontSize: agentCreatorPolicy.referenceDetailSize,
+      lineHeight: 16,
     },
     textInput: {
-      minHeight: 52,
-      paddingHorizontal: 20,
-      paddingVertical: 14.5,
+      minHeight: 48,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
       color: theme.text,
-      fontSize: 17,
+      fontSize: 16,
     },
-    multilineInput: { lineHeight: 22 },
-    nativeRow: { width: "100%", height: 52 },
+    multilineInput: { lineHeight: 21 },
+    nativeRow: { width: "100%", height: 48 },
     menuRow: {
-      minHeight: 52,
-      paddingLeft: 20,
+      minHeight: 48,
+      paddingLeft: 14,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
     },
-    menuLabel: { color: theme.text, fontSize: 17 },
-    menuPicker: { width: 190, height: 52 },
+    menuLabel: { color: theme.text, fontSize: 16 },
+    menuPicker: { width: 150, height: 48 },
     cardDivider: {
       height: StyleSheet.hairlineWidth,
-      marginLeft: 16,
+      marginLeft: 14,
       backgroundColor: theme.separator,
     },
     videoNotice: {
-      paddingHorizontal: 16,
-      paddingVertical: 11,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
       color: theme.secondaryText,
       fontSize: 12,
+      lineHeight: 17,
     },
     errorCard: {
       flexDirection: "row",

@@ -4,7 +4,6 @@ import type {
   AgentMessagePart,
   AgentRuntimeConfig,
 } from "@/models";
-import { agentPaidMediaDisplayStatus } from "@/services/props/AgentMediaUnlockState";
 
 export const agentTransformInstructionPrefix = "请基于我上传的图片进行调整并生成一张新的图片。";
 export const agentToolInvocationInstruction =
@@ -126,7 +125,7 @@ export function agentUserVisibleText(outboundText: string): string {
 export function agentImageGenerationBlockReason(
   runtimeConfig: AgentRuntimeConfig | null,
   capabilities: AgentCapabilities | null,
-  messages: readonly AgentMessage[],
+  _messages: readonly AgentMessage[],
 ): string | null {
   if (!runtimeConfig) return "正在加载图片生成能力，请稍后再试";
   if (
@@ -137,25 +136,9 @@ export function agentImageGenerationBlockReason(
     return "图片生成功能当前未开放";
   }
   if (!capabilities?.paid_images) return "当前会话使用的智能体版本未开启图片能力";
-  const hasBlockingLockedMedia = messages.some((message) =>
-    message.parts.some((part) => {
-      if (
-        part.type !== "paid_media" ||
-        part.metadata.media_type?.trim().toLowerCase() === "video"
-      ) {
-        return false;
-      }
-      const status = agentPaidMediaDisplayStatus(
-        part.metadata.generation_status,
-        part.metadata.access,
-      );
-      return (
-        ["queued", "generating", "ready_locked"].includes(status) &&
-        part.metadata.access !== "unlocked"
-      );
-    }),
-  );
-  return hasBlockingLockedMedia ? "请先解锁上一张图片，再继续调整图片" : null;
+  // A locked historical result remains independently unlockable, but it must
+  // never prevent the user from starting a new image generation request.
+  return null;
 }
 
 function firstAgentImageTarget(message: AgentMessage): AgentImageReplyTarget | null {

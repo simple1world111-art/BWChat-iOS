@@ -15,6 +15,7 @@ import {
 import {
   ActivityIndicator,
   InteractionManager,
+  type LayoutChangeEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,6 +54,10 @@ import {
   momentCommentContextUserId,
 } from "@/services/moments/MomentCommentContextPolicy";
 import {
+  readNavigationSnapshot,
+  writeNavigationSnapshot,
+} from "@/services/navigation/NavigationSnapshotCache";
+import {
   mergeMoments,
   mergeProfileAgents,
   mergeShortDramaSeries,
@@ -70,6 +75,12 @@ import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 export type PublicProfileContentTab = "moments" | "agents" | "shortDramas";
+
+const emptyPaneHeights: Record<PublicProfileContentTab, number> = {
+  moments: 0,
+  agents: 0,
+  shortDramas: 0,
+};
 
 export interface PublicProfileContentHandle {
   loadMore: () => void;
@@ -94,6 +105,19 @@ interface PublicProfileContentProps {
   onToast: (message: string) => void;
 }
 
+interface PublicProfileContentNavigationSnapshot {
+  moments: Moment[];
+  momentsHasMore: boolean;
+  agents: AgentSummary[];
+  agentsCursor: string | null;
+  agentsHasMore: boolean;
+  agentsLoaded: boolean;
+  shortDramas: ShortDramaSeries[];
+  shortDramasCursor: string | null;
+  shortDramasHasMore: boolean;
+  shortDramasLoaded: boolean;
+}
+
 export const PublicProfileContent = forwardRef<
   PublicProfileContentHandle,
   PublicProfileContentProps
@@ -111,37 +135,53 @@ export const PublicProfileContent = forwardRef<
   },
   ref,
 ) {
-  const [moments, setMomentsState] = useState<Moment[]>([]);
-  const momentsRef = useRef<Moment[]>([]);
-  const [, setMomentsHasMore] = useState(true);
-  const momentsHasMoreRef = useRef(true);
-  const [momentsLoading, setMomentsLoading] = useState(true);
+  const [navigationSnapshot] = useState(() =>
+    readNavigationSnapshot<PublicProfileContentNavigationSnapshot>(
+      "public-profile-content",
+      ownerId,
+      targetId,
+    ),
+  );
+  const initialMoments = navigationSnapshot?.moments ?? [];
+  const initialAgents = navigationSnapshot?.agents ?? [];
+  const initialShortDramas = navigationSnapshot?.shortDramas ?? [];
+  const [moments, setMomentsState] = useState<Moment[]>(initialMoments);
+  const momentsRef = useRef<Moment[]>(initialMoments);
+  const [, setMomentsHasMore] = useState(navigationSnapshot?.momentsHasMore ?? true);
+  const momentsHasMoreRef = useRef(navigationSnapshot?.momentsHasMore ?? true);
+  const [momentsLoading, setMomentsLoading] = useState(!navigationSnapshot);
   const [momentsLoadingMore, setMomentsLoadingMore] = useState(false);
   const momentsBusyGenerationsRef = useRef(new UserProfileGenerationBusySet());
   const [momentsError, setMomentsError] = useState<string | null>(null);
 
-  const [agents, setAgentsState] = useState<AgentSummary[]>([]);
-  const agentsRef = useRef<AgentSummary[]>([]);
+  const [agents, setAgentsState] = useState<AgentSummary[]>(initialAgents);
+  const agentsRef = useRef<AgentSummary[]>(initialAgents);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [agentsLoadingMore, setAgentsLoadingMore] = useState(false);
   const [openingAgentIds, setOpeningAgentIds] = useState<Set<string>>(() => new Set());
   const openingAgentIdsRef = useRef<Set<string>>(new Set());
   const agentsBusyGenerationsRef = useRef(new UserProfileGenerationBusySet());
-  const agentsLoadedRef = useRef(false);
-  const agentsCursorRef = useRef<string | null>(null);
-  const agentsHasMoreRef = useRef(true);
+  const agentsLoadedRef = useRef(navigationSnapshot?.agentsLoaded ?? false);
+  const agentsCursorRef = useRef<string | null>(navigationSnapshot?.agentsCursor ?? null);
+  const agentsHasMoreRef = useRef(navigationSnapshot?.agentsHasMore ?? true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
 
-  const [shortDramas, setShortDramasState] = useState<ShortDramaSeries[]>([]);
-  const shortDramasRef = useRef<ShortDramaSeries[]>([]);
+  const [shortDramas, setShortDramasState] = useState<ShortDramaSeries[]>(initialShortDramas);
+  const shortDramasRef = useRef<ShortDramaSeries[]>(initialShortDramas);
   const [shortDramasLoading, setShortDramasLoading] = useState(false);
   const [shortDramasLoadingMore, setShortDramasLoadingMore] = useState(false);
   const shortDramasBusyGenerationsRef = useRef(new UserProfileGenerationBusySet());
-  const shortDramasLoadedRef = useRef(false);
-  const shortDramasCursorRef = useRef<string | null>(null);
-  const shortDramasHasMoreRef = useRef(true);
+  const shortDramasLoadedRef = useRef(navigationSnapshot?.shortDramasLoaded ?? false);
+  const shortDramasCursorRef = useRef<string | null>(navigationSnapshot?.shortDramasCursor ?? null);
+  const shortDramasHasMoreRef = useRef(navigationSnapshot?.shortDramasHasMore ?? true);
   const [shortDramasError, setShortDramasError] = useState<string | null>(null);
   const [mediaSelection, setMediaSelection] = useState<MediaSelection | null>(null);
+  const paneHeightsRef = useRef<Record<PublicProfileContentTab, number>>(emptyPaneHeights);
+  const [paneHeights, setPaneHeights] =
+    useState<Record<PublicProfileContentTab, number>>(emptyPaneHeights);
+  const [presentedPaneHeight, setPresentedPaneHeight] = useState(0);
+  const presentedPaneHeightRef = useRef(0);
+  const presentedTabRef = useRef(tab);
   const lifecycleGenerationRef = useRef(0);
 
   useEffect(() => {
@@ -153,6 +193,44 @@ export const PublicProfileContent = forwardRef<
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!ownerId || !targetId) return;
+    if (
+      !navigationSnapshot &&
+      momentsLoading &&
+      !agentsLoadedRef.current &&
+      !shortDramasLoadedRef.current
+    )
+      return;
+    writeNavigationSnapshot<PublicProfileContentNavigationSnapshot>(
+      "public-profile-content",
+      ownerId,
+      {
+        moments,
+        momentsHasMore: momentsHasMoreRef.current,
+        agents,
+        agentsCursor: agentsCursorRef.current,
+        agentsHasMore: agentsHasMoreRef.current,
+        agentsLoaded: agentsLoadedRef.current,
+        shortDramas,
+        shortDramasCursor: shortDramasCursorRef.current,
+        shortDramasHasMore: shortDramasHasMoreRef.current,
+        shortDramasLoaded: shortDramasLoadedRef.current,
+      },
+      targetId,
+    );
+  }, [
+    agents,
+    agentsLoading,
+    moments,
+    momentsLoading,
+    navigationSnapshot,
+    ownerId,
+    shortDramas,
+    shortDramasLoading,
+    targetId,
+  ]);
 
   const setMoments = useCallback(
     (next: Moment[]) => {
@@ -457,55 +535,130 @@ export const PublicProfileContent = forwardRef<
   const retryMoments = useCallback(() => void loadMoments(true, true), [loadMoments]);
   const retryAgents = useCallback(() => void loadAgents(true, true), [loadAgents]);
   const retryShortDramas = useCallback(() => void loadShortDramas(true, true), [loadShortDramas]);
+  const updatePaneHeight = useCallback((candidate: PublicProfileContentTab, height: number) => {
+    const nextHeight = Math.ceil(height);
+    if (nextHeight <= 0 || paneHeightsRef.current[candidate] === nextHeight) return;
+    const next = { ...paneHeightsRef.current, [candidate]: nextHeight };
+    paneHeightsRef.current = next;
+    setPaneHeights(next);
+  }, []);
+  const onMomentsLayout = useCallback(
+    (event: LayoutChangeEvent) => updatePaneHeight("moments", event.nativeEvent.layout.height),
+    [updatePaneHeight],
+  );
+  const onAgentsLayout = useCallback(
+    (event: LayoutChangeEvent) => updatePaneHeight("agents", event.nativeEvent.layout.height),
+    [updatePaneHeight],
+  );
+  const onShortDramasLayout = useCallback(
+    (event: LayoutChangeEvent) => updatePaneHeight("shortDramas", event.nativeEvent.layout.height),
+    [updatePaneHeight],
+  );
   const paneStyle = useCallback(
-    (candidate: PublicProfileContentTab) =>
-      isVisible && tab === candidate ? undefined : styles.inactiveTab,
+    (candidate: PublicProfileContentTab) => {
+      const active = isVisible && tab === candidate;
+      if (candidate === "moments") {
+        return active ? styles.activePersistentTab : styles.inactivePersistentTab;
+      }
+      return active ? styles.activeTab : styles.inactiveTab;
+    },
     [isVisible, tab],
   );
+
+  useEffect(() => {
+    const targetHeight = isVisible ? paneHeights[tab] : 0;
+    const publishHeight = () => {
+      if (presentedPaneHeightRef.current === targetHeight) return;
+      presentedPaneHeightRef.current = targetHeight;
+      setPresentedPaneHeight(targetHeight);
+    };
+    if (!isVisible || presentedTabRef.current === tab) {
+      presentedTabRef.current = tab;
+      publishHeight();
+      return;
+    }
+
+    let frame: number | null = null;
+    const requestedTab = tab;
+    const task = InteractionManager.runAfterInteractions(() => {
+      frame = requestAnimationFrame(() => {
+        presentedTabRef.current = requestedTab;
+        publishHeight();
+      });
+    });
+    return () => {
+      task.cancel();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [isVisible, paneHeights, tab]);
 
   return (
     <>
       <View
-        pointerEvents={isVisible && tab === "moments" ? "auto" : "none"}
-        style={paneStyle("moments")}
+        style={[styles.paneHost, { height: presentedPaneHeight }]}
+        testID="public-profile-pane-host"
       >
-        <MomentList
-          error={momentsError}
-          isLoading={momentsLoading}
-          isLoadingMore={momentsLoadingMore}
-          moments={moments}
-          onLike={likeMoment}
-          onMedia={openMedia}
-          onRetry={retryMoments}
-          viewerId={viewer.user_id}
-        />
-      </View>
-      <View
-        pointerEvents={isVisible && tab === "agents" ? "auto" : "none"}
-        style={paneStyle("agents")}
-      >
-        <AgentList
-          agents={agents}
-          error={agentsError}
-          isLoading={agentsLoading}
-          isLoadingMore={agentsLoadingMore}
-          onOpen={openAgent}
-          openingAgentIds={openingAgentIds}
-          onRetry={retryAgents}
-        />
-      </View>
-      <View
-        pointerEvents={isVisible && tab === "shortDramas" ? "auto" : "none"}
-        style={paneStyle("shortDramas")}
-      >
-        <ShortDramaList
-          error={shortDramasError}
-          isLoading={shortDramasLoading}
-          isLoadingMore={shortDramasLoadingMore}
-          onOpen={onOpenShortDrama}
-          onRetry={retryShortDramas}
-          series={shortDramas}
-        />
+        {isVisible && tab !== "moments" ? (
+          <View pointerEvents="none" style={styles.momentOcclusion} testID="moment-pane-cover" />
+        ) : null}
+        <View
+          accessibilityElementsHidden={!isVisible || tab !== "moments"}
+          importantForAccessibility={
+            isVisible && tab === "moments" ? "auto" : "no-hide-descendants"
+          }
+          onLayout={onMomentsLayout}
+          pointerEvents={isVisible && tab === "moments" ? "auto" : "none"}
+          style={[styles.tabPane, paneStyle("moments")]}
+          testID="public-profile-pane-moments"
+        >
+          <MomentList
+            error={momentsError}
+            isLoading={momentsLoading}
+            isLoadingMore={momentsLoadingMore}
+            moments={moments}
+            onLike={likeMoment}
+            onMedia={openMedia}
+            onRetry={retryMoments}
+            viewerId={viewer.user_id}
+          />
+        </View>
+        <View
+          accessibilityElementsHidden={!isVisible || tab !== "agents"}
+          importantForAccessibility={isVisible && tab === "agents" ? "auto" : "no-hide-descendants"}
+          onLayout={onAgentsLayout}
+          pointerEvents={isVisible && tab === "agents" ? "auto" : "none"}
+          style={[styles.tabPane, paneStyle("agents")]}
+          testID="public-profile-pane-agents"
+        >
+          <AgentList
+            agents={agents}
+            error={agentsError}
+            isLoading={agentsLoading}
+            isLoadingMore={agentsLoadingMore}
+            onOpen={openAgent}
+            openingAgentIds={openingAgentIds}
+            onRetry={retryAgents}
+          />
+        </View>
+        <View
+          accessibilityElementsHidden={!isVisible || tab !== "shortDramas"}
+          importantForAccessibility={
+            isVisible && tab === "shortDramas" ? "auto" : "no-hide-descendants"
+          }
+          onLayout={onShortDramasLayout}
+          pointerEvents={isVisible && tab === "shortDramas" ? "auto" : "none"}
+          style={[styles.tabPane, paneStyle("shortDramas")]}
+          testID="public-profile-pane-short-dramas"
+        >
+          <ShortDramaList
+            error={shortDramasError}
+            isLoading={shortDramasLoading}
+            isLoadingMore={shortDramasLoadingMore}
+            onOpen={onOpenShortDrama}
+            onRetry={retryShortDramas}
+            series={shortDramas}
+          />
+        </View>
       </View>
       {isVisible && tab === "moments" ? (
         <MediaViewer onClose={closeMedia} selection={mediaSelection} />
@@ -549,26 +702,44 @@ const MomentList = memo(function MomentList({
   return (
     <View>
       {moments.map((moment) => (
-        <View key={moment.id}>
-          <MomentRow
-            moment={moment}
-            onComment={() =>
-              router.push({ pathname: "/moment-detail", params: { momentId: String(moment.id) } })
-            }
-            onDelete={() => {}}
-            onLike={() => onLike(moment)}
-            onMedia={onMedia}
-            onUnlock={() =>
-              router.push({ pathname: "/moment-detail", params: { momentId: String(moment.id) } })
-            }
-            viewerId={viewerId}
-          />
-          <View style={styles.momentDivider} />
-        </View>
+        <MomentListItem
+          key={moment.id}
+          moment={moment}
+          onLike={onLike}
+          onMedia={onMedia}
+          viewerId={viewerId}
+        />
       ))}
-      {isLoadingMore ? (
-        <ActivityIndicator color={colors.accent} style={styles.moreLoading} />
-      ) : null}
+      {isLoadingMore ? <View style={styles.moreLoading} /> : null}
+    </View>
+  );
+});
+
+const MomentListItem = memo(function MomentListItem({
+  moment,
+  onLike,
+  onMedia,
+  viewerId,
+}: {
+  moment: Moment;
+  onLike: (moment: Moment) => void;
+  onMedia: (selection: MediaSelection) => void;
+  viewerId: string;
+}) {
+  const openDetail = () =>
+    router.push({ pathname: "/moment-detail", params: { momentId: String(moment.id) } });
+  return (
+    <View>
+      <MomentRow
+        moment={moment}
+        onComment={openDetail}
+        onDelete={() => {}}
+        onLike={() => onLike(moment)}
+        onMedia={onMedia}
+        onUnlock={openDetail}
+        viewerId={viewerId}
+      />
+      <View style={styles.momentDivider} />
     </View>
   );
 });
@@ -1002,9 +1173,7 @@ const AgentList = memo(function AgentList({
           onOpen={() => onOpen(agent)}
         />
       ))}
-      {isLoadingMore ? (
-        <ActivityIndicator color={colors.accent} style={styles.moreLoading} />
-      ) : null}
+      {isLoadingMore ? <View style={styles.moreLoading} /> : null}
     </View>
   );
 });
@@ -1129,9 +1298,7 @@ const ShortDramaList = memo(function ShortDramaList({
           series={item}
         />
       ))}
-      {isLoadingMore ? (
-        <ActivityIndicator color={colors.accent} style={styles.moreLoading} />
-      ) : null}
+      {isLoadingMore ? <View style={styles.moreLoading} /> : null}
     </View>
   );
 });
@@ -1266,7 +1433,7 @@ function ShortDramaCard({
 }
 
 function ContentLoading() {
-  return <ActivityIndicator color={colors.accent} style={styles.contentLoading} />;
+  return <View style={styles.contentLoading} />;
 }
 function ContentEmpty({ symbol, title }: { symbol: SFSymbol; title: string }) {
   return (
@@ -1332,9 +1499,29 @@ function formatMomentTime(
 }
 
 const styles = StyleSheet.create({
-  inactiveTab: { display: "none" },
-  contentLoading: { marginTop: 52 },
-  moreLoading: { marginVertical: 16 },
+  paneHost: { position: "relative", width: "100%", overflow: "hidden" },
+  tabPane: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    backgroundColor: colors.card,
+  },
+  activeTab: { opacity: 1, zIndex: 3 },
+  inactiveTab: { opacity: 0, zIndex: 2 },
+  activePersistentTab: { opacity: 1, zIndex: 3 },
+  inactivePersistentTab: { opacity: 1, zIndex: 0 },
+  momentOcclusion: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1,
+    backgroundColor: colors.card,
+  },
+  contentLoading: { height: 104 },
+  moreLoading: { height: 32 },
   contentEmpty: { paddingTop: 54, alignItems: "center", rowGap: 12 },
   emptyTitle: { color: colors.secondaryText, fontSize: 15, fontWeight: "600" },
   contentError: { paddingTop: 42, paddingHorizontal: 24, alignItems: "center", rowGap: 12 },

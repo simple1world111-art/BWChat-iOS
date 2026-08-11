@@ -20,10 +20,12 @@ import {
   saveCachedPublicProfile,
 } from "@/services/profile/PublicProfileRepository";
 
-let mockParams: { id?: string } = { id: "route-target" };
+let mockParams: { id?: string; name?: string; avatar?: string } = { id: "route-target" };
 let mockAuthUser: User | null = { user_id: "owner-a", nickname: "Owner" } as User;
 const mockT = (key: string) => key;
 const mockRelationshipListeners = new Set<(event: FollowRelationshipEvent) => void>();
+const mockReadNavigationSnapshot = jest.fn();
+const mockWriteNavigationSnapshot = jest.fn();
 
 jest.mock("expo-router", () => {
   const ReactModule = jest.requireActual<typeof import("react")>("react");
@@ -113,6 +115,11 @@ jest.mock("@/services/profile/PublicProfileRepository", () => ({
   saveCachedPublicProfile: jest.fn(),
 }));
 
+jest.mock("@/services/navigation/NavigationSnapshotCache", () => ({
+  readNavigationSnapshot: (...args: unknown[]) => mockReadNavigationSnapshot(...args),
+  writeNavigationSnapshot: (...args: unknown[]) => mockWriteNavigationSnapshot(...args),
+}));
+
 jest.mock("@/services/friends/FollowRelationshipStore", () => ({
   applyRelationshipToFollowUser: jest.requireActual("@/services/friends/FollowRelationshipStore")
     .applyRelationshipToFollowUser,
@@ -145,6 +152,7 @@ describe("User Profile screen state machine", () => {
     });
     mockParams = { id: "route-target" };
     mockAuthUser = { user_id: "owner-a", nickname: "Owner" } as User;
+    mockReadNavigationSnapshot.mockReturnValue(undefined);
     mockReadCache.mockResolvedValue(null);
     mockSaveCache.mockResolvedValue();
     mockProfile.mockResolvedValue(profile("canonical-target", "朋友"));
@@ -156,6 +164,53 @@ describe("User Profile screen state machine", () => {
   });
 
   afterEach(() => cleanup());
+
+  it("shows route identity on the first frame while cache and network refresh silently", async () => {
+    const pendingProfile = deferred<PublicProfile>();
+    mockParams = {
+      id: "route-target",
+      name: "即时用户",
+      avatar: "/avatars/instant.jpg",
+    };
+    mockProfile.mockReturnValueOnce(pendingProfile.promise);
+
+    const view = await render(<UserProfileScreen />);
+    expect(view.getByText("即时用户")).toBeTruthy();
+
+    pendingProfile.resolve(profile("canonical-target", "网络用户"));
+    await waitFor(() => expect(view.getByText("网络用户")).toBeTruthy());
+  });
+
+  it("restores the account-scoped navigation snapshot before asynchronous cache reads", async () => {
+    const pendingProfile = deferred<PublicProfile>();
+    mockProfile.mockReturnValueOnce(pendingProfile.promise);
+    mockReadNavigationSnapshot.mockReturnValueOnce({
+      profile: profile("snapshot-target", "快照用户"),
+      suggestions: [],
+      selectedTab: "agents",
+      loadedMomentCount: 7,
+    });
+
+    const view = await render(<UserProfileScreen />);
+    expect(view.getByText("快照用户")).toBeTruthy();
+    expect(mockReadNavigationSnapshot).toHaveBeenCalledWith(
+      "user-profile",
+      "owner-a",
+      "route-target",
+    );
+    expect(mockWriteNavigationSnapshot).toHaveBeenCalledWith(
+      "user-profile",
+      "owner-a",
+      expect.objectContaining({
+        profile: expect.objectContaining({ user_id: "snapshot-target" }),
+        selectedTab: "agents",
+      }),
+      "route-target",
+    );
+
+    pendingProfile.resolve(profile("canonical-target", "网络用户"));
+    await waitFor(() => expect(view.getByText("网络用户")).toBeTruthy());
+  });
 
   it("uses the route target for follow while direct chat uses the canonical profile user ID", async () => {
     mockFollow.mockResolvedValueOnce({

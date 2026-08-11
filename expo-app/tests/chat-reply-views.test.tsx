@@ -36,6 +36,7 @@ jest.mock("@/providers/LocalizationProvider", () => ({
     t: (key: string, ...args: (string | number)[]) =>
       ({
         "chat.action.forward": "转发",
+        "chat.action.menu": "消息操作",
         "chat.action.multiSelect": "多选",
         "chat.action.recall": "撤回",
         "common.cancel": "取消",
@@ -165,6 +166,9 @@ describe("reply and locator UI", () => {
     expect(
       view.getAllByText(/复制|转发|回复|删除|多选/u).map((node) => node.props.children),
     ).toEqual(["复制", "转发", "回复", "删除", "多选"]);
+    const menu = view.getByLabelText("消息操作");
+    expect(menu.props.accessibilityRole).toBe("menu");
+    expect(menu.props.onAccessibilityEscape).toEqual(expect.any(Function));
     await act(async () => {
       fireEvent.press(view.getByLabelText("回复"));
     });

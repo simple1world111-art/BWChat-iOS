@@ -10,6 +10,11 @@ export interface MediaDisplaySize {
 
 export { chatVideoThumbnailPath } from "@/services/messages/chatVideoPolicy";
 
+export const chatMediaAvailabilityRetryPolicy = Object.freeze({
+  intervalMilliseconds: 1_500,
+  maximumRetries: 8,
+});
+
 export function chatImageThumbnailSize(size?: MediaNaturalSize): MediaDisplaySize {
   if (!size || size.width <= 0 || size.height <= 0) return { width: 160, height: 110 };
   const ratio = size.width / size.height;

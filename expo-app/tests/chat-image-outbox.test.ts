@@ -187,6 +187,38 @@ describe("durable chat image outbox", () => {
     unsubscribe();
   });
 
+  it("keeps the outbox pending when the server confirms a different authenticated sender", async () => {
+    const events: ChatImageOutboxEvent[] = [];
+    const unsubscribe = subscribeChatImageOutbox((event) => events.push(event));
+    directSend.mockResolvedValueOnce({
+      id: 93,
+      sender_id: "owner-b",
+      receiver_id: "friend-a",
+      msg_type: "image",
+      content: "/chat/wrong-owner.jpg",
+      timestamp: "2026-08-06T10:00:03Z",
+      version: 1,
+    });
+
+    await enqueueDirectChatImage({
+      owner: owner("owner-a"),
+      targetId: "friend-a",
+      clientMessageId: "wrong-owner-client",
+      asset: source("file:///picker/wrong-owner.jpg"),
+    });
+    await waitUntil(async () => (await readChatImageJobs("owner-a"))[0]?.state === "failed");
+
+    await expect(readChatImageJobs("owner-a")).resolves.toEqual([
+      expect.objectContaining({
+        id: "wrong-owner-client",
+        state: "failed",
+        last_error: expect.stringContaining("账号确认不一致"),
+      }),
+    ]);
+    expect(events.some((event) => event.kind === "confirmed")).toBe(false);
+    unsubscribe();
+  });
+
   it("reconstructs deterministic optimistic bubbles and classifies retryable failures", () => {
     const directJob = {
       id: "stable-client-id",

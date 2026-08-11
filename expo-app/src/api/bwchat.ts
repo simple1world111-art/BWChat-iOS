@@ -1,5 +1,6 @@
 import { APIError, apiRequest } from "@/api/client";
 import { readRefreshToken } from "@/storage/tokenStorage";
+import { File } from "expo-file-system";
 import {
   isRecord,
   normalizeActivityCatFoodTransactionPage,
@@ -1569,15 +1570,17 @@ export async function sendDirectImageMessage(
   form.append("receiver_id", contactId);
   form.append("client_message_id", clientMessageId);
   appendChatImageFiles(form, image);
-  return normalizeMessage(
+  const message = normalizeMessage(
     await apiRequest<unknown>("/chat/messages/image", {
       method: "POST",
+      headers: { "Idempotency-Key": clientMessageId },
       body: form,
       requiredData: true,
       requiredEnvelope: true,
       timeoutMs: 180_000,
     }),
   );
+  return requireConfirmedChatImage(message, "direct");
 }
 
 export async function sendGroupImageMessage(
@@ -1588,15 +1591,17 @@ export async function sendGroupImageMessage(
   const form = new FormData();
   form.append("client_message_id", clientMessageId);
   appendChatImageFiles(form, image);
-  return normalizeGroupMessage(
+  const message = normalizeGroupMessage(
     await apiRequest<unknown>(`/groups/${groupId}/messages/image`, {
       method: "POST",
+      headers: { "Idempotency-Key": clientMessageId },
       body: form,
       requiredData: true,
       requiredEnvelope: true,
       timeoutMs: 180_000,
     }),
   );
+  return requireConfirmedChatImage(message, "group");
 }
 
 export async function sendDirectVideoMessage(
@@ -1614,15 +1619,17 @@ export async function sendDirectVideoMessage(
   form.append("receiver_id", contactId);
   form.append("client_message_id", clientMessageId);
   appendChatVideoFiles(form, video);
-  return normalizeMessage(
+  const message = normalizeMessage(
     await apiRequest<unknown>("/chat/messages/video", {
       method: "POST",
+      headers: { "Idempotency-Key": clientMessageId },
       body: form,
       requiredData: true,
       requiredEnvelope: true,
       timeoutMs: 600_000,
     }),
   );
+  return requireConfirmedChatMedia(message, "direct", "video");
 }
 
 export async function sendGroupVideoMessage(
@@ -1639,15 +1646,17 @@ export async function sendGroupVideoMessage(
   const form = new FormData();
   form.append("client_message_id", clientMessageId);
   appendChatVideoFiles(form, video);
-  return normalizeGroupMessage(
+  const message = normalizeGroupMessage(
     await apiRequest<unknown>(`/groups/${groupId}/messages/video`, {
       method: "POST",
+      headers: { "Idempotency-Key": clientMessageId },
       body: form,
       requiredData: true,
       requiredEnvelope: true,
       timeoutMs: 600_000,
     }),
   );
+  return requireConfirmedChatMedia(message, "group", "video");
 }
 
 export async function sendDirectVoiceMessage(
@@ -1689,16 +1698,52 @@ function appendChatImageFiles(
   form: FormData,
   image: { uri: string; filename: string; thumbnailUri: string; thumbnailFilename: string },
 ) {
-  form.append("image", {
-    uri: image.uri,
-    name: image.filename,
-    type: "image/jpeg",
+  appendExpoFilePart(form, "image", image.uri, image.filename, "image/jpeg");
+  appendExpoFilePart(form, "thumbnail", image.thumbnailUri, image.thumbnailFilename, "image/jpeg");
+}
+
+function appendExpoFilePart(
+  form: FormData,
+  field: string,
+  uri: string,
+  filename: string,
+  mimeType: string,
+): void {
+  const file = new File(uri);
+  // React Native 0.86 no longer accepts the legacy `{ uri, name, type }`
+  // pseudo-Blob. Expo File implements the native byte-backed Blob contract.
+  form.append(field, {
+    name: filename,
+    type: mimeType,
+    bytes: () => file.bytes(),
   } as unknown as Blob);
-  form.append("thumbnail", {
-    uri: image.thumbnailUri,
-    name: image.thumbnailFilename,
-    type: "image/jpeg",
-  } as unknown as Blob);
+}
+
+function requireConfirmedChatImage<T extends Message | GroupMessage>(
+  message: T,
+  scope: "direct" | "group",
+): T {
+  return requireConfirmedChatMedia(message, scope, "image");
+}
+
+function requireConfirmedChatMedia<T extends Message | GroupMessage>(
+  message: T,
+  scope: "direct" | "group",
+  expectedType: "image" | "video",
+): T {
+  if (
+    message.id <= 0 ||
+    message.msg_type.trim().toLocaleLowerCase() !== expectedType ||
+    !message.content.trim()
+  ) {
+    throw new APIError(
+      scope === "group" ? "群媒体消息未被服务端确认" : "媒体消息未被服务端确认",
+      502,
+      message,
+      "unconfirmed_media_message",
+    );
+  }
+  return message;
 }
 
 function appendChatVideoFiles(
@@ -2066,10 +2111,14 @@ export async function uploadAgentChatImage(
   filename = "agent-chat.jpg",
 ): Promise<string> {
   const form = new FormData();
+  // Expo 57's fetch implementation serializes multipart files through `bytes()`.
+  // React Native's legacy `{ uri, name, type }` part is rejected before the
+  // request reaches the API with `Unsupported FormDataPart implementation`.
+  const image = new File(uri);
   form.append("image", {
-    uri,
     name: filename,
     type: "image/jpeg",
+    bytes: () => image.bytes(),
   } as unknown as Blob);
   const value = await apiRequest<unknown>("/agent-assets/images", {
     method: "POST",

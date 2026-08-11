@@ -86,7 +86,12 @@ describe("Discover source parity", () => {
     expect(screen).toContain("discoverRefreshMayCommit({");
     expect(screen).toContain("activeOwnerId: activeOwnerRef.current");
     expect(screen).toContain("focused: focusedRef.current");
-    expect(screen).toContain("momentsSnapshot?.ownerId === ownerId");
+    expect(screen).toContain("useMomentsUnread(accountOwnerId)");
+    expect(screen).toContain("useMomentsHasNew(accountOwnerId)");
+    expect(screen).toContain(
+      "publishMomentsUnreadInfo(accountOwnerId, momentsResult.value, momentsRefresh)",
+    );
+    expect(screen).toContain("fetchConfig ? fetchDiscoverSections() : Promise.resolve(null)");
     expect(screen).toContain("Promise.allSettled");
   });
 

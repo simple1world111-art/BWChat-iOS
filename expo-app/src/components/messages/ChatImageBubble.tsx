@@ -7,10 +7,14 @@ import {
   type ImageGallerySelection,
   type GallerySize,
 } from "@/components/media/ImageGallery";
-import { chatImageThumbnailSize } from "@/components/messages/chatMediaLayout";
+import {
+  chatImageThumbnailSize,
+  chatMediaAvailabilityRetryPolicy,
+} from "@/components/messages/chatMediaLayout";
 import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
 import { env } from "@/config/env";
 import { useLocalization } from "@/providers/LocalizationProvider";
+import { chatImagePresentationUrl } from "@/services/media/ChatImageSourcePolicy";
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
@@ -35,31 +39,34 @@ export function ChatImageBubble({
   const { t } = useLocalization();
   const [naturalSize, setNaturalSize] = useState<GallerySize | undefined>();
   const displaySize = useMemo(() => chatImageThumbnailSize(naturalSize), [naturalSize]);
-  const displayUrl = resolveMediaUrl(thumbnailUrl || url, env.apiBaseUrl);
+  const presentationUrl = chatImagePresentationUrl(url, thumbnailUrl);
+  const displayUrl = resolveMediaUrl(presentationUrl, env.apiBaseUrl);
   const selection = useMemo<ImageGallerySelection>(
     () => ({
-      media: { id: messageId, type: "image", url },
+      media: { id: messageId, type: "image", url: presentationUrl },
       images: imageUrls,
       index,
       loadMoreOlder,
     }),
-    [imageUrls, index, loadMoreOlder, messageId, url],
+    [imageUrls, index, loadMoreOlder, messageId, presentationUrl],
   );
   const frame = { width: displaySize.width, height: displaySize.height };
   if (!displayUrl) return <ChatImagePlaceholder size={frame} />;
   return (
     <ImageGallerySource
       accessibilityLabel={t("message.image")}
+      authenticatedRetryIntervalMilliseconds={chatMediaAvailabilityRetryPolicy.intervalMilliseconds}
       contentFit="cover"
       cornerRadius={10}
       fallback={<ChatImagePlaceholder size={frame} />}
       imageStyle={[styles.image, frame]}
+      maximumAuthenticatedRetries={chatMediaAvailabilityRetryPolicy.maximumRetries}
       onNaturalSize={setNaturalSize}
       onOpen={(nextSelection) => {
         if (canActivate()) onOpen(nextSelection);
       }}
       selection={selection}
-      sourceId={`chat-image-${messageId}-${url}`}
+      sourceId={`chat-image-${messageId}-${presentationUrl}`}
       style={[styles.frame, frame]}
       uri={displayUrl}
     />
@@ -78,11 +85,11 @@ const styles = StyleSheet.create({
   frame: {
     overflow: "hidden",
     borderRadius: 10,
-    borderWidth: 0.5,
-    borderColor: "rgba(0,0,0,0.08)",
-    backgroundColor: colors.separator,
+    backgroundColor: "transparent",
   },
-  image: { borderRadius: 10, backgroundColor: colors.separator },
+  // The frame owns clipping. Rounding both layers leaves a light antialiasing
+  // seam between the image and its parent on @3x iOS screens.
+  image: { backgroundColor: "transparent" },
   placeholder: {
     alignItems: "center",
     justifyContent: "center",

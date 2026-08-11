@@ -11,7 +11,9 @@ import {
 } from "@/services/moments/MomentsUnreadStore";
 import {
   applyPushSideEffects,
+  acknowledgePendingPushOpen,
   beginNativePushUploadSession,
+  claimPendingPushOpen,
   dismissCachedReadConversationNotifications,
   dismissReadConversationNotifications,
   dismissReadMomentsNotifications,
@@ -19,12 +21,15 @@ import {
   flattenNotificationPayload,
   initializePushNotifications,
   markPushEventProcessed,
+  notificationDisplayText,
   parseNotificationRoute,
   presentationPolicyForPush,
   pushOpenTarget,
+  releasePendingPushOpen,
   requestPushPermission,
   resetPushServiceForTests,
   savePendingPushOpen,
+  shouldAlertForGroupSettings,
   takePendingPushOpen,
   wasPushEventProcessed,
 } from "@/services/push/PushService";
@@ -38,7 +43,7 @@ jest.mock("@/services/realtime/ChatRealtimeService", () => ({
   },
 }));
 jest.mock("expo-notifications", () => ({
-  AndroidImportance: { MAX: 5 },
+  AndroidImportance: { LOW: 2, HIGH: 4, MAX: 5 },
   IosAlertStyle: { ALERT: 2, NONE: 0 },
   IosAllowsPreviews: { ALWAYS: 1 },
   IosAuthorizationStatus: { AUTHORIZED: 2, NOT_DETERMINED: 0 },
@@ -118,6 +123,22 @@ describe("native push service", () => {
     );
   });
 
+  it("removes only a trailing Preview environment label from notification display names", () => {
+    expect(notificationDisplayText("BBchat Preview")).toBe("BBchat");
+    expect(notificationDisplayText("Study — Preview")).toBe("Study");
+    expect(notificationDisplayText("Oscar（Preview）")).toBe("Oscar");
+    expect(notificationDisplayText("Preview Club")).toBe("Preview Club");
+    expect(notificationDisplayText("Preview")).toBe("Preview");
+    expect(
+      parseNotificationRoute({
+        sender_id: "u1",
+        sender_nickname: "Oscar [Preview]",
+        group_id: 12,
+        group_name: "BBchat Preview",
+      }),
+    ).toMatchObject({ senderName: "Oscar", groupName: "BBchat" });
+  });
+
   it("uses sender as direct conversation fallback and rejects payloads without a target", () => {
     expect(
       parseNotificationRoute({ sender_id: 123, msg_id: 5, timestamp: "2026-08-07T00:00:00Z" }),
@@ -127,6 +148,9 @@ describe("native push service", () => {
       eventId: "dm:123:message:5",
     });
     expect(parseNotificationRoute({ push_type: "new_message" })).toBeNull();
+    const routeWithUnrelatedId = parseNotificationRoute({ sender_id: "u1", id: 999 });
+    expect(routeWithUnrelatedId).toMatchObject({ conversationId: "u1" });
+    expect(routeWithUnrelatedId).not.toHaveProperty("messageId");
   });
 
   it("matches native foreground sound/banner suppression rules", () => {
@@ -157,6 +181,41 @@ describe("native push service", () => {
       eventId: "group:7:message:9",
       route: { conversationType: "group", conversationId: "7", messageId: 9 },
     });
+    expect(
+      pushOpenTarget({ push_type: "friend_request", sender_id: "u1", message_id: 10 }, "n4"),
+    ).toBeNull();
+  });
+
+  it("honors cached muted-group mention and important-member exceptions", () => {
+    const settings = {
+      group_id: 7,
+      muted: true,
+      notify_mentions_me: true,
+      notify_mentions_all: false,
+      important_member_ids: ["vip"],
+      revision: 1,
+    };
+    expect(
+      shouldAlertForGroupSettings(settings, {
+        senderId: "ordinary",
+        isDirectMention: false,
+        isMentionAll: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAlertForGroupSettings(settings, {
+        senderId: "ordinary",
+        isDirectMention: true,
+        isMentionAll: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAlertForGroupSettings(settings, {
+        senderId: "vip",
+        isDirectMention: false,
+        isMentionAll: false,
+      }),
+    ).toBe(true);
   });
 
   it("requests alert/badge/sound permission and uploads one native token per account session", async () => {
@@ -281,6 +340,21 @@ describe("native push service", () => {
     await markPushEventProcessed("event-1");
     expect(await wasPushEventProcessed("event-1")).toBe(true);
     expect(await wasPushEventProcessed("event-2")).toBe(false);
+  });
+
+  it("queues multiple opens and removes them only after acknowledgement", async () => {
+    const first = pushOpenTarget({ sender_id: "u1", message_id: 3 }, "n1")!;
+    const second = pushOpenTarget({ group_id: 7, message_id: 4 }, "n2")!;
+    await savePendingPushOpen(first);
+    await savePendingPushOpen(second);
+
+    expect(await claimPendingPushOpen()).toEqual(first);
+    expect(await claimPendingPushOpen()).toEqual(second);
+    releasePendingPushOpen(first.eventId);
+    expect(await claimPendingPushOpen()).toEqual(first);
+    await acknowledgePendingPushOpen(first.eventId);
+    await acknowledgePendingPushOpen(second.eventId);
+    expect(await claimPendingPushOpen()).toBeNull();
   });
 });
 

@@ -87,7 +87,7 @@ describe("CreateMoment native parity", () => {
     expect(momentMediaPreparationPolicy).toMatchObject({
       uploadMaximumDimension: 1_200,
       uploadJPEGQuality: 0.7,
-      uploadMaximumBytes: 2_000_000,
+      uploadTargetBytes: 2_000_000,
       imagePreviewMaximumDimension: 360,
       videoPreviewMaximumDimension: 320,
       previewJPEGQuality: 0.82,
@@ -105,6 +105,14 @@ describe("CreateMoment native parity", () => {
         fileSize: 2_000_001,
         width: 1_200,
         height: 900,
+        mimeType: "image/jpeg",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPrepareImage({
+        fileSize: 1_500_000,
+        width: 0,
+        height: 0,
         mimeType: "image/jpeg",
       }),
     ).toBe(true);
@@ -186,6 +194,24 @@ describe("CreateMoment native parity", () => {
     expect(() => decodeMomentBackgroundUploadResponse({ code: 0, data: { id: 31 } }, 200)).toThrow(
       MomentUploadConfirmationUnknownError,
     );
+  });
+
+  it("keeps optimistic moments pending when the server confirms the wrong owner or media", () => {
+    const confirmed = moment(31, "request-31");
+    expect(() =>
+      decodeMomentBackgroundUploadResponse({ code: 0, data: confirmed }, 200, {
+        ownerId: "owner-b",
+        clientRequestId: "request-31",
+        expectedMediaCount: confirmed.media.length,
+      }),
+    ).toThrow(MomentUploadConfirmationUnknownError);
+    expect(() =>
+      decodeMomentBackgroundUploadResponse({ code: 0, data: confirmed }, 200, {
+        ownerId: confirmed.author.user_id,
+        clientRequestId: "request-31",
+        expectedMediaCount: confirmed.media.length + 1,
+      }),
+    ).toThrow(MomentUploadConfirmationUnknownError);
   });
 
   it("parks an old-owner upload before it can use the current account token", () => {

@@ -902,7 +902,14 @@ export default function ConversationsScreen() {
       } else {
         router.push({
           pathname: "/chat/[id]",
-          params: { id: conversation.id, name: conversation.name, avatar: conversation.avatar_url },
+          params: {
+            id: conversation.id,
+            name: conversation.name,
+            avatar: conversation.avatar_url,
+            ...(conversation.last_message_id !== undefined
+              ? { latestMessageId: String(conversation.last_message_id) }
+              : {}),
+          },
         });
       }
     },

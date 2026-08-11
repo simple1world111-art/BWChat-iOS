@@ -2,7 +2,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useRef } from "react";
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, type GestureResponderEvent } from "react-native";
 
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
 import { env } from "@/config/env";
@@ -62,13 +62,15 @@ export function UserAvatarButton({
   size,
   accessibilityName,
   onLongPress,
+  onPressOut,
   canActivate,
 }: {
   userId: string;
   avatarUrl?: string | undefined;
   size: number;
   accessibilityName?: string | undefined;
-  onLongPress?: (() => void) | undefined;
+  onLongPress?: ((event: GestureResponderEvent) => void) | undefined;
+  onPressOut?: (() => void) | undefined;
   canActivate?: (() => boolean) | undefined;
 }) {
   const { t } = useLocalization();
@@ -77,13 +79,21 @@ export function UserAvatarButton({
   const normalizedUserId = userId.trim();
   const normalizedName = accessibilityName?.trim() ?? "";
 
-  const openProfile = () => {
+  const openProfile = (event: GestureResponderEvent) => {
     if (canActivate && !canActivate()) return;
-    const now = Date.now();
-    if (!normalizedUserId || now - lastLongPressAt.current < 600) return;
-    if (now - lastOpenAt.current <= 600) return;
-    lastOpenAt.current = now;
-    router.push({ pathname: "/user-profile", params: { id: normalizedUserId } });
+    const timestamp = event.nativeEvent.timestamp;
+    if (!normalizedUserId || timestamp - lastLongPressAt.current < 600) return;
+    if (timestamp - lastOpenAt.current <= 600) return;
+    lastOpenAt.current = timestamp;
+    const normalizedAvatarUrl = avatarUrl?.trim() ?? "";
+    router.push({
+      pathname: "/user-profile",
+      params: {
+        id: normalizedUserId,
+        ...(normalizedName ? { name: normalizedName } : {}),
+        ...(normalizedAvatarUrl ? { avatar: normalizedAvatarUrl } : {}),
+      },
+    });
   };
 
   return (
@@ -95,13 +105,14 @@ export function UserAvatarButton({
       delayLongPress={450}
       onLongPress={
         onLongPress
-          ? () => {
-              lastLongPressAt.current = Date.now();
-              onLongPress();
+          ? (event) => {
+              lastLongPressAt.current = event.nativeEvent.timestamp;
+              onLongPress(event);
             }
           : undefined
       }
       onPress={openProfile}
+      onPressOut={onPressOut}
     >
       <Avatar name={normalizedName} size={size} uri={avatarUrl} />
     </Pressable>

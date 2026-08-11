@@ -28,8 +28,10 @@ import {
   canRecallChatMessage,
   chatRecallNotice,
   chatReplyGeometry,
+  createChatMessageMenuTarget,
   isRecalledChatMessage,
   normalizeChatMessageType,
+  resolveChatMessageMenuTarget,
   resolveChatTimelineLocator,
   resolveDirectReply,
   resolveGroupReply,
@@ -96,6 +98,31 @@ describe("native reply, recall and message-menu contracts", () => {
       menu_width: 128,
       opens_above: false,
     });
+  });
+
+  it("anchors the pointer to the pressed point and resolves a fresh message snapshot", () => {
+    const layout = calculateChatMessageMenuLayout(
+      { x: 40, y: 400, width: 240, height: 80, press_x: 250, press_y: 430 },
+      5,
+      { width: 390, height: 844, itemWidth: 82, itemHeight: 68 },
+    );
+    expect(layout).toMatchObject({
+      column_count: 4,
+      row_count: 2,
+      item_width: 82,
+      item_height: 68,
+    });
+    expect(layout.pointer_x).toBeGreaterThan(layout.menu_width / 2);
+
+    const original = direct({ id: 7, content: "old" });
+    const refreshed = direct({ id: 7, content: "new" });
+    const target = createChatMessageMenuTarget(
+      original,
+      "owner:dm:peer",
+      { x: 0, y: 0, width: 10, height: 10 },
+      ["copy"],
+    );
+    expect(resolveChatMessageMenuTarget([refreshed], target)?.content).toBe("new");
   });
 
   it("prioritizes mention, reply, new-message and bottom locators exactly like Swift", () => {
@@ -185,6 +212,10 @@ describe("native reply, recall and message-menu contracts", () => {
       expect(
         actionsForChatMessage(direct({ msg_type: "sticker" }), { forwardingEnabled: true }),
       ).toEqual(["forward", "quote", "delete"]);
+      expect(actionsForChatMessage(direct(), { isCallRecord: true })).toEqual(["delete"]);
+      expect(
+        actionsForChatMessage(direct(), { isCallRecord: true, localDeleteEnabled: false }),
+      ).toEqual([]);
       expect(actionsForChatMessage(direct({ msg_type: "system" }))).toEqual([]);
       expect(actionsForChatMessage(direct(), { isChatMoneyReceipt: true })).toEqual([]);
     } finally {
