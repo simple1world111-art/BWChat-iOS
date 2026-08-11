@@ -66,6 +66,7 @@ jest.mock("@expo/ui/swift-ui", () => {
 
 jest.mock("@expo/ui/swift-ui/modifiers", () => ({
   disabled: () => "disabled",
+  padding: (value: object) => value,
   pickerStyle: (value: string) => value,
   tag: (value: string) => value,
 }));

@@ -70,7 +70,9 @@ describe("AgentCreatorView source parity", () => {
     ]) {
       expect(page).toContain(`value: "${value}"`);
     }
-    expect(page).toContain('<Toggle isOn={false} label="付费视频" modifiers={[disabled()]} />');
+    expect(page).toContain('accessibilityLabel="付费视频"');
+    expect(page).toContain("accessibilityState={{ checked: false, disabled: true }}");
+    expect(page).toContain("value={false}");
     expect(page).toContain("视频 Provider 当前未启用，客户端不会开放视频生成。");
   });
 
@@ -100,14 +102,32 @@ describe("AgentCreatorView source parity", () => {
     const page = sourceExpo("src/app/agent-creator.tsx");
     expect(page).toContain("automaticallyAdjustKeyboardInsets");
     expect(page).toContain('contentInsetAdjustmentBehavior="automatic"');
+    expect(page).toContain("directionalLockEnabled");
+    expect(page).toContain("onScrollBeginDrag={Keyboard.dismiss}");
+    expect(page).not.toContain("<Pressable onPress={Keyboard.dismiss} style={styles.dismissArea}>");
+    expect(page).toContain("<View style={styles.dismissArea}>");
     expect(page).toContain(
       "content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 48, gap: 18 }",
     );
     expect(page).toContain('sectionCard: { overflow: "hidden", borderRadius: 14');
     expect(page).toContain("color: theme.secondaryText");
     expect(page).not.toContain('color: "#000000"');
-    expect(page).toContain('menuPicker: { width: 150, height: 48 }');
+    expect(page).toContain('menuHost: { width: "100%", height: 48 }');
+    expect(page).toContain("label={label}");
+    expect(page).toContain("swiftUIPadding({ horizontal: FORM_ROW_HORIZONTAL_INSET })");
+    expect(page).toContain("paddingHorizontal: FORM_ROW_HORIZONTAL_INSET");
     expect(page).toContain("maxFontSizeMultiplier={1.25}");
+  });
+
+  it("centers the header action and keeps switch controls inside the shared row inset", () => {
+    const page = sourceExpo("src/app/agent-creator.tsx");
+    const headerStyles = page.slice(page.indexOf("headerAction:"), page.indexOf("headerSpinner:"));
+    const toggleStyles = page.slice(page.indexOf("toggleRow:"), page.indexOf("cardDivider:"));
+    expect(headerStyles).toContain('alignItems: "center"');
+    expect(headerStyles).toContain('justifyContent: "center"');
+    expect(headerStyles).toContain('textAlign: "center"');
+    expect(toggleStyles).toContain("paddingHorizontal: FORM_ROW_HORIZONTAL_INSET");
+    expect(page).toContain("accessibilityState={{ checked: isOn }}");
   });
 
   it("keeps native save lifecycle, conflict recovery, cache invalidation and back navigation", () => {

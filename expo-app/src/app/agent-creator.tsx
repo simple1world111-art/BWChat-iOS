@@ -1,5 +1,5 @@
-import { Host, Picker, Text as SwiftUIText, Toggle } from "@expo/ui/swift-ui";
-import { disabled, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import { Host, Picker, Text as SwiftUIText } from "@expo/ui/swift-ui";
+import { padding as swiftUIPadding, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import { randomUUID } from "expo-crypto";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -12,6 +12,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   useColorScheme,
@@ -91,6 +92,8 @@ const initiativeOptions = [
   { value: "balanced", label: "平衡" },
   { value: "proactive", label: "主动" },
 ] as const;
+
+const FORM_ROW_HORIZONTAL_INSET = 14;
 
 export default function AgentCreatorScreen() {
   const { agentId = "" } = useLocalSearchParams<{ agentId?: string }>();
@@ -396,13 +399,15 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
         }}
       />
 
-      <Pressable onPress={Keyboard.dismiss} style={styles.dismissArea}>
+      <View style={styles.dismissArea}>
         <ScrollView
           automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.content}
           contentInsetAdjustmentBehavior="automatic"
+          directionalLockEnabled
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={Keyboard.dismiss}
           showsVerticalScrollIndicator={false}
         >
           <FormSection title="视觉形象" styles={styles}>
@@ -603,14 +608,19 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
           />
 
           <FormSection title="视频能力" styles={styles}>
-            <Host
-              colorScheme={scheme === "dark" ? "dark" : "light"}
-              ignoreSafeArea="all"
-              seedColor={colors.accent}
-              style={styles.nativeRow}
-            >
-              <Toggle isOn={false} label="付费视频" modifiers={[disabled()]} />
-            </Host>
+            <View style={styles.toggleRow}>
+              <Text maxFontSizeMultiplier={1.25} style={styles.toggleLabelDisabled}>
+                付费视频
+              </Text>
+              <Switch
+                accessibilityLabel="付费视频"
+                accessibilityState={{ checked: false, disabled: true }}
+                disabled
+                ios_backgroundColor={theme.separator}
+                trackColor={{ false: theme.separator, true: theme.accent }}
+                value={false}
+              />
+            </View>
             <View style={styles.cardDivider} />
             <Text style={styles.videoNotice}>
               视频 Provider 当前未启用，客户端不会开放视频生成。
@@ -632,7 +642,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
             </View>
           ) : null}
         </ScrollView>
-      </Pressable>
+      </View>
 
       {isHydrating ? (
         <View
@@ -728,32 +738,30 @@ function MenuSection({
 }) {
   return (
     <FormSection title={title} styles={styles}>
-      <View style={styles.menuRow}>
-        <Text maxFontSizeMultiplier={1.25} pointerEvents="none" style={styles.menuLabel}>
-          {label}
-        </Text>
-        <Host
-          colorScheme={scheme === "dark" ? "dark" : "light"}
-          ignoreSafeArea="all"
-          seedColor={colors.secondaryText}
-          style={styles.menuPicker}
+      <Host
+        colorScheme={scheme === "dark" ? "dark" : "light"}
+        ignoreSafeArea="all"
+        seedColor={colors.secondaryText}
+        style={styles.menuHost}
+      >
+        <Picker
+          label={label}
+          modifiers={[
+            pickerStyle("menu"),
+            swiftUIPadding({ horizontal: FORM_ROW_HORIZONTAL_INSET }),
+          ]}
+          onSelectionChange={(value) => {
+            if (typeof value === "string") onChange(value);
+          }}
+          selection={selection}
         >
-          <Picker
-            label=""
-            modifiers={[pickerStyle("menu")]}
-            onSelectionChange={(value) => {
-              if (typeof value === "string") onChange(value);
-            }}
-            selection={selection}
-          >
-            {options.map((option) => (
-              <SwiftUIText key={option.value} modifiers={[tag(option.value)]}>
-                {option.label}
-              </SwiftUIText>
-            ))}
-          </Picker>
-        </Host>
-      </View>
+          {options.map((option) => (
+            <SwiftUIText key={option.value} modifiers={[tag(option.value)]}>
+              {option.label}
+            </SwiftUIText>
+          ))}
+        </Picker>
+      </Host>
     </FormSection>
   );
 }
@@ -773,16 +781,22 @@ function ToggleSection({
   onChange(value: boolean): void;
   styles: CreatorStyles;
 }) {
+  const theme = palette(scheme);
   return (
     <FormSection title={title} styles={styles}>
-      <Host
-        colorScheme={scheme === "dark" ? "dark" : "light"}
-        ignoreSafeArea="all"
-        seedColor={colors.accent}
-        style={styles.nativeRow}
-      >
-        <Toggle isOn={isOn} label={label} onIsOnChange={onChange} />
-      </Host>
+      <View style={styles.toggleRow}>
+        <Text maxFontSizeMultiplier={1.25} style={styles.toggleLabel}>
+          {label}
+        </Text>
+        <Switch
+          accessibilityLabel={label}
+          accessibilityState={{ checked: isOn }}
+          ios_backgroundColor={theme.separator}
+          onValueChange={onChange}
+          trackColor={{ false: theme.separator, true: theme.accent }}
+          value={isOn}
+        />
+      </View>
     </FormSection>
   );
 }
@@ -819,8 +833,21 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     screen: { flex: 1, backgroundColor: theme.background },
     dismissArea: { flex: 1 },
     content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 48, gap: 18 },
-    headerAction: { minWidth: 44, height: 36, alignItems: "flex-end", justifyContent: "center" },
-    headerActionText: { color: theme.text, fontSize: 16, fontWeight: "600" },
+    headerAction: {
+      minWidth: 52,
+      height: 44,
+      paddingHorizontal: 8,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    headerActionText: {
+      width: "100%",
+      color: theme.text,
+      fontSize: 16,
+      fontWeight: "600",
+      lineHeight: 20,
+      textAlign: "center",
+    },
     headerActionDisabled: { opacity: 0.38 },
     headerSpinner: { transform: [{ scale: 0.8 }] },
     section: { gap: 6 },
@@ -834,7 +861,7 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     sectionCard: { overflow: "hidden", borderRadius: 14, backgroundColor: theme.card },
     referenceRow: {
       minHeight: 84,
-      paddingHorizontal: 14,
+      paddingHorizontal: FORM_ROW_HORIZONTAL_INSET,
       paddingVertical: 10,
       flexDirection: "row",
       alignItems: "center",
@@ -869,29 +896,30 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     },
     textInput: {
       minHeight: 48,
-      paddingHorizontal: 14,
+      paddingHorizontal: FORM_ROW_HORIZONTAL_INSET,
       paddingVertical: 12,
       color: theme.text,
       fontSize: 16,
     },
     multilineInput: { lineHeight: 21 },
-    nativeRow: { width: "100%", height: 48 },
-    menuRow: {
+    menuHost: { width: "100%", height: 48 },
+    toggleRow: {
       minHeight: 48,
-      paddingLeft: 14,
+      paddingHorizontal: FORM_ROW_HORIZONTAL_INSET,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
+      gap: 12,
     },
-    menuLabel: { color: theme.text, fontSize: 16 },
-    menuPicker: { width: 150, height: 48 },
+    toggleLabel: { flex: 1, color: theme.text, fontSize: 16 },
+    toggleLabelDisabled: { flex: 1, color: theme.secondaryText, fontSize: 16 },
     cardDivider: {
       height: StyleSheet.hairlineWidth,
-      marginLeft: 14,
+      marginLeft: FORM_ROW_HORIZONTAL_INSET,
       backgroundColor: theme.separator,
     },
     videoNotice: {
-      paddingHorizontal: 14,
+      paddingHorizontal: FORM_ROW_HORIZONTAL_INSET,
       paddingVertical: 10,
       color: theme.secondaryText,
       fontSize: 12,
