@@ -126,6 +126,8 @@ describe("Add Friend screen interactions", () => {
     expect(view.getByText("addFriend.noResults")).toBeTruthy();
 
     await fireEvent.changeText(input, "  Alice  ");
+    expect(view.getByTestId("add-friend-search-loading")).toBeTruthy();
+    expect(view.queryByText("addFriend.noResults")).toBeNull();
     await act(() => jest.advanceTimersByTime(400));
     expect(mockSearchUsers).toHaveBeenCalledWith("Alice");
     expect(view.getByTestId("add-friend-search-loading")).toBeTruthy();

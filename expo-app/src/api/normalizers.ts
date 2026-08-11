@@ -495,18 +495,26 @@ export function normalizeRequiredFriendRequest(value: unknown): FriendRequest {
 
 export function normalizeSearchUser(value: unknown): SearchUser {
   if (!isRecord(value)) throw new Error("用户搜索结果格式无效");
+  const user = isRecord(value.user) ? value.user : value;
   return {
-    user_id: flexString(value.user_id, value.userID, value.id) ?? "",
-    nickname: flexString(value.nickname, value.name) ?? "BBchat 用户",
-    avatar_url: flexString(value.avatar_url, value.avatarURL, value.avatar) ?? "",
-    relation: flexString(value.relation) ?? "none",
-    followed_by_me: flexBool(value.followed_by_me, value.followedByMe) ?? false,
+    user_id:
+      flexString(user.user_id, user.userID, user.id, user.user_uuid, user.uuid, user.uid) ?? "",
+    nickname: flexString(user.nickname, user.name) ?? "BBchat 用户",
+    avatar_url: flexString(user.avatar_url, user.avatarURL, user.avatar) ?? "",
+    relation: flexString(value.relation, user.relation) ?? "none",
+    followed_by_me:
+      flexBool(value.followed_by_me, value.followedByMe, user.followed_by_me, user.followedByMe) ??
+      false,
     follow_requested:
       flexBool(
         value.follow_requested,
         value.followRequested,
         value.request_pending,
         value.requestPending,
+        user.follow_requested,
+        user.followRequested,
+        user.request_pending,
+        user.requestPending,
       ) ?? false,
   };
 }

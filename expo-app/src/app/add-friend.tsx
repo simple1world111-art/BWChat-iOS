@@ -155,9 +155,10 @@ export default function AddFriendScreen() {
   const changeSearchText = (text: string) => {
     searchGenerationRef.current += 1;
     setSearchText(text);
-    setSearching(false);
+    const keyword = normalizedAddFriendQuery(text);
+    setSearching(Boolean(ownerId && keyword));
     setSearchFailed(false);
-    if (!normalizedAddFriendQuery(text)) {
+    if (!keyword) {
       setResults([]);
     }
   };

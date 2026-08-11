@@ -289,16 +289,43 @@ export async function getContacts(): Promise<Contact[]> {
 export async function searchUsers(keyword: string): Promise<SearchUser[]> {
   const query = new URLSearchParams({ keyword });
   const value = await apiRequest<unknown>(`/friends/search?${query.toString()}`, {
+    cache: "no-store",
+    headers: { "Cache-Control": "no-cache" },
     requiredData: true,
     requiredEnvelope: true,
   });
-  if (!isRecord(value) || !Array.isArray(value.users)) {
+  const users = searchUserRows(value);
+  if (!users) {
     throw new Error("用户搜索响应格式无效");
   }
-  const users = value.users;
-  const normalized = users.map(normalizeSearchUser).filter((user) => user.user_id.length > 0);
+  const normalized: SearchUser[] = [];
+  const seenUserIds = new Set<string>();
+  for (const candidate of users) {
+    try {
+      const user = normalizeSearchUser(candidate);
+      const userId = user.user_id.trim();
+      if (!userId || seenUserIds.has(userId)) continue;
+      seenUserIds.add(userId);
+      normalized.push(userId === user.user_id ? user : { ...user, user_id: userId });
+    } catch {
+      // A malformed row must not hide the valid users returned in the same response.
+    }
+  }
+  if (users.length > 0 && normalized.length === 0) {
+    throw new Error("用户搜索结果缺少有效用户标识");
+  }
   await cacheSearchUsers(normalized).catch(() => undefined);
   return normalized;
+}
+
+function searchUserRows(value: unknown): unknown[] | null {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return null;
+  for (const key of ["users", "results", "items", "list"] as const) {
+    if (Array.isArray(value[key])) return value[key];
+  }
+  // Some deployments retain an additional pagination/data layer inside the API envelope.
+  return isRecord(value.data) ? searchUserRows(value.data) : null;
 }
 
 export async function getFriendList(): Promise<FriendInfo[]> {

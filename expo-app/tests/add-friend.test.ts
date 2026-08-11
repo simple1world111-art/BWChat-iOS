@@ -158,15 +158,56 @@ describe("native AddFriendView contracts", () => {
       { user_id: "one", nickname: "小一", follow_requested: true },
     ]);
     expect(request).toHaveBeenCalledWith("/friends/search?keyword=Alice%2F%E4%B8%83", {
+      cache: "no-store",
+      headers: { "Cache-Control": "no-cache" },
       requiredData: true,
       requiredEnvelope: true,
     });
   });
 
+  it("accepts paginated search aliases and nested user rows without dropping valid peers", async () => {
+    request.mockResolvedValueOnce({
+      results: [
+        {
+          user: { uuid: "nested-user", nickname: "嵌套用户", avatar_url: "/nested.png" },
+          followed_by_me: true,
+        },
+        null,
+        { nickname: "缺少标识" },
+      ],
+    });
+
+    await expect(searchUsers("nested")).resolves.toEqual([
+      {
+        user_id: "nested-user",
+        nickname: "嵌套用户",
+        avatar_url: "/nested.png",
+        relation: "none",
+        followed_by_me: true,
+        follow_requested: false,
+      },
+    ]);
+  });
+
+  it("accepts an already-unwrapped search array and deduplicates stable user ids", async () => {
+    request.mockResolvedValueOnce([
+      { user_id: " one ", nickname: "一" },
+      { user_id: "one", nickname: "重复" },
+    ]);
+
+    await expect(searchUsers("one")).resolves.toMatchObject([{ user_id: "one", nickname: "一" }]);
+  });
+
   it("rejects a malformed search payload instead of presenting it as no matches", async () => {
-    request.mockResolvedValueOnce({ results: [{ user_id: "one", nickname: "小一" }] });
+    request.mockResolvedValueOnce({ matches: [{ user_id: "one", nickname: "小一" }] });
 
     await expect(searchUsers("one")).rejects.toThrow("用户搜索响应格式无效");
+  });
+
+  it("rejects non-empty search rows when none contains a usable user id", async () => {
+    request.mockResolvedValueOnce({ users: [{ nickname: "缺少标识" }, null] });
+
+    await expect(searchUsers("one")).rejects.toThrow("用户搜索结果缺少有效用户标识");
   });
 
   it("uses the exact encoded follow/unfollow methods and native fallback relationships", async () => {
