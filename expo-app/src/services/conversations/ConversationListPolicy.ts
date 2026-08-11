@@ -162,9 +162,17 @@ export function reconcileLivePairConversationRows(
   current: readonly Conversation[],
   registeredPeerIds: ReadonlySet<string>,
 ): Conversation[] {
+  return reconcileRetainedDirectConversationRows(incoming, current, registeredPeerIds);
+}
+
+export function reconcileRetainedDirectConversationRows(
+  incoming: readonly Conversation[],
+  current: readonly Conversation[],
+  retainedPeerIds: ReadonlySet<string>,
+): Conversation[] {
   const rows = new Map(incoming.map((row) => [conversationListIdentity(row), row]));
   for (const row of current) {
-    if (normalizedConversationType(row) !== "dm" || !registeredPeerIds.has(row.id)) continue;
+    if (normalizedConversationType(row) !== "dm" || !retainedPeerIds.has(row.id)) continue;
     const identity = conversationListIdentity(row);
     if (!rows.has(identity)) rows.set(identity, row);
   }

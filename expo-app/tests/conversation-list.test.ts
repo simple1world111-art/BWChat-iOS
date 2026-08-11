@@ -22,6 +22,7 @@ import {
   preservingIncompleteConversationRows,
   reconcileLivePairConversationRows,
   reconcileLatestConversationPreviews,
+  reconcileRetainedDirectConversationRows,
   shouldResolveScriptRoomAvatar,
   shouldShowConversationEventSender,
   shouldApplyConversationPreview,
@@ -29,12 +30,14 @@ import {
   visibleChatConversations,
 } from "@/services/conversations/ConversationListPolicy";
 import {
+  applyDirectConversationCandidate,
   hideCachedConversation,
   loadCachedConversationSnapshot,
   loadConversationInitiatedDmIds,
   loadConversationListLocalState,
   loadConversationLivePairIds,
   loadConversationSnapshotWithNativeCache,
+  publishDirectConversationCandidate,
   reconcileConversationSnapshot,
   resetConversationRepositoryMemoryForAccount,
   saveCachedConversationItemsProjection,
@@ -42,6 +45,7 @@ import {
   saveConversationInitiatedDmIds,
   saveConversationLivePairIds,
   saveConversationPinnedKeys,
+  subscribeDirectConversationCandidates,
   unhideCachedConversation,
 } from "@/services/conversations/ConversationRepository";
 
@@ -153,6 +157,17 @@ describe("native conversation-list contract", () => {
         new Set(["live-peer"]),
       ),
     ).toEqual([livePair]);
+  });
+
+  it("keeps a followed empty dm across an authoritative snapshot that has not caught up", () => {
+    const followed = row({ id: "followed-peer", name: "Followed" });
+    expect(
+      reconcileRetainedDirectConversationRows(
+        [],
+        [followed, row({ id: "ordinary" })],
+        new Set(["followed-peer"]),
+      ),
+    ).toEqual([followed]);
   });
 
   it("preserves live rows for incomplete snapshots but accepts authoritative deletion", () => {
@@ -374,6 +389,61 @@ describe("native conversation-list contract", () => {
       "owner-a",
     );
     expect(result.map((item) => item.id)).toEqual(["owner-a", "pinned", "newer", "older"]);
+  });
+
+  it("adds a followed user as an empty dm without disturbing the pinned section", () => {
+    const conversations = applyDirectConversationCandidate(
+      [row({ id: "pinned", last_message_time: "2020-01-01T00:00:00Z" })],
+      {
+        owner_id: "owner-a",
+        contact_id: "followed",
+        name: "Followed User",
+        avatar_url: "/followed.png",
+      },
+    );
+    expect(
+      sortConversationRows(conversations, new Set(["dm:pinned"]), "owner-a").map(
+        conversationListIdentity,
+      ),
+    ).toEqual(["dm:pinned", "dm:followed"]);
+    expect(conversations[1]).toEqual({
+      type: "dm",
+      id: "followed",
+      name: "Followed User",
+      avatar_url: "/followed.png",
+      unread_count: 0,
+      is_muted: false,
+    });
+  });
+
+  it("restores a followed dm immediately, persists it, and retains an existing pin", async () => {
+    const candidate = {
+      owner_id: "owner-a",
+      contact_id: "followed",
+      name: " Followed User ",
+      avatar_url: " /followed.png ",
+    };
+    await saveConversationPinnedKeys("owner-a", new Set(["dm:followed"]));
+    await saveConversationHiddenSnapshots("owner-a", { "dm:followed": "\u001f" });
+    const listener = jest.fn();
+    const unsubscribe = subscribeDirectConversationCandidates("owner-a", listener);
+
+    await publishDirectConversationCandidate(candidate);
+
+    expect(listener).toHaveBeenCalledWith({
+      owner_id: "owner-a",
+      contact_id: "followed",
+      name: "Followed User",
+      avatar_url: "/followed.png",
+    });
+    expect((await loadCachedConversationSnapshot("owner-a"))?.conversations).toEqual([
+      expect.objectContaining({ id: "followed", name: "Followed User" }),
+    ]);
+    expect(await loadConversationInitiatedDmIds("owner-a")).toEqual(new Set(["followed"]));
+    const state = await loadConversationListLocalState("owner-a");
+    expect(state.hiddenSnapshots).toEqual({});
+    expect(state.pinnedKeys).toEqual(new Set(["dm:followed"]));
+    unsubscribe();
   });
 
   it("hides an unchanged deleted row and restores it when new content arrives", () => {

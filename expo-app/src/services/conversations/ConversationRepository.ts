@@ -27,6 +27,13 @@ export interface DirectConversationPreviewUpdate {
   last_message_id?: number | undefined;
 }
 
+export interface DirectConversationCandidate {
+  owner_id: string;
+  contact_id: string;
+  name: string;
+  avatar_url: string;
+}
+
 export interface GroupConversationPreviewUpdate {
   owner_id: string;
   group_id: number;
@@ -37,6 +44,7 @@ export interface GroupConversationPreviewUpdate {
 
 const readReceiptListeners = new Set<(event: AccountReadReceipt) => void>();
 const directPreviewListeners = new Set<(event: DirectConversationPreviewUpdate) => void>();
+const directCandidateListeners = new Set<(event: DirectConversationCandidate) => void>();
 const groupPreviewListeners = new Set<(event: GroupConversationPreviewUpdate) => void>();
 const conversationLoads = new Map<string, Promise<ConversationSyncSnapshot>>();
 const repositoryGenerations = new Map<string, number>();
@@ -233,6 +241,91 @@ export function subscribeDirectConversationPreviewUpdates(
   return () => directPreviewListeners.delete(accountListener);
 }
 
+export async function publishDirectConversationCandidate(
+  candidate: DirectConversationCandidate,
+): Promise<void> {
+  const ownerId = candidate.owner_id.trim();
+  const contactId = candidate.contact_id.trim();
+  if (!ownerId || !contactId || ownerId === contactId) return;
+  const normalized: DirectConversationCandidate = {
+    owner_id: ownerId,
+    contact_id: contactId,
+    name: candidate.name.trim(),
+    avatar_url: candidate.avatar_url.trim(),
+  };
+
+  // Notify the mounted list before disk I/O so navigating back from Add Friend
+  // reveals the empty DM card in the same frame.
+  for (const listener of [...directCandidateListeners]) listener(normalized);
+
+  await serializeLocalStateMutation(ownerId, async () => {
+    const [cached, initiatedDmIds, localState] = await Promise.all([
+      loadCachedConversationSnapshot(ownerId),
+      loadConversationInitiatedDmIds(ownerId),
+      loadConversationListLocalState(ownerId),
+    ]);
+    initiatedDmIds.add(contactId);
+    const identity = `dm:${contactId}`;
+    const hiddenSnapshots = { ...localState.hiddenSnapshots };
+    delete hiddenSnapshots[identity];
+    await Promise.all([
+      AsyncStorage.setItem(
+        cacheKey(ownerId),
+        JSON.stringify({
+          ...(cached ?? { snapshot_complete: false }),
+          conversations: applyDirectConversationCandidate(cached?.conversations ?? [], normalized),
+        }),
+      ),
+      saveConversationInitiatedDmIds(ownerId, initiatedDmIds),
+      saveConversationHiddenSnapshots(ownerId, hiddenSnapshots),
+    ]);
+  });
+}
+
+export function applyDirectConversationCandidate(
+  conversations: readonly Conversation[],
+  candidate: DirectConversationCandidate,
+): Conversation[] {
+  const identity = `dm:${candidate.contact_id}`;
+  const index = conversations.findIndex(
+    (conversation) => conversationListIdentity(conversation) === identity,
+  );
+  if (index < 0) {
+    return [
+      ...conversations,
+      {
+        type: "dm",
+        id: candidate.contact_id,
+        name: candidate.name || candidate.contact_id,
+        avatar_url: candidate.avatar_url,
+        unread_count: 0,
+        is_muted: false,
+      },
+    ];
+  }
+  return conversations.map((conversation, itemIndex) =>
+    itemIndex === index
+      ? {
+          ...conversation,
+          name: candidate.name || conversation.name,
+          avatar_url: candidate.avatar_url || conversation.avatar_url,
+        }
+      : conversation,
+  );
+}
+
+export function subscribeDirectConversationCandidates(
+  ownerId: string,
+  listener: (candidate: DirectConversationCandidate) => void,
+): () => void {
+  const owner = ownerId.trim();
+  const accountListener = (candidate: DirectConversationCandidate) => {
+    if (candidate.owner_id === owner) listener(candidate);
+  };
+  directCandidateListeners.add(accountListener);
+  return () => directCandidateListeners.delete(accountListener);
+}
+
 export async function publishGroupConversationPreviewUpdate(
   update: GroupConversationPreviewUpdate,
 ): Promise<void> {
@@ -317,14 +410,16 @@ export async function saveCachedConversationItemsProjection(
   ownerId: string,
   conversations: readonly Conversation[],
 ): Promise<void> {
-  const cached = await loadCachedConversationSnapshot(ownerId);
-  await AsyncStorage.setItem(
-    cacheKey(ownerId),
-    JSON.stringify({
-      ...(cached ?? { snapshot_complete: false }),
-      conversations: [...conversations],
-    }),
-  );
+  await serializeLocalStateMutation(ownerId, async () => {
+    const cached = await loadCachedConversationSnapshot(ownerId);
+    await AsyncStorage.setItem(
+      cacheKey(ownerId),
+      JSON.stringify({
+        ...(cached ?? { snapshot_complete: false }),
+        conversations: [...conversations],
+      }),
+    );
+  });
 }
 
 export async function loadConversationListLocalState(

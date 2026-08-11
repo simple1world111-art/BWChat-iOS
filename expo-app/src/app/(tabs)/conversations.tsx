@@ -59,8 +59,8 @@ import {
   isScriptRoomConversation,
   mergeAgentConversationRows,
   preservingIncompleteConversationRows,
-  reconcileLivePairConversationRows,
   reconcileLatestConversationPreviews,
+  reconcileRetainedDirectConversationRows,
   resolvedGroupId,
   shouldApplyConversationPreview,
   shouldResolveScriptRoomAvatar,
@@ -73,9 +73,10 @@ import {
   resetConversationReadSubmissionForAccount,
 } from "@/services/conversations/ConversationReadService";
 import {
+  applyDirectConversationCandidate,
+  applyConversationReadReceiptToItems,
   applyDirectConversationPreviewUpdate,
   applyGroupConversationPreviewUpdate,
-  applyConversationReadReceiptToItems,
   clearDirectConversationPreview,
   hideCachedConversation,
   loadCachedConversationSnapshot,
@@ -90,6 +91,7 @@ import {
   saveConversationLivePairIds,
   saveConversationPinnedKeys,
   subscribeConversationReadReceipts,
+  subscribeDirectConversationCandidates,
   subscribeDirectConversationPreviewUpdates,
   subscribeGroupConversationPreviewUpdates,
   unhideCachedConversation,
@@ -327,14 +329,14 @@ export default function ConversationsScreen() {
           locallyInitiatedDmIds.current,
         );
         const chatRows = reconcileLatestConversationPreviews(
-          reconcileLivePairConversationRows(
+          reconcileRetainedDirectConversationRows(
             preservingIncompleteConversationRows(
               incomingChatRows,
               currentChatRows,
               snapshot.snapshot_complete,
             ),
             currentChatRows,
-            livePairDmIds.current,
+            locallyInitiatedDmIds.current,
           ),
           currentChatRows,
         );
@@ -493,6 +495,22 @@ export default function ConversationsScreen() {
       );
     });
   }, [ownerId, setItems]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    const ticket = accountScopeRef.current.capture();
+    return subscribeDirectConversationCandidates(ownerId, (candidate) => {
+      if (!accountScopeRef.current.isCurrent(ticket)) return;
+      locallyInitiatedDmIds.current.add(candidate.contact_id);
+      const identity = `dm:${candidate.contact_id}`;
+      if (hiddenSnapshotsRef.current[identity] !== undefined) {
+        const nextHidden = { ...hiddenSnapshotsRef.current };
+        delete nextHidden[identity];
+        setHiddenSnapshots(nextHidden);
+      }
+      setItems((current) => applyDirectConversationCandidate(current, candidate));
+    });
+  }, [ownerId, setHiddenSnapshots, setItems]);
 
   useEffect(() => {
     if (!ownerId) return;

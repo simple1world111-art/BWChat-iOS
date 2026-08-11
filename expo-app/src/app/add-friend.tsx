@@ -17,6 +17,7 @@ import { TopToast } from "@/components/TopToast";
 import type { FollowRelationship, FollowUser, SearchUser } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
+import { publishDirectConversationCandidate } from "@/services/conversations/ConversationRepository";
 import {
   acquireAddFriendOperation,
   addFriendPolicy,
@@ -179,6 +180,14 @@ export default function AddFriendScreen() {
         : await unfollowUser(user.user_id);
       if (accountGeneration !== accountGenerationRef.current) return;
       applyRelationship(relationship);
+      if (relationship.followed_by_me) {
+        void publishDirectConversationCandidate({
+          owner_id: ownerId,
+          contact_id: user.user_id,
+          name: user.nickname,
+          avatar_url: user.avatar_url,
+        }).catch(() => undefined);
+      }
       publishFollowRelationship(
         {
           relationship,

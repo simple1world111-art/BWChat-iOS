@@ -9,6 +9,7 @@ import {
   publishFollowRelationship,
 } from "@/services/friends/FollowRelationshipStore";
 import { readCachedFollowListSnapshot } from "@/services/friends/FollowListRepository";
+import { publishDirectConversationCandidate } from "@/services/conversations/ConversationRepository";
 
 let mockOwnerId = "owner-a";
 
@@ -84,6 +85,10 @@ jest.mock("@/services/friends/FollowListRepository", () => ({
   readCachedFollowListSnapshot: jest.fn(),
 }));
 
+jest.mock("@/services/conversations/ConversationRepository", () => ({
+  publishDirectConversationCandidate: jest.fn(() => Promise.resolve()),
+}));
+
 const mockSearchUsers = jest.mocked(searchUsers);
 const mockFollowUser = jest.mocked(followUser);
 const mockGetFollowing = jest.mocked(getFollowing);
@@ -91,6 +96,7 @@ const mockUnfollowUser = jest.mocked(unfollowUser);
 const mockPublishFollowRelationship = jest.mocked(publishFollowRelationship);
 const mockFollowUserFromSearch = jest.mocked(followUserFromSearch);
 const mockReadCachedFollowListSnapshot = jest.mocked(readCachedFollowListSnapshot);
+const mockPublishDirectConversationCandidate = jest.mocked(publishDirectConversationCandidate);
 
 describe("Add Friend screen interactions", () => {
   beforeEach(() => {
@@ -251,6 +257,33 @@ describe("Add Friend screen interactions", () => {
       "owner-a",
     );
     expect(mockFollowUserFromSearch).toHaveBeenCalledTimes(1);
+    expect(mockPublishDirectConversationCandidate).not.toHaveBeenCalled();
+  });
+
+  it("publishes a durable empty dm candidate after a confirmed follow", async () => {
+    mockSearchUsers.mockResolvedValueOnce([
+      searchUser({ user_id: "friend-7", nickname: "小七", avatar_url: "/seven.png" }),
+    ]);
+    mockFollowUser.mockResolvedValueOnce({
+      user_id: "friend-7",
+      followed_by_me: true,
+      follows_me: false,
+      is_friend: false,
+    });
+    const view = await render(<AddFriendScreen />);
+    await fireEvent.changeText(view.getByLabelText("addFriend.search.placeholder"), "seven");
+    await advanceSearch();
+
+    await fireEvent.press(view.getByLabelText("follow.followButton"));
+
+    await waitFor(() =>
+      expect(mockPublishDirectConversationCandidate).toHaveBeenCalledWith({
+        owner_id: "owner-a",
+        contact_id: "friend-7",
+        name: "小七",
+        avatar_url: "/seven.png",
+      }),
+    );
   });
 
   it("drops an old account follow completion after switching owners", async () => {
