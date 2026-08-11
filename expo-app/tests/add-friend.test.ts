@@ -5,6 +5,7 @@ import {
   acquireAddFriendOperation,
   addFriendPolicy,
   applyRelationshipToSearchUsers,
+  mergeSearchUsersWithKnownFollowing,
   normalizedAddFriendQuery,
   optimisticSearchUserFollow,
   reconcileSearchUsersWithKnownFollowing,
@@ -98,6 +99,27 @@ describe("native AddFriendView contracts", () => {
     ]);
   });
 
+  it("merges matching followed users omitted by search without disturbing server order", () => {
+    const next = mergeSearchUsersWithKnownFollowing(
+      [user({ user_id: "server-first", nickname: "Seven Server" })],
+      [
+        followListUser({ user_id: "followed-seven", username: "seven", nickname: "小七" }),
+        followListUser({ user_id: "unrelated", username: "other", nickname: "其他" }),
+      ],
+      "  SEVEN ",
+    );
+
+    expect(next).toMatchObject([
+      { user_id: "server-first" },
+      {
+        user_id: "followed-seven",
+        nickname: "小七",
+        followed_by_me: true,
+        follow_requested: false,
+      },
+    ]);
+  });
+
   it("loads and deduplicates the current server following pages as authoritative membership", async () => {
     request
       .mockResolvedValueOnce({
@@ -141,6 +163,12 @@ describe("native AddFriendView contracts", () => {
     });
   });
 
+  it("rejects a malformed search payload instead of presenting it as no matches", async () => {
+    request.mockResolvedValueOnce({ results: [{ user_id: "one", nickname: "小一" }] });
+
+    await expect(searchUsers("one")).rejects.toThrow("用户搜索响应格式无效");
+  });
+
   it("uses the exact encoded follow/unfollow methods and native fallback relationships", async () => {
     request.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
 
@@ -180,6 +208,24 @@ function user(change: Partial<SearchUser> = {}): SearchUser {
     relation: "none",
     followed_by_me: false,
     follow_requested: false,
+    ...change,
+  };
+}
+
+function followListUser(
+  change: Partial<import("@/models").FollowUser> = {},
+): import("@/models").FollowUser {
+  return {
+    user_id: "followed",
+    username: "followed",
+    nickname: "已关注用户",
+    avatar_url: "/followed.png",
+    bio: "",
+    following_count: 0,
+    follower_count: 0,
+    followed_by_me: true,
+    follows_me: false,
+    is_friend: false,
     ...change,
   };
 }

@@ -59,3 +59,36 @@ export function reconcileSearchUsersWithKnownFollowing(
       : user,
   );
 }
+
+export function mergeSearchUsersWithKnownFollowing(
+  users: readonly SearchUser[],
+  knownUsers: readonly FollowUser[],
+  query: string,
+): SearchUser[] {
+  const reconciled = reconcileSearchUsersWithKnownFollowing(users, knownUsers);
+  const seenUserIds = new Set(reconciled.map((user) => user.user_id));
+  const normalizedQuery = normalizedAddFriendQuery(query).toLocaleLowerCase();
+  if (!normalizedQuery) return reconciled;
+
+  const merged = [...reconciled];
+  for (const user of knownUsers) {
+    if (!user.followed_by_me || seenUserIds.has(user.user_id)) continue;
+    if (
+      ![user.user_id, user.username, user.nickname].some((value) =>
+        value.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    ) {
+      continue;
+    }
+    seenUserIds.add(user.user_id);
+    merged.push({
+      user_id: user.user_id,
+      nickname: user.nickname,
+      avatar_url: user.avatar_url,
+      relation: user.is_friend ? "friend" : "none",
+      followed_by_me: true,
+      follow_requested: false,
+    });
+  }
+  return merged;
+}

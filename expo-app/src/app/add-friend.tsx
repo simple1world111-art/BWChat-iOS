@@ -3,6 +3,7 @@ import { SymbolView } from "expo-symbols";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,9 +23,9 @@ import {
   acquireAddFriendOperation,
   addFriendPolicy,
   applyRelationshipToSearchUsers,
+  mergeSearchUsersWithKnownFollowing,
   normalizedAddFriendQuery,
   optimisticSearchUserFollow,
-  reconcileSearchUsersWithKnownFollowing,
   releaseAddFriendOperation,
   shouldFollowSearchUser,
 } from "@/services/friends/AddFriendPolicy";
@@ -44,6 +45,8 @@ export default function AddFriendScreen() {
   const [searchText, setSearchText] = useState("");
   const [results, setResults] = useState<SearchUser[]>([]);
   const [isSearching, setSearching] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [searchRetryRevision, setSearchRetryRevision] = useState(0);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(() => new Set());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const searchGenerationRef = useRef(0);
@@ -66,6 +69,8 @@ export default function AddFriendScreen() {
       setSearchText("");
       setResults([]);
       setSearching(false);
+      setSearchFailed(false);
+      setSearchRetryRevision(0);
       setUpdatingIds(new Set());
       setToastMessage(null);
     });
@@ -90,28 +95,38 @@ export default function AddFriendScreen() {
       )
         return;
       setSearching(true);
-      void Promise.all([
+      setSearchFailed(false);
+      void Promise.allSettled([
         searchUsers(keyword),
-        loadVerifiedCurrentFollowing(currentFollowingLoadRef).catch(() => []),
+        loadVerifiedCurrentFollowing(currentFollowingLoadRef),
       ])
-        .then(([users, currentFollowing]) =>
-          reconcileSearchResultsWithKnownFollowing(ownerId, users, currentFollowing),
+        .then(([searchResult, followingResult]) =>
+          reconcileSearchResultsWithKnownFollowing(
+            ownerId,
+            searchResult.status === "fulfilled" ? searchResult.value : [],
+            followingResult.status === "fulfilled" ? followingResult.value : [],
+            keyword,
+          ).then((users) => ({ searchResult, users })),
         )
-        .then((users) => {
+        .then(({ searchResult, users }) => {
           if (
             active &&
             accountGeneration === accountGenerationRef.current &&
             searchGeneration === searchGenerationRef.current
-          )
+          ) {
             setResults(users);
+            setSearchFailed(searchResult.status === "rejected" && users.length === 0);
+          }
         })
         .catch(() => {
           if (
             active &&
             accountGeneration === accountGenerationRef.current &&
             searchGeneration === searchGenerationRef.current
-          )
+          ) {
             setResults([]);
+            setSearchFailed(true);
+          }
         })
         .finally(() => {
           if (
@@ -126,7 +141,7 @@ export default function AddFriendScreen() {
       active = false;
       clearTimeout(timer);
     };
-  }, [ownerId, searchText]);
+  }, [ownerId, searchRetryRevision, searchText]);
 
   useEffect(
     () =>
@@ -141,6 +156,7 @@ export default function AddFriendScreen() {
     searchGenerationRef.current += 1;
     setSearchText(text);
     setSearching(false);
+    setSearchFailed(false);
     if (!normalizedAddFriendQuery(text)) {
       setResults([]);
     }
@@ -257,6 +273,7 @@ export default function AddFriendScreen() {
           placeholder={t("addFriend.search.placeholder")}
           placeholderTextColor={colors.secondaryText}
           returnKeyType="search"
+          onSubmitEditing={Keyboard.dismiss}
           style={styles.searchInput}
           value={searchText}
         />
@@ -273,16 +290,27 @@ export default function AddFriendScreen() {
         ) : null}
       </View>
 
-      <View style={styles.resultsArea}>
+      <Pressable
+        accessible={false}
+        onPress={Keyboard.dismiss}
+        style={styles.resultsArea}
+        testID="add-friend-results-area"
+      >
         {isSearching ? (
           <ActivityIndicator color={colors.accent} testID="add-friend-search-loading" />
+        ) : searchFailed ? (
+          <SearchErrorState retry={() => setSearchRetryRevision((current) => current + 1)} t={t} />
         ) : results.length === 0 ? (
           <SearchState
             icon={searchText.length > 0 ? "person.slash" : "magnifyingglass"}
             title={searchText.length > 0 ? t("addFriend.noResults") : t("addFriend.searchHint")}
           />
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.rows}>
               {results.map((user) => (
                 <View key={user.user_id}>
@@ -299,7 +327,7 @@ export default function AddFriendScreen() {
             </View>
           </ScrollView>
         )}
-      </View>
+      </Pressable>
 
       <TopToast message={toastMessage} onDismiss={dismissToast} />
     </View>
@@ -310,15 +338,18 @@ async function reconcileSearchResultsWithKnownFollowing(
   ownerId: string,
   users: readonly SearchUser[],
   currentFollowing: readonly FollowUser[],
+  query: string,
 ): Promise<SearchUser[]> {
-  const snapshots = await Promise.all([
+  const snapshots = await Promise.allSettled([
     readCachedFollowListSnapshot(ownerId, ownerId, "following"),
     readCachedFollowListSnapshot(ownerId, ownerId, "followers"),
   ]);
-  const knownUsers = snapshots.flatMap((snapshot) =>
-    snapshot && !snapshot.isStale ? snapshot.page.users : [],
+  const knownUsers = snapshots.flatMap((result) =>
+    result.status === "fulfilled" && result.value && !result.value.isStale
+      ? result.value.page.users
+      : [],
   );
-  return reconcileSearchUsersWithKnownFollowing(users, [...currentFollowing, ...knownUsers]);
+  return mergeSearchUsersWithKnownFollowing(users, [...currentFollowing, ...knownUsers], query);
 }
 
 function loadVerifiedCurrentFollowing(loadRef: {
@@ -338,6 +369,18 @@ function SearchState({ icon, title }: { icon: "magnifyingglass" | "person.slash"
     <View style={styles.state}>
       <SymbolView name={icon} size={36} tintColor={colors.tertiaryText} />
       <Text style={styles.stateText}>{title}</Text>
+    </View>
+  );
+}
+
+function SearchErrorState({ retry, t }: { retry: () => void; t: (key: string) => string }) {
+  return (
+    <View style={styles.state}>
+      <SymbolView name="wifi.slash" size={36} tintColor={colors.tertiaryText} />
+      <Text style={styles.stateText}>{t("friends.loadFailed")}</Text>
+      <Pressable accessibilityRole="button" onPress={retry} style={styles.retryButton}>
+        <Text style={styles.retryText}>{t("common.retry")}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -446,6 +489,15 @@ const styles = StyleSheet.create({
   resultsArea: { flex: 1, alignItems: "stretch", justifyContent: "center" },
   state: { alignItems: "center", rowGap: 12 },
   stateText: { color: colors.secondaryText, fontSize: 15 },
+  retryButton: {
+    minHeight: 36,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.accent,
+  },
+  retryText: { color: colors.white, fontSize: 14, fontWeight: "600" },
   rows: { paddingTop: 8 },
   userRow: {
     minHeight: 64,

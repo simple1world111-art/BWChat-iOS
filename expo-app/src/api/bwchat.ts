@@ -292,9 +292,12 @@ export async function searchUsers(keyword: string): Promise<SearchUser[]> {
     requiredData: true,
     requiredEnvelope: true,
   });
-  const users = isRecord(value) && Array.isArray(value.users) ? value.users : [];
+  if (!isRecord(value) || !Array.isArray(value.users)) {
+    throw new Error("用户搜索响应格式无效");
+  }
+  const users = value.users;
   const normalized = users.map(normalizeSearchUser).filter((user) => user.user_id.length > 0);
-  await cacheSearchUsers(normalized);
+  await cacheSearchUsers(normalized).catch(() => undefined);
   return normalized;
 }
 

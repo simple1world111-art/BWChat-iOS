@@ -1,5 +1,6 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { router } from "expo-router";
+import { Keyboard } from "react-native";
 
 import { followUser, getFollowing, searchUsers, unfollowUser } from "@/api/bwchat";
 import AddFriendScreen from "@/app/add-friend";
@@ -141,13 +142,48 @@ describe("Add Friend screen interactions", () => {
     expect(view.queryByText("过期结果")).toBeNull();
   });
 
-  it("silently maps a failed search to the native no-results state", async () => {
+  it("shows a retryable failure instead of misreporting a failed search as no matches", async () => {
     mockSearchUsers.mockRejectedValueOnce(new Error("network"));
     const view = await render(<AddFriendScreen />);
     await fireEvent.changeText(view.getByLabelText("addFriend.search.placeholder"), "missing");
     await advanceSearch();
-    expect(view.getByText("addFriend.noResults")).toBeTruthy();
+    expect(view.getByText("friends.loadFailed")).toBeTruthy();
+    expect(view.getByText("common.retry")).toBeTruthy();
+    expect(view.queryByText("addFriend.noResults")).toBeNull();
     expect(view.queryByLabelText("toast")).toBeNull();
+  });
+
+  it("restores a matching followed user omitted by the search endpoint", async () => {
+    mockSearchUsers.mockResolvedValueOnce([]);
+    mockGetFollowing.mockResolvedValueOnce({
+      users: [
+        followListUser("friend-7", true, {
+          username: "seven",
+          nickname: "小七",
+          avatar_url: "/seven.png",
+        }),
+      ],
+      has_more: false,
+    });
+    const view = await render(<AddFriendScreen />);
+    await fireEvent.changeText(view.getByLabelText("addFriend.search.placeholder"), "seven");
+    await advanceSearch();
+
+    expect(view.getByText("小七")).toBeTruthy();
+    expect(view.getByLabelText("follow.followingButton")).toBeTruthy();
+    expect(view.queryByText("addFriend.noResults")).toBeNull();
+  });
+
+  it("dismisses the keyboard from submit, blank-area taps and interactive result scrolling", async () => {
+    const dismiss = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+    const view = await render(<AddFriendScreen />);
+    const input = view.getByLabelText("addFriend.search.placeholder");
+
+    await fireEvent(input, "submitEditing");
+    await fireEvent.press(view.getByTestId("add-friend-results-area"));
+
+    expect(dismiss).toHaveBeenCalledTimes(2);
+    dismiss.mockRestore();
   });
 
   it("shows an already-followed search user from a fresh current-account list cache", async () => {
@@ -365,7 +401,11 @@ function searchUser(change: Partial<SearchUser> = {}): SearchUser {
   };
 }
 
-function followListUser(userId: string, followedByMe: boolean): FollowUser {
+function followListUser(
+  userId: string,
+  followedByMe: boolean,
+  change: Partial<FollowUser> = {},
+): FollowUser {
   return {
     user_id: userId,
     username: userId,
@@ -377,5 +417,6 @@ function followListUser(userId: string, followedByMe: boolean): FollowUser {
     followed_by_me: followedByMe,
     follows_me: true,
     is_friend: followedByMe,
+    ...change,
   };
 }
