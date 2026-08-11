@@ -14,13 +14,13 @@ export const agentCreatorPolicy = {
   referenceSymbolSize: 22,
   sectionHeaderSize: 14,
   errorSize: 13,
-  minimumReferenceShortSide: 512,
-  minimumReferenceRatio: 0.5,
-  maximumReferenceRatio: 2,
+  normalizationMinimumShortSide: 512,
+  normalizationMinimumRatio: 0.5,
+  normalizationMaximumRatio: 2,
   pickerJpegQuality: 0.92,
   uploadMaximumDimension: 1600,
   uploadInitialQuality: 0.82,
-  uploadMaximumBytes: 2_000_000,
+  uploadTargetBytes: 2_000_000,
   uploadTimeoutMilliseconds: 90_000,
   apiTimeoutMilliseconds: 30_000,
   defaultRequestTimeoutMilliseconds: 60_000,
@@ -56,6 +56,18 @@ export interface AgentCreatorValues {
   initiative: string;
   greeting: string;
   paidImages: boolean;
+}
+
+export interface AgentReferencePreview {
+  uri: string;
+  width: number;
+  height: number;
+}
+
+export interface AgentReferenceNormalizationGeometry {
+  crop: { originX: number; originY: number; width: number; height: number } | null;
+  width: number;
+  height: number;
 }
 
 export const defaultAgentCreatorValues: AgentCreatorValues = {
@@ -213,24 +225,95 @@ export function commaSeparated(value: string): string[] {
     .filter(Boolean);
 }
 
-export function validAgentReferenceDimensions(width: number, height: number): boolean {
-  if (!(width > 0) || !(height > 0)) return false;
-  const shortSide = Math.min(width, height);
-  const ratio = width / Math.max(height, 1);
-  return (
-    shortSide >= agentCreatorPolicy.minimumReferenceShortSide &&
-    ratio >= agentCreatorPolicy.minimumReferenceRatio &&
-    ratio <= agentCreatorPolicy.maximumReferenceRatio
-  );
+export function agentReferenceNormalizationGeometry(
+  width: number,
+  height: number,
+): AgentReferenceNormalizationGeometry {
+  if (!(width > 0) || !(height > 0)) throw new Error("无法识别图片尺寸");
+  const sourceWidth = Math.max(1, Math.round(width));
+  const sourceHeight = Math.max(1, Math.round(height));
+  const ratio = sourceWidth / sourceHeight;
+  let cropWidth = sourceWidth;
+  let cropHeight = sourceHeight;
+
+  if (ratio > agentCreatorPolicy.normalizationMaximumRatio) {
+    cropWidth = Math.max(
+      1,
+      Math.floor(sourceHeight * agentCreatorPolicy.normalizationMaximumRatio),
+    );
+  } else if (ratio < agentCreatorPolicy.normalizationMinimumRatio) {
+    cropHeight = Math.max(
+      1,
+      Math.floor(sourceWidth / agentCreatorPolicy.normalizationMinimumRatio),
+    );
+  }
+
+  const crop =
+    cropWidth === sourceWidth && cropHeight === sourceHeight
+      ? null
+      : {
+          originX: Math.floor((sourceWidth - cropWidth) / 2),
+          originY: Math.floor((sourceHeight - cropHeight) / 2),
+          width: cropWidth,
+          height: cropHeight,
+        };
+  const shortSide = Math.min(cropWidth, cropHeight);
+  const longSide = Math.max(cropWidth, cropHeight);
+  const scale =
+    shortSide < agentCreatorPolicy.normalizationMinimumShortSide
+      ? agentCreatorPolicy.normalizationMinimumShortSide / shortSide
+      : longSide > agentCreatorPolicy.uploadMaximumDimension
+        ? agentCreatorPolicy.uploadMaximumDimension / longSide
+        : 1;
+
+  return {
+    crop,
+    width: Math.max(1, Math.round(cropWidth * scale)),
+    height: Math.max(1, Math.round(cropHeight * scale)),
+  };
 }
 
-export async function makeAgentReferencePreview(uri: string): Promise<string> {
-  return (
-    await ImageManipulator.manipulateAsync(uri, [], {
+export async function makeAgentReferencePreview(
+  uri: string,
+  width: number,
+  height: number,
+): Promise<AgentReferencePreview> {
+  let sourceUri = uri;
+  let sourceWidth = width;
+  let sourceHeight = height;
+  let inspectedUri: string | null = null;
+  let preparedUri: string | null = null;
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) {
+    const inspected = await ImageManipulator.manipulateAsync(uri, [], {
+      compress: 1,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+    sourceUri = inspected.uri;
+    sourceWidth = inspected.width;
+    sourceHeight = inspected.height;
+    inspectedUri = inspected.uri;
+  }
+
+  try {
+    const geometry = agentReferenceNormalizationGeometry(sourceWidth, sourceHeight);
+    const actions: ImageManipulator.Action[] = [];
+    if (geometry.crop) actions.push({ crop: geometry.crop });
+    const croppedWidth = geometry.crop?.width ?? Math.round(sourceWidth);
+    const croppedHeight = geometry.crop?.height ?? Math.round(sourceHeight);
+    if (geometry.width !== croppedWidth || geometry.height !== croppedHeight) {
+      actions.push({ resize: { width: geometry.width } });
+    }
+    const prepared = await ImageManipulator.manipulateAsync(sourceUri, actions, {
       compress: agentCreatorPolicy.pickerJpegQuality,
       format: ImageManipulator.SaveFormat.JPEG,
-    })
-  ).uri;
+    });
+    preparedUri = prepared.uri;
+    return { uri: prepared.uri, width: prepared.width, height: prepared.height };
+  } finally {
+    if (inspectedUri && inspectedUri !== preparedUri) {
+      removeAgentCreatorTemporaryFile(inspectedUri);
+    }
+  }
 }
 
 export async function prepareAgentReferenceForUpload(
@@ -240,7 +323,7 @@ export async function prepareAgentReferenceForUpload(
 ): Promise<string> {
   if (
     Math.max(width, height) <= agentCreatorPolicy.uploadMaximumDimension &&
-    agentReferenceFileSize(uri) <= agentCreatorPolicy.uploadMaximumBytes
+    agentReferenceFileSize(uri) <= agentCreatorPolicy.uploadTargetBytes
   ) {
     return uri;
   }
@@ -267,11 +350,13 @@ export async function prepareAgentReferenceForUpload(
           removeAgentCreatorTemporaryFile(bestUri);
         }
         bestUri = prepared.uri;
-        if (agentReferenceFileSize(prepared.uri) <= agentCreatorPolicy.uploadMaximumBytes) {
+        if (agentReferenceFileSize(prepared.uri) <= agentCreatorPolicy.uploadTargetBytes) {
           return prepared.uri;
         }
       }
     }
+    // The byte target is a network optimization, never an upload restriction.
+    // If every candidate remains above it, upload the smallest prepared image.
     if (!bestUri) throw new Error("图片处理失败");
     return bestUri;
   } catch (error) {

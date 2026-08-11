@@ -39,7 +39,6 @@ import {
   defaultAgentCreatorValues,
   makeAgentReferencePreview,
   removeAgentCreatorTemporaryFile,
-  validAgentReferenceDimensions,
   type AgentCreatorValues,
 } from "@/services/agents/agentCreatorPolicy";
 import {
@@ -273,18 +272,14 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
       });
       const asset = result.canceled ? undefined : result.assets[0];
       if (!isActive() || !asset) return;
-      if (!validAgentReferenceDimensions(asset.width, asset.height)) {
-        setReferenceErrorMessage("参考图短边至少 512 像素，宽高比需在 1:2 到 2:1 之间");
-        return;
-      }
       // Show the picker result immediately. JPEG normalization can take a few
       // seconds for a large or iCloud-backed photo and must not leave the row
       // looking as if the selection was ignored.
       setPendingReferenceUri(asset.uri);
       setReferenceErrorMessage(null);
-      const uri = await makeAgentReferencePreview(asset.uri);
+      const preview = await makeAgentReferencePreview(asset.uri, asset.width, asset.height);
       if (!isActive()) {
-        removeAgentCreatorTemporaryFile(uri);
+        removeAgentCreatorTemporaryFile(preview.uri);
         return;
       }
       idempotencyKeysRef.current = {
@@ -292,7 +287,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
         upload: randomUUID(),
         ...(transactionCheckpointRef.current?.draft ? { publish: randomUUID() } : {}),
       };
-      setSelectedReference({ uri, width: asset.width, height: asset.height });
+      setSelectedReference(preview);
       setPendingReferenceUri(null);
       setErrorMessage(null);
     } catch {
@@ -435,7 +430,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
         >
           <FormSection title="视觉形象" styles={styles}>
             <Pressable
-              accessibilityHint="短边至少 512 像素，宽高比 1:2 到 2:1"
+              accessibilityHint="支持任意尺寸与比例，将自动裁剪适配"
               accessibilityLabel={showsEditingPresentation ? "更换主参考图" : "上传主参考图"}
               accessibilityRole="button"
               accessibilityState={{
@@ -475,7 +470,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
                   accessibilityLiveRegion={referenceErrorMessage ? "assertive" : "polite"}
                   style={referenceErrorMessage ? styles.referenceError : styles.referenceDetail}
                 >
-                  {referenceErrorMessage ?? "短边至少 512 像素，宽高比 1:2 到 2:1"}
+                  {referenceErrorMessage ?? "支持任意尺寸与比例，将自动裁剪适配"}
                 </Text>
               </View>
               {isLoadingReference ? <ActivityIndicator color={theme.secondaryText} /> : null}

@@ -179,7 +179,7 @@ export async function executeAgentCreatorTransaction(
     assertActive(input);
   } else {
     if (!referenceAssetId || !avatarAssetId) {
-      throw new Error("请先选择符合要求的主参考图");
+      throw new Error("请先选择主参考图");
     }
     assertActive(input);
     draft = await dependencies.create(

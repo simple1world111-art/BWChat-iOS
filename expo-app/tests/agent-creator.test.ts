@@ -28,6 +28,7 @@ import {
   agentCreatorValues,
   agentPatchPayload,
   agentReferenceCompressionPolicy,
+  agentReferenceNormalizationGeometry,
   canSaveAgent,
   commaSeparated,
   createAgentPayload,
@@ -35,7 +36,6 @@ import {
   makeAgentReferencePreview,
   prepareAgentReferenceForUpload,
   removeAgentCreatorTemporaryFile,
-  validAgentReferenceDimensions,
 } from "@/services/agents/agentCreatorPolicy";
 
 const mockAgentReferenceFileSizes = new Map<string, number | null>();
@@ -70,7 +70,7 @@ describe("native AgentCreatorView contracts", () => {
     mockDeletedAgentReferenceFiles.length = 0;
   });
 
-  it("keeps reference-image geometry, validation, compression and upload constants", () => {
+  it("keeps reference-image normalization, compression and upload constants", () => {
     expect(agentCreatorPolicy).toMatchObject({
       referenceSize: 64,
       referenceRadius: 12,
@@ -82,13 +82,13 @@ describe("native AgentCreatorView contracts", () => {
       referenceSymbolSize: 22,
       sectionHeaderSize: 14,
       errorSize: 13,
-      minimumReferenceShortSide: 512,
-      minimumReferenceRatio: 0.5,
-      maximumReferenceRatio: 2,
+      normalizationMinimumShortSide: 512,
+      normalizationMinimumRatio: 0.5,
+      normalizationMaximumRatio: 2,
       pickerJpegQuality: 0.92,
       uploadMaximumDimension: 1600,
       uploadInitialQuality: 0.82,
-      uploadMaximumBytes: 2_000_000,
+      uploadTargetBytes: 2_000_000,
       uploadTimeoutMilliseconds: 90_000,
       apiTimeoutMilliseconds: 30_000,
       defaultRequestTimeoutMilliseconds: 60_000,
@@ -101,25 +101,67 @@ describe("native AgentCreatorView contracts", () => {
       dimensions: [1600, 1200, 900, 675, 640],
       qualities: [0.82, 0.65, 0.55, 0.45, 0.35],
     });
-    expect(validAgentReferenceDimensions(512, 1024)).toBe(true);
-    expect(validAgentReferenceDimensions(1024, 512)).toBe(true);
-    expect(validAgentReferenceDimensions(511, 1024)).toBe(false);
-    expect(validAgentReferenceDimensions(512, 1025)).toBe(false);
+    expect(agentReferenceNormalizationGeometry(4_000, 500)).toEqual({
+      crop: { originX: 1_500, originY: 0, width: 1_000, height: 500 },
+      width: 1_024,
+      height: 512,
+    });
+    expect(agentReferenceNormalizationGeometry(400, 4_000)).toEqual({
+      crop: { originX: 0, originY: 1_600, width: 400, height: 800 },
+      width: 512,
+      height: 1_024,
+    });
+    expect(agentReferenceNormalizationGeometry(120, 80)).toEqual({
+      crop: null,
+      width: 768,
+      height: 512,
+    });
+    expect(agentReferenceNormalizationGeometry(4_000, 3_000)).toEqual({
+      crop: null,
+      width: 1_600,
+      height: 1_200,
+    });
   });
 
-  it("normalizes the picker image to the native 0.92 JPEG preview", async () => {
+  it("accepts an extreme picker ratio and crops it to a normalized JPEG preview", async () => {
     jest.mocked(ImageManipulator.manipulateAsync).mockResolvedValueOnce({
       uri: "file:///preview.jpg",
-      width: 1_200,
-      height: 900,
+      width: 1_024,
+      height: 512,
     });
-    await expect(makeAgentReferencePreview("file:///picker.heic")).resolves.toBe(
-      "file:///preview.jpg",
+    await expect(makeAgentReferencePreview("file:///picker.heic", 4_000, 500)).resolves.toEqual({
+      uri: "file:///preview.jpg",
+      width: 1_024,
+      height: 512,
+    });
+    expect(ImageManipulator.manipulateAsync).toHaveBeenCalledWith(
+      "file:///picker.heic",
+      [
+        { crop: { originX: 1_500, originY: 0, width: 1_000, height: 500 } },
+        { resize: { width: 1_024 } },
+      ],
+      { compress: 0.92, format: "jpeg" },
     );
-    expect(ImageManipulator.manipulateAsync).toHaveBeenCalledWith("file:///picker.heic", [], {
-      compress: 0.92,
-      format: "jpeg",
+  });
+
+  it("reads missing picker dimensions instead of rejecting the selected image", async () => {
+    jest
+      .mocked(ImageManipulator.manipulateAsync)
+      .mockResolvedValueOnce({ uri: "file:///inspected.jpg", width: 100, height: 1_000 })
+      .mockResolvedValueOnce({ uri: "file:///preview.jpg", width: 512, height: 1_024 });
+
+    await expect(makeAgentReferencePreview("file:///picker.jpg", 0, 0)).resolves.toEqual({
+      uri: "file:///preview.jpg",
+      width: 512,
+      height: 1_024,
     });
+    expect(ImageManipulator.manipulateAsync).toHaveBeenNthCalledWith(
+      2,
+      "file:///inspected.jpg",
+      [{ crop: { originX: 0, originY: 400, width: 100, height: 200 } }, { resize: { width: 512 } }],
+      { compress: 0.92, format: "jpeg" },
+    );
+    expect(mockDeletedAgentReferenceFiles).toContain("file:///inspected.jpg");
   });
 
   it("keeps an eligible prepared JPEG and otherwise follows the native resize/quality ladder", async () => {
@@ -154,7 +196,7 @@ describe("native AgentCreatorView contracts", () => {
     );
   });
 
-  it("falls through all 1600/1200/900/675/640 JPEG candidates when the byte cap is unmet", async () => {
+  it("still returns an upload candidate when every JPEG remains above the byte target", async () => {
     mockAgentReferenceFileSizes.set("file:///large.jpg", 4_000_000);
     const candidates = Array.from({ length: 25 }, (_, index) => `file:///candidate-${index}.jpg`);
     for (const uri of candidates) mockAgentReferenceFileSizes.set(uri, 2_100_000);

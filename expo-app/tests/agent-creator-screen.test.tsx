@@ -118,7 +118,11 @@ describe("AgentCreator screen account and interaction parity", () => {
       canceled: false,
       assets: [{ uri: "file:///picker.jpg", width: 1_200, height: 900 }],
     });
-    mockMakePreview.mockResolvedValue("file:///agent-preview.jpg");
+    mockMakePreview.mockResolvedValue({
+      uri: "file:///agent-preview.jpg",
+      width: 1_200,
+      height: 900,
+    });
     mockExecuteTransaction.mockResolvedValue({
       installed: agent("installed-agent", "已安装智能体"),
       createdNewAgent: true,
@@ -145,8 +149,16 @@ describe("AgentCreator screen account and interaction parity", () => {
 
   it("cleans only generated previews when replacing an image and leaving the screen", async () => {
     mockMakePreview
-      .mockResolvedValueOnce("file:///generated-preview-a.jpg")
-      .mockResolvedValueOnce("file:///generated-preview-b.jpg");
+      .mockResolvedValueOnce({
+        uri: "file:///generated-preview-a.jpg",
+        width: 1_200,
+        height: 900,
+      })
+      .mockResolvedValueOnce({
+        uri: "file:///generated-preview-b.jpg",
+        width: 1_200,
+        height: 900,
+      });
     const view = await render(<AgentCreatorScreen />);
 
     await fireEvent.press(screen.getByLabelText("上传主参考图"));
@@ -167,7 +179,7 @@ describe("AgentCreator screen account and interaction parity", () => {
   });
 
   it("shows the picked image immediately while its JPEG preview is still being prepared", async () => {
-    const preview = deferred<string>();
+    const preview = deferred<{ uri: string; width: number; height: number }>();
     mockMakePreview.mockReturnValueOnce(preview.promise);
     await render(<AgentCreatorScreen />);
 
@@ -181,7 +193,7 @@ describe("AgentCreator screen account and interaction parity", () => {
     expect(screen.getByText("正在处理图片…")).toBeTruthy();
 
     await act(async () => {
-      preview.resolve("file:///agent-preview.jpg");
+      preview.resolve({ uri: "file:///agent-preview.jpg", width: 1_200, height: 900 });
       await preview.promise;
     });
 
@@ -194,8 +206,29 @@ describe("AgentCreator screen account and interaction parity", () => {
     expect(screen.getByText("已选择主参考图")).toBeTruthy();
   });
 
+  it("does not reject a small or extreme-ratio picker image before normalization", async () => {
+    mockLaunchImageLibrary.mockResolvedValueOnce({
+      canceled: false,
+      assets: [{ uri: "file:///very-tall.jpg", width: 100, height: 4_000 }],
+    });
+    mockMakePreview.mockResolvedValueOnce({
+      uri: "file:///normalized.jpg",
+      width: 512,
+      height: 1_024,
+    });
+    await render(<AgentCreatorScreen />);
+
+    await fireEvent.press(screen.getByLabelText("上传主参考图"));
+
+    await waitFor(() =>
+      expect(mockMakePreview).toHaveBeenCalledWith("file:///very-tall.jpg", 100, 4_000),
+    );
+    expect(screen.queryByText(/短边至少|宽高比需在/u)).toBeNull();
+    expect(screen.getByText("已选择主参考图")).toBeTruthy();
+  });
+
   it("disposes a generated preview that returns after an account switch", async () => {
-    const preview = deferred<string>();
+    const preview = deferred<{ uri: string; width: number; height: number }>();
     mockMakePreview.mockReturnValueOnce(preview.promise);
     const view = await render(<AgentCreatorScreen />);
     await fireEvent.press(screen.getByLabelText("上传主参考图"));
@@ -207,7 +240,7 @@ describe("AgentCreator screen account and interaction parity", () => {
       await Promise.resolve();
     });
     await act(async () => {
-      preview.resolve("file:///late-generated-preview.jpg");
+      preview.resolve({ uri: "file:///late-generated-preview.jpg", width: 1_200, height: 900 });
       await preview.promise;
       await Promise.resolve();
       await Promise.resolve();

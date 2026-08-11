@@ -171,10 +171,22 @@ describe("AgentCreatorView source parity", () => {
     const policy = sourceExpo("src/services/agents/agentCreatorPolicy.ts");
     const transaction = sourceExpo("src/services/agents/AgentCreatorTransaction.ts");
     expect(page).toContain("removeAgentCreatorTemporaryFile(temporaryReferenceUri)");
-    expect(page).toContain("removeAgentCreatorTemporaryFile(uri)");
+    expect(page).toContain("removeAgentCreatorTemporaryFile(preview.uri)");
     expect(policy).toContain("if (file.exists) file.delete()");
     expect(transaction).toContain("preparedUri !== input.selectedReference.uri");
     expect(transaction).toContain("dependencies.disposePreparedReference?.(preparedUri)");
+  });
+
+  it("accepts every picked image and normalizes it without a user-facing dimension gate", () => {
+    const page = sourceExpo("src/app/agent-creator.tsx");
+    const policy = sourceExpo("src/services/agents/agentCreatorPolicy.ts");
+    expect(page).not.toContain("validAgentReferenceDimensions");
+    expect(page).not.toContain("参考图短边至少");
+    expect(page).toContain("支持任意尺寸与比例，将自动裁剪适配");
+    expect(policy).toContain("agentReferenceNormalizationGeometry");
+    expect(policy).toContain(
+      "The byte target is a network optimization, never an upload restriction",
+    );
   });
 
   it("retains keys for an unchanged retry and rotates only newly changed upload/publish work", () => {

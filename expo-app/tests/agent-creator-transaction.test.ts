@@ -193,7 +193,7 @@ describe("AgentCreator native save transaction", () => {
         },
         dependencies,
       ),
-    ).rejects.toThrow("请先选择符合要求的主参考图");
+    ).rejects.toThrow("请先选择主参考图");
     expect(calls).toEqual([]);
   });
 
