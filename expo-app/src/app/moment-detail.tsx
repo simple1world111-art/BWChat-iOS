@@ -286,6 +286,7 @@ function MomentDetailAccountScreen({
             onLike={() => void toggleLike()}
             onMedia={setMediaSelection}
             onUnlock={() => void performUnlock()}
+            showsAllComments
             viewerId={ownerId}
           />
         </ScrollView>

@@ -53,6 +53,7 @@ import {
   momentCommentContextActions,
   momentCommentContextUserId,
 } from "@/services/moments/MomentCommentContextPolicy";
+import { momentMediaFeedDisplayUrl } from "@/services/moments/MomentMediaPolicy";
 import {
   readNavigationSnapshot,
   writeNavigationSnapshot,
@@ -752,6 +753,7 @@ export function MomentRow({
   onComment,
   onDelete,
   onUnlock,
+  showsAllComments = false,
 }: {
   moment: Moment;
   viewerId: string;
@@ -760,6 +762,7 @@ export function MomentRow({
   onComment: (target: MomentCommentTarget) => void;
   onDelete?: (() => void) | undefined;
   onUnlock: () => void;
+  showsAllComments?: boolean | undefined;
 }) {
   const { t } = useLocalization();
   const [showsActions, setShowsActions] = useState(false);
@@ -866,7 +869,12 @@ export function MomentRow({
             </View>
           </View>
         ) : null}
-        <MomentSocial moment={moment} onComment={onComment} onMedia={onMedia} />
+        <MomentSocial
+          moment={moment}
+          onComment={onComment}
+          onMedia={onMedia}
+          showsAllComments={showsAllComments}
+        />
       </View>
     </View>
   );
@@ -949,11 +957,7 @@ function MomentMediaTile({
   onOpen: (selection: MediaSelection) => void;
 }) {
   const { t } = useLocalization();
-  const displayUrl = locked
-    ? item.locked_preview_url || item.thumbnail_url || item.url
-    : item.type === "video"
-      ? item.thumbnail_url || item.url
-      : item.url || item.thumbnail_url || item.locked_preview_url || "";
+  const displayUrl = momentMediaFeedDisplayUrl(item, locked);
   const resolvedUrl = resolveMediaUrl(displayUrl, env.apiBaseUrl);
   const cornerRadius = columns === 1 ? 6 : 8;
   const containerStyle = { width: cell, height: cell };
@@ -1037,27 +1041,45 @@ function MomentSocial({
   moment,
   onComment,
   onMedia,
+  showsAllComments,
 }: {
   moment: Moment;
   onComment: (target: MomentCommentTarget) => void;
   onMedia: (selection: MediaSelection) => void;
+  showsAllComments: boolean;
 }) {
   const { t } = useLocalization();
   if (moment.likes.length === 0 && moment.comments.length === 0) return null;
+  const visibleLikes = moment.likes.slice(0, 8);
+  const remainingLikes = moment.likes.length - visibleLikes.length;
+  const visibleComments = showsAllComments ? moment.comments : moment.comments.slice(-2);
   return (
     <View style={styles.socialBox}>
       {moment.likes.length > 0 ? (
         <View style={styles.likesRow}>
           <SymbolView name="heart.fill" size={11} tintColor="#576B95" />
           <Text numberOfLines={2} style={styles.likesText}>
-            {moment.likes.map((item) => item.nickname).join(", ")}
+            {visibleLikes.map((item) => item.nickname).join(", ")}
+            {remainingLikes > 0 ? ` +${remainingLikes}` : ""}
           </Text>
         </View>
       ) : null}
       {moment.likes.length > 0 && moment.comments.length > 0 ? (
         <View style={styles.socialDivider} />
       ) : null}
-      {moment.comments.map((comment) => (
+      {!showsAllComments && moment.comments.length > visibleComments.length ? (
+        <Pressable
+          onPress={() =>
+            router.push({ pathname: "/moment-detail", params: { momentId: String(moment.id) } })
+          }
+          style={styles.moreComments}
+        >
+          <Text style={styles.moreCommentsText}>
+            {t("moments.comment")} · {moment.comments.length}
+          </Text>
+        </Pressable>
+      ) : null}
+      {visibleComments.map((comment) => (
         <View key={comment.id} style={styles.commentRow}>
           <MenuView
             actions={momentCommentContextActions(comment, t)}
@@ -1622,6 +1644,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.separator,
   },
   commentRow: { paddingHorizontal: 9, paddingVertical: 6, rowGap: 2 },
+  moreComments: { paddingHorizontal: 9, paddingTop: 7, paddingBottom: 3 },
+  moreCommentsText: { color: colors.secondaryText, fontSize: 12, fontWeight: "500" },
   commentText: { color: colors.text, fontSize: 13, lineHeight: 18 },
   commentName: { color: "#576B95", fontSize: 13, fontWeight: "600" },
   commentSeparator: { color: colors.secondaryText, fontSize: 13 },

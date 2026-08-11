@@ -3,8 +3,10 @@ import path from "node:path";
 
 import {
   aspectFitRect,
+  clampGalleryOffset,
   dedupeGalleryUrls,
   galleryDismissDecision,
+  galleryPanBounds,
   GALLERY_DISMISS_DISTANCE,
   GALLERY_DOUBLE_TAP_SCALE,
   GALLERY_FLICK_VELOCITY,
@@ -16,6 +18,7 @@ import {
   GALLERY_VISUAL_DEAD_ZONE,
   initialGalleryIndex,
   prependUniqueGalleryUrls,
+  rubberBandGalleryOffset,
   shouldLoadGalleryPage,
 } from "@/components/media/imageGalleryMath";
 
@@ -66,6 +69,16 @@ describe("native image gallery contracts", () => {
     expect(
       aspectFitRect({ width: 200, height: 100 }, { x: 10, y: 20, width: 100, height: 100 }),
     ).toEqual({ x: 10, y: 45, width: 100, height: 50 });
+  });
+
+  it("bounds zoomed image movement using the visible aspect-fit rect", () => {
+    const fitted = { x: 0, y: 250, width: 390, height: 300 };
+    expect(galleryPanBounds(fitted, { width: 390, height: 800 }, 1)).toEqual({ x: 0, y: 0 });
+    expect(galleryPanBounds(fitted, { width: 390, height: 800 }, 3)).toEqual({ x: 390, y: 50 });
+    expect(clampGalleryOffset(430, 390)).toBe(390);
+    expect(clampGalleryOffset(-430, 390)).toBe(-390);
+    expect(rubberBandGalleryOffset(430, 390)).toBeCloseTo(402.8);
+    expect(rubberBandGalleryOffset(-430, 390)).toBeCloseTo(-402.8);
   });
 
   it("prepends only stable unique older URLs without remounting existing URL identities", () => {

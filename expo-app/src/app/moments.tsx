@@ -7,7 +7,7 @@ import {
 } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -17,6 +17,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ViewToken,
 } from "react-native";
 import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 
@@ -42,6 +43,7 @@ import {
   type MediaSelection,
   type MomentCommentTarget,
 } from "@/components/profile/PublicProfileContent";
+import { prefetchGalleryImage } from "@/components/media/ImageGallery";
 import {
   MomentCommentComposer,
   type PreparedMomentCommentImage,
@@ -73,6 +75,7 @@ import {
   publishMomentMutation,
   subscribeMomentMutation,
 } from "@/services/moments/MomentMutationStore";
+import { momentFeedPreviewUrls } from "@/services/moments/MomentMediaPolicy";
 import { markMomentsNotificationsReadEverywhere } from "@/services/moments/MomentsReadService";
 import {
   captureMomentsUnreadRefresh,
@@ -143,6 +146,71 @@ const restoredFeedSnapshot = (state: FeedState): FeedState => {
   return { ...restored, isLoading: !restored.hasResolved };
 };
 
+interface MomentFeedItemProps {
+  moment: Moment;
+  ownerId: string;
+  uploadStatus?: MomentUploadStatus | undefined;
+  onComment: (momentId: number, target: MomentCommentTarget) => void;
+  onDelete: (momentId: number) => void;
+  onLike: (moment: Moment) => void;
+  onMedia: (selection: MediaSelection) => void;
+  onRetry: (clientRequestId: string) => void;
+  onUnlock: (moment: Moment) => void;
+}
+
+const MomentFeedItem = memo(function MomentFeedItem({
+  moment,
+  ownerId,
+  uploadStatus,
+  onComment,
+  onDelete,
+  onLike,
+  onMedia,
+  onRetry,
+  onUnlock,
+}: MomentFeedItemProps) {
+  const { t } = useLocalization();
+  const isPending = isPendingMomentUpload(moment);
+  const requestId = isPending ? moment.client_request_id : undefined;
+  const canRetry = uploadStatus?.state === "failed";
+  return (
+    <View>
+      <MomentRow
+        moment={moment}
+        onComment={(target) => {
+          if (!isPending) onComment(moment.id, target);
+        }}
+        onDelete={() => onDelete(moment.id)}
+        onLike={() => onLike(moment)}
+        onMedia={onMedia}
+        onUnlock={() => {
+          if (!isPending) onUnlock(moment);
+        }}
+        viewerId={ownerId}
+      />
+      {requestId ? (
+        canRetry ? (
+          <Pressable onPress={() => onRetry(requestId)} style={styles.uploadStatus}>
+            <SymbolView name="exclamationmark.circle.fill" size={12} tintColor={colors.danger} />
+            <Text style={styles.uploadRetryText}>{t("common.retry")}</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.uploadStatus}>
+            <ActivityIndicator color={colors.secondaryText} size="small" />
+            <Text style={styles.uploadPendingText}>{t("common.uploading")}</Text>
+          </View>
+        )
+      ) : null}
+    </View>
+  );
+});
+
+function MomentSeparator() {
+  return <View style={styles.divider} />;
+}
+
+const momentKeyExtractor = (item: Moment) => String(item.id);
+
 export default function MomentsScreen() {
   const params = useLocalSearchParams<{ mode?: string }>();
   const { user } = useAuth();
@@ -180,6 +248,8 @@ function MomentsAccountScreen({
   const [selectedTab, setSelectedTab] = useState<MomentFeedTab>(
     navigationSnapshot?.selectedTab ?? "recommended",
   );
+  const selectedTabRef = useRef(selectedTab);
+  selectedTabRef.current = selectedTab;
   const [feeds, setFeedsState] = useState<Record<MomentFeedTab, FeedState>>(() =>
     navigationSnapshot
       ? {
@@ -207,6 +277,8 @@ function MomentsAccountScreen({
   const [uploadStatuses, setUploadStatuses] = useState<Record<string, MomentUploadStatus>>({});
   const unlockKeysRef = useRef(new Map<string, string>());
   const didBeginScrollingRef = useRef(false);
+  const prefetchedPreviewUrlsRef = useRef(new Set<string>());
+  const prefetchQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     activeRef.current = true;
@@ -456,24 +528,27 @@ function MomentsAccountScreen({
     [ownerId, persistTab, setFeeds],
   );
 
-  const handleLike = async (moment: Moment) => {
-    if (isPendingMomentUpload(moment)) return;
-    try {
-      const liked = await toggleMomentLike(moment.id);
-      if (!activeRef.current) return;
-      const likes = moment.likes.filter((item) => item.user_id !== ownerId);
-      if (liked) {
-        likes.push({
-          user_id: ownerId,
-          nickname: viewerNickname,
-          avatar_url: viewerAvatarUrl,
-        });
+  const handleLike = useCallback(
+    async (moment: Moment) => {
+      if (isPendingMomentUpload(moment)) return;
+      try {
+        const liked = await toggleMomentLike(moment.id);
+        if (!activeRef.current) return;
+        const likes = moment.likes.filter((item) => item.user_id !== ownerId);
+        if (liked) {
+          likes.push({
+            user_id: ownerId,
+            nickname: viewerNickname,
+            avatar_url: viewerAvatarUrl,
+          });
+        }
+        await mutateMomentEverywhere({ ...moment, liked_by_me: liked, likes });
+      } catch (error) {
+        if (activeRef.current) setToastMessage(errorMessage(error));
       }
-      await mutateMomentEverywhere({ ...moment, liked_by_me: liked, likes });
-    } catch (error) {
-      if (activeRef.current) setToastMessage(errorMessage(error));
-    }
-  };
+    },
+    [mutateMomentEverywhere, ownerId, viewerAvatarUrl, viewerNickname],
+  );
 
   const handleComment = async (
     text: string,
@@ -500,65 +575,143 @@ function MomentsAccountScreen({
     }
   };
 
-  const handleDelete = async (momentId: number) => {
-    const pending = findMoment(feedsRef.current, momentId);
-    if (pending && isPendingMomentUpload(pending) && pending.client_request_id) {
-      await cancelMomentUpload(pending.client_request_id);
-      return;
-    }
-    try {
-      await deleteMoment(momentId);
-      if (!activeRef.current) return;
-      setFeeds((current) => ({
-        recommended: {
-          ...current.recommended,
-          moments: current.recommended.moments.filter((item) => item.id !== momentId),
-        },
-        following: {
-          ...current.following,
-          moments: current.following.moments.filter((item) => item.id !== momentId),
-        },
-      }));
-      publishMomentMutation(ownerId, { kind: "delete", momentId });
-    } catch (error) {
-      if (activeRef.current) setToastMessage(errorMessage(error));
-    }
-  };
+  const handleDelete = useCallback(
+    async (momentId: number) => {
+      const pending = findMoment(feedsRef.current, momentId);
+      if (pending && isPendingMomentUpload(pending) && pending.client_request_id) {
+        await cancelMomentUpload(pending.client_request_id);
+        return;
+      }
+      try {
+        await deleteMoment(momentId);
+        if (!activeRef.current) return;
+        setFeeds((current) => ({
+          recommended: {
+            ...current.recommended,
+            moments: current.recommended.moments.filter((item) => item.id !== momentId),
+          },
+          following: {
+            ...current.following,
+            moments: current.following.moments.filter((item) => item.id !== momentId),
+          },
+        }));
+        publishMomentMutation(ownerId, { kind: "delete", momentId });
+      } catch (error) {
+        if (activeRef.current) setToastMessage(errorMessage(error));
+      }
+    },
+    [ownerId, setFeeds],
+  );
 
-  const handleUnlock = async (moment: Moment) => {
-    if (moment.is_unlocked) return;
-    const mediaType = moment.media[0]?.type === "video" ? "video" : "image";
-    const scope = `${moment.id}|auto:${
-      mediaType === "video" ? "media_unlock_card_video" : "media_unlock_card_image"
-    }`;
-    const key = unlockKeysRef.current.get(scope) ?? createIdempotencyKey();
-    unlockKeysRef.current.set(scope, key);
-    try {
-      const result = await unlockMoment(moment.id, mediaType, key);
-      if (!activeRef.current) return;
-      unlockKeysRef.current.delete(scope);
-      const unlockedMoment = result.moment ?? (await getMomentDetail(moment.id));
-      if (!activeRef.current) return;
-      await mutateMomentEverywhere(unlockedMoment);
-      if (!activeRef.current) return;
-      if (result.charge) {
-        await applyBalance(result.charge.wallet_balance);
-      } else if (!result.already_unlocked && !result.consumed_prop) {
-        await refreshBalance(true);
+  const handleUnlock = useCallback(
+    async (moment: Moment) => {
+      if (moment.is_unlocked) return;
+      const mediaType = moment.media[0]?.type === "video" ? "video" : "image";
+      const scope = `${moment.id}|auto:${
+        mediaType === "video" ? "media_unlock_card_video" : "media_unlock_card_image"
+      }`;
+      const key = unlockKeysRef.current.get(scope) ?? createIdempotencyKey();
+      unlockKeysRef.current.set(scope, key);
+      try {
+        const result = await unlockMoment(moment.id, mediaType, key);
+        if (!activeRef.current) return;
+        unlockKeysRef.current.delete(scope);
+        const unlockedMoment = result.moment ?? (await getMomentDetail(moment.id));
+        if (!activeRef.current) return;
+        await mutateMomentEverywhere(unlockedMoment);
+        if (!activeRef.current) return;
+        if (result.charge) {
+          await applyBalance(result.charge.wallet_balance);
+        } else if (!result.already_unlocked && !result.consumed_prop) {
+          await refreshBalance(true);
+        }
+        if (!result.already_unlocked && result.consumed_prop) {
+          applyMediaConsumption(normalizePropConsumption(result.consumed_prop), mediaType);
+        }
+      } catch (error) {
+        if (activeRef.current) setToastMessage(errorMessage(error));
       }
-      if (!result.already_unlocked && result.consumed_prop) {
-        applyMediaConsumption(normalizePropConsumption(result.consumed_prop), mediaType);
-      }
-    } catch (error) {
-      if (activeRef.current) setToastMessage(errorMessage(error));
-    }
-  };
+    },
+    [applyBalance, applyMediaConsumption, mutateMomentEverywhere, refreshBalance],
+  );
 
   const openNotifications = useCallback(() => {
     clearMomentsUnread(ownerId);
     void markMomentsNotificationsReadEverywhere().catch(() => undefined);
     router.push("/moments-notifications");
   }, [ownerId]);
+
+  const beginMomentComment = useCallback((momentId: number, target: MomentCommentTarget) => {
+    setActiveComment({ momentId, target });
+  }, []);
+
+  const retryUpload = useCallback((clientRequestId: string) => {
+    void retryMomentUpload(clientRequestId);
+  }, []);
+
+  const renderMoment = useCallback(
+    ({ item }: { item: Moment }) => {
+      const requestId = isPendingMomentUpload(item) ? item.client_request_id : undefined;
+      const uploadStatus = requestId
+        ? (uploadStatuses[requestId] ?? momentUploadStatus(ownerId, requestId))
+        : undefined;
+      return (
+        <MomentFeedItem
+          moment={item}
+          onComment={beginMomentComment}
+          onDelete={handleDelete}
+          onLike={handleLike}
+          onMedia={setMediaSelection}
+          onRetry={retryUpload}
+          onUnlock={handleUnlock}
+          ownerId={ownerId}
+          uploadStatus={uploadStatus}
+        />
+      );
+    },
+    [
+      beginMomentComment,
+      handleDelete,
+      handleLike,
+      handleUnlock,
+      ownerId,
+      retryUpload,
+      uploadStatuses,
+    ],
+  );
+
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken<Moment>[] }) => {
+      let lastVisibleIndex = -1;
+      for (const token of viewableItems) {
+        if (token.isViewable && token.index !== null) {
+          lastVisibleIndex = Math.max(lastVisibleIndex, token.index);
+        }
+      }
+      if (lastVisibleIndex < 0) return;
+      const visibleFeed = feedsRef.current[selectedTabRef.current].moments;
+      const candidates = visibleFeed.slice(lastVisibleIndex + 1, lastVisibleIndex + 3);
+      const urls = momentFeedPreviewUrls(candidates, ownerId).filter((url) => {
+        if (prefetchedPreviewUrlsRef.current.has(url)) return false;
+        prefetchedPreviewUrlsRef.current.add(url);
+        return true;
+      });
+      if (urls.length === 0) return;
+      prefetchQueueRef.current = prefetchQueueRef.current
+        .then(async () => {
+          for (let index = 0; index < urls.length; index += 2) {
+            await Promise.all(
+              urls.slice(index, index + 2).map((url) => prefetchGalleryImage(ownerId, url)),
+            );
+          }
+        })
+        .catch(() => undefined);
+    },
+  ).current;
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 20,
+    minimumViewTime: 80,
+  }).current;
 
   const current = feeds[selectedTab];
   const header = useMemo(
@@ -644,9 +797,10 @@ function MomentsAccountScreen({
         contentContainerStyle={[styles.listContent, activeComment && styles.listWithComposer]}
         contentInsetAdjustmentBehavior="never"
         data={current.moments}
-        ItemSeparatorComponent={() => <View style={styles.divider} />}
+        initialNumToRender={4}
+        ItemSeparatorComponent={MomentSeparator}
         keyboardDismissMode="interactive"
-        keyExtractor={(item) => String(item.id)}
+        keyExtractor={momentKeyExtractor}
         ListEmptyComponent={
           <FeedEmptyState
             error={current.error}
@@ -656,6 +810,7 @@ function MomentsAccountScreen({
         }
         ListFooterComponent={null}
         ListHeaderComponent={header}
+        maxToRenderPerBatch={5}
         onEndReached={() => {
           if (didBeginScrollingRef.current) void loadFeed(selectedTab, false);
         }}
@@ -663,6 +818,7 @@ function MomentsAccountScreen({
         onScrollBeginDrag={() => {
           didBeginScrollingRef.current = true;
         }}
+        onViewableItemsChanged={onViewableItemsChanged}
         refreshControl={
           <RefreshControl
             refreshing={current.isRefreshing}
@@ -670,52 +826,12 @@ function MomentsAccountScreen({
             tintColor={colors.accent}
           />
         }
-        renderItem={({ item }) => {
-          const isPending = isPendingMomentUpload(item);
-          const requestId = isPending ? item.client_request_id : undefined;
-          const uploadStatus = requestId
-            ? (uploadStatuses[requestId] ?? momentUploadStatus(ownerId, requestId))
-            : undefined;
-          const canRetry = uploadStatus?.state === "failed";
-          return (
-            <View>
-              <MomentRow
-                moment={item}
-                onComment={(target) => {
-                  if (!isPending) setActiveComment({ momentId: item.id, target });
-                }}
-                onDelete={() => void handleDelete(item.id)}
-                onLike={() => void handleLike(item)}
-                onMedia={setMediaSelection}
-                onUnlock={() => {
-                  if (!isPending) void handleUnlock(item);
-                }}
-                viewerId={ownerId}
-              />
-              {requestId ? (
-                canRetry ? (
-                  <Pressable
-                    onPress={() => void retryMomentUpload(requestId)}
-                    style={styles.uploadStatus}
-                  >
-                    <SymbolView
-                      name="exclamationmark.circle.fill"
-                      size={12}
-                      tintColor={colors.danger}
-                    />
-                    <Text style={styles.uploadRetryText}>{t("common.retry")}</Text>
-                  </Pressable>
-                ) : (
-                  <View style={styles.uploadStatus}>
-                    <ActivityIndicator color={colors.secondaryText} size="small" />
-                    <Text style={styles.uploadPendingText}>{t("common.uploading")}</Text>
-                  </View>
-                )
-              ) : null}
-            </View>
-          );
-        }}
+        removeClippedSubviews={Platform.OS === "android"}
+        renderItem={renderMoment}
         showsVerticalScrollIndicator={false}
+        updateCellsBatchingPeriod={40}
+        viewabilityConfig={viewabilityConfig}
+        windowSize={9}
       />
 
       {activeComment ? (

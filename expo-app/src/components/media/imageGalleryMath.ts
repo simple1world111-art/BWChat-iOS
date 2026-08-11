@@ -20,6 +20,11 @@ export interface GallerySize {
   height: number;
 }
 
+export interface GalleryPanBounds {
+  x: number;
+  y: number;
+}
+
 export function dedupeGalleryUrls(urls: readonly string[]): string[] {
   const result: string[] = [];
   const seen = new Set<string>();
@@ -110,6 +115,40 @@ export function galleryDismissDecision(translationY: number, velocityY: number):
     distance >= GALLERY_DISMISS_DISTANCE ||
     (distance >= GALLERY_MINIMUM_FLICK_DISTANCE && Math.abs(velocityY) >= GALLERY_FLICK_VELOCITY);
   return shouldDismiss ? (translationY < 0 ? -1 : 1) : 0;
+}
+
+/**
+ * Returns the maximum centered translation for an aspect-fit image at a
+ * particular zoom. The page itself fills the viewport, so bounds must be
+ * derived from the visible image rect rather than from the page dimensions.
+ */
+export function galleryPanBounds(
+  fittedImage: GalleryFrame,
+  viewport: GallerySize,
+  scale: number,
+): GalleryPanBounds {
+  "worklet";
+  const safeScale = Math.max(scale, 1);
+  return {
+    x: Math.max((fittedImage.width * safeScale - viewport.width) / 2, 0),
+    y: Math.max((fittedImage.height * safeScale - viewport.height) / 2, 0),
+  };
+}
+
+export function clampGalleryOffset(value: number, limit: number): number {
+  "worklet";
+  const safeLimit = Math.max(limit, 0);
+  return Math.max(-safeLimit, Math.min(value, safeLimit));
+}
+
+/** Adds UIScrollView-like resistance while the finger is beyond an edge. */
+export function rubberBandGalleryOffset(value: number, limit: number, resistance = 0.32): number {
+  "worklet";
+  const safeLimit = Math.max(limit, 0);
+  const magnitude = Math.abs(value);
+  if (magnitude <= safeLimit) return value;
+  const resisted = safeLimit + (magnitude - safeLimit) * Math.max(0, Math.min(resistance, 1));
+  return value < 0 ? -resisted : resisted;
 }
 
 export function aspectFitRect(size: GallerySize, container: GalleryFrame): GalleryFrame {

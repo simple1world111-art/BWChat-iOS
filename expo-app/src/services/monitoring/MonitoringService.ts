@@ -17,6 +17,7 @@ export function initializeMonitoring(): void {
     enabled: Boolean(env.sentryDsn),
     sendDefaultPii: false,
     enableNative: true,
+    enableMetrics: true,
     tracesSampleRate: env.environment === "production" ? 0.1 : 0,
   });
   Sentry.setTags({
@@ -51,5 +52,17 @@ export function captureMessage(message: string, context: Record<string, string> 
   Sentry.withScope((scope) => {
     Object.entries(context).forEach(([key, value]) => scope.setTag(key, value));
     Sentry.captureMessage(message);
+  });
+}
+
+export function recordUiLatency(
+  name: string,
+  durationMilliseconds: number,
+  attributes: Record<string, string | number | boolean> = {},
+): void {
+  if (!Number.isFinite(durationMilliseconds) || durationMilliseconds < 0) return;
+  Sentry.metrics.distribution(name, durationMilliseconds, {
+    unit: "millisecond",
+    attributes,
   });
 }

@@ -27,6 +27,7 @@ import Animated, {
   useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
+  withDecay,
   withDelay,
   withTiming,
 } from "react-native-reanimated";
@@ -36,8 +37,10 @@ import { TopToast } from "@/components/TopToast";
 import { useChatMessageLongPressBridge } from "@/components/messages/ChatReplyViews";
 import {
   aspectFitRect,
+  clampGalleryOffset,
   dedupeGalleryUrls,
   galleryDismissDecision,
+  galleryPanBounds,
   GALLERY_DOUBLE_TAP_SCALE,
   GALLERY_MAXIMUM_SCALE,
   GALLERY_MINIMUM_SCALE,
@@ -49,13 +52,16 @@ import {
   initialGalleryIndex,
   isCurrentGalleryOperation,
   prependGalleryUrlsAtLatestIndex,
+  rubberBandGalleryOffset,
   shouldLoadGalleryPage,
   type GalleryFrame,
   type GallerySize,
 } from "@/components/media/imageGalleryMath";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { useAuth } from "@/providers/AuthProvider";
+import { getAuthenticatedImageUri, prefetchImage } from "@/services/cache/ImageCacheService";
 import { saveImageToLibrary } from "@/services/media/MediaLibrarySaver";
+import { recordUiLatency } from "@/services/monitoring/MonitoringService";
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 import { env } from "@/config/env";
@@ -66,6 +72,24 @@ const SOURCE_FRAME_MEASURE_FALLBACK_MS = 34;
 const HERO_OPEN_DURATION_MS = 280;
 const BACKDROP_OPEN_DURATION_MS = 120;
 const SWIPE_DISMISS_DURATION_MS = 240;
+const galleryImageWarmups = new Map<string, Promise<void>>();
+
+/** Warms the exact owner-scoped cache identity consumed by the gallery. */
+export function prefetchGalleryImage(ownerId: string, rawUri: string): Promise<void> {
+  const resolved = resolveMediaUrl(rawUri, env.apiBaseUrl);
+  if (!resolved) return Promise.resolve();
+  const cacheKey = galleryOwnerCacheKey(ownerId, resolved);
+  const existing = galleryImageWarmups.get(cacheKey);
+  if (existing) return existing;
+  const task = (async () => {
+    const localUri = await getAuthenticatedImageUri(resolved, cacheKey);
+    if (!localUri) await prefetchImage(resolved).catch(() => false);
+  })().finally(() => {
+    if (galleryImageWarmups.get(cacheKey) === task) galleryImageWarmups.delete(cacheKey);
+  });
+  galleryImageWarmups.set(cacheKey, task);
+  return task;
+}
 
 export interface ImageGallerySelection {
   media: {
@@ -82,6 +106,8 @@ export interface ImageGallerySelection {
   naturalSize?: GallerySize | undefined;
   /** The already-rendered thumbnail URL used to keep the Hero transition textured. */
   sourceUri?: string | undefined;
+  /** Press-in time used to measure tap-to-first-textured-frame latency. */
+  openedAtMilliseconds?: number | undefined;
   loadMoreOlder?: (() => Promise<string[]>) | undefined;
 }
 
@@ -134,6 +160,7 @@ export function ImageGallerySource({
   const sourceOpenOperationRef = useRef(0);
   const sourcePressGenerationRef = useRef(0);
   const pressedSourceFrameRef = useRef<GalleryFrame | undefined>(undefined);
+  const pressStartedAtRef = useRef<number | undefined>(undefined);
   const [naturalSize, setNaturalSize] = useState<GallerySize | undefined>();
 
   useEffect(() => {
@@ -142,12 +169,14 @@ export function ImageGallerySource({
     sourceOpenOperationRef.current += 1;
     sourcePressGenerationRef.current += 1;
     pressedSourceFrameRef.current = undefined;
+    pressStartedAtRef.current = undefined;
     return () => {
       sourceOwnerIdRef.current = "";
       sourceLifecycleGenerationRef.current += 1;
       sourceOpenOperationRef.current += 1;
       sourcePressGenerationRef.current += 1;
       pressedSourceFrameRef.current = undefined;
+      pressStartedAtRef.current = undefined;
     };
   }, [ownerId]);
 
@@ -163,6 +192,10 @@ export function ImageGallerySource({
 
   const handlePressIn = useCallback(() => {
     if (disabled) return;
+    pressStartedAtRef.current = Date.now();
+    if (selection.media.type === "image") {
+      void prefetchGalleryImage(ownerId, selection.media.url);
+    }
     const pressGeneration = sourcePressGenerationRef.current + 1;
     sourcePressGenerationRef.current = pressGeneration;
     pressedSourceFrameRef.current = undefined;
@@ -170,7 +203,7 @@ export function ImageGallerySource({
       if (sourcePressGenerationRef.current !== pressGeneration) return;
       pressedSourceFrameRef.current = width > 1 && height > 1 ? { x, y, width, height } : undefined;
     });
-  }, [disabled]);
+  }, [disabled, ownerId, selection.media.type, selection.media.url]);
 
   const handleOpen = useCallback(() => {
     if (disabled) return;
@@ -197,6 +230,7 @@ export function ImageGallerySource({
         sourceFrame,
         sourceId: scopedSourceId,
         sourceUri: uri,
+        openedAtMilliseconds: pressStartedAtRef.current ?? Date.now(),
       });
     };
     // Press-in normally finishes this measurement before press-up. That makes
@@ -403,6 +437,7 @@ function ImageGalleryContent({
   const paginationOperationRef = useRef(0);
   const saveOperationRef = useRef(0);
   const dismissOperationRef = useRef(0);
+  const didRecordInitialDisplayRef = useRef(false);
   const swipeDismissRequestRef = useRef<{
     ownerId: string;
     generation: number;
@@ -487,8 +522,17 @@ function ImageGalleryContent({
   );
 
   const markInitialPageReady = useCallback(() => {
+    if (!didRecordInitialDisplayRef.current) {
+      didRecordInitialDisplayRef.current = true;
+      const openedAt = selection.openedAtMilliseconds;
+      if (openedAt !== undefined) {
+        recordUiLatency("moments.gallery.first_image_display", Date.now() - openedAt, {
+          source_frame: Boolean(sourceFrame),
+        });
+      }
+    }
     initialPageReady.value = 1;
-  }, [initialPageReady]);
+  }, [initialPageReady, selection.openedAtMilliseconds, sourceFrame]);
 
   useEffect(() => {
     pageIndex.value = currentIndex;
@@ -803,8 +847,15 @@ function ImageGalleryContent({
             Math.min(GALLERY_MAXIMUM_SCALE, scaleAtStart.value * event.scale),
           );
           scale.value = nextScale;
-          offsetX.value = event.focalX - width / 2 - pinchContentX.value * nextScale;
-          offsetY.value = event.focalY - height / 2 - pinchContentY.value * nextScale;
+          const bounds = galleryPanBounds(targetFrame, { width, height }, nextScale);
+          offsetX.value = rubberBandGalleryOffset(
+            event.focalX - width / 2 - pinchContentX.value * nextScale,
+            bounds.x,
+          );
+          offsetY.value = rubberBandGalleryOffset(
+            event.focalY - height / 2 - pinchContentY.value * nextScale,
+            bounds.y,
+          );
         })
         .onEnd(() => {
           if (isDismissing.value !== 0) return;
@@ -812,14 +863,36 @@ function ImageGalleryContent({
             scale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
             offsetX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
             offsetY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+          } else {
+            const bounds = galleryPanBounds(targetFrame, { width, height }, scale.value);
+            offsetX.value = withTiming(clampGalleryOffset(offsetX.value, bounds.x), {
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
+            });
+            offsetY.value = withTiming(clampGalleryOffset(offsetY.value, bounds.y), {
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
+            });
           }
         })
         .onFinalize((_event, success) => {
           if (isDismissing.value !== 0) return;
-          if (success || scale.value > GALLERY_REST_SCALE_LIMIT) return;
-          scale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
-          offsetX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
-          offsetY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+          if (success) return;
+          if (scale.value <= GALLERY_REST_SCALE_LIMIT) {
+            scale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+            offsetX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+            offsetY.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
+          } else {
+            const bounds = galleryPanBounds(targetFrame, { width, height }, scale.value);
+            offsetX.value = withTiming(clampGalleryOffset(offsetX.value, bounds.x), {
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
+            });
+            offsetY.value = withTiming(clampGalleryOffset(offsetY.value, bounds.y), {
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
+            });
+          }
         }),
     [
       height,
@@ -832,6 +905,7 @@ function ImageGalleryContent({
       pinchContentY,
       scale,
       scaleAtStart,
+      targetFrame,
       width,
     ],
   );
@@ -852,8 +926,15 @@ function ImageGalleryContent({
           if (isDismissing.value !== 0) return;
           if (panMode.value === 3 || scale.value > GALLERY_REST_SCALE_LIMIT) {
             panMode.value = 3;
-            offsetX.value = offsetXAtStart.value + event.translationX;
-            offsetY.value = offsetYAtStart.value + event.translationY;
+            const bounds = galleryPanBounds(targetFrame, { width, height }, scale.value);
+            offsetX.value = rubberBandGalleryOffset(
+              offsetXAtStart.value + event.translationX,
+              bounds.x,
+            );
+            offsetY.value = rubberBandGalleryOffset(
+              offsetYAtStart.value + event.translationY,
+              bounds.y,
+            );
             return;
           }
           if (panMode.value === 0) {
@@ -877,8 +958,27 @@ function ImageGalleryContent({
         .onEnd((event) => {
           if (isDismissing.value !== 0) return;
           if (panMode.value === 3) {
-            offsetXAtStart.value = offsetX.value;
-            offsetYAtStart.value = offsetY.value;
+            const bounds = galleryPanBounds(targetFrame, { width, height }, scale.value);
+            offsetX.value =
+              bounds.x > 0
+                ? withDecay({
+                    velocity: event.velocityX,
+                    deceleration: 0.995,
+                    clamp: [-bounds.x, bounds.x],
+                    rubberBandEffect: true,
+                    rubberBandFactor: 0.55,
+                  })
+                : withTiming(0, { duration: 160, easing: Easing.out(Easing.cubic) });
+            offsetY.value =
+              bounds.y > 0
+                ? withDecay({
+                    velocity: event.velocityY,
+                    deceleration: 0.995,
+                    clamp: [-bounds.y, bounds.y],
+                    rubberBandEffect: true,
+                    rubberBandFactor: 0.55,
+                  })
+                : withTiming(0, { duration: 160, easing: Easing.out(Easing.cubic) });
             return;
           }
           if (panMode.value === 2) {
@@ -981,6 +1081,7 @@ function ImageGalleryContent({
       recordPageTarget,
       scale,
       openProgress,
+      targetFrame,
       verticalDrag,
       width,
     ],
@@ -998,21 +1099,29 @@ function ImageGalleryContent({
             offsetX.value = withTiming(0, { duration: 220, easing: Easing.inOut(Easing.cubic) });
             offsetY.value = withTiming(0, { duration: 220, easing: Easing.inOut(Easing.cubic) });
           } else {
+            const bounds = galleryPanBounds(
+              targetFrame,
+              { width, height },
+              GALLERY_DOUBLE_TAP_SCALE,
+            );
             scale.value = withTiming(GALLERY_DOUBLE_TAP_SCALE, {
               duration: 220,
               easing: Easing.inOut(Easing.cubic),
             });
-            offsetX.value = withTiming(-(event.x - width / 2) * (GALLERY_DOUBLE_TAP_SCALE - 1), {
-              duration: 220,
-              easing: Easing.inOut(Easing.cubic),
-            });
-            offsetY.value = withTiming(-(event.y - height / 2) * (GALLERY_DOUBLE_TAP_SCALE - 1), {
-              duration: 220,
-              easing: Easing.inOut(Easing.cubic),
-            });
+            offsetX.value = withTiming(
+              clampGalleryOffset(-(event.x - width / 2) * (GALLERY_DOUBLE_TAP_SCALE - 1), bounds.x),
+              { duration: 220, easing: Easing.inOut(Easing.cubic) },
+            );
+            offsetY.value = withTiming(
+              clampGalleryOffset(
+                -(event.y - height / 2) * (GALLERY_DOUBLE_TAP_SCALE - 1),
+                bounds.y,
+              ),
+              { duration: 220, easing: Easing.inOut(Easing.cubic) },
+            );
           }
         }),
-    [height, isDismissing, offsetX, offsetY, scale, width],
+    [height, isDismissing, offsetX, offsetY, scale, targetFrame, width],
   );
 
   const singleTap = useMemo(
@@ -1087,14 +1196,46 @@ function ImageGalleryContent({
   const heroStyle = useAnimatedStyle(() => ({
     opacity: heroOpacity.value,
     borderRadius: interpolate(openProgress.value, [0, 1], [selection.sourceCornerRadius ?? 14, 14]),
-    height: interpolate(
-      openProgress.value,
-      [0, 1],
-      [sourceVisibleFrame.height, targetFrame.height],
-    ),
-    left: interpolate(openProgress.value, [0, 1], [sourceVisibleFrame.x, targetFrame.x]),
-    top: interpolate(openProgress.value, [0, 1], [sourceVisibleFrame.y, targetFrame.y]),
-    width: interpolate(openProgress.value, [0, 1], [sourceVisibleFrame.width, targetFrame.width]),
+    transform: [
+      {
+        translateX: interpolate(
+          openProgress.value,
+          [0, 1],
+          [
+            sourceVisibleFrame.x +
+              sourceVisibleFrame.width / 2 -
+              (targetFrame.x + targetFrame.width / 2),
+            0,
+          ],
+        ),
+      },
+      {
+        translateY: interpolate(
+          openProgress.value,
+          [0, 1],
+          [
+            sourceVisibleFrame.y +
+              sourceVisibleFrame.height / 2 -
+              (targetFrame.y + targetFrame.height / 2),
+            0,
+          ],
+        ),
+      },
+      {
+        scaleX: interpolate(
+          openProgress.value,
+          [0, 1],
+          [sourceVisibleFrame.width / Math.max(targetFrame.width, 1), 1],
+        ),
+      },
+      {
+        scaleY: interpolate(
+          openProgress.value,
+          [0, 1],
+          [sourceVisibleFrame.height / Math.max(targetFrame.height, 1), 1],
+        ),
+      },
+    ],
   }));
 
   return (
@@ -1153,7 +1294,19 @@ function ImageGalleryContent({
         </Animated.View>
       ) : null}
       {sourceFrame ? (
-        <Animated.View pointerEvents="none" style={[styles.hero, heroStyle]}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.hero,
+            {
+              left: targetFrame.x,
+              top: targetFrame.y,
+              width: targetFrame.width,
+              height: targetFrame.height,
+            },
+            heroStyle,
+          ]}
+        >
           <AuthenticatedImage
             contentFit="cover"
             errorFallback={<GalleryFailure />}
