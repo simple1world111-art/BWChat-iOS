@@ -28,7 +28,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withSpring,
   withTiming,
 } from "react-native-reanimated";
 
@@ -66,6 +65,7 @@ export type { GalleryFrame, GallerySize } from "@/components/media/imageGalleryM
 const SOURCE_FRAME_MEASURE_FALLBACK_MS = 34;
 const HERO_OPEN_DURATION_MS = 280;
 const BACKDROP_OPEN_DURATION_MS = 120;
+const SWIPE_DISMISS_DURATION_MS = 240;
 
 export interface ImageGallerySelection {
   media: {
@@ -303,20 +303,37 @@ function ImageGalleryModal({
   ownerId: string;
 }) {
   const [isPresented, setPresented] = useState(false);
+  const [isVisible, setVisible] = useState(true);
+  const dismissRequestedRef = useRef(false);
+  const dismissCompletedRef = useRef(false);
+  const finishNativeDismiss = useCallback(() => {
+    if (dismissCompletedRef.current) return;
+    dismissCompletedRef.current = true;
+    onClose();
+  }, [onClose]);
+  const requestNativeDismiss = useCallback(() => {
+    if (dismissRequestedRef.current) return;
+    dismissRequestedRef.current = true;
+    setVisible(false);
+    // React Native's Modal onDismiss is iOS-only. Other platforms still need
+    // the parent selection cleared after the visible=false commit is queued.
+    if (Platform.OS !== "ios") requestAnimationFrame(finishNativeDismiss);
+  }, [finishNativeDismiss]);
   return (
     <Modal
       animationType="none"
-      onRequestClose={onClose}
+      onDismiss={finishNativeDismiss}
+      onRequestClose={requestNativeDismiss}
       onShow={() => setPresented(true)}
       presentationStyle="overFullScreen"
       statusBarTranslucent
       transparent
-      visible
+      visible={isVisible}
     >
       <ImageGalleryPresentation
         isPresented={isPresented}
         ownerId={ownerId}
-        onClose={onClose}
+        onClose={requestNativeDismiss}
         selection={selection}
       />
     </Modal>
@@ -386,7 +403,6 @@ function ImageGalleryContent({
   const paginationOperationRef = useRef(0);
   const saveOperationRef = useRef(0);
   const dismissOperationRef = useRef(0);
-  const swipeDismissCompletedPartsRef = useRef(0);
   const swipeDismissRequestRef = useRef<{
     ownerId: string;
     generation: number;
@@ -428,7 +444,6 @@ function ImageGalleryContent({
       saveOperationRef.current += 1;
       dismissOperationRef.current += 1;
       swipeDismissRequestRef.current = null;
-      swipeDismissCompletedPartsRef.current = 0;
       loadMoreBusy.current = false;
     },
     [],
@@ -688,7 +703,6 @@ function ImageGalleryContent({
     dismissing.current = true;
     const operation = dismissOperationRef.current + 1;
     dismissOperationRef.current = operation;
-    swipeDismissCompletedPartsRef.current = 0;
     swipeDismissRequestRef.current = {
       ownerId,
       generation: lifecycleGenerationRef.current,
@@ -696,13 +710,10 @@ function ImageGalleryContent({
     };
   }, [ownerId]);
 
-  const finishSwipeDismissPart = useCallback(() => {
+  const finishSwipeDismiss = useCallback(() => {
     const request = swipeDismissRequestRef.current;
     if (!request) return;
-    swipeDismissCompletedPartsRef.current += 1;
-    if (swipeDismissCompletedPartsRef.current < 2) return;
     swipeDismissRequestRef.current = null;
-    swipeDismissCompletedPartsRef.current = 0;
     finishClose(request.ownerId, request.generation, request.operation);
   }, [finishClose]);
 
@@ -778,6 +789,7 @@ function ImageGalleryContent({
     () =>
       Gesture.Pinch()
         .onBegin((event) => {
+          if (isDismissing.value !== 0) return;
           scaleAtStart.value = scale.value;
           offsetXAtStart.value = offsetX.value;
           offsetYAtStart.value = offsetY.value;
@@ -785,6 +797,7 @@ function ImageGalleryContent({
           pinchContentY.value = (event.focalY - height / 2 - offsetY.value) / scale.value;
         })
         .onUpdate((event) => {
+          if (isDismissing.value !== 0) return;
           const nextScale = Math.max(
             GALLERY_MINIMUM_SCALE,
             Math.min(GALLERY_MAXIMUM_SCALE, scaleAtStart.value * event.scale),
@@ -794,6 +807,7 @@ function ImageGalleryContent({
           offsetY.value = event.focalY - height / 2 - pinchContentY.value * nextScale;
         })
         .onEnd(() => {
+          if (isDismissing.value !== 0) return;
           if (scale.value <= GALLERY_REST_SCALE_LIMIT) {
             scale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
             offsetX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
@@ -801,6 +815,7 @@ function ImageGalleryContent({
           }
         })
         .onFinalize((_event, success) => {
+          if (isDismissing.value !== 0) return;
           if (success || scale.value > GALLERY_REST_SCALE_LIMIT) return;
           scale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
           offsetX.value = withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) });
@@ -808,6 +823,7 @@ function ImageGalleryContent({
         }),
     [
       height,
+      isDismissing,
       offsetX,
       offsetXAtStart,
       offsetY,
@@ -826,12 +842,14 @@ function ImageGalleryContent({
         .maxPointers(1)
         .minDistance(2)
         .onBegin(() => {
+          if (isDismissing.value !== 0) return;
           panMode.value = scale.value > GALLERY_REST_SCALE_LIMIT ? 3 : 0;
           offsetXAtStart.value = offsetX.value;
           offsetYAtStart.value = offsetY.value;
           pageOffsetAtStart.value = pageOffset.value;
         })
         .onUpdate((event) => {
+          if (isDismissing.value !== 0) return;
           if (panMode.value === 3 || scale.value > GALLERY_REST_SCALE_LIMIT) {
             panMode.value = 3;
             offsetX.value = offsetXAtStart.value + event.translationX;
@@ -857,6 +875,7 @@ function ImageGalleryContent({
           }
         })
         .onEnd((event) => {
+          if (isDismissing.value !== 0) return;
           if (panMode.value === 3) {
             offsetXAtStart.value = offsetX.value;
             offsetYAtStart.value = offsetY.value;
@@ -871,31 +890,28 @@ function ImageGalleryContent({
               isDismissing.value = 1;
               runOnJS(prepareSwipeDismiss)();
               const targetY = decision < 0 ? -height : height;
-              verticalDrag.value = withSpring(
-                targetY,
-                {
-                  damping: 24,
-                  stiffness: 150,
-                  mass: 1,
-                  velocity: Math.max(-2400, Math.min(event.velocityY, 2400)),
-                  overshootClamping: true,
-                },
-                (finished) => {
-                  if (finished) runOnJS(finishSwipeDismissPart)();
-                },
-              );
+              // Use the same deterministic clock for the image and backdrop.
+              // A spring can still be running after the Modal is transparent;
+              // an immediate second swipe then cancels its completion callback
+              // and exposes a stale source-image frame under the invisible
+              // Modal. The easing keeps the velocity impression without an
+              // open-ended completion tail.
+              verticalDrag.value = withTiming(targetY, {
+                duration: SWIPE_DISMISS_DURATION_MS,
+                easing: Easing.out(Easing.cubic),
+              });
               openProgress.value = withTiming(0, {
-                duration: 280,
-                easing: Easing.inOut(Easing.cubic),
+                duration: SWIPE_DISMISS_DURATION_MS,
+                easing: Easing.out(Easing.cubic),
               });
               backdropOpacity.value = withTiming(
                 0,
                 {
-                  duration: 280,
-                  easing: Easing.inOut(Easing.cubic),
+                  duration: SWIPE_DISMISS_DURATION_MS,
+                  easing: Easing.out(Easing.cubic),
                 },
                 (finished) => {
-                  if (finished) runOnJS(finishSwipeDismissPart)();
+                  if (finished) runOnJS(finishSwipeDismiss)();
                 },
               );
             } else
@@ -925,6 +941,7 @@ function ImageGalleryContent({
           );
         })
         .onFinalize((_event, success) => {
+          if (isDismissing.value !== 0) return;
           if (success) {
             panMode.value = 0;
             return;
@@ -948,7 +965,7 @@ function ImageGalleryContent({
     [
       commitPage,
       backdropOpacity,
-      finishSwipeDismissPart,
+      finishSwipeDismiss,
       height,
       images.length,
       isDismissing,
@@ -975,7 +992,7 @@ function ImageGalleryContent({
         .numberOfTaps(2)
         .maxDelay(300)
         .onEnd((event, success) => {
-          if (!success) return;
+          if (!success || isDismissing.value !== 0) return;
           if (scale.value > GALLERY_REST_SCALE_LIMIT) {
             scale.value = withTiming(1, { duration: 220, easing: Easing.inOut(Easing.cubic) });
             offsetX.value = withTiming(0, { duration: 220, easing: Easing.inOut(Easing.cubic) });
@@ -995,7 +1012,7 @@ function ImageGalleryContent({
             });
           }
         }),
-    [height, offsetX, offsetY, scale, width],
+    [height, isDismissing, offsetX, offsetY, scale, width],
   );
 
   const singleTap = useMemo(
@@ -1004,9 +1021,9 @@ function ImageGalleryContent({
         .numberOfTaps(1)
         .maxDistance(10)
         .onEnd((_, success) => {
-          if (success) runOnJS(beginDismiss)();
+          if (success && isDismissing.value === 0) runOnJS(beginDismiss)();
         }),
-    [beginDismiss],
+    [beginDismiss, isDismissing],
   );
 
   const longPress = useMemo(
@@ -1015,9 +1032,9 @@ function ImageGalleryContent({
         .minDuration(500)
         .maxDistance(20)
         .onStart(() => {
-          runOnJS(requestSave)();
+          if (isDismissing.value === 0) runOnJS(requestSave)();
         }),
-    [requestSave],
+    [isDismissing, requestSave],
   );
 
   const composedGesture = useMemo(

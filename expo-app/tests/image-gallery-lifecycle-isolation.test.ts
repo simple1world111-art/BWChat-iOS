@@ -118,17 +118,33 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).not.toContain("const animationFrame = requestAnimationFrame");
   });
 
-  it("keeps the swipe continuation and current-page fade off the JS and wide-strip paths", () => {
+  it("uses one guarded dismissal clock so a second swipe cannot revive the closing gallery", () => {
     const gallery = source();
     expect(gallery).not.toContain("runOnJS(beginDismiss)(decision)");
     expect(gallery).toContain("runOnJS(prepareSwipeDismiss)()");
     expect(gallery).toMatch(
-      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withSpring\([\s\S]*?runOnJS\(finishSwipeDismissPart\)\(\)/u,
+      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withTiming\(targetY,[\s\S]*?duration: SWIPE_DISMISS_DURATION_MS/u,
     );
     expect(gallery).toMatch(
       /const stripStyle = useAnimatedStyle\(\(\) => \(\{\s+transform: \[\{ translateX: pageOffset\.value \}\],[\s\S]*?const currentImageStyle[\s\S]*?opacity: contentOpacity\.value \* dragOpacity,/u,
     );
-    expect(gallery).toContain("if (swipeDismissCompletedPartsRef.current < 2) return");
-    expect(gallery).toMatch(/backdropOpacity\.value = withTiming\([\s\S]*?finishSwipeDismissPart/u);
+    expect(gallery).not.toContain("swipeDismissCompletedPartsRef");
+    expect(gallery).not.toContain("withSpring(");
+    expect(gallery).toMatch(
+      /backdropOpacity\.value = withTiming\([\s\S]*?duration: SWIPE_DISMISS_DURATION_MS[\s\S]*?runOnJS\(finishSwipeDismiss\)\(\)/u,
+    );
+    expect(
+      gallery.match(/if \(isDismissing\.value !== 0\) return;/gu)?.length,
+    ).toBeGreaterThanOrEqual(8);
+  });
+
+  it("waits for native iOS Modal dismissal before clearing the parent selection", () => {
+    const gallery = source();
+    expect(gallery).toContain("visible={isVisible}");
+    expect(gallery).toContain("onDismiss={finishNativeDismiss}");
+    expect(gallery).toContain("onRequestClose={requestNativeDismiss}");
+    expect(gallery).toMatch(
+      /setVisible\(false\);[\s\S]*?if \(Platform\.OS !== "ios"\) requestAnimationFrame\(finishNativeDismiss\);/u,
+    );
   });
 });
