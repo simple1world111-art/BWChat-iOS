@@ -185,6 +185,11 @@ export async function publishDirectConversationPreviewUpdate(
       : {}),
     ...(update.last_message_id !== undefined ? { last_message_id: update.last_message_id } : {}),
   };
+  // Update mounted conversation screens before touching AsyncStorage. A chat
+  // send and the following back navigation can happen in consecutive frames;
+  // making UI delivery wait for disk allowed the old preview to flash (or stay
+  // visible until the next server sync).
+  for (const listener of [...directPreviewListeners]) listener(normalized);
   await serializeLocalStateMutation(ownerId, async () => {
     const cached = await loadCachedConversationSnapshot(ownerId);
     if (cached) {
@@ -197,7 +202,6 @@ export async function publishDirectConversationPreviewUpdate(
       );
     }
   });
-  for (const listener of [...directPreviewListeners]) listener(normalized);
 }
 
 export function applyDirectConversationPreviewUpdate(
@@ -243,6 +247,7 @@ export async function publishGroupConversationPreviewUpdate(
       : {}),
     ...(update.last_message_id !== undefined ? { last_message_id: update.last_message_id } : {}),
   };
+  for (const listener of [...groupPreviewListeners]) listener(normalized);
   await serializeLocalStateMutation(ownerId, async () => {
     const cached = await loadCachedConversationSnapshot(ownerId);
     if (cached) {
@@ -255,7 +260,6 @@ export async function publishGroupConversationPreviewUpdate(
       );
     }
   });
-  for (const listener of [...groupPreviewListeners]) listener(normalized);
 }
 
 export function applyGroupConversationPreviewUpdate(

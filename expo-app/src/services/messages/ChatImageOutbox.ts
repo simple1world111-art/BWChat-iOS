@@ -27,6 +27,7 @@ interface ChatImageJobBase {
   sender_nickname: string;
   sender_avatar: string;
   source: ChatImageSource;
+  presentation_uri?: string | undefined;
   durable_source_uri?: string | undefined;
   prepared?: PreparedChatImage | undefined;
   created_at: string;
@@ -98,9 +99,18 @@ export async function resumeChatImageUploads(
     .filter((job) => job.scope === scope && job.target_id === targetId)
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
   for (const job of jobs) {
-    emit(updatedEvent(job));
-    if (job.state !== "failed") {
-      void runJob({ ...job, state: job.state === "retry_waiting" ? "retry_waiting" : "queued" });
+    const resumed = {
+      ...job,
+      // Picker cache URLs are ideal while the current screen is alive. After
+      // a restart, prefer the durable copy owned by the outbox instead.
+      presentation_uri: job.durable_source_uri ?? job.presentation_uri ?? job.source.uri,
+    };
+    emit(updatedEvent(resumed));
+    if (resumed.state !== "failed") {
+      void runJob({
+        ...resumed,
+        state: resumed.state === "retry_waiting" ? "retry_waiting" : "queued",
+      });
     }
   }
 }
@@ -149,13 +159,16 @@ export function subscribeChatImageOutbox(listener: Listener): () => void {
 }
 
 export function directOptimisticImageMessage(job: DirectChatImageJob): Message {
+  const presentationUri = job.presentation_uri ?? job.durable_source_uri ?? job.source.uri;
   return {
     id: temporaryChatImageId(job.id),
     sender_id: job.owner_id,
     receiver_id: job.target_id,
     msg_type: "image",
-    content: job.durable_source_uri ?? job.source.uri,
-    thumbnail_url: job.durable_source_uri ?? job.source.uri,
+    content: presentationUri,
+    thumbnail_url: presentationUri,
+    media_width: job.source.width,
+    media_height: job.source.height,
     timestamp: job.created_at,
     client_message_id: job.id,
     version: 1,
@@ -164,13 +177,16 @@ export function directOptimisticImageMessage(job: DirectChatImageJob): Message {
 }
 
 export function groupOptimisticImageMessage(job: GroupChatImageJob): GroupMessage {
+  const presentationUri = job.presentation_uri ?? job.durable_source_uri ?? job.source.uri;
   return {
     id: temporaryChatImageId(job.id),
     group_id: Number(job.target_id),
     sender_id: job.owner_id,
     msg_type: "image",
-    content: job.durable_source_uri ?? job.source.uri,
-    thumbnail_url: job.durable_source_uri ?? job.source.uri,
+    content: presentationUri,
+    thumbnail_url: presentationUri,
+    media_width: job.source.width,
+    media_height: job.source.height,
     timestamp: job.created_at,
     sender_nickname: job.sender_nickname,
     sender_avatar: job.sender_avatar,
@@ -218,6 +234,7 @@ function makeJob<TScope extends ChatImageJob["scope"]>(
     sender_nickname: input.owner.nickname,
     sender_avatar: input.owner.avatar_url ?? "",
     source: input.asset,
+    presentation_uri: input.asset.uri,
     created_at: input.createdAt ?? new Date().toISOString(),
     scope,
     state: "staging",
@@ -276,6 +293,8 @@ async function runJob(input: ChatImageJob): Promise<void> {
         message: {
           ...confirmed,
           client_message_id: confirmed.client_message_id ?? uploading.id,
+          media_width: uploading.source.width,
+          media_height: uploading.source.height,
           delivery_status: "sent",
         },
       });
@@ -302,6 +321,8 @@ async function runJob(input: ChatImageJob): Promise<void> {
           sender_nickname: confirmed.sender_nickname || uploading.sender_nickname,
           sender_avatar: confirmed.sender_avatar || uploading.sender_avatar,
           client_message_id: confirmed.client_message_id ?? uploading.id,
+          media_width: uploading.source.width,
+          media_height: uploading.source.height,
           delivery_status: "sent",
         },
       });

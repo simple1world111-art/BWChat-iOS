@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Directory, File, Paths } from "expo-file-system";
 
-import { deleteMoment } from "@/api/bwchat";
+import { deleteMoment, getUserMoments } from "@/api/bwchat";
 import { APIError } from "@/api/client";
 import { env } from "@/config/env";
 import type { Moment, MomentUploadAsset, User } from "@/models";
@@ -38,6 +38,7 @@ export interface MomentUploadJob {
   state: MomentUploadState;
   attempt_count: number;
   upload_timeout_ms: 180_000 | 600_000;
+  server_moment_id?: number | undefined;
   uploaded_bytes?: number | undefined;
   expected_bytes?: number | undefined;
   next_attempt_at?: number | undefined;
@@ -138,6 +139,15 @@ export async function retryMomentUpload(clientRequestId: string): Promise<void> 
   if (!activeOwnerId) return;
   const job = await readJobById(clientRequestId, activeOwnerId);
   if (!job || inFlight.has(momentUploadRuntimeKey(activeOwnerId, clientRequestId))) return;
+  if (job.state === "confirmation_unknown") {
+    try {
+      const page = await getUserMoments(activeOwnerId, { limit: 50 });
+      await reconcileMomentUploads(activeOwnerId, page.moments);
+    } catch (error) {
+      await saveAndEmit({ ...job, last_error: errorMessage(error) });
+    }
+    return;
+  }
   cancelled.delete(momentUploadRuntimeKey(activeOwnerId, clientRequestId));
   clearRetryTimer(activeOwnerId, clientRequestId);
   await runJob({
@@ -167,17 +177,19 @@ export async function cancelMomentUpload(clientRequestId: string): Promise<void>
   }
 }
 
-export async function reconcileMomentUploads(ownerId: string, moments: Moment[]): Promise<void> {
+export async function reconcileMomentUploads(
+  ownerId: string,
+  moments: Moment[],
+): Promise<Set<number>> {
   const jobs = await readJobs(ownerId);
-  const byRequestId = new Map(
-    moments
-      .filter((moment) => moment.id > 0 && moment.client_request_id)
-      .map((moment) => [moment.client_request_id!, moment]),
-  );
+  const reconciledTempMomentIds = new Set<number>();
+  const claimedServerMomentIds = new Set<number>();
   for (const job of jobs) {
     if (inFlight.has(momentUploadRuntimeKey(job.owner_id, job.id))) continue;
-    const confirmed = byRequestId.get(job.id);
+    const confirmed = momentUploadConfirmationCandidate(job, moments, claimedServerMomentIds);
     if (!confirmed) continue;
+    claimedServerMomentIds.add(confirmed.id);
+    reconciledTempMomentIds.add(job.temp_moment.id);
     await adoptConfirmedMedia(job, confirmed);
     publishMomentMutation(job.owner_id, { kind: "delete", momentId: job.temp_moment.id });
     publishMomentMutation(job.owner_id, { kind: "created", moment: confirmed });
@@ -185,6 +197,55 @@ export async function reconcileMomentUploads(ownerId: string, moments: Moment[])
     clearRetryTimer(job.owner_id, job.id);
     await removeJob(job);
   }
+  return reconciledTempMomentIds;
+}
+
+export const momentUploadReconciliationPolicy = {
+  fallbackWindowMilliseconds: 24 * 60 * 60 * 1_000,
+} as const;
+
+/**
+ * Creation responses and feed rows do not always project client_request_id.
+ * Prefer exact identities, then use a deliberately narrow, unique fingerprint
+ * only for jobs whose request body was already fully submitted.
+ */
+export function momentUploadConfirmationCandidate(
+  job: MomentUploadJob,
+  moments: readonly Moment[],
+  claimedServerMomentIds: ReadonlySet<number> = new Set<number>(),
+): Moment | undefined {
+  const candidates = moments.filter(
+    (moment) =>
+      moment.id > 0 &&
+      moment.author.user_id.trim() === job.owner_id.trim() &&
+      !claimedServerMomentIds.has(moment.id),
+  );
+  const byRequestId = candidates.find(
+    (moment) => moment.client_request_id?.trim() === job.id.trim(),
+  );
+  if (byRequestId) return byRequestId;
+  const byServerId = job.server_moment_id
+    ? candidates.find((moment) => moment.id === job.server_moment_id)
+    : undefined;
+  if (byServerId) return byServerId;
+  if (job.state !== "confirmation_unknown") return undefined;
+
+  const fallbackCandidates = candidates.filter((moment) => {
+    if (moment.client_request_id?.trim()) return false;
+    if (moment.content.trim() !== job.content.trim()) return false;
+    if ((moment.unlock_price_gold_coins ?? 0) !== (job.unlock_price_gold_coins ?? 0)) return false;
+    if (moment.media.length !== job.media.length) return false;
+    if (moment.media.some((item, index) => item.type !== job.media[index]?.kind)) return false;
+    const localTime = Date.parse(job.temp_moment.created_at);
+    const serverTime = Date.parse(moment.created_at);
+    return (
+      Number.isFinite(localTime) &&
+      Number.isFinite(serverTime) &&
+      Math.abs(serverTime - localTime) <=
+        momentUploadReconciliationPolicy.fallbackWindowMilliseconds
+    );
+  });
+  return fallbackCandidates.length === 1 ? fallbackCandidates[0] : undefined;
 }
 
 export function momentUploadStatus(
@@ -367,6 +428,7 @@ async function runJob(job: MomentUploadJob): Promise<void> {
       await saveAndEmit({
         ...activeJob,
         state: "confirmation_unknown",
+        ...(error.serverMomentId ? { server_moment_id: error.serverMomentId } : {}),
         last_error: message,
       });
     } else if (isTransient(error) && preparing.attempt_count < 5) {

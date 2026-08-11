@@ -128,6 +128,7 @@ import {
   retryChatVideoUpload,
   subscribeChatVideoOutbox,
 } from "@/services/messages/ChatVideoOutbox";
+import { startChatMediaUploadsAfterOptimisticRender } from "@/services/messages/ChatMediaSendScheduler";
 import {
   directChatHistoryPolicy,
   isDirectChatHistoryBackfilled,
@@ -297,6 +298,7 @@ export default function ChatScreen() {
   const outboxInFlightRef = useRef(new Set<string>());
   const menuActionInFlightRef = useRef(false);
   const draftSnapshotsRef = useRef(new Map<string, ChatDraftSnapshot>());
+  const conversationPreviewSignatureRef = useRef("");
   activeSessionRef.current = sessionKey;
   if (sessionKey) {
     draftSnapshotsRef.current.set(sessionKey, {
@@ -322,6 +324,7 @@ export default function ChatScreen() {
     loadingMoreRef.current = false;
     initialPushMessageHandledRef.current = null;
     messageReconciliationFlightsRef.current.clear();
+    conversationPreviewSignatureRef.current = "";
     // Route identity changes require one atomic pre-paint reset; async callbacks
     // are additionally fenced by `activeSessionRef` below.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -542,6 +545,29 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
+    if (!ownerId || !id || renderSessionKey !== sessionKey) return;
+    const latest = latestDirectConversationPreviewMessage(messages);
+    if (!latest && !conversationPreviewSignatureRef.current) return;
+    const preview = latest ? directLocalPreviewText(latest, ownerId, name, t) : "";
+    const signature = latest
+      ? `${sessionKey}\u001f${latest.timestamp}\u001f${latest.id}\u001f${preview}`
+      : `${sessionKey}\u001fempty`;
+    if (conversationPreviewSignatureRef.current === signature) return;
+    conversationPreviewSignatureRef.current = signature;
+    void publishDirectConversationPreviewUpdate({
+      owner_id: ownerId,
+      contact_id: id,
+      ...(latest
+        ? {
+            last_message: preview,
+            last_message_time: latest.timestamp,
+            last_message_id: latest.id,
+          }
+        : {}),
+    }).catch((error) => captureException(error, { operation: "direct_message_live_preview" }));
+  }, [id, messages, name, ownerId, renderSessionKey, sessionKey, t]);
+
+  useEffect(() => {
     if (renderSessionKey === sessionKey) messagesRef.current = messages;
   }, [messages, renderSessionKey, sessionKey]);
 
@@ -579,7 +605,7 @@ export default function ChatScreen() {
         const isMine = message.sender_id === ownerId;
         if (isMine || isNearBottomRef.current) {
           requestAnimationFrame(() =>
-            listRef.current?.scrollToOffset({ animated: true, offset: 0 }),
+            listRef.current?.scrollToOffset({ animated: isMine, offset: 0 }),
           );
         } else {
           setNewMessagesBelowCount((count) => count + 1);
@@ -1203,20 +1229,28 @@ export default function ChatScreen() {
       .filter((url) => !existing.has(url));
   }, [loadMore]);
 
-  const revealMessage = useCallback((messageId: number) => {
-    const data = [...makeTimeline(messagesRef.current)].reverse();
-    const index = data.findIndex((row) => row.message.id === messageId);
-    if (index < 0) return false;
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-      setHighlightedMessageId(messageId);
-      setTimeout(
-        () => setHighlightedMessageId((current) => (current === messageId ? null : current)),
-        2_000,
-      );
-    });
-    return true;
-  }, []);
+  const revealMessage = useCallback(
+    (messageId: number, options: { animated?: boolean; highlight?: boolean } = {}) => {
+      const data = [...makeTimeline(messagesRef.current)].reverse();
+      const index = data.findIndex((row) => row.message.id === messageId);
+      if (index < 0) return false;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToIndex({
+          index,
+          animated: options.animated !== false,
+          viewPosition: 0.5,
+        });
+        if (options.highlight === false) return;
+        setHighlightedMessageId(messageId);
+        setTimeout(
+          () => setHighlightedMessageId((current) => (current === messageId ? null : current)),
+          2_000,
+        );
+      });
+      return true;
+    },
+    [],
+  );
 
   const reconcileMessage = useCallback(
     (messageId: number): Promise<boolean> => {
@@ -1265,11 +1299,14 @@ export default function ChatScreen() {
   );
 
   const scrollToMessage = useCallback(
-    async (messageId: number, options: { showError?: boolean } = {}) => {
-      if (revealMessage(messageId) || !id) return true;
+    async (
+      messageId: number,
+      options: { animated?: boolean; highlight?: boolean; showError?: boolean } = {},
+    ) => {
+      if (revealMessage(messageId, options) || !id) return true;
       const available = await reconcileMessage(messageId);
       if (available) {
-        setTimeout(() => revealMessage(messageId), 0);
+        setTimeout(() => revealMessage(messageId, options), 0);
         return true;
       }
       if (options.showError !== false && activeSessionRef.current === sessionKey) {
@@ -1299,7 +1336,12 @@ export default function ChatScreen() {
       const relevant =
         (event.sender_id === id && event.receiver_id === ownerId) ||
         (event.sender_id === ownerId && event.receiver_id === id);
-      if (relevant) void scrollToMessage(event.message_id, { showError: false });
+      if (relevant)
+        void scrollToMessage(event.message_id, {
+          animated: false,
+          highlight: false,
+          showError: false,
+        });
     });
   }, [id, ownerId, scrollToMessage]);
 
@@ -1589,10 +1631,7 @@ export default function ChatScreen() {
     currentMessages: readonly Message[],
   ): Promise<void> {
     if (!ownerId || !id) return;
-    const latest = [...currentMessages]
-      .filter((message) => message.id > 0)
-      .sort(compareMessages)
-      .at(-1);
+    const latest = latestDirectConversationPreviewMessage(currentMessages);
     await publishDirectConversationPreviewUpdate({
       owner_id: ownerId,
       contact_id: id,
@@ -1717,8 +1756,8 @@ export default function ChatScreen() {
         createdAt: new Date(now + index).toISOString(),
       }));
       if (user?.user_id && id && jobs.length > 0) {
-        setMessages((current) =>
-          mergeMessages(
+        setMessages((current) => {
+          const merged = mergeMessages(
             current,
             ...jobs.map((job) => ({
               id: -(now + job.index + 1),
@@ -1727,56 +1766,65 @@ export default function ChatScreen() {
               msg_type: job.type,
               content: job.asset.uri,
               ...(job.type === "image" ? { thumbnail_url: job.asset.uri } : {}),
+              ...(job.type === "image"
+                ? { media_width: job.asset.width, media_height: job.asset.height }
+                : {}),
               timestamp: job.createdAt,
               client_message_id: job.clientMessageId,
               version: 1,
               delivery_status: "sending" as const,
             })),
-          ),
+          );
+          messagesRef.current = merged;
+          return merged;
+        });
+        startChatMediaUploadsAfterOptimisticRender(
+          jobs.map((job) => ({
+            start: () =>
+              job.type === "image"
+                ? enqueueDirectChatImage({
+                    owner: user,
+                    targetId: id,
+                    clientMessageId: job.clientMessageId,
+                    createdAt: job.createdAt,
+                    asset: {
+                      uri: job.asset.uri,
+                      width: job.asset.width,
+                      height: job.asset.height,
+                      filename: job.asset.fileName ?? `image_${job.index}.jpg`,
+                    },
+                  })
+                : enqueueDirectChatVideo({
+                    owner: user,
+                    targetId: id,
+                    clientMessageId: job.clientMessageId,
+                    createdAt: job.createdAt,
+                    asset: {
+                      uri: job.asset.uri,
+                      width: job.asset.width,
+                      height: job.asset.height,
+                      filename: job.asset.fileName ?? `video_${job.index}.mp4`,
+                      ...(job.asset.mimeType ? { mime_type: job.asset.mimeType } : {}),
+                    },
+                  }),
+            onError: (nextError) => {
+              if (activeSessionRef.current !== expectedSession) return;
+              setMessages((current) => {
+                const next = current.map((message) =>
+                  message.client_message_id === job.clientMessageId
+                    ? { ...message, delivery_status: "failed" as const }
+                    : message,
+                );
+                messagesRef.current = next;
+                return next;
+              });
+              Alert.alert(
+                t("messages.sendFailed"),
+                nextError instanceof Error ? nextError.message : t("common.operationFailed"),
+              );
+            },
+          })),
         );
-        for (const job of jobs) {
-          const operation =
-            job.type === "image"
-              ? enqueueDirectChatImage({
-                  owner: user,
-                  targetId: id,
-                  clientMessageId: job.clientMessageId,
-                  createdAt: job.createdAt,
-                  asset: {
-                    uri: job.asset.uri,
-                    width: job.asset.width,
-                    height: job.asset.height,
-                    filename: job.asset.fileName ?? `image_${job.index}.jpg`,
-                  },
-                })
-              : enqueueDirectChatVideo({
-                  owner: user,
-                  targetId: id,
-                  clientMessageId: job.clientMessageId,
-                  createdAt: job.createdAt,
-                  asset: {
-                    uri: job.asset.uri,
-                    width: job.asset.width,
-                    height: job.asset.height,
-                    filename: job.asset.fileName ?? `video_${job.index}.mp4`,
-                    ...(job.asset.mimeType ? { mime_type: job.asset.mimeType } : {}),
-                  },
-                });
-          void operation.catch((nextError) => {
-            if (activeSessionRef.current !== expectedSession) return;
-            setMessages((current) =>
-              current.map((message) =>
-                message.client_message_id === job.clientMessageId
-                  ? { ...message, delivery_status: "failed" }
-                  : message,
-              ),
-            );
-            Alert.alert(
-              t("messages.sendFailed"),
-              nextError instanceof Error ? nextError.message : t("common.operationFailed"),
-            );
-          });
-        }
       }
     } catch (nextError) {
       Alert.alert(
@@ -2303,6 +2351,11 @@ function MessageContent({
     return (
       <ChatImageBubble
         imageUrls={imageUrls}
+        initialSize={
+          message.media_width && message.media_height
+            ? { width: message.media_width, height: message.media_height }
+            : undefined
+        }
         index={Math.max(0, imageUrls.indexOf(presentationUrl))}
         loadMoreOlder={loadMoreGalleryImages}
         messageId={timelineIdentity(message)}
@@ -2731,9 +2784,16 @@ function mergeMessages(current: Message[], ...incoming: Message[]): Message[] {
     const stableClientMessageId =
       newest.client_message_id ??
       matchingIndices.map((index) => next[index]!.client_message_id).find(Boolean);
+    const stableMediaWidth =
+      newest.media_width ?? matchingIndices.map((index) => next[index]!.media_width).find(Boolean);
+    const stableMediaHeight =
+      newest.media_height ??
+      matchingIndices.map((index) => next[index]!.media_height).find(Boolean);
     const replacement = {
       ...newest,
       ...(stableClientMessageId ? { client_message_id: stableClientMessageId } : {}),
+      ...(stableMediaWidth ? { media_width: stableMediaWidth } : {}),
+      ...(stableMediaHeight ? { media_height: stableMediaHeight } : {}),
     };
     const keepIndex = matchingIndices[0]!;
     next[keepIndex] = replacement;
@@ -2839,6 +2899,13 @@ function directLocalPreviewText(
     default:
       return message.content;
   }
+}
+
+function latestDirectConversationPreviewMessage(messages: readonly Message[]): Message | undefined {
+  return [...messages]
+    .filter((message) => message.delivery_status !== "failed")
+    .sort(compareMessages)
+    .at(-1);
 }
 
 function isImageMessage(message: Message): boolean {

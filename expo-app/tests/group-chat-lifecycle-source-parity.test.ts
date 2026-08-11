@@ -41,13 +41,20 @@ describe("group chat lifecycle and state source parity", () => {
     expect(source).toContain("!timelineHasLatestMessage");
     expect(source).toContain("getGroupMessageContext(groupId, latestMessageId)");
     expect(source).toContain('event.type !== "group_message_hint"');
-    expect(source).toContain("void scrollToMessage(event.message_id, { showError: false })");
+    expect(source).toContain("void scrollToMessage(event.message_id, {");
   });
 
   it("preloads the routed image thumbnail before publishing it to the timeline", () => {
     expect(source).toContain("preloadPreferredChatImagePreview(");
     expect(source).toContain("canonicalRouteMessageIds(params.messageId, params.latestMessageId)");
     expect(source).toContain("await preloadChatImagePreview(ownerId, targetMessage)");
+  });
+
+  it("does not animate or highlight an incoming realtime message hint", () => {
+    expect(source).toContain("scrollToOffset({ animated: isMine, offset: 0 })");
+    expect(source).toMatch(
+      /void scrollToMessage\(event\.message_id, \{\s+animated: false,\s+highlight: false,/u,
+    );
   });
 
   it("keeps realtime, read, draft, foreground and outbox callbacks session-fenced", () => {

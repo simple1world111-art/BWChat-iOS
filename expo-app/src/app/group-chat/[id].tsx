@@ -142,6 +142,7 @@ import {
   retryChatVideoUpload,
   subscribeChatVideoOutbox,
 } from "@/services/messages/ChatVideoOutbox";
+import { startChatMediaUploadsAfterOptimisticRender } from "@/services/messages/ChatMediaSendScheduler";
 import {
   groupChatHistoryPolicy,
   isGroupChatHistoryBackfilled,
@@ -341,6 +342,7 @@ export default function GroupChatScreen() {
   const backfillInFlightRef = useRef(new Set<string>());
   const draftSnapshotsRef = useRef(new Map<string, ChatDraftSnapshot>());
   const groupFallbackTitleRef = useRef("");
+  const conversationPreviewSignatureRef = useRef("");
   activeSessionRef.current = sessionKey;
   if (sessionKey && renderSessionKey === sessionKey) {
     draftSnapshotsRef.current.set(sessionKey, {
@@ -365,6 +367,7 @@ export default function GroupChatScreen() {
     initialPushMessageHandledRef.current = null;
     messageReconciliationFlightsRef.current.clear();
     memberRevisionRef.current = 0;
+    conversationPreviewSignatureRef.current = "";
     // Route/account changes need one pre-paint reset; every async callback is
     // additionally fenced by `activeSessionRef` below.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -643,6 +646,23 @@ export default function GroupChatScreen() {
   );
 
   useEffect(() => {
+    if (!ownerId || groupId <= 0 || renderSessionKey !== sessionKey) return;
+    const fields = groupConversationPreviewFields(messages, ownerId, t);
+    if (fields.last_message_time === undefined && !conversationPreviewSignatureRef.current) return;
+    const signature =
+      fields.last_message_time === undefined
+        ? `${sessionKey}\u001fempty`
+        : `${sessionKey}\u001f${fields.last_message_time}\u001f${fields.last_message_id ?? ""}\u001f${fields.last_message ?? ""}`;
+    if (conversationPreviewSignatureRef.current === signature) return;
+    conversationPreviewSignatureRef.current = signature;
+    void publishGroupConversationPreviewUpdate({
+      owner_id: ownerId,
+      group_id: groupId,
+      ...fields,
+    }).catch((error) => captureException(error, { operation: "group_message_live_preview" }));
+  }, [groupId, messages, ownerId, renderSessionKey, sessionKey, t]);
+
+  useEffect(() => {
     if (renderSessionKey === sessionKey) messagesRef.current = messages;
   }, [messages, renderSessionKey, sessionKey]);
 
@@ -685,7 +705,7 @@ export default function GroupChatScreen() {
         if (isMine || isNearBottomRef.current) {
           requestAnimationFrame(() => {
             if (activeSessionRef.current === expectedSession)
-              listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+              listRef.current?.scrollToOffset({ animated: isMine, offset: 0 });
           });
         } else {
           setNewMessagesBelowCount((count) => count + 1);
@@ -1685,14 +1705,19 @@ export default function GroupChatScreen() {
   };
 
   const revealMessage = useCallback(
-    (messageId: number) => {
+    (messageId: number, options: { animated?: boolean; highlight?: boolean } = {}) => {
       const data = [...makeTimeline(messagesRef.current)].reverse();
       const index = data.findIndex((row) => row.message.id === messageId);
       if (index < 0) return false;
       const expectedSession = sessionKey;
       requestAnimationFrame(() => {
         if (activeSessionRef.current !== expectedSession) return;
-        listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+        listRef.current?.scrollToIndex({
+          index,
+          animated: options.animated !== false,
+          viewPosition: 0.5,
+        });
+        if (options.highlight === false) return;
         setHighlightedMessageId(messageId);
         setTimeout(() => {
           if (activeSessionRef.current === expectedSession)
@@ -1751,11 +1776,14 @@ export default function GroupChatScreen() {
   );
 
   const scrollToMessage = useCallback(
-    async (messageId: number, options: { showError?: boolean } = {}) => {
-      if (revealMessage(messageId) || groupId <= 0) return true;
+    async (
+      messageId: number,
+      options: { animated?: boolean; highlight?: boolean; showError?: boolean } = {},
+    ) => {
+      if (revealMessage(messageId, options) || groupId <= 0) return true;
       const available = await reconcileMessage(messageId);
       if (available) {
-        setTimeout(() => revealMessage(messageId), 0);
+        setTimeout(() => revealMessage(messageId, options), 0);
         return true;
       }
       if (options.showError !== false && activeSessionRef.current === sessionKey) {
@@ -1801,7 +1829,11 @@ export default function GroupChatScreen() {
       ) {
         return;
       }
-      void scrollToMessage(event.message_id, { showError: false });
+      void scrollToMessage(event.message_id, {
+        animated: false,
+        highlight: false,
+        showError: false,
+      });
     });
   }, [groupId, ownerId, scrollToMessage]);
 
@@ -2119,6 +2151,9 @@ export default function GroupChatScreen() {
               msg_type: job.type,
               content: job.asset.uri,
               ...(job.type === "image" ? { thumbnail_url: job.asset.uri } : {}),
+              ...(job.type === "image"
+                ? { media_width: job.asset.width, media_height: job.asset.height }
+                : {}),
               timestamp: job.createdAt,
               sender_nickname: user.nickname,
               sender_avatar: user.avatar_url,
@@ -2131,51 +2166,53 @@ export default function GroupChatScreen() {
           messagesRef.current = merged;
           return merged;
         });
-        for (const job of jobs) {
-          const operation =
-            job.type === "image"
-              ? enqueueGroupChatImage({
-                  owner: user,
-                  targetId: String(groupId),
-                  clientMessageId: job.clientMessageId,
-                  createdAt: job.createdAt,
-                  asset: {
-                    uri: job.asset.uri,
-                    width: job.asset.width,
-                    height: job.asset.height,
-                    filename: job.asset.fileName ?? `image_${job.index}.jpg`,
-                  },
-                })
-              : enqueueGroupChatVideo({
-                  owner: user,
-                  targetId: String(groupId),
-                  clientMessageId: job.clientMessageId,
-                  createdAt: job.createdAt,
-                  asset: {
-                    uri: job.asset.uri,
-                    width: job.asset.width,
-                    height: job.asset.height,
-                    filename: job.asset.fileName ?? `video_${job.index}.mp4`,
-                    ...(job.asset.mimeType ? { mime_type: job.asset.mimeType } : {}),
-                  },
-                });
-          void operation.catch((nextError) => {
-            if (activeSessionRef.current !== expectedSession) return;
-            setMessages((current) => {
-              const next = current.map((message) =>
-                message.client_message_id === job.clientMessageId
-                  ? { ...message, delivery_status: "failed" as const }
-                  : message,
+        startChatMediaUploadsAfterOptimisticRender(
+          jobs.map((job) => ({
+            start: () =>
+              job.type === "image"
+                ? enqueueGroupChatImage({
+                    owner: user,
+                    targetId: String(groupId),
+                    clientMessageId: job.clientMessageId,
+                    createdAt: job.createdAt,
+                    asset: {
+                      uri: job.asset.uri,
+                      width: job.asset.width,
+                      height: job.asset.height,
+                      filename: job.asset.fileName ?? `image_${job.index}.jpg`,
+                    },
+                  })
+                : enqueueGroupChatVideo({
+                    owner: user,
+                    targetId: String(groupId),
+                    clientMessageId: job.clientMessageId,
+                    createdAt: job.createdAt,
+                    asset: {
+                      uri: job.asset.uri,
+                      width: job.asset.width,
+                      height: job.asset.height,
+                      filename: job.asset.fileName ?? `video_${job.index}.mp4`,
+                      ...(job.asset.mimeType ? { mime_type: job.asset.mimeType } : {}),
+                    },
+                  }),
+            onError: (nextError) => {
+              if (activeSessionRef.current !== expectedSession) return;
+              setMessages((current) => {
+                const next = current.map((message) =>
+                  message.client_message_id === job.clientMessageId
+                    ? { ...message, delivery_status: "failed" as const }
+                    : message,
+                );
+                messagesRef.current = next;
+                return next;
+              });
+              Alert.alert(
+                t(job.type === "image" ? "messages.imageSendFailed" : "messages.videoSendFailed"),
+                nextError instanceof Error ? nextError.message : t("common.operationFailed"),
               );
-              messagesRef.current = next;
-              return next;
-            });
-            Alert.alert(
-              t(job.type === "image" ? "messages.imageSendFailed" : "messages.videoSendFailed"),
-              nextError instanceof Error ? nextError.message : t("common.operationFailed"),
-            );
-          });
-        }
+            },
+          })),
+        );
       }
     } catch (nextError) {
       if (activeSessionRef.current !== expectedSession) return;
@@ -2802,6 +2839,11 @@ function MessageContent({
     return (
       <ChatImageBubble
         imageUrls={imageUrls}
+        initialSize={
+          message.media_width && message.media_height
+            ? { width: message.media_width, height: message.media_height }
+            : undefined
+        }
         index={Math.max(0, imageUrls.indexOf(presentationUrl))}
         loadMoreOlder={loadMoreGalleryImages}
         messageId={identity(message)}
@@ -3228,9 +3270,16 @@ function mergeMessages(current: GroupMessage[], ...incoming: GroupMessage[]): Gr
     const stableClientMessageId =
       newest.client_message_id ??
       matchingIndices.map((index) => next[index]!.client_message_id).find(Boolean);
+    const stableMediaWidth =
+      newest.media_width ?? matchingIndices.map((index) => next[index]!.media_width).find(Boolean);
+    const stableMediaHeight =
+      newest.media_height ??
+      matchingIndices.map((index) => next[index]!.media_height).find(Boolean);
     const replacement = {
       ...newest,
       ...(stableClientMessageId ? { client_message_id: stableClientMessageId } : {}),
+      ...(stableMediaWidth ? { media_width: stableMediaWidth } : {}),
+      ...(stableMediaHeight ? { media_height: stableMediaHeight } : {}),
     };
     const keepIndex = matchingIndices[0]!;
     next[keepIndex] = replacement;
@@ -3372,7 +3421,7 @@ function groupConversationPreviewFields(
   t: (key: string, ...args: (string | number)[]) => string,
 ): { last_message?: string; last_message_time?: string; last_message_id?: number } {
   const latest = [...messages]
-    .filter((message) => message.id > 0)
+    .filter((message) => message.delivery_status !== "failed")
     .sort(compareMessages)
     .at(-1);
   if (!latest) return {};

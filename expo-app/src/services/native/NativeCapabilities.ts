@@ -10,7 +10,12 @@ export async function pickChatMedia(): Promise<ImagePicker.ImagePickerAsset[]> {
     allowsMultipleSelection: true,
     orderedSelection: true,
     selectionLimit: 9,
-    quality: 0.9,
+    // Avoid foreground transcoding in the picker. The durable chat outbox
+    // prepares images and thumbnails after the local bubble is already shown.
+    preferredAssetRepresentationMode:
+      ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+    videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
+    quality: 1,
   });
   return result.canceled ? [] : result.assets;
 }

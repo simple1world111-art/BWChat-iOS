@@ -906,6 +906,8 @@ export interface GroupMessage {
   version: number;
   updated_at?: string | undefined;
   thumbnail_url?: string | undefined;
+  media_width?: number | undefined;
+  media_height?: number | undefined;
   delivery_status?: "sending" | "sent" | "failed" | undefined;
 }
 
@@ -1193,6 +1195,8 @@ export interface Message {
   version: number;
   updated_at?: string | undefined;
   thumbnail_url?: string | undefined;
+  media_width?: number | undefined;
+  media_height?: number | undefined;
   delivery_status?: "sending" | "sent" | "failed" | undefined;
 }
 

@@ -20,6 +20,7 @@ import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 export function ChatImageBubble({
   imageUrls,
+  initialSize,
   index,
   loadMoreOlder,
   messageId,
@@ -28,6 +29,7 @@ export function ChatImageBubble({
   url,
 }: {
   imageUrls: string[];
+  initialSize?: GallerySize | undefined;
   index: number;
   loadMoreOlder?: (() => Promise<string[]>) | undefined;
   messageId: string;
@@ -37,8 +39,14 @@ export function ChatImageBubble({
 }) {
   const canActivate = useChatMessageActivationGuard();
   const { t } = useLocalization();
-  const [naturalSize, setNaturalSize] = useState<GallerySize | undefined>();
-  const displaySize = useMemo(() => chatImageThumbnailSize(naturalSize), [naturalSize]);
+  const [lockedDisplaySize] = useState(() =>
+    hasUsableSize(initialSize) ? chatImageThumbnailSize(initialSize) : undefined,
+  );
+  const [naturalSize, setNaturalSize] = useState<GallerySize | undefined>(initialSize);
+  const displaySize = useMemo(
+    () => lockedDisplaySize ?? chatImageThumbnailSize(naturalSize),
+    [lockedDisplaySize, naturalSize],
+  );
   const presentationUrl = chatImagePresentationUrl(url, thumbnailUrl);
   const displayUrl = resolveMediaUrl(presentationUrl, env.apiBaseUrl);
   const selection = useMemo<ImageGallerySelection>(
@@ -61,15 +69,25 @@ export function ChatImageBubble({
       fallback={<ChatImagePlaceholder size={frame} />}
       imageStyle={[styles.image, frame]}
       maximumAuthenticatedRetries={chatMediaAvailabilityRetryPolicy.maximumRetries}
-      onNaturalSize={setNaturalSize}
+      onNaturalSize={lockedDisplaySize ? undefined : setNaturalSize}
       onOpen={(nextSelection) => {
         if (canActivate()) onOpen(nextSelection);
       }}
       selection={selection}
-      sourceId={`chat-image-${messageId}-${presentationUrl}`}
+      sourceId={`chat-image-${messageId}`}
       style={[styles.frame, frame]}
       uri={displayUrl}
     />
+  );
+}
+
+function hasUsableSize(size: GallerySize | undefined): size is GallerySize {
+  return Boolean(
+    size &&
+    Number.isFinite(size.width) &&
+    Number.isFinite(size.height) &&
+    size.width > 0 &&
+    size.height > 0,
   );
 }
 

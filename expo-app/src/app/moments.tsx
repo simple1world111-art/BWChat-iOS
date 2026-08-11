@@ -319,10 +319,12 @@ function MomentsAccountScreen({
         ) {
           throw new Error("朋友圈列表响应不完整");
         }
-        await reconcileMomentUploads(ownerId, page.moments);
+        const reconciledTempMomentIds = await reconcileMomentUploads(ownerId, page.moments);
         const nextMoments = mergeMomentFeed(
           reset
-            ? stateBeforeRequest.moments.filter(isPendingMomentUpload)
+            ? stateBeforeRequest.moments.filter(
+                (item) => isPendingMomentUpload(item) && !reconciledTempMomentIds.has(item.id),
+              )
             : stateBeforeRequest.moments,
           page.moments,
         );
@@ -674,8 +676,7 @@ function MomentsAccountScreen({
           const uploadStatus = requestId
             ? (uploadStatuses[requestId] ?? momentUploadStatus(ownerId, requestId))
             : undefined;
-          const canRetry =
-            uploadStatus?.state === "failed" || uploadStatus?.state === "confirmation_unknown";
+          const canRetry = uploadStatus?.state === "failed";
           return (
             <View>
               <MomentRow

@@ -5,11 +5,16 @@ import type { Moment, User } from "@/models";
 import {
   cancelMomentUpload,
   enqueueMomentUpload,
+  reconcileMomentUploads,
+  retryMomentUpload,
   subscribeMomentUploads,
   type MomentUploadStatus,
 } from "@/services/moments/MomentUploadQueue";
-import { MomentUploadOwnerChangedError } from "@/services/moments/MomentBackgroundUpload";
-import { deleteMoment } from "@/api/bwchat";
+import {
+  MomentUploadConfirmationUnknownError,
+  MomentUploadOwnerChangedError,
+} from "@/services/moments/MomentBackgroundUpload";
+import { deleteMoment, getUserMoments } from "@/api/bwchat";
 import { APIError } from "@/api/client";
 import { publishMomentMutation } from "@/services/moments/MomentMutationStore";
 
@@ -29,7 +34,7 @@ jest.mock("expo-file-system", () => ({
   Paths: { document: "file:///documents" },
 }));
 
-jest.mock("@/api/bwchat", () => ({ deleteMoment: jest.fn() }));
+jest.mock("@/api/bwchat", () => ({ deleteMoment: jest.fn(), getUserMoments: jest.fn() }));
 jest.mock("@/services/cache/ImageCacheService", () => ({ adoptLocalImageFile: jest.fn() }));
 jest.mock("@/services/cache/MediaCacheService", () => ({
   adoptLocalMediaFile: jest.fn(),
@@ -48,7 +53,15 @@ jest.mock("@/services/moments/MomentBackgroundUpload", () => {
       this.name = "MomentUploadOwnerChangedError";
     }
   }
-  class ConfirmationUnknownError extends Error {}
+  class ConfirmationUnknownError extends Error {
+    readonly serverMomentId?: number | undefined;
+
+    constructor(message = "confirmation unknown", serverMomentId?: number | undefined) {
+      super(message);
+      this.name = "MomentUploadConfirmationUnknownError";
+      this.serverMomentId = serverMomentId;
+    }
+  }
   return {
     cancelMomentBackgroundUpload: (...args: unknown[]) => mockCancelBackgroundUpload(...args),
     clearMomentBackgroundUploadCancellation: (...args: unknown[]) =>
@@ -168,6 +181,90 @@ describe("CreateMoment upload lifecycle isolation", () => {
 
     expect(mockClearBackgroundUploadCancellation).toHaveBeenCalledTimes(clearsBeforeCancel + 1);
     expect(mockClearBackgroundUploadCancellation).toHaveBeenLastCalledWith("owner-a", requestId);
+    unsubscribe();
+  });
+
+  it("reconciles a committed post whose refreshed feed omits client_request_id", async () => {
+    const requestId = "confirmation-fallback";
+    const statuses: MomentUploadStatus[] = [];
+    const unsubscribe = subscribeMomentUploads("owner-a", (status) => statuses.push(status));
+    mockUploadMomentInBackground.mockRejectedValueOnce(
+      new MomentUploadConfirmationUnknownError("response was incomplete"),
+    );
+
+    await enqueueMomentUpload({
+      owner: user("owner-a"),
+      clientRequestId: requestId,
+      content: "旅行",
+      media: [],
+    });
+    await waitFor(() => expect(statuses.at(-1)?.state).toBe("confirmation_unknown"));
+    const tempMoment = jest
+      .mocked(publishMomentMutation)
+      .mock.calls.flatMap(([, mutation]) =>
+        mutation.kind === "created" && mutation.moment.id < 0 ? [mutation.moment] : [],
+      )[0]!;
+    const confirmed: Moment = {
+      ...moment(404, "owner-a", requestId),
+      content: "旅行",
+      client_request_id: undefined,
+      created_at: tempMoment.created_at,
+    };
+    jest.mocked(publishMomentMutation).mockClear();
+
+    const reconciled = await reconcileMomentUploads("owner-a", [confirmed]);
+
+    expect(reconciled).toEqual(new Set([tempMoment.id]));
+    expect(publishMomentMutation).toHaveBeenCalledWith("owner-a", {
+      kind: "delete",
+      momentId: tempMoment.id,
+    });
+    expect(publishMomentMutation).toHaveBeenCalledWith("owner-a", {
+      kind: "created",
+      moment: confirmed,
+    });
+    await expect(AsyncStorage.getAllKeys()).resolves.not.toEqual(
+      expect.arrayContaining([expect.stringContaining("bwchat.moment-outbox.v1")]),
+    );
+    unsubscribe();
+  });
+
+  it("checks the server instead of uploading again after confirmation becomes unknown", async () => {
+    const requestId = "confirmation-retry";
+    const statuses: MomentUploadStatus[] = [];
+    const unsubscribe = subscribeMomentUploads("owner-a", (status) => statuses.push(status));
+    mockUploadMomentInBackground.mockRejectedValueOnce(
+      new MomentUploadConfirmationUnknownError("response was incomplete"),
+    );
+
+    await enqueueMomentUpload({
+      owner: user("owner-a"),
+      clientRequestId: requestId,
+      content: "旅行",
+      media: [],
+    });
+    await waitFor(() => expect(statuses.at(-1)?.state).toBe("confirmation_unknown"));
+    const tempMoment = jest
+      .mocked(publishMomentMutation)
+      .mock.calls.flatMap(([, mutation]) =>
+        mutation.kind === "created" && mutation.moment.id < 0 ? [mutation.moment] : [],
+      )[0]!;
+    const confirmed: Moment = {
+      ...moment(405, "owner-a", requestId),
+      content: "旅行",
+      client_request_id: undefined,
+      created_at: tempMoment.created_at,
+    };
+    jest.mocked(getUserMoments).mockResolvedValueOnce({ moments: [confirmed], has_more: false });
+
+    await retryMomentUpload(requestId);
+
+    expect(getUserMoments).toHaveBeenCalledWith("owner-a", { limit: 50 });
+    expect(mockUploadMomentInBackground).toHaveBeenCalledTimes(1);
+    expect(publishMomentMutation).toHaveBeenCalledWith("owner-a", {
+      kind: "created",
+      moment: confirmed,
+    });
     unsubscribe();
   });
 });

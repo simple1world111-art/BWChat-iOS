@@ -51,10 +51,12 @@ export function momentUploadRequestHeaders(
 
 export class MomentUploadConfirmationUnknownError extends Error {
   readonly confirmationUnknown = true;
+  readonly serverMomentId?: number | undefined;
 
-  constructor(message = "发布结果待确认") {
+  constructor(message = "发布结果待确认", serverMomentId?: number | undefined) {
     super(message);
     this.name = "MomentUploadConfirmationUnknownError";
+    if (serverMomentId !== undefined) this.serverMomentId = serverMomentId;
   }
 }
 
@@ -131,6 +133,7 @@ export function decodeMomentBackgroundUploadResponse(
   // failure, matching APIResponseWrapper.requiredData() outside the transport
   // decoder. Only malformed Moment data is confirmation-unknown.
   const data = decodeSuccessfulPayload<unknown>(payload, status, true, true);
+  const serverMomentId = positiveMomentId(data);
   try {
     const moment = normalizeMoment(data);
     if (moment.id <= 0 || !moment.author.user_id.trim() || !moment.created_at.trim()) {
@@ -157,6 +160,7 @@ export function decodeMomentBackgroundUploadResponse(
   } catch (error) {
     throw new MomentUploadConfirmationUnknownError(
       error instanceof Error ? error.message : "发布成功但响应无法确认",
+      serverMomentId,
     );
   }
 }
@@ -338,4 +342,11 @@ function responseMessage(payload: unknown, status: number): string {
     if (message) return message;
   }
   return `请求失败（${status}）`;
+}
+
+function positiveMomentId(value: unknown): number | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const candidate = Number(record.id ?? record.moment_id ?? record.momentId);
+  return Number.isSafeInteger(candidate) && candidate > 0 ? candidate : undefined;
 }

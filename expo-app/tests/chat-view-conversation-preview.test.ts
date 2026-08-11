@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import fs from "node:fs";
+import path from "node:path";
 
 import type { Conversation } from "@/models";
 import {
@@ -92,6 +94,25 @@ describe("owner-scoped direct local-delete conversation preview", () => {
     unsubscribeB();
   });
 
+  it("notifies the mounted list synchronously before persistence finishes", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeDirectConversationPreviewUpdates("owner-a", listener);
+
+    const persistence = publishDirectConversationPreviewUpdate({
+      owner_id: "owner-a",
+      contact_id: "friend-a",
+      last_message: "just sent",
+      last_message_time: "2026-08-08T00:01:00Z",
+      last_message_id: -1,
+    });
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ last_message: "just sent", last_message_id: -1 }),
+    );
+    await persistence;
+    unsubscribe();
+  });
+
   it("does not notify a listener after teardown", async () => {
     const listener = jest.fn();
     const unsubscribe = subscribeDirectConversationPreviewUpdates("owner-a", listener);
@@ -103,6 +124,12 @@ describe("owner-scoped direct local-delete conversation preview", () => {
       last_message_id: 9,
     });
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("projects pending sends from the chat timeline and excludes terminal failures", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "src/app/chat/[id].tsx"), "utf8");
+    expect(source).toContain('message.delivery_status !== "failed"');
+    expect(source).toContain('operation: "direct_message_live_preview"');
   });
 });
 

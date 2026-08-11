@@ -26,6 +26,7 @@ import {
 } from "@/services/moments/MomentMediaPreparation";
 import {
   createOptimisticMoment,
+  momentUploadConfirmationCandidate,
   momentRetryDelayMilliseconds,
   momentUploadOwnerChangedPatch,
   momentUploadRuntimeKey,
@@ -212,6 +213,56 @@ describe("CreateMoment native parity", () => {
         expectedMediaCount: confirmed.media.length + 1,
       }),
     ).toThrow(MomentUploadConfirmationUnknownError);
+  });
+
+  it("retains a partial server moment id for safe feed reconciliation", () => {
+    try {
+      decodeMomentBackgroundUploadResponse({ code: 0, data: { id: 31 } }, 200);
+      throw new Error("expected confirmation unknown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MomentUploadConfirmationUnknownError);
+      expect((error as MomentUploadConfirmationUnknownError).serverMomentId).toBe(31);
+    }
+  });
+
+  it("matches a unique recent server row when the feed omits client_request_id", () => {
+    const requestId = "fallback-request";
+    const optimistic = createOptimisticMoment({
+      owner: { user_id: "owner", nickname: "我", avatar_url: "" },
+      clientRequestId: requestId,
+      content: "旅行",
+      media: [asset("image", "one.jpg")],
+      createdAt: "2026-08-11T10:00:00Z",
+    });
+    const job = {
+      id: requestId,
+      owner_id: "owner",
+      content: "旅行",
+      media: [asset("image", "one.jpg")],
+      temp_moment: optimistic,
+      state: "confirmation_unknown" as const,
+      attempt_count: 1,
+      upload_timeout_ms: 180_000 as const,
+    };
+    const confirmed = {
+      ...moment(31, requestId),
+      content: "旅行",
+      media: [
+        {
+          id: "remote-one",
+          type: "image" as const,
+          url: "/media/one.jpg",
+          is_locked: false,
+        },
+      ],
+      client_request_id: undefined,
+      created_at: "2026-08-11T10:00:03Z",
+    };
+
+    expect(momentUploadConfirmationCandidate(job, [confirmed])).toEqual(confirmed);
+    expect(momentUploadConfirmationCandidate(job, [confirmed, { ...confirmed, id: 32 }])).toBe(
+      undefined,
+    );
   });
 
   it("parks an old-owner upload before it can use the current account token", () => {

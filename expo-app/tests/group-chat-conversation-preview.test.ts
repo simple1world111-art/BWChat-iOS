@@ -101,6 +101,25 @@ describe("owner-scoped group local conversation preview", () => {
     unsubscribeB();
   });
 
+  it("notifies the mounted list synchronously for an optimistic outgoing message", async () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeGroupConversationPreviewUpdates("owner-a", listener);
+
+    const persistence = publishGroupConversationPreviewUpdate({
+      owner_id: "owner-a",
+      group_id: 21,
+      last_message: "just sent",
+      last_message_time: "2026-08-08T00:01:00Z",
+      last_message_id: -1,
+    });
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ last_message: "just sent", last_message_id: -1 }),
+    );
+    await persistence;
+    unsubscribe();
+  });
+
   it("drops an event after teardown and keeps the screen subscription account-ticketed", async () => {
     const listener = jest.fn();
     const unsubscribe = subscribeGroupConversationPreviewUpdates("owner-a", listener);
@@ -129,6 +148,8 @@ describe("owner-scoped group local conversation preview", () => {
     expect(source).toContain("groupConversationPreviewFields(filtered, ownerId, t)");
     expect(source).toContain("groupConversationPreviewFields(merged, user.user_id, t)");
     expect(source).toContain("groupConversationPreviewFields(next, user.user_id, t)");
+    expect(source).toContain('message.delivery_status !== "failed"');
+    expect(source).toContain('operation: "group_message_live_preview"');
   });
 });
 

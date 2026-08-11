@@ -10,6 +10,10 @@ describe("chat media picker source parity", () => {
       expect(source).toContain("const assets = await pickChatMedia();");
       expect(source).toContain('asset.type === "image" || asset.type === "video"');
       expect(source).toContain("const jobs = supportedAssets.map");
+      expect(source).toContain("startChatMediaUploadsAfterOptimisticRender");
+      expect(source.indexOf("setMessages((current)")).toBeLessThan(
+        source.lastIndexOf("startChatMediaUploadsAfterOptimisticRender("),
+      );
       expect(source).not.toContain("pendingMediaAssets");
       expect(source).not.toContain("ChatMediaPickerPreview");
       expect(source).not.toContain("confirmedAssets");
@@ -25,6 +29,9 @@ describe("chat media picker source parity", () => {
     expect(source).toContain("orderedSelection: true");
     expect(source).toContain("selectionLimit: 9");
     expect(source).toContain('mediaTypes: ["images", "videos"]');
+    expect(source).toContain("UIImagePickerPreferredAssetRepresentationMode.Current");
+    expect(source).toContain("VideoExportPreset.Passthrough");
+    expect(source).toContain("quality: 1");
   });
 
   it("matches the native Swift select-then-send flow", () => {

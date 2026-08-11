@@ -139,6 +139,8 @@ describe("durable chat image outbox", () => {
     expect(confirmed?.message).toMatchObject({
       id: 91,
       client_message_id: "direct-client",
+      media_width: 1_600,
+      media_height: 1_000,
       delivery_status: "sent",
     });
     await expect(readChatImageJobs("owner-a")).resolves.toEqual([]);
@@ -227,6 +229,8 @@ describe("durable chat image outbox", () => {
       sender_nickname: "我",
       sender_avatar: "/me.jpg",
       source: source("file:///picker/a.jpg"),
+      presentation_uri: "file:///picker/a.jpg",
+      durable_source_uri: "file:///documents/outbox/a.jpg",
       created_at: "2026-08-06T10:00:00Z",
       scope: "direct" as const,
       state: "failed" as const,
@@ -239,11 +243,19 @@ describe("durable chat image outbox", () => {
     expect(directOptimisticImageMessage(directJob)).toMatchObject({
       receiver_id: "friend-a",
       client_message_id: "stable-client-id",
+      content: "file:///picker/a.jpg",
+      thumbnail_url: "file:///picker/a.jpg",
+      media_width: 1_600,
+      media_height: 1_000,
       delivery_status: "failed",
     });
     expect(groupOptimisticImageMessage(groupJob)).toMatchObject({
       group_id: 31,
       client_message_id: "stable-client-id",
+      content: "file:///picker/a.jpg",
+      thumbnail_url: "file:///picker/a.jpg",
+      media_width: 1_600,
+      media_height: 1_000,
       delivery_status: "failed",
     });
     expect(isTransientChatImageError(new APIError("busy", 503))).toBe(true);
