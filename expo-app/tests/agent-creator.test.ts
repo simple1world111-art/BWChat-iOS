@@ -1,4 +1,6 @@
 import * as ImageManipulator from "expo-image-manipulator";
+import fs from "node:fs";
+import path from "node:path";
 
 import {
   createAgent,
@@ -362,6 +364,14 @@ describe("native AgentCreatorView contracts", () => {
     });
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.has("image")).toBe(true);
+    const source = fs.readFileSync(path.join(process.cwd(), "src/api/bwchat.ts"), "utf8");
+    const uploadSource = source.slice(
+      source.indexOf("export async function uploadAgentReference"),
+      source.indexOf("export async function uploadAgentChatImage"),
+    );
+    expect(uploadSource).toContain("const image = new File(uri)");
+    expect(uploadSource).toContain("bytes: () => image.bytes()");
+    expect(uploadSource).not.toContain("\n    uri,\n");
   });
 
   it("uses exact get/create/revision-patch/publish routes, bodies, keys and 30s timeouts", async () => {

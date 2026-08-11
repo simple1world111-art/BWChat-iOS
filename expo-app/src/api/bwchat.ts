@@ -2076,10 +2076,11 @@ export async function uploadAgentReference(
   idempotencyKey: string,
 ): Promise<AgentReferenceUpload> {
   const form = new FormData();
+  const image = new File(uri);
   form.append("image", {
-    uri,
     name: "agent-reference.jpg",
     type: "image/jpeg",
+    bytes: () => image.bytes(),
   } as unknown as Blob);
   const value = await apiRequest<unknown>("/agent-assets/reference-images", {
     method: "POST",

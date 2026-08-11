@@ -124,6 +124,8 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
   const [selectedReference, setSelectedReference] = useState<AgentCreatorSelectedReference | null>(
     null,
   );
+  const [pendingReferenceUri, setPendingReferenceUri] = useState<string | null>(null);
+  const [referenceErrorMessage, setReferenceErrorMessage] = useState<string | null>(null);
   const [isLoadingReference, setLoadingReference] = useState(false);
   const [isHydrating, setHydrating] = useState(Boolean(agentId && !initialAgent));
   const [isSaving, setSaving] = useState(false);
@@ -177,6 +179,8 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
       setSaving(false);
       setLoadingReference(false);
       setSelectedReference(null);
+      setPendingReferenceUri(null);
+      setReferenceErrorMessage(null);
       setErrorMessage(null);
 
       if (!ownerId || !agentId) {
@@ -270,9 +274,14 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
       const asset = result.canceled ? undefined : result.assets[0];
       if (!isActive() || !asset) return;
       if (!validAgentReferenceDimensions(asset.width, asset.height)) {
-        setErrorMessage("参考图短边至少 512 像素，宽高比需在 1:2 到 2:1 之间");
+        setReferenceErrorMessage("参考图短边至少 512 像素，宽高比需在 1:2 到 2:1 之间");
         return;
       }
+      // Show the picker result immediately. JPEG normalization can take a few
+      // seconds for a large or iCloud-backed photo and must not leave the row
+      // looking as if the selection was ignored.
+      setPendingReferenceUri(asset.uri);
+      setReferenceErrorMessage(null);
       const uri = await makeAgentReferencePreview(asset.uri);
       if (!isActive()) {
         removeAgentCreatorTemporaryFile(uri);
@@ -284,9 +293,13 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
         ...(transactionCheckpointRef.current?.draft ? { publish: randomUUID() } : {}),
       };
       setSelectedReference({ uri, width: asset.width, height: asset.height });
+      setPendingReferenceUri(null);
       setErrorMessage(null);
     } catch {
-      if (isActive()) setErrorMessage("无法读取所选图片");
+      if (isActive()) {
+        setPendingReferenceUri(null);
+        setReferenceErrorMessage("无法读取所选图片，请重新选择");
+      }
     } finally {
       if (isActive()) {
         referencePickerLockRef.current = false;
@@ -368,6 +381,16 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
   const currentAvatarUri = currentAvatar
     ? resolveMediaUrl(`/agent-assets/${encodeURIComponent(currentAvatar)}`, env.apiBaseUrl)
     : null;
+  const localReferenceUri = pendingReferenceUri ?? selectedReference?.uri ?? null;
+  const referenceTitle = isLoadingReference
+    ? pendingReferenceUri
+      ? "正在处理图片…"
+      : "正在打开相册…"
+    : selectedReference
+      ? "已选择主参考图"
+      : showsEditingPresentation
+        ? "更换主参考图"
+        : "上传主参考图";
 
   return (
     <View style={styles.screen}>
@@ -428,11 +451,12 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
                 importantForAccessibility="no-hide-descendants"
                 style={styles.referencePreview}
               >
-                {selectedReference ? (
+                {localReferenceUri ? (
                   <Image
                     contentFit="cover"
-                    source={selectedReference.uri}
+                    source={{ uri: localReferenceUri }}
                     style={styles.referenceImage}
+                    testID="agent-creator-reference-image"
                   />
                 ) : currentAvatarUri ? (
                   <AuthenticatedImage
@@ -446,10 +470,13 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
                 )}
               </View>
               <View style={styles.referenceCopy}>
-                <Text style={styles.referenceTitle}>
-                  {showsEditingPresentation ? "更换主参考图" : "上传主参考图"}
+                <Text style={styles.referenceTitle}>{referenceTitle}</Text>
+                <Text
+                  accessibilityLiveRegion={referenceErrorMessage ? "assertive" : "polite"}
+                  style={referenceErrorMessage ? styles.referenceError : styles.referenceDetail}
+                >
+                  {referenceErrorMessage ?? "短边至少 512 像素，宽高比 1:2 到 2:1"}
                 </Text>
-                <Text style={styles.referenceDetail}>短边至少 512 像素，宽高比 1:2 到 2:1</Text>
               </View>
               {isLoadingReference ? <ActivityIndicator color={theme.secondaryText} /> : null}
             </Pressable>
@@ -893,6 +920,11 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     },
     referenceDetail: {
       color: theme.secondaryText,
+      fontSize: agentCreatorPolicy.referenceDetailSize,
+      lineHeight: 16,
+    },
+    referenceError: {
+      color: colors.danger,
       fontSize: agentCreatorPolicy.referenceDetailSize,
       lineHeight: 16,
     },

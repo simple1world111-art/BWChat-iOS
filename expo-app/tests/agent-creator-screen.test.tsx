@@ -166,6 +166,34 @@ describe("AgentCreator screen account and interaction parity", () => {
     expect(mockRemoveTemporaryFile).not.toHaveBeenCalledWith("file:///picker.jpg");
   });
 
+  it("shows the picked image immediately while its JPEG preview is still being prepared", async () => {
+    const preview = deferred<string>();
+    mockMakePreview.mockReturnValueOnce(preview.promise);
+    await render(<AgentCreatorScreen />);
+
+    await fireEvent.press(screen.getByLabelText("上传主参考图"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("agent-creator-reference-image", { includeHiddenElements: true }).props
+          .source,
+      ).toEqual({ uri: "file:///picker.jpg" }),
+    );
+    expect(screen.getByText("正在处理图片…")).toBeTruthy();
+
+    await act(async () => {
+      preview.resolve("file:///agent-preview.jpg");
+      await preview.promise;
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("agent-creator-reference-image", { includeHiddenElements: true }).props
+          .source,
+      ).toEqual({ uri: "file:///agent-preview.jpg" }),
+    );
+    expect(screen.getByText("已选择主参考图")).toBeTruthy();
+  });
+
   it("disposes a generated preview that returns after an account switch", async () => {
     const preview = deferred<string>();
     mockMakePreview.mockReturnValueOnce(preview.promise);
