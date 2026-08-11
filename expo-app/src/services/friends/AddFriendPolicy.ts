@@ -1,4 +1,4 @@
-import type { FollowRelationship, SearchUser } from "@/models";
+import type { FollowRelationship, FollowUser, SearchUser } from "@/models";
 
 export const addFriendPolicy = {
   searchDebounceMilliseconds: 400,
@@ -42,6 +42,20 @@ export function applyRelationshipToSearchUsers(
           followed_by_me: relationship.followed_by_me,
           follow_requested: relationship.follow_requested ?? false,
         }
+      : user,
+  );
+}
+
+export function reconcileSearchUsersWithKnownFollowing(
+  users: readonly SearchUser[],
+  knownUsers: readonly Pick<FollowUser, "user_id" | "followed_by_me">[],
+): SearchUser[] {
+  const followedUserIds = new Set(
+    knownUsers.filter((user) => user.followed_by_me).map((user) => user.user_id),
+  );
+  return users.map((user) =>
+    !user.followed_by_me && followedUserIds.has(user.user_id)
+      ? { ...user, followed_by_me: true, follow_requested: false }
       : user,
   );
 }

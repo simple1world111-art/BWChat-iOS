@@ -8,6 +8,7 @@ import {
   followUserFromSearch,
   publishFollowRelationship,
 } from "@/services/friends/FollowRelationshipStore";
+import { readCachedFollowListSnapshot } from "@/services/friends/FollowListRepository";
 
 let mockOwnerId = "owner-a";
 
@@ -78,17 +79,23 @@ jest.mock("@/services/friends/FollowRelationshipStore", () => ({
   subscribeFollowRelationship: jest.fn(() => () => undefined),
 }));
 
+jest.mock("@/services/friends/FollowListRepository", () => ({
+  readCachedFollowListSnapshot: jest.fn(),
+}));
+
 const mockSearchUsers = jest.mocked(searchUsers);
 const mockFollowUser = jest.mocked(followUser);
 const mockUnfollowUser = jest.mocked(unfollowUser);
 const mockPublishFollowRelationship = jest.mocked(publishFollowRelationship);
 const mockFollowUserFromSearch = jest.mocked(followUserFromSearch);
+const mockReadCachedFollowListSnapshot = jest.mocked(readCachedFollowListSnapshot);
 
 describe("Add Friend screen interactions", () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     mockOwnerId = "owner-a";
+    mockReadCachedFollowListSnapshot.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -132,6 +139,32 @@ describe("Add Friend screen interactions", () => {
     await advanceSearch();
     expect(view.getByText("addFriend.noResults")).toBeTruthy();
     expect(view.queryByLabelText("toast")).toBeNull();
+  });
+
+  it("shows an already-followed search user from a fresh current-account list cache", async () => {
+    mockSearchUsers.mockResolvedValueOnce([searchUser({ user_id: "dex", nickname: "Dex" })]);
+    mockReadCachedFollowListSnapshot.mockImplementation(async (_ownerId, _subjectId, kind) =>
+      kind === "followers"
+        ? {
+            page: { users: [followListUser("dex", true)], has_more: false },
+            updatedAt: 1,
+            expiresAt: 2,
+            isStale: false,
+            isRetained: true,
+            isLegacy: false,
+          }
+        : null,
+    );
+    const view = await render(<AddFriendScreen />);
+    await fireEvent.changeText(view.getByLabelText("addFriend.search.placeholder"), "dex");
+    await advanceSearch();
+
+    expect(mockReadCachedFollowListSnapshot.mock.calls).toEqual([
+      ["owner-a", "owner-a", "following"],
+      ["owner-a", "owner-a", "followers"],
+    ]);
+    expect(view.getByLabelText("follow.followingButton")).toBeTruthy();
+    expect(view.queryByLabelText("follow.followButton")).toBeNull();
   });
 
   it("opens profiles and dismisses the modal 250 ms before direct chat", async () => {
@@ -250,6 +283,8 @@ async function advanceSearch(): Promise<void> {
   await act(async () => {
     jest.advanceTimersByTime(400);
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }
 
@@ -276,5 +311,20 @@ function searchUser(change: Partial<SearchUser> = {}): SearchUser {
     followed_by_me: false,
     follow_requested: false,
     ...change,
+  };
+}
+
+function followListUser(userId: string, followedByMe: boolean): FollowUser {
+  return {
+    user_id: userId,
+    username: userId,
+    nickname: userId,
+    avatar_url: "/avatar.png",
+    bio: "",
+    following_count: 0,
+    follower_count: 0,
+    followed_by_me: followedByMe,
+    follows_me: true,
+    is_friend: followedByMe,
   };
 }

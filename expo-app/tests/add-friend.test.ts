@@ -7,6 +7,7 @@ import {
   applyRelationshipToSearchUsers,
   normalizedAddFriendQuery,
   optimisticSearchUserFollow,
+  reconcileSearchUsersWithKnownFollowing,
   releaseAddFriendOperation,
   shouldFollowSearchUser,
 } from "@/services/friends/AddFriendPolicy";
@@ -76,6 +77,24 @@ describe("native AddFriendView contracts", () => {
       followed_by_me: true,
       follow_requested: false,
     });
+  });
+
+  it("promotes a false search relationship from known following state without demoting server truth", () => {
+    const users = [
+      user({ user_id: "dex", follow_requested: true }),
+      user({ user_id: "server-true", followed_by_me: true }),
+      user({ user_id: "unknown" }),
+    ];
+    const next = reconcileSearchUsersWithKnownFollowing(users, [
+      { user_id: "dex", followed_by_me: true },
+      { user_id: "unknown", followed_by_me: false },
+    ]);
+
+    expect(next).toMatchObject([
+      { user_id: "dex", followed_by_me: true, follow_requested: false },
+      { user_id: "server-true", followed_by_me: true },
+      { user_id: "unknown", followed_by_me: false },
+    ]);
   });
 
   it("uses the exact required-data search route and preserves server order", async () => {

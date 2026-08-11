@@ -23,9 +23,11 @@ import {
   applyRelationshipToSearchUsers,
   normalizedAddFriendQuery,
   optimisticSearchUserFollow,
+  reconcileSearchUsersWithKnownFollowing,
   releaseAddFriendOperation,
   shouldFollowSearchUser,
 } from "@/services/friends/AddFriendPolicy";
+import { readCachedFollowListSnapshot } from "@/services/friends/FollowListRepository";
 import {
   followUserFromSearch,
   publishFollowRelationship,
@@ -85,6 +87,7 @@ export default function AddFriendScreen() {
         return;
       setSearching(true);
       void searchUsers(keyword)
+        .then((users) => reconcileSearchResultsWithCachedFollowing(ownerId, users))
         .then((users) => {
           if (
             active &&
@@ -283,6 +286,20 @@ export default function AddFriendScreen() {
       <TopToast message={toastMessage} onDismiss={dismissToast} />
     </View>
   );
+}
+
+async function reconcileSearchResultsWithCachedFollowing(
+  ownerId: string,
+  users: readonly SearchUser[],
+): Promise<SearchUser[]> {
+  const snapshots = await Promise.all([
+    readCachedFollowListSnapshot(ownerId, ownerId, "following"),
+    readCachedFollowListSnapshot(ownerId, ownerId, "followers"),
+  ]);
+  const knownUsers = snapshots.flatMap((snapshot) =>
+    snapshot && !snapshot.isStale ? snapshot.page.users : [],
+  );
+  return reconcileSearchUsersWithKnownFollowing(users, knownUsers);
 }
 
 function SearchState({ icon, title }: { icon: "magnifyingglass" | "person.slash"; title: string }) {
