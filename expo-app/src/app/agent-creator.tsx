@@ -617,6 +617,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
                 accessibilityState={{ checked: false, disabled: true }}
                 disabled
                 ios_backgroundColor={theme.separator}
+                style={styles.switchControl}
                 trackColor={{ false: theme.separator, true: theme.accent }}
                 value={false}
               />
@@ -793,6 +794,7 @@ function ToggleSection({
           accessibilityState={{ checked: isOn }}
           ios_backgroundColor={theme.separator}
           onValueChange={onChange}
+          style={styles.switchControl}
           trackColor={{ false: theme.separator, true: theme.accent }}
           value={isOn}
         />
@@ -913,6 +915,7 @@ function makeStyles(scheme: ReturnType<typeof useColorScheme>) {
     },
     toggleLabel: { flex: 1, color: theme.text, fontSize: 16 },
     toggleLabelDisabled: { flex: 1, color: theme.secondaryText, fontSize: 16 },
+    switchControl: { alignSelf: "center" },
     cardDivider: {
       height: StyleSheet.hairlineWidth,
       marginLeft: FORM_ROW_HORIZONTAL_INSET,

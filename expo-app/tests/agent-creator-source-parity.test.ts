@@ -127,6 +127,8 @@ describe("AgentCreatorView source parity", () => {
     expect(headerStyles).toContain('justifyContent: "center"');
     expect(headerStyles).toContain('textAlign: "center"');
     expect(toggleStyles).toContain("paddingHorizontal: FORM_ROW_HORIZONTAL_INSET");
+    expect(toggleStyles).toContain('switchControl: { alignSelf: "center" }');
+    expect(page.match(/style=\{styles\.switchControl\}/gu)).toHaveLength(2);
     expect(page).toContain("accessibilityState={{ checked: isOn }}");
   });
 
