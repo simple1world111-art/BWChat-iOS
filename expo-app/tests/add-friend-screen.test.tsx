@@ -1,7 +1,7 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { router } from "expo-router";
 
-import { followUser, searchUsers, unfollowUser } from "@/api/bwchat";
+import { followUser, getFollowing, searchUsers, unfollowUser } from "@/api/bwchat";
 import AddFriendScreen from "@/app/add-friend";
 import type { FollowRelationship, FollowUser, SearchUser } from "@/models";
 import {
@@ -31,6 +31,7 @@ jest.mock("expo-symbols", () => {
 
 jest.mock("@/api/bwchat", () => ({
   followUser: jest.fn(),
+  getFollowing: jest.fn(),
   searchUsers: jest.fn(),
   unfollowUser: jest.fn(),
 }));
@@ -85,6 +86,7 @@ jest.mock("@/services/friends/FollowListRepository", () => ({
 
 const mockSearchUsers = jest.mocked(searchUsers);
 const mockFollowUser = jest.mocked(followUser);
+const mockGetFollowing = jest.mocked(getFollowing);
 const mockUnfollowUser = jest.mocked(unfollowUser);
 const mockPublishFollowRelationship = jest.mocked(publishFollowRelationship);
 const mockFollowUserFromSearch = jest.mocked(followUserFromSearch);
@@ -95,6 +97,7 @@ describe("Add Friend screen interactions", () => {
     jest.useFakeTimers();
     jest.clearAllMocks();
     mockOwnerId = "owner-a";
+    mockGetFollowing.mockResolvedValue({ users: [], has_more: false });
     mockReadCachedFollowListSnapshot.mockResolvedValue(null);
   });
 
@@ -163,6 +166,21 @@ describe("Add Friend screen interactions", () => {
       ["owner-a", "owner-a", "following"],
       ["owner-a", "owner-a", "followers"],
     ]);
+    expect(view.getByLabelText("follow.followingButton")).toBeTruthy();
+    expect(view.queryByLabelText("follow.followButton")).toBeNull();
+  });
+
+  it("verifies already-followed users from the current server following list", async () => {
+    mockSearchUsers.mockResolvedValueOnce([searchUser({ user_id: "dex", nickname: "Dex" })]);
+    mockGetFollowing.mockResolvedValueOnce({
+      users: [followListUser("dex", false)],
+      has_more: false,
+    });
+    const view = await render(<AddFriendScreen />);
+    await fireEvent.changeText(view.getByLabelText("addFriend.search.placeholder"), "dex");
+    await advanceSearch();
+
+    expect(mockGetFollowing).toHaveBeenCalledWith({ page: 1, limit: 50 });
     expect(view.getByLabelText("follow.followingButton")).toBeTruthy();
     expect(view.queryByLabelText("follow.followButton")).toBeNull();
   });

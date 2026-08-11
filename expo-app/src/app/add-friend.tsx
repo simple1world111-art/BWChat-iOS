@@ -14,7 +14,7 @@ import {
 import { followUser, searchUsers, unfollowUser } from "@/api/bwchat";
 import { UserAvatarButton } from "@/components/Avatar";
 import { TopToast } from "@/components/TopToast";
-import type { FollowRelationship, SearchUser } from "@/models";
+import type { FollowRelationship, FollowUser, SearchUser } from "@/models";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import {
@@ -27,6 +27,7 @@ import {
   releaseAddFriendOperation,
   shouldFollowSearchUser,
 } from "@/services/friends/AddFriendPolicy";
+import { loadCurrentFollowingForSearch } from "@/services/friends/AddFriendFollowingResolver";
 import { readCachedFollowListSnapshot } from "@/services/friends/FollowListRepository";
 import {
   followUserFromSearch,
@@ -47,6 +48,7 @@ export default function AddFriendScreen() {
   const searchGenerationRef = useRef(0);
   const accountGenerationRef = useRef(0);
   const updatingIdsRef = useRef<Set<string>>(new Set());
+  const currentFollowingLoadRef = useRef<Promise<FollowUser[]> | null>(null);
   const dismissToast = useCallback(() => setToastMessage(null), []);
   const applyRelationship = useCallback((relationship: FollowRelationship) => {
     setResults((current) => applyRelationshipToSearchUsers(current, relationship));
@@ -57,6 +59,7 @@ export default function AddFriendScreen() {
     const accountGeneration = accountGenerationRef.current;
     searchGenerationRef.current += 1;
     updatingIdsRef.current.clear();
+    currentFollowingLoadRef.current = null;
     void Promise.resolve().then(() => {
       if (accountGeneration !== accountGenerationRef.current) return;
       setSearchText("");
@@ -86,8 +89,13 @@ export default function AddFriendScreen() {
       )
         return;
       setSearching(true);
-      void searchUsers(keyword)
-        .then((users) => reconcileSearchResultsWithCachedFollowing(ownerId, users))
+      void Promise.all([
+        searchUsers(keyword),
+        loadVerifiedCurrentFollowing(currentFollowingLoadRef).catch(() => []),
+      ])
+        .then(([users, currentFollowing]) =>
+          reconcileSearchResultsWithKnownFollowing(ownerId, users, currentFollowing),
+        )
         .then((users) => {
           if (
             active &&
@@ -122,6 +130,7 @@ export default function AddFriendScreen() {
   useEffect(
     () =>
       subscribeFollowRelationship(ownerId, ({ relationship }) => {
+        currentFollowingLoadRef.current = null;
         applyRelationship(relationship);
       }),
     [applyRelationship, ownerId],
@@ -288,9 +297,10 @@ export default function AddFriendScreen() {
   );
 }
 
-async function reconcileSearchResultsWithCachedFollowing(
+async function reconcileSearchResultsWithKnownFollowing(
   ownerId: string,
   users: readonly SearchUser[],
+  currentFollowing: readonly FollowUser[],
 ): Promise<SearchUser[]> {
   const snapshots = await Promise.all([
     readCachedFollowListSnapshot(ownerId, ownerId, "following"),
@@ -299,7 +309,19 @@ async function reconcileSearchResultsWithCachedFollowing(
   const knownUsers = snapshots.flatMap((snapshot) =>
     snapshot && !snapshot.isStale ? snapshot.page.users : [],
   );
-  return reconcileSearchUsersWithKnownFollowing(users, knownUsers);
+  return reconcileSearchUsersWithKnownFollowing(users, [...currentFollowing, ...knownUsers]);
+}
+
+function loadVerifiedCurrentFollowing(loadRef: {
+  current: Promise<FollowUser[]> | null;
+}): Promise<FollowUser[]> {
+  if (loadRef.current) return loadRef.current;
+  const load = loadCurrentFollowingForSearch().catch((error: unknown) => {
+    if (loadRef.current === load) loadRef.current = null;
+    throw error;
+  });
+  loadRef.current = load;
+  return load;
 }
 
 function SearchState({ icon, title }: { icon: "magnifyingglass" | "person.slash"; title: string }) {

@@ -11,6 +11,7 @@ import {
   releaseAddFriendOperation,
   shouldFollowSearchUser,
 } from "@/services/friends/AddFriendPolicy";
+import { loadCurrentFollowingForSearch } from "@/services/friends/AddFriendFollowingResolver";
 
 jest.mock("@/api/client", () => ({
   APIError: class APIError extends Error {},
@@ -94,6 +95,31 @@ describe("native AddFriendView contracts", () => {
       { user_id: "dex", followed_by_me: true, follow_requested: false },
       { user_id: "server-true", followed_by_me: true },
       { user_id: "unknown", followed_by_me: false },
+    ]);
+  });
+
+  it("loads and deduplicates the current server following pages as authoritative membership", async () => {
+    request
+      .mockResolvedValueOnce({
+        users: [{ user_id: "one", nickname: "一", followed_by_me: false }],
+        has_more: true,
+        next_page: 3,
+      })
+      .mockResolvedValueOnce({
+        users: [
+          { user_id: "one", nickname: "一" },
+          { user_id: "dex", nickname: "Dex" },
+        ],
+        has_more: false,
+      });
+
+    await expect(loadCurrentFollowingForSearch()).resolves.toMatchObject([
+      { user_id: "one", followed_by_me: true },
+      { user_id: "dex", followed_by_me: true },
+    ]);
+    expect(request.mock.calls).toEqual([
+      ["/follows/following?page=1&limit=50", { requiredData: true, requiredEnvelope: true }],
+      ["/follows/following?page=3&limit=50", { requiredData: true, requiredEnvelope: true }],
     ]);
   });
 
