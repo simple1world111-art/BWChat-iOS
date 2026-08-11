@@ -16,6 +16,7 @@ import {
   beginNativePushUploadSession,
   claimPendingPushOpen,
   dismissCachedReadConversationNotifications,
+  dismissActiveConversationNotifications,
   dismissReadConversationNotifications,
   dismissReadMomentsNotifications,
   ensureNativePushTokenUploaded,
@@ -40,6 +41,7 @@ jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
 jest.mock("@/services/monitoring/MonitoringService", () => ({ captureException: jest.fn() }));
 jest.mock("@/services/realtime/ChatRealtimeService", () => ({
   chatRealtimeService: {
+    hasActiveConversation: jest.fn(() => false),
     isConversationActive: jest.fn(() => false),
     requestConversationRefresh: jest.fn(),
   },
@@ -153,6 +155,9 @@ describe("native push service", () => {
     const routeWithUnrelatedId = parseNotificationRoute({ sender_id: "u1", id: 999 });
     expect(routeWithUnrelatedId).toMatchObject({ conversationId: "u1" });
     expect(routeWithUnrelatedId).not.toHaveProperty("messageId");
+    expect(
+      parseNotificationRoute({ fromUserId: "friend", chatId: "thread-1", msgId: "12" }),
+    ).toMatchObject({ conversationId: "thread-1", senderId: "friend", messageId: 12 });
   });
 
   it("matches native foreground sound/banner suppression rules", () => {
@@ -174,6 +179,12 @@ describe("native push service", () => {
       presentationPolicyForPush(
         { conversation_id: "server-thread-1", sender_id: "u1", message_id: 8 },
         active,
+      ),
+    ).toEqual(policy(false, false));
+    expect(
+      presentationPolicyForPush(
+        { push_type: "new_message", message_id: 9 },
+        { ...active, hasActiveConversation: () => true },
       ),
     ).toEqual(policy(false, false));
   });
@@ -324,6 +335,20 @@ describe("native push service", () => {
     expect(dismissNotification).toHaveBeenCalledTimes(2);
     expect(dismissNotification).toHaveBeenNthCalledWith(1, "dm-40");
     expect(dismissNotification).toHaveBeenNthCalledWith(2, "dm-42");
+  });
+
+  it("dismisses every delivered notification when its conversation gains focus", async () => {
+    getPresented.mockResolvedValue([
+      presented("dm-40", { conversation_id: "thread", sender_id: "u1", message_id: 40 }),
+      presented("dm-legacy", { sender_id: "u1" }),
+      presented("other-dm", { sender_id: "u2", message_id: 4 }),
+      presented("group", { group_id: 1, message_id: 1 }),
+    ]);
+
+    await expect(dismissActiveConversationNotifications("dm", "u1")).resolves.toBe(2);
+    expect(dismissNotification).toHaveBeenCalledWith("dm-40");
+    expect(dismissNotification).toHaveBeenCalledWith("dm-legacy");
+    expect(dismissNotification).not.toHaveBeenCalledWith("other-dm");
   });
 
   it("dismisses delivered Moments notifications without touching chat or call pushes", async () => {

@@ -4,8 +4,12 @@ import { Platform } from "react-native";
 
 import { apiRequest } from "@/api/client";
 import { conversationListIdentity } from "@/services/conversations/ConversationListPolicy";
-import { loadCachedConversationSnapshot } from "@/services/conversations/ConversationRepository";
 import {
+  conversationReadIdentity,
+  loadCachedConversationSnapshot,
+} from "@/services/conversations/ConversationRepository";
+import {
+  conversationNotificationMessageIsRead,
   conversationNotificationRouteIdentities,
   hydrateAndCheckConversationNotificationRead,
   resetConversationNotificationReadStateForTests,
@@ -98,9 +102,11 @@ export function initializePushNotifications(): void {
       const input = notification.request.content.data;
       const route = parseNotificationRoute(input);
       const policy = presentationPolicyForPush(input, {
+        hasActiveConversation: () => chatRealtimeService.hasActiveConversation(),
         isConversationActive: (type, id) => chatRealtimeService.isConversationActive(type, id),
       });
       if (!policy.shouldShowBanner || !activePushOwnerId) return policy;
+      if (foregroundChatPushWasRead(input, activePushOwnerId)) return behavior(false, false);
       if (route && (await hydrateAndCheckConversationNotificationRead(activePushOwnerId, route))) {
         return behavior(false, false);
       }
@@ -170,7 +176,13 @@ export function flattenNotificationPayload(input: unknown): Record<string, unkno
 
 export function parseNotificationRoute(input: unknown): NotificationRoute | null {
   const payload = flattenNotificationPayload(input);
-  const groupId = firstInteger(payload, ["group_id", "groupId"]);
+  const groupId = firstInteger(payload, [
+    "group_id",
+    "groupId",
+    "groupID",
+    "chat_group_id",
+    "target_group_id",
+  ]);
   const rawType = firstString(payload, [
     "conversation_type",
     "conversationType",
@@ -180,8 +192,22 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
   ])?.toLocaleLowerCase();
   const conversationType: NotificationConversationType =
     groupId !== undefined || (rawType ? groupPushTypes.has(rawType) : false) ? "group" : "dm";
-  const senderId = firstString(payload, ["sender_id", "senderId", "from_user_id", "user_id"]);
-  const explicitConversationId = firstString(payload, ["conversation_id", "conversationId"]);
+  const senderId = firstString(payload, [
+    "sender_id",
+    "senderId",
+    "from_user_id",
+    "fromUserId",
+    "from_id",
+    "peer_id",
+    "peer_user_id",
+    "contact_id",
+  ]);
+  const explicitConversationId = firstString(payload, [
+    "conversation_id",
+    "conversationId",
+    "chat_id",
+    "chatId",
+  ]);
   const conversationId =
     conversationType === "group"
       ? (explicitConversationId ?? (groupId !== undefined ? String(groupId) : undefined))
@@ -189,7 +215,7 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
   if (!conversationId) return null;
   // A bare `id` is frequently a notification, sender or group identity. Only
   // message-specific keys are safe for timeline reconciliation.
-  const messageId = firstInteger(payload, ["message_id", "messageId", "msg_id"]);
+  const messageId = firstInteger(payload, ["message_id", "messageId", "msg_id", "msgId"]);
   const suppliedEventId = firstString(payload, ["event_id", "eventId"]);
   const sentAt = firstString(payload, ["sent_at", "timestamp", "last_message_time"]);
   const eventId =
@@ -273,7 +299,10 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
 
 export function presentationPolicyForPush(
   input: unknown,
-  context: { isConversationActive: (type: NotificationConversationType, id: string) => boolean },
+  context: {
+    isConversationActive: (type: NotificationConversationType, id: string) => boolean;
+    hasActiveConversation?: (() => boolean) | undefined;
+  },
 ): PushPresentationPolicy {
   const payload = flattenNotificationPayload(input);
   const type = firstString(payload, [
@@ -286,6 +315,14 @@ export function presentationPolicyForPush(
   if (type === "moments_update") return behavior(true, true);
   const route = parseNotificationRoute(payload);
   if (route?.notificationMode === "badge_only") return behavior(false, false);
+  if (
+    !route &&
+    type &&
+    (directPushTypes.has(type) || groupPushTypes.has(type)) &&
+    context.hasActiveConversation?.()
+  ) {
+    return behavior(false, false);
+  }
   if (
     route &&
     conversationNotificationRouteIdentities(route).some((identity) => {
@@ -398,6 +435,30 @@ export async function applyPushSideEffects(input: unknown, ownerId = ""): Promis
   chatRealtimeService.requestConversationRefresh("push_notification");
 }
 
+export function foregroundChatPushWasRead(input: unknown, ownerId: string): boolean {
+  const payload = flattenNotificationPayload(input);
+  const route = parseNotificationRoute(payload);
+  const messageId =
+    route?.messageId ?? firstInteger(payload, ["message_id", "messageId", "msg_id", "msgId"]);
+  if (route) {
+    return conversationNotificationMessageIsRead(ownerId, route.conversationType, messageId);
+  }
+  const type = firstString(payload, [
+    "conversation_type",
+    "conversationType",
+    "push_type",
+    "pushType",
+    "type",
+  ])?.toLocaleLowerCase();
+  if (!type || !messageId) return false;
+  if (groupPushTypes.has(type)) {
+    return conversationNotificationMessageIsRead(ownerId, "group", messageId);
+  }
+  return directPushTypes.has(type)
+    ? conversationNotificationMessageIsRead(ownerId, "dm", messageId)
+    : false;
+}
+
 /** Removes delivered notifications covered by a locally visible or server-confirmed read. */
 export async function dismissReadConversationNotifications(
   conversationType: NotificationConversationType,
@@ -409,6 +470,22 @@ export async function dismissReadConversationNotifications(
   return dismissNotificationsCoveredByConversationReads([
     { conversationId: normalizedId, conversationType, throughMessageId },
   ]);
+}
+
+/** Cancels delivered/presenting notifications as soon as their conversation gains focus. */
+export async function dismissActiveConversationNotifications(
+  conversationType: NotificationConversationType,
+  conversationId: string,
+): Promise<number> {
+  const normalizedId = conversationId.trim();
+  if (!normalizedId) return 0;
+  const activeIdentity = conversationReadIdentity(conversationType, normalizedId);
+  return dismissPresentedNotifications("active_chat_notification_cleanup", (notification) => {
+    const route = parseNotificationRoute(notification.request.content.data);
+    return Boolean(
+      route && conversationNotificationRouteIdentities(route).includes(activeIdentity),
+    );
+  });
 }
 
 export async function dismissCachedReadConversationNotifications(ownerId: string): Promise<number> {

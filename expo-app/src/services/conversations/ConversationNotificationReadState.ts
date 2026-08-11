@@ -14,6 +14,7 @@ export interface ConversationNotificationReadRoute {
 }
 
 const watermarksByOwner = new Map<string, Map<string, number>>();
+const readMessageKeysByOwner = new Map<string, Set<string>>();
 const hydrationFlights = new Map<string, Promise<void>>();
 const hydratedOwners = new Set<string>();
 
@@ -32,7 +33,27 @@ export function recordConversationNotificationRead(
   const previous = ownerWatermarks.get(identity) ?? 0;
   ownerWatermarks.set(identity, Math.max(previous, throughMessageId));
   watermarksByOwner.set(owner, ownerWatermarks);
+  const messageKeys = readMessageKeysByOwner.get(owner) ?? new Set<string>();
+  const conversationType = identity.startsWith("group:") ? "group" : "dm";
+  const messageKey = `${conversationType}:${throughMessageId}`;
+  messageKeys.delete(messageKey);
+  messageKeys.add(messageKey);
+  while (messageKeys.size > 512) messageKeys.delete(messageKeys.values().next().value as string);
+  readMessageKeysByOwner.set(owner, messageKeys);
   return throughMessageId > previous;
+}
+
+export function conversationNotificationMessageIsRead(
+  ownerId: string,
+  type: "dm" | "group",
+  messageId: number | undefined,
+): boolean {
+  const owner = ownerId.trim();
+  return Boolean(
+    owner &&
+    validMessageId(messageId) &&
+    readMessageKeysByOwner.get(owner)?.has(`${type}:${messageId}`),
+  );
 }
 
 export function conversationNotificationRouteIsRead(
@@ -43,6 +64,9 @@ export function conversationNotificationRouteIsRead(
   if (!owner) return false;
   if (route.unreadCount === 0) return true;
   if (!validMessageId(route.messageId)) return false;
+  if (conversationNotificationMessageIsRead(owner, route.conversationType, route.messageId)) {
+    return true;
+  }
   const ownerWatermarks = watermarksByOwner.get(owner);
   if (!ownerWatermarks) return false;
   return conversationNotificationRouteIdentities(route).some(
@@ -85,12 +109,14 @@ export function resetConversationNotificationReadStateForAccount(ownerId: string
   const owner = ownerId.trim();
   if (!owner) return;
   watermarksByOwner.delete(owner);
+  readMessageKeysByOwner.delete(owner);
   hydrationFlights.delete(owner);
   hydratedOwners.delete(owner);
 }
 
 export function resetConversationNotificationReadStateForTests(): void {
   watermarksByOwner.clear();
+  readMessageKeysByOwner.clear();
   hydrationFlights.clear();
   hydratedOwners.clear();
 }

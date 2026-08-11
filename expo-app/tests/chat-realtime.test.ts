@@ -24,6 +24,25 @@ describe("native WebSocket event contracts", () => {
     ]);
   });
 
+  it("does not let a stale screen cleanup clear the newer active conversation lease", () => {
+    chatRealtimeService.stop();
+    const releaseFirst = chatRealtimeService.activateConversation("dm", "friend-a");
+    const releaseSecond = chatRealtimeService.activateConversation("dm", "friend-b");
+
+    releaseFirst();
+    expect(chatRealtimeService.isConversationActive("dm", "friend-b")).toBe(true);
+    releaseSecond();
+    expect(chatRealtimeService.hasActiveConversation()).toBe(false);
+
+    const releaseDirect = chatRealtimeService.activateConversation("dm", "friend-a");
+    const releaseGroup = chatRealtimeService.activateConversation("group", "7");
+    expect(chatRealtimeService.isConversationActive("dm", "friend-a")).toBe(false);
+    expect(chatRealtimeService.isConversationActive("group", "7")).toBe(true);
+    releaseDirect();
+    expect(chatRealtimeService.isConversationActive("group", "7")).toBe(true);
+    releaseGroup();
+  });
+
   it("parses direct and group messages through canonical normalizers", () => {
     expect(
       parseChatRealtimeEnvelope(

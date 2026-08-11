@@ -42,6 +42,9 @@ describe("direct ChatView lifecycle source parity", () => {
   });
 
   it("resyncs on foreground, reconciles selection, closes panels for calls and cancels media", () => {
+    expect(source).toContain('chatRealtimeService.activateConversation("dm", id)');
+    expect(source).toContain("releaseActiveConversation()");
+    expect(source).toContain('dismissActiveConversationNotifications("dm", id)');
     expect(source).toContain('state === "active" && previousState !== "active"');
     expect(source).toContain("if (call.session === null) return");
     expect(source).toContain("selection.removedUnavailable");

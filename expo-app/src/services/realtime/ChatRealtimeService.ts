@@ -273,6 +273,7 @@ class ChatRealtimeService {
   private status: ChatRealtimeStatus = "disconnected";
   private activeDirectId: string | null = null;
   private activeGroupId: number | null = null;
+  private activeConversationLease = 0;
   private incomingEventDispatch: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<EventListener>();
   private readonly statusListeners = new Set<StatusListener>();
@@ -292,6 +293,9 @@ class ChatRealtimeService {
   stop(): void {
     this.manuallyStopped = true;
     this.ownerId = null;
+    this.activeConversationLease += 1;
+    this.activeDirectId = null;
+    this.activeGroupId = null;
     this.teardownSocket(1000, "logout");
     this.setStatus("disconnected");
   }
@@ -315,8 +319,34 @@ class ChatRealtimeService {
   }
 
   setActiveConversation(type: "dm" | "group", id: string | null): void {
-    if (type === "dm") this.activeDirectId = id?.trim() || null;
-    else this.activeGroupId = id ? Number(id) || null : null;
+    if (type === "dm") {
+      this.activeDirectId = id?.trim() || null;
+      if (this.activeDirectId) this.activeGroupId = null;
+    } else {
+      this.activeGroupId = id ? Number(id) || null : null;
+      if (this.activeGroupId) this.activeDirectId = null;
+    }
+  }
+
+  activateConversation(type: "dm" | "group", id: string): () => void {
+    const normalizedId = id.trim();
+    if (!normalizedId || (type === "group" && !(Number(normalizedId) > 0))) {
+      return () => undefined;
+    }
+    const lease = ++this.activeConversationLease;
+    this.setActiveConversation(type, normalizedId);
+    return () => {
+      if (lease !== this.activeConversationLease) return;
+      this.activeConversationLease += 1;
+      if (type === "dm" && this.activeDirectId === normalizedId) this.activeDirectId = null;
+      if (type === "group" && this.activeGroupId === Number(normalizedId)) {
+        this.activeGroupId = null;
+      }
+    };
+  }
+
+  hasActiveConversation(): boolean {
+    return this.activeDirectId !== null || this.activeGroupId !== null;
   }
 
   isConversationActive(type: "dm" | "group", id: string): boolean {

@@ -99,6 +99,7 @@ import { useCall } from "@/providers/CallProvider";
 import { useChatAppearance } from "@/providers/ChatAppearanceProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { markConversationRead } from "@/services/conversations/ConversationReadService";
+import { dismissActiveConversationNotifications } from "@/services/push/PushService";
 import { publishDirectConversationPreviewUpdate } from "@/services/conversations/ConversationRepository";
 import {
   readChatDraftSnapshot,
@@ -527,12 +528,13 @@ export default function ChatScreen() {
   useFocusEffect(
     useCallback(() => {
       screenActiveRef.current = true;
-      chatRealtimeService.setActiveConversation("dm", id);
+      const releaseActiveConversation = chatRealtimeService.activateConversation("dm", id);
+      void dismissActiveConversationNotifications("dm", id);
       void load();
       return () => {
         Keyboard.dismiss();
         screenActiveRef.current = false;
-        chatRealtimeService.setActiveConversation("dm", null);
+        releaseActiveConversation();
         const snapshot = draftSnapshotsRef.current.get(sessionKey);
         if (ownerId && id && snapshot) void saveChatDraftSnapshot(ownerId, id, snapshot);
       };

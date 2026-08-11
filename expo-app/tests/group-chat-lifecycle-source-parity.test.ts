@@ -51,7 +51,9 @@ describe("group chat lifecycle and state source parity", () => {
   });
 
   it("keeps realtime, read, draft, foreground and outbox callbacks session-fenced", () => {
-    expect(source).toContain('chatRealtimeService.setActiveConversation("group", String(groupId))');
+    expect(source).toContain("chatRealtimeService.activateConversation(");
+    expect(source).toContain("releaseActiveConversation()");
+    expect(source).toContain('dismissActiveConversationNotifications("group", String(groupId))');
     expect(source).toContain("message.mentions?.includes(ownerId) || message.mention_all");
     expect(source).toMatch(/screenActiveRef\.current\s*&&\s*isNearBottomRef\.current/u);
     expect(source.match(/screenActiveRef\.current\s*&&\s*isNearBottomRef\.current/gu)).toHaveLength(

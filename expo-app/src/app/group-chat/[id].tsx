@@ -105,6 +105,7 @@ import { useChatAppearance } from "@/providers/ChatAppearanceProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { cacheUserInfoBatch, peekCachedUserInfo } from "@/services/cache/UserInfoCache";
 import { markConversationRead } from "@/services/conversations/ConversationReadService";
+import { dismissActiveConversationNotifications } from "@/services/push/PushService";
 import { publishGroupConversationPreviewUpdate } from "@/services/conversations/ConversationRepository";
 import {
   groupDetailGeneration,
@@ -624,12 +625,16 @@ export default function GroupChatScreen() {
   useFocusEffect(
     useCallback(() => {
       screenActiveRef.current = true;
-      chatRealtimeService.setActiveConversation("group", String(groupId));
+      const releaseActiveConversation = chatRealtimeService.activateConversation(
+        "group",
+        String(groupId),
+      );
+      void dismissActiveConversationNotifications("group", String(groupId));
       void load();
       return () => {
         Keyboard.dismiss();
         screenActiveRef.current = false;
-        chatRealtimeService.setActiveConversation("group", null);
+        releaseActiveConversation();
         const snapshot = draftSnapshotsRef.current.get(sessionKey);
         if (ownerId && groupId > 0 && snapshot)
           void saveChatDraftSnapshot(ownerId, String(groupId), snapshot, "group");
