@@ -1916,11 +1916,7 @@ export async function createMoment(
     form.append("unlock_price_gold_coins", String(options.unlockPriceGoldCoins));
   }
   for (const asset of media) {
-    form.append("media", {
-      uri: asset.uri,
-      name: asset.filename,
-      type: asset.mime_type,
-    } as unknown as Blob);
+    appendExpoFilePart(form, "media", asset.uri, asset.filename, asset.mime_type);
   }
   return normalizeMoment(
     await apiRequest<unknown>("/moments/create", {

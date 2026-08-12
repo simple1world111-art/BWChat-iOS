@@ -34,13 +34,38 @@ import { createOptimisticMoment, temporaryMomentId } from "@/services/moments/Mo
 jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
 jest.mock("expo-file-system", () => ({
   Directory: class Directory {},
-  File: class File {},
+  File: class File {
+    bytes() {
+      return Promise.resolve(new Uint8Array([77]));
+    }
+  },
   Paths: { document: "file:///documents" },
 }));
 
+const NativeFormData = jest.requireActual("react-native/Libraries/Network/FormData")
+  .default as typeof FormData;
+const { installFormDataPatch } = jest.requireActual("expo/src/winter/FormData") as {
+  installFormDataPatch(formData: typeof FormData): typeof FormData;
+};
+const { convertFormDataAsync } = jest.requireActual("expo/src/winter/fetch/convertFormData") as {
+  convertFormDataAsync(
+    formData: FormData,
+    boundary?: string,
+  ): Promise<{ body: Uint8Array; boundary: string }>;
+};
+
 const request = jest.mocked(apiRequest);
+const StandardFormData = global.FormData;
 
 describe("native moments feed contracts", () => {
+  beforeAll(() => {
+    global.FormData = installFormDataPatch(NativeFormData);
+  });
+
+  afterAll(() => {
+    global.FormData = StandardFormData;
+  });
+
   beforeEach(async () => {
     request.mockReset();
     await AsyncStorage.clear();
@@ -115,6 +140,18 @@ describe("native moments feed contracts", () => {
       body: expect.any(FormData),
       timeoutMs: 180_000,
     });
+    const form = request.mock.calls[0]?.[1]?.body as FormData;
+    const media = form.get("media");
+    expect(media).toMatchObject({
+      name: "moment_image_1_0.jpg",
+      type: "image/jpeg",
+      bytes: expect.any(Function),
+    });
+    expect(media).not.toHaveProperty("uri");
+    const multipart = await convertFormDataAsync(form, "----ExpoFetchFormBoundaryMomentRegression");
+    expect(new TextDecoder().decode(multipart.body)).toContain(
+      'name="media"; filename="moment_image_1_0.jpg"',
+    );
     expect(() =>
       validateMomentUploadAssets([
         { kind: "image", uri: "i", filename: "i.jpg", mime_type: "image/jpeg" },
