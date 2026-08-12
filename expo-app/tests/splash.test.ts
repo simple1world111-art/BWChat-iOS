@@ -71,6 +71,17 @@ describe("native SplashScreen contracts", () => {
     expect(stackStart).toBeGreaterThan(realtimeStart);
   });
 
+  it("keeps the native window covered during startup and root navigation transitions", () => {
+    const layout = fs.readFileSync(path.join(process.cwd(), "src/app/_layout.tsx"), "utf8");
+
+    expect(layout).toContain("const rootBackgroundColor = palette(colorScheme).background;");
+    expect(layout).toContain(
+      "<GestureHandlerRootView style={[styles.root, { backgroundColor: rootBackgroundColor }]}>",
+    );
+    expect(layout).toContain("<SafeAreaProvider style={{ backgroundColor: rootBackgroundColor }}>");
+    expect(layout).toContain("contentStyle: { backgroundColor: rootBackgroundColor }");
+  });
+
   it("does not animate startup redirects into the auth or tab roots", () => {
     const layout = fs.readFileSync(path.join(process.cwd(), "src/app/_layout.tsx"), "utf8");
 

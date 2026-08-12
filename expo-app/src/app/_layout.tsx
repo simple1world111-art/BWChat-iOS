@@ -3,7 +3,7 @@ import { registerGlobals } from "@livekit/react-native";
 import { StatusBar } from "expo-status-bar";
 import * as Sentry from "@sentry/react-native";
 import { useEffect, useState } from "react";
-import { LogBox, useColorScheme } from "react-native";
+import { LogBox, StyleSheet, useColorScheme } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import "react-native-reanimated";
@@ -31,6 +31,7 @@ import { initializeMonitoring } from "@/services/monitoring/MonitoringService";
 import { hydrateNavigationSnapshots } from "@/services/navigation/NavigationSnapshotCache";
 import { initializePushNotifications } from "@/services/push/PushService";
 import { visualAcceptanceEnabled } from "@/services/visualAcceptance";
+import { palette } from "@/theme";
 
 registerGlobals();
 LogBox.ignoreLogs(["[expo-notifications] Error reading persisted server registration info"]);
@@ -58,10 +59,11 @@ function BootstrapGate({ children }: { children: React.ReactNode }) {
 
 function RootLayout() {
   const colorScheme = useColorScheme();
+  const rootBackgroundColor = palette(colorScheme).background;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+    <GestureHandlerRootView style={[styles.root, { backgroundColor: rootBackgroundColor }]}>
+      <SafeAreaProvider style={{ backgroundColor: rootBackgroundColor }}>
         <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
           <LocalizationProvider>
             <AuthProvider>
@@ -84,6 +86,7 @@ function RootLayout() {
                                 <AppGate>
                                   <Stack
                                     screenOptions={{
+                                      contentStyle: { backgroundColor: rootBackgroundColor },
                                       headerBackButtonDisplayMode: "minimal",
                                       headerBackTitle: "",
                                       headerShadowVisible: false,
@@ -285,5 +288,9 @@ function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
 
 export default Sentry.wrap(RootLayout);
