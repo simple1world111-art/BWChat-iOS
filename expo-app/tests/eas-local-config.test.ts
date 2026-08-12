@@ -43,6 +43,7 @@ describe("local Expo/EAS configuration", () => {
     expect(config.slug).toBe("bbchat");
     expect(config.runtimeVersion).toEqual({ policy: "fingerprint" });
     expect(config.ios?.runtimeVersion).toEqual({ policy: "appVersion" });
+    expect(config.ios?.icon).toBe("./assets/images/bwchat/icon-ios-full-bleed.png");
     expect(config.updates).toMatchObject({
       enabled: true,
       checkAutomatically: "NEVER",

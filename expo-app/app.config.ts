@@ -133,7 +133,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       runtimeVersion: { policy: "appVersion" },
       bitcode: false,
       supportsTablet: false,
-      icon: "./assets/images/bwchat/icon.png",
+      icon: "./assets/images/bwchat/icon-ios-full-bleed.png",
       entitlements: {
         "aps-environment": environment === "production" ? "production" : "development",
         "com.apple.developer.usernotifications.communication": true,
