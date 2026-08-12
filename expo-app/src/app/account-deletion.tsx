@@ -4,6 +4,8 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -44,6 +46,7 @@ export default function AccountDeletionScreen() {
   const mounted = useRef(true);
   const generation = useRef(0);
   const submitLock = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
   const authorizationRef = useRef<DeletionAuthorization | null>(null);
   const requestIdRef = useRef<string | null>(null);
   const [preview, setPreview] = useState<AccountDeletionPreview | null>(null);
@@ -67,6 +70,17 @@ export default function AccountDeletionScreen() {
     },
     [],
   );
+
+  const revealDeletionInput = useCallback((target: number) => {
+    requestAnimationFrame(() => {
+      if (!mounted.current) return;
+      scrollRef.current?.scrollResponderScrollNativeHandleToKeyboard(
+        target,
+        deletionInputKeyboardClearance,
+        true,
+      );
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (isSessionUnverified || !ownerId || submitLock.current) return;
@@ -217,109 +231,118 @@ export default function AccountDeletionScreen() {
   return (
     <>
       <Stack.Screen options={{ title: t("account.deletion.title") }} />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => void load()} />}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.screen}
       >
-        <ProfileNoticeBanner message={t("account.deletion.irreversibleDetail")} />
-        {error ? <ProfileNoticeBanner message={error} /> : null}
+        <ScrollView
+          ref={scrollRef}
+          automaticallyAdjustKeyboardInsets={false}
+          contentContainerStyle={styles.content}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => void load()} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <ProfileNoticeBanner message={t("account.deletion.irreversibleDetail")} />
+          {error ? <ProfileNoticeBanner message={error} /> : null}
 
-        {isLoading && !preview ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={styles.secondary}>{t("account.deletion.loadingPreview")}</Text>
-          </View>
-        ) : null}
+          {isLoading && !preview ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={colors.accent} />
+              <Text style={styles.secondary}>{t("account.deletion.loadingPreview")}</Text>
+            </View>
+          ) : null}
 
-        {preview ? (
-          <>
-            <ProfileGroupedCard>
-              {impactRows(preview, t).map((row, index) => (
-                <View key={row.label}>
-                  {index > 0 ? <ProfileRowDivider /> : null}
-                  <MetricRow label={row.label} value={String(row.value)} />
-                </View>
-              ))}
-            </ProfileGroupedCard>
+          {preview ? (
+            <>
+              <ProfileGroupedCard>
+                {impactRows(preview, t).map((row, index) => (
+                  <View key={row.label}>
+                    {index > 0 ? <ProfileRowDivider /> : null}
+                    <MetricRow label={row.label} value={String(row.value)} />
+                  </View>
+                ))}
+              </ProfileGroupedCard>
 
-            <ProfileGroupedCard>
-              <SectionCopy
-                title={t("account.deletion.deleteCategories")}
-                lines={preview.deleteCategories.map((category) => categoryLabel(category, t))}
-              />
-              <ProfileRowDivider />
-              <SectionCopy
-                title={t("account.deletion.retainedCategories")}
-                lines={preview.retainedCategories.map((item) =>
-                  t(
-                    "account.deletion.retentionLine",
-                    categoryLabel(item.category, t),
-                    item.retentionDays,
-                    reasonLabel(item.reason, t),
-                  ),
-                )}
-              />
-              <ProfileRowDivider />
-              <MetricRow
-                label={t("account.deletion.purgeDeadline")}
-                value={estimatedPurgeDate(preview.purgeWithinDays, activeLanguage)}
-              />
-            </ProfileGroupedCard>
+              <ProfileGroupedCard>
+                <SectionCopy
+                  title={t("account.deletion.deleteCategories")}
+                  lines={preview.deleteCategories.map((category) => categoryLabel(category, t))}
+                />
+                <ProfileRowDivider />
+                <SectionCopy
+                  title={t("account.deletion.retainedCategories")}
+                  lines={preview.retainedCategories.map((item) =>
+                    t(
+                      "account.deletion.retentionLine",
+                      categoryLabel(item.category, t),
+                      item.retentionDays,
+                      reasonLabel(item.reason, t),
+                    ),
+                  )}
+                />
+                <ProfileRowDivider />
+                <MetricRow
+                  label={t("account.deletion.purgeDeadline")}
+                  value={estimatedPurgeDate(preview.purgeWithinDays, activeLanguage)}
+                />
+              </ProfileGroupedCard>
 
-            <ProfileGroupedCard>
-              <DeletionInput
-                label={t("password.current")}
-                placeholder={t("password.current.placeholder")}
-                secure
-                value={currentPassword}
-                disabled={Boolean(authorization) || isSubmitting}
-                onChange={(value) => {
-                  setCurrentPassword(value);
-                  authorizationRef.current = null;
-                  setAuthorization(null);
-                  requestIdRef.current = null;
+              <ProfileGroupedCard>
+                <DeletionInput
+                  label={t("password.current")}
+                  placeholder={t("password.current.placeholder")}
+                  secure
+                  value={currentPassword}
+                  disabled={Boolean(authorization) || isSubmitting}
+                  onFocus={revealDeletionInput}
+                  onChange={(value) => {
+                    setCurrentPassword(value);
+                    authorizationRef.current = null;
+                    setAuthorization(null);
+                    requestIdRef.current = null;
+                  }}
+                />
+                <ProfileFieldDivider />
+                <DeletionInput
+                  label={t("account.deletion.typeUsername")}
+                  placeholder={preview.confirmationUsername}
+                  value={confirmationUsername}
+                  disabled={Boolean(authorization) || isSubmitting}
+                  onFocus={revealDeletionInput}
+                  onChange={(value) => {
+                    setConfirmationUsername(value);
+                    authorizationRef.current = null;
+                    setAuthorization(null);
+                    requestIdRef.current = null;
+                  }}
+                />
+              </ProfileGroupedCard>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{
+                  busy: isSubmitting,
+                  disabled: isSubmitting || (!authorization && !canAuthorize),
                 }}
-              />
-              <ProfileFieldDivider />
-              <DeletionInput
-                label={t("account.deletion.typeUsername")}
-                placeholder={preview.confirmationUsername}
-                value={confirmationUsername}
-                disabled={Boolean(authorization) || isSubmitting}
-                onChange={(value) => {
-                  setConfirmationUsername(value);
-                  authorizationRef.current = null;
-                  setAuthorization(null);
-                  requestIdRef.current = null;
-                }}
-              />
-            </ProfileGroupedCard>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{
-                busy: isSubmitting,
-                disabled: isSubmitting || (!authorization && !canAuthorize),
-              }}
-              disabled={isSubmitting || (!authorization && !canAuthorize)}
-              onPress={() => void authorize()}
-              style={({ pressed }) => [
-                styles.deleteButton,
-                !authorization && !canAuthorize && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-            >
-              {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
-              <Text style={styles.deleteButtonText}>
-                {t(authorization ? "account.deletion.retry" : "account.deletion.continue")}
-              </Text>
-            </Pressable>
-          </>
-        ) : null}
-      </ScrollView>
+                disabled={isSubmitting || (!authorization && !canAuthorize)}
+                onPress={() => void authorize()}
+                style={({ pressed }) => [
+                  styles.deleteButton,
+                  !authorization && !canAuthorize && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : null}
+                <Text style={styles.deleteButtonText}>
+                  {t(authorization ? "account.deletion.retry" : "account.deletion.continue")}
+                </Text>
+              </Pressable>
+            </>
+          ) : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </>
   );
 }
@@ -352,6 +375,7 @@ function DeletionInput({
   value,
   secure = false,
   disabled = false,
+  onFocus,
   onChange,
 }: {
   label: string;
@@ -359,6 +383,7 @@ function DeletionInput({
   value: string;
   secure?: boolean;
   disabled?: boolean;
+  onFocus: (target: number) => void;
   onChange: (value: string) => void;
 }) {
   return (
@@ -376,11 +401,14 @@ function DeletionInput({
         style={styles.input}
         textContentType={secure ? "password" : "username"}
         value={value}
+        onFocus={(event) => onFocus(event.nativeEvent.target)}
         onChangeText={onChange}
       />
     </View>
   );
 }
+
+const deletionInputKeyboardClearance = 200;
 
 function impactRows(
   preview: AccountDeletionPreview,
@@ -458,6 +486,7 @@ function deletionError(
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.background },
   content: {
     flexGrow: 1,
     paddingHorizontal: 16,
