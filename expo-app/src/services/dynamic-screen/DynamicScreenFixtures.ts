@@ -133,7 +133,7 @@ export const bundledDynamicScreens: readonly DynamicScreen[] = [
   {
     screenId: "privacy_policy",
     schemaVersion: 1,
-    configVersion: "bundled-account-compliance-v1",
+    configVersion: "bundled-account-compliance-v2",
     titleKey: "account.privacyPolicy",
     components: [
       {
@@ -146,7 +146,7 @@ export const bundledDynamicScreens: readonly DynamicScreen[] = [
   {
     screenId: "data_privacy",
     schemaVersion: 1,
-    configVersion: "bundled-account-compliance-v1",
+    configVersion: "bundled-account-compliance-v2",
     titleKey: "account.dataPrivacy",
     components: [
       {

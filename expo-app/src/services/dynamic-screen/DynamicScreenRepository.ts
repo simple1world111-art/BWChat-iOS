@@ -7,6 +7,7 @@ import { env } from "@/config/env";
 import { getActiveLanguageCode } from "@/providers/LocalizationProvider";
 import { bundledDynamicScreens } from "@/services/dynamic-screen/DynamicScreenFixtures";
 import {
+  isLegalDynamicScreenComplete,
   normalizeDynamicToken,
   parseDynamicScreen,
   parseDynamicScreenWire,
@@ -98,8 +99,16 @@ export function embeddedDynamicScreen(screenId: string, configured: unknown): Dy
       remoteConfigured.push(screen);
     }
   }
+  const configuredMatch = remoteConfigured.find(
+    (screen) => normalizeDynamicToken(screen.screenId) === normalized,
+  );
+  if (
+    configuredMatch &&
+    isLegalDynamicScreenComplete(screenId, configuredMatch, getActiveLanguageCode())
+  ) {
+    return configuredMatch;
+  }
   return (
-    remoteConfigured.find((screen) => normalizeDynamicToken(screen.screenId) === normalized) ??
     bundledDynamicScreens.find((screen) => normalizeDynamicToken(screen.screenId) === normalized) ??
     null
   );

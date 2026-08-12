@@ -42,7 +42,10 @@ export function RemoteConfigProvider({ children }: { children: React.ReactNode }
     ownerId,
     config: bundledConfig(),
     source: "bundled",
-    isRefreshing: false,
+    // The bundled account-compliance config intentionally has no support email.
+    // Keep the first frame in a loading state so screens do not present that
+    // temporary absence as a real server configuration result.
+    isRefreshing: !visualAcceptanceEnabled,
     error: null,
   }));
   const refreshOperationRef = useRef(0);
@@ -96,18 +99,33 @@ export function RemoteConfigProvider({ children }: { children: React.ReactNode }
     const operation = ++refreshOperationRef.current;
     const isCurrent = () => active && refreshOperationRef.current === operation;
     void (async () => {
-      const cached = await readCachedRemoteConfig(requestOwnerId);
-      if (!isCurrent()) return;
-      setRemoteState({
-        ownerId: requestOwnerId,
-        config: cached ?? bundledConfig(),
-        source: cached ? "cache" : "bundled",
-        isRefreshing: false,
-        error: null,
-      });
-      const interval = cached?.refreshIntervalSeconds ?? defaultRemoteConfig.refreshIntervalSeconds;
-      if (await shouldRefreshRemoteConfig(requestOwnerId, interval)) {
-        if (isCurrent()) await refresh();
+      let cached: RemoteConfig | null = null;
+      try {
+        cached = await readCachedRemoteConfig(requestOwnerId);
+        if (!isCurrent()) return;
+        const interval =
+          cached?.refreshIntervalSeconds ?? defaultRemoteConfig.refreshIntervalSeconds;
+        const needsRefresh = await shouldRefreshRemoteConfig(requestOwnerId, interval);
+        if (!isCurrent()) return;
+        setRemoteState({
+          ownerId: requestOwnerId,
+          config: cached ?? bundledConfig(),
+          source: cached ? "cache" : "bundled",
+          isRefreshing: needsRefresh,
+          error: null,
+        });
+        if (needsRefresh && isCurrent()) await refresh();
+      } catch (nextError) {
+        if (!isCurrent()) return;
+        const message = nextError instanceof Error ? nextError.message : "远程配置缓存加载失败";
+        setRemoteState({
+          ownerId: requestOwnerId,
+          config: cached ?? bundledConfig(),
+          source: cached ? "cache" : "bundled",
+          isRefreshing: false,
+          error: message,
+        });
+        captureException(nextError, { operation: "remote_config_cache" });
       }
     })();
     return () => {

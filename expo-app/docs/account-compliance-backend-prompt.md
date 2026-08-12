@@ -288,7 +288,26 @@ Header `Idempotency-Key` 必须等于 body `client_request_id`。
 - `https://id7.com/privacy`
 - `https://id7.com/account-deletion`
 
-每份包含 `document_version`、`effective_at`、`locale`、审核正文、客服方式、删除范围和保留说明；支持 ETag/If-None-Match 与 `de/en/es/fr/ja/ko/pt-BR/ru/zh-Hans/zh-Hant`。
+隐私文档的组织方式参考 LINE 官方隐私政策和 Privacy Center 的可读性原则，但严禁复制 LINE 的原文、主体名称、数据用途或服务商声明。正文只能描述 BBchat 已核对的实际处理活动，并遵守以下固定结构：
+
+1. 开头明确“清晰告知、目的明确、最小必要、用户可控、安全保护、责任可追溯”六项原则。
+2. 区分三类信息来源：用户主动提供；使用功能时自动产生；其他用户或交易、通信、基础设施服务商为完成功能而提供。
+3. 按账号与资料、社交与通信、内容与创作、设备与日志、权限、钱包与交易列明数据类别，不得使用“等”掩盖新的敏感类别。
+4. 单独说明通信正文、通信周边信息和实时音视频：正文与媒体用于传输、同步、存储和依法处理举报；通话参与者、时间、时长、状态及必要质量摘要可被处理；除非另行明确告知和取得必要授权，不得默认录音或录像。
+5. 将处理目的、权限选择、服务商/委托处理、跨境处理、存储安全、用户权利、账号删除、未成年人、版本变更和联系渠道分别写清。
+6. `data_privacy` 是可操作的控制指南，不得只是隐私政策摘要；必须告诉用户到哪里管理系统权限、资料、好友/群组/内容、邮箱安全、账号删除和数据权利请求。
+7. 固定公开实际删除语义和期限：普通数据原则上 7 天内清除；去标识化财务账本最多 2555 天；安全事件最多 180 天；删除审计最多 1095 天；结算中提现地址在结算完成后删除。
+8. 客服渠道只从 `SUPPORT_EMAIL` 注入；正文与模板不得写死邮箱，也不得自动拼接 user ID、设备标识、JWT 或其他凭据。
+
+前端十语言离线兜底正文位于 `BWChat/<locale>.lproj/Localizable.strings` 的 `account.privacyPolicy.fallback` 和 `account.dataPrivacy.fallback`。后端发布的对应 locale 必须逐项覆盖相同事实、权利、删除语义和期限；允许法律审核后的措辞差异，不允许删减实质内容。
+
+每份响应必须包含 `document_version`、`effective_at`、`locale`、审核正文、客服方式、删除范围和保留说明，并支持 ETag/If-None-Match 与 `de/en/es/fr/ja/ko/pt-BR/ru/zh-Hans/zh-Hant`。发布新正文时必须：
+
+- 同一事务或同一不可分割发布批次更新 SDUI、`/privacy` H5 与公开删除页使用的版本化数据源；
+- 提升 `document_version` 并生成与正文内容一致的新 ETag，禁止新正文沿用旧 ETag；
+- 在所有十语言、法律审核、客服邮箱和删除期限齐备前，让 `/health.account_compliance.legal_documents_ready=false`；
+- 禁止以当前线上一句话占位正文标记 ready；禁止未替换的公司主体、注册地址、处理区域或跨境说明占位符上线；
+- 保留历史版本、生效时间和审计记录，回滚只能恢复已审核版本。
 
 `GET /app/config` 必须返回：
 

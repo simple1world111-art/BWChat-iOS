@@ -27,13 +27,20 @@ import { colors } from "@/theme";
 export default function AccountSecurityScreen() {
   const { t } = useLocalization();
   const { isSessionUnverified } = useAuth();
-  const { config } = useRemoteConfig();
+  const {
+    config,
+    error: configError,
+    isRefreshing: isConfigRefreshing,
+    refresh: refreshConfig,
+  } = useRemoteConfig();
   const supportEmail = normalizedSupportEmail(config.account?.supportEmail);
   const mounted = useRef(true);
   const generation = useRef(0);
+  const supportRefreshStarted = useRef(false);
   const [summary, setSummary] = useState<AccountSecuritySummary | null>(null);
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [supportRefreshFinished, setSupportRefreshFinished] = useState(false);
   const privacyScreenId = config.account?.privacyScreenId ?? "privacy_policy";
   const dataPrivacyScreenId = config.account?.dataPrivacyScreenId ?? "data_privacy";
   const sensitiveDisabled = isSessionUnverified;
@@ -71,6 +78,24 @@ export default function AccountSecurityScreen() {
     return () => clearTimeout(task);
   }, [load]);
 
+  useEffect(() => {
+    if (supportEmail || isConfigRefreshing || supportRefreshStarted.current) return;
+    supportRefreshStarted.current = true;
+    void refreshConfig({ ignoreETag: true }).finally(() => {
+      if (mounted.current) setSupportRefreshFinished(true);
+    });
+  }, [isConfigRefreshing, refreshConfig, supportEmail]);
+
+  const refreshAll = useCallback(async () => {
+    supportRefreshStarted.current = true;
+    setSupportRefreshFinished(false);
+    try {
+      await Promise.all([load(), refreshConfig({ ignoreETag: true })]);
+    } finally {
+      if (mounted.current) setSupportRefreshFinished(true);
+    }
+  }, [load, refreshConfig]);
+
   const contactSupport = async () => {
     if (!supportEmail) {
       Alert.alert(t("common.notice"), t("account.support.unavailable"));
@@ -91,13 +116,26 @@ export default function AccountSecurityScreen() {
     : summary?.email.verified
       ? t("account.email.verifiedValue", summary.email.maskedEmail ?? "")
       : t("account.email.unbound");
+  const supportIsLoading = !supportEmail && (isConfigRefreshing || !supportRefreshFinished);
+  const supportTrailingText = supportEmail
+    ? supportEmail
+    : supportIsLoading
+      ? t("common.loading")
+      : configError
+        ? t("account.support.unavailableShort")
+        : t("account.support.notConfigured");
 
   return (
     <>
       <Stack.Screen options={{ title: t("account.security.title") }} />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={() => void load()} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={isLoading || isConfigRefreshing}
+            onRefresh={() => void refreshAll()}
+          />
+        }
         showsVerticalScrollIndicator={false}
       >
         {sensitiveDisabled ? (
@@ -136,9 +174,10 @@ export default function AccountSecurityScreen() {
           <ProfileRowDivider />
           <ProfileSettingsRow
             title={t("account.contactSupport")}
-            trailingText={supportEmail ?? t("account.support.notConfigured")}
+            trailingText={supportTrailingText}
             systemImage="envelope.open.fill"
             gradient={["#FF9F1C", "#FFBF69"]}
+            disabled={supportIsLoading}
             onPress={() => void contactSupport()}
           />
         </ProfileGroupedCard>

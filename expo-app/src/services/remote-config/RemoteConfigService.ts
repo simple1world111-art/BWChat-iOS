@@ -243,12 +243,15 @@ export function fetchRemoteConfig(
   options: { ignoreETag?: boolean } = {},
 ): Promise<RemoteConfigFetchResult> {
   const scope = ownerId?.trim() ? `user.${ownerId.trim()}` : "guest";
-  const active = fetchInFlightByScope.get(scope);
+  // A forced request must not join an ordinary ETag request: the latter may
+  // legitimately resolve to a 304 backed by a stale pre-compliance cache.
+  const requestScope = `${scope}:${options.ignoreETag ? "force" : "normal"}`;
+  const active = fetchInFlightByScope.get(requestScope);
   if (active) return active;
   const task = performRemoteConfigFetch(ownerId, timeoutMs, options).finally(() => {
-    if (fetchInFlightByScope.get(scope) === task) fetchInFlightByScope.delete(scope);
+    if (fetchInFlightByScope.get(requestScope) === task) fetchInFlightByScope.delete(requestScope);
   });
-  fetchInFlightByScope.set(scope, task);
+  fetchInFlightByScope.set(requestScope, task);
   return task;
 }
 

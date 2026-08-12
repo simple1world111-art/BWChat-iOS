@@ -216,6 +216,28 @@ describe("DynamicScreen page lifecycle", () => {
     expect(mockFetchDynamicScreen).toHaveBeenCalledWith("screen", '"legal-v4"');
   });
 
+  it("keeps the bundled legal document when cache and server contain placeholders", async () => {
+    mockScreenId = "privacy_policy";
+    mockEmbeddedDynamicScreen.mockReturnValue(screen("privacy_policy", "Bundled complete policy"));
+    mockReadCachedDynamicScreen.mockResolvedValue({
+      screen: screen("privacy_policy", "Cached placeholder"),
+      etag: '"placeholder-v1"',
+    });
+    mockFetchDynamicScreen.mockResolvedValue({
+      screen: screen("privacy_policy", "Remote placeholder"),
+      etag: '"placeholder-v1"',
+      notModified: false,
+    });
+
+    const view = await render(<DynamicScreenPage />);
+
+    await waitFor(() => expect(mockFetchDynamicScreen).toHaveBeenCalledTimes(1));
+    expect(view.getByText("Bundled complete policy")).toBeTruthy();
+    expect(view.queryByText("Cached placeholder")).toBeNull();
+    expect(view.queryByText("Remote placeholder")).toBeNull();
+    expect(mockPersistDynamicScreen).not.toHaveBeenCalled();
+  });
+
   it("suppresses a late route alert after unmount", async () => {
     const outcome = deferred<{ handled: false; title: string; message: string }>();
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);

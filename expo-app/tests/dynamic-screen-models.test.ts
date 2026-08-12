@@ -1,6 +1,7 @@
 import {
   displayDynamicScreenTitle,
   dynamicInteger,
+  isLegalDynamicScreenComplete,
   localizedDynamicProp,
   parseLegalDocumentWire,
   parseDynamicScreen,
@@ -184,5 +185,22 @@ describe("dynamic screen native protocol", () => {
     expect(
       parseLegalDocumentWire({ screenId: "privacy_policy", title: "隐私政策", body: "正文" }),
     ).toBeNull();
+  });
+
+  it("rejects only incomplete compliance documents without changing ordinary SDUI", () => {
+    const placeholder = parseLegalDocumentWire({
+      screen_id: "privacy_policy",
+      title: "隐私政策",
+      body: "仅处理提供服务所必需的数据。",
+    })!;
+    const complete = parseLegalDocumentWire({
+      screen_id: "privacy_policy",
+      title: "隐私政策",
+      body: "完整隐私正文。".repeat(150),
+    })!;
+
+    expect(isLegalDynamicScreenComplete("privacy_policy", placeholder, "zh-Hans")).toBe(false);
+    expect(isLegalDynamicScreenComplete("privacy_policy", complete, "zh-Hans")).toBe(true);
+    expect(isLegalDynamicScreenComplete("daily_rewards", placeholder, "zh-Hans")).toBe(true);
   });
 });

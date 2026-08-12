@@ -27,6 +27,7 @@ import {
 import {
   displayDynamicScreenTitle,
   isDynamicScreenSupported,
+  isLegalDynamicScreenComplete,
   type DynamicScreen,
 } from "@/services/dynamic-screen/DynamicScreenModels";
 import {
@@ -119,7 +120,7 @@ export function DynamicScreenContent({
       // A persisted remote document must outrank the bundled fallback. If its
       // ETag receives 304, keeping the fallback here would silently hide the
       // last verified legal document on every subsequent visit.
-      if (cached.screen) {
+      if (cached.screen && isLegalDynamicScreenComplete(screenId, cached.screen, activeLanguage)) {
         current = cached.screen;
         screenRef.current = cached.screen;
         setScreen(cached.screen);
@@ -138,7 +139,11 @@ export function DynamicScreenContent({
         setErrorMessage(null);
         return;
       }
-      if (result.screen && isDynamicScreenSupported(result.screen)) {
+      if (
+        result.screen &&
+        isDynamicScreenSupported(result.screen) &&
+        isLegalDynamicScreenComplete(screenId, result.screen, activeLanguage)
+      ) {
         current = result.screen;
         screenRef.current = result.screen;
         if (result.etag !== null) etagRef.current = result.etag;
@@ -154,7 +159,7 @@ export function DynamicScreenContent({
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [embedded, ownerId, screenId, t]);
+  }, [activeLanguage, embedded, ownerId, screenId, t]);
 
   const load = useCallback(async () => {
     if (pendingRef.current) return pendingRef.current;

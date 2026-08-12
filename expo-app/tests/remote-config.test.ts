@@ -310,13 +310,34 @@ describe("parseRemoteConfig", () => {
     const pending = deferred<Response>();
     const fetchMock = jest.spyOn(globalThis, "fetch").mockReturnValue(pending.promise);
     const first = fetchRemoteConfig("single-flight");
-    const second = fetchRemoteConfig("single-flight", 8_000, { ignoreETag: true });
+    const second = fetchRemoteConfig("single-flight");
     pending.resolve(remoteResponse(200, remoteConfig("single-flight")));
     await expect(Promise.all([first, second])).resolves.toEqual([
       expect.objectContaining({ source: "remote" }),
       expect.objectContaining({ source: "remote" }),
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a forced refresh join an ordinary ETag request", async () => {
+    mockReadAccessToken.mockResolvedValue(null);
+    await AsyncStorage.setItem("bwchat.remote-config.v2:user.force-refresh:etag", 'W/"old"');
+    const normal = deferred<Response>();
+    const forced = deferred<Response>();
+    const fetchMock = jest
+      .spyOn(globalThis, "fetch")
+      .mockReturnValueOnce(normal.promise)
+      .mockReturnValueOnce(forced.promise);
+
+    const normalRequest = fetchRemoteConfig("force-refresh");
+    const forcedRequest = fetchRemoteConfig("force-refresh", 8_000, { ignoreETag: true });
+    normal.resolve(remoteResponse(200, remoteConfig("normal")));
+    forced.resolve(remoteResponse(200, remoteConfig("forced")));
+
+    await expect(Promise.all([normalRequest, forcedRequest])).resolves.toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("If-None-Match")).toBe('W/"old"');
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("If-None-Match")).toBeNull();
   });
 });
 

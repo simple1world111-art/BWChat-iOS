@@ -33,6 +33,28 @@ export function isDynamicScreenSupported(screen: DynamicScreen): boolean {
   return (screen.schemaVersion ?? 1) <= 1;
 }
 
+const minimumLegalDocumentCharacters: Readonly<Record<string, number>> = {
+  privacy_policy: 800,
+  data_privacy: 500,
+};
+
+/**
+ * Do not let a successful but placeholder legal response replace the complete
+ * bundled document. This gate is deliberately limited to the two compliance
+ * pages; all other SDUI screens retain their existing behavior.
+ */
+export function isLegalDynamicScreenComplete(
+  requestedScreenId: string,
+  screen: DynamicScreen,
+  language: string,
+): boolean {
+  const normalizedId = normalizeDynamicToken(requestedScreenId);
+  const minimum = minimumLegalDocumentCharacters[normalizedId];
+  if (minimum === undefined) return true;
+  if (normalizeDynamicToken(screen.screenId) !== normalizedId) return false;
+  return visibleDynamicCopyLength(screen.components, language) >= minimum;
+}
+
 export function displayDynamicScreenTitle(
   screen: DynamicScreen,
   language: string,
@@ -94,6 +116,18 @@ export function localizedDynamicValue(
     if (result) return result;
   }
   return undefined;
+}
+
+function visibleDynamicCopyLength(components: DynamicComponent[], language: string): number {
+  let length = 0;
+  for (const component of components) {
+    if (!(component.visible ?? true)) continue;
+    for (const key of ["title", "text", "subtitle"] as const) {
+      length += localizedDynamicProp(component.props, key, language)?.trim().length ?? 0;
+    }
+    if (component.children) length += visibleDynamicCopyLength(component.children, language);
+  }
+  return length;
 }
 
 export function parseDynamicScreen(value: unknown): DynamicScreen | null {
