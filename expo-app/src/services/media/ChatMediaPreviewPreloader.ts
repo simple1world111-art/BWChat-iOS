@@ -8,7 +8,7 @@ import {
   peekAuthenticatedImageUri,
   prefetchImage,
 } from "@/services/cache/ImageCacheService";
-import { chatImagePresentationUrlFor } from "@/services/media/ChatImageSourcePolicy";
+import { chatImageThumbnailUrlFor } from "@/services/media/ChatImageSourcePolicy";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 type ChatImageMessage = Pick<
@@ -28,7 +28,7 @@ export async function preloadChatImagePreview(
   options: { retry?: boolean } = {},
 ): Promise<boolean> {
   if (message.msg_type.trim().toLocaleLowerCase() !== "image") return true;
-  const presentationUrl = chatImagePresentationUrlFor(message);
+  const presentationUrl = chatImageThumbnailUrlFor(message);
   const resolvedUrl = resolveMediaUrl(presentationUrl, env.apiBaseUrl);
   if (!resolvedUrl) return false;
   if (/^(?:file|content|data|blob):/iu.test(resolvedUrl)) return true;

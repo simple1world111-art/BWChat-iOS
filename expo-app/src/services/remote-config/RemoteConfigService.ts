@@ -26,6 +26,10 @@ import { readAccessToken } from "@/storage/tokenStorage";
 import { getActiveLanguageCode } from "@/providers/LocalizationProvider";
 import { normalizeWebViewPolicy } from "@/services/web/WebViewPolicy";
 import { parseDynamicScreenWire } from "@/services/dynamic-screen/DynamicScreenModels";
+import {
+  normalizedSupportEmail,
+  persistLastKnownGoodSupportEmail,
+} from "@/services/account/SupportEmailService";
 
 const cachePrefix = "bwchat.remote-config.v2";
 const supportedSchemaVersion = 1;
@@ -202,7 +206,7 @@ export function parseRemoteConfig(value: unknown): RemoteConfig {
 
 function normalizeAccountConfig(value: unknown): RemoteConfig["account"] {
   if (!isRecord(value)) return undefined;
-  const supportEmail = stringValue(value.support_email);
+  const supportEmail = normalizedSupportEmail(stringValue(value.support_email));
   const privacyScreenId = stringValue(value.privacy_screen_id) ?? "privacy_policy";
   const dataPrivacyScreenId = stringValue(value.data_privacy_screen_id) ?? "data_privacy";
   const accountDeletionUrl =
@@ -230,7 +234,12 @@ export async function readCachedRemoteConfig(ownerId?: string): Promise<RemoteCo
   const raw = await AsyncStorage.getItem(configKey(ownerId));
   if (!raw) return null;
   try {
-    return parseRemoteConfig(JSON.parse(raw) as unknown);
+    const value = JSON.parse(raw) as unknown;
+    // Remote payloads are snake_case, while the persisted projection is the
+    // already-normalized camelCase application model. Validate that known
+    // local schema directly instead of accidentally treating it as wire JSON.
+    const stored = normalizedConfigSchema.safeParse(value);
+    return stored.success ? (stored.data as RemoteConfig) : parseRemoteConfig(value);
   } catch {
     await clearRemoteConfigCache(ownerId);
     return null;
@@ -307,6 +316,7 @@ async function requestRemoteConfig(
     await Promise.all([
       AsyncStorage.setItem(configKey(ownerId), JSON.stringify(config)),
       AsyncStorage.setItem(lastFetchKey(ownerId), String(Date.now())),
+      persistLastKnownGoodSupportEmail(config.account?.supportEmail),
       response.headers.get("ETag")
         ? AsyncStorage.setItem(etagKey(ownerId), response.headers.get("ETag") as string)
         : AsyncStorage.removeItem(etagKey(ownerId)),

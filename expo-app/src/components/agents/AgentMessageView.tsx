@@ -347,6 +347,11 @@ function MediaThumbnail({
         contentFit="cover"
         cornerRadius={10}
         imageStyle={[styles.mediaThumbnail, size]}
+        loadingFallback={
+          <View style={[styles.mediaThumbnail, styles.mediaThumbnailLoading, size]}>
+            <ActivityIndicator color={colors.secondaryText} size="small" />
+          </View>
+        }
         onOpen={onOpen}
         selection={{
           media: { id: sourceId, type: "image", url: target.imagePath },
@@ -711,6 +716,7 @@ const styles = StyleSheet.create({
   },
   localDeliveryFailureText: { color: colors.danger, fontSize: 11, fontWeight: "600" },
   mediaThumbnail: { borderRadius: 10, backgroundColor: colors.separator },
+  mediaThumbnailLoading: { alignItems: "center", justifyContent: "center" },
   mediaState: {
     overflow: "hidden",
     borderRadius: 10,

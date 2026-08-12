@@ -187,6 +187,26 @@ describe("dynamic screen native protocol", () => {
     ).toBeNull();
   });
 
+  it("reads legal support only from support.email", () => {
+    expect(
+      parseLegalDocumentWire({
+        screen_id: "privacy_policy",
+        title: "Privacy",
+        body: "Complete legal body",
+        support_email: "wrong-top@example.com",
+        support: { email: " legal@example.com " },
+      })?.supportEmail,
+    ).toBe("legal@example.com");
+    expect(
+      parseLegalDocumentWire({
+        screen_id: "privacy_policy",
+        title: "Privacy",
+        body: "Complete legal body",
+        support: { support_email: "wrong@example.com" },
+      })?.supportEmail,
+    ).toBeUndefined();
+  });
+
   it("rejects only incomplete compliance documents without changing ordinary SDUI", () => {
     const placeholder = parseLegalDocumentWire({
       screen_id: "privacy_policy",

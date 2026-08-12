@@ -1,8 +1,13 @@
 import { render, waitFor } from "@testing-library/react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import AccountSecurityScreen from "@/app/account-security";
 import { getAccountSecurity } from "@/services/account/AccountComplianceService";
 import { defaultRemoteConfig } from "@/services/remote-config/defaultConfig";
+import {
+  persistLastKnownGoodSupportEmail,
+  resetSupportEmailMemoryForTests,
+} from "@/services/account/SupportEmailService";
 
 const mockRefreshConfig = jest.fn<Promise<void>, [{ ignoreETag?: boolean }?]>();
 const mockTranslate = (key: string) => key;
@@ -72,8 +77,10 @@ jest.mock("@/services/account/AccountComplianceService", () => ({
 const requestSecurity = jest.mocked(getAccountSecurity);
 
 describe("account security support configuration", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
+    await AsyncStorage.clear();
+    resetSupportEmailMemoryForTests();
     mockRefreshConfig.mockResolvedValue();
     requestSecurity.mockResolvedValue({
       email: { verified: false },
@@ -118,6 +125,28 @@ describe("account security support configuration", () => {
       ).toBeTruthy(),
     );
     expect(view.queryByText("account.contactSupport:account.support.notConfigured")).toBeNull();
+  });
+
+  it("retains the last-known-good email when the network refresh fails", async () => {
+    await persistLastKnownGoodSupportEmail("last-good@example.com");
+    resetSupportEmailMemoryForTests();
+    mockRemoteConfig = remoteContext({ error: "network failed" });
+    const view = await render(<AccountSecurityScreen />);
+
+    await waitFor(() =>
+      expect(view.getByText("account.contactSupport:last-good@example.com")).toBeTruthy(),
+    );
+    expect(mockRefreshConfig).not.toHaveBeenCalled();
+    expect(view.queryByText("account.contactSupport:account.support.notConfigured")).toBeNull();
+  });
+
+  it("shows not configured only after refresh returns no valid email and no cache exists", async () => {
+    const view = await render(<AccountSecurityScreen />);
+
+    await waitFor(() => expect(mockRefreshConfig).toHaveBeenCalledWith({ ignoreETag: true }));
+    await waitFor(() =>
+      expect(view.getByText("account.contactSupport:account.support.notConfigured")).toBeTruthy(),
+    );
   });
 });
 

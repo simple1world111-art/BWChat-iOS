@@ -41,4 +41,20 @@ describe("chat media picker source parity", () => {
       expect(source).toContain("sendMediaBatch(drafts)");
     }
   });
+
+  it("renders agent image submissions before multipart upload begins", () => {
+    const source = fs.readFileSync(path.join(root, "src/app/agent-chat.tsx"), "utf8");
+    const optimisticIndex = source.indexOf(
+      "setTimeline(mergeAgentMessages(messagesRef.current, [optimisticMessage]))",
+    );
+    const renderBoundaryIndex = source.indexOf(
+      "await waitForChatOptimisticRender()",
+      optimisticIndex,
+    );
+    const uploadIndex = source.indexOf("await uploadAgentChatImage(", renderBoundaryIndex);
+
+    expect(optimisticIndex).toBeGreaterThan(-1);
+    expect(renderBoundaryIndex).toBeGreaterThan(optimisticIndex);
+    expect(uploadIndex).toBeGreaterThan(renderBoundaryIndex);
+  });
 });

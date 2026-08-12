@@ -4,17 +4,21 @@ import {
 } from "@/services/messages/ChatMediaSendScheduler";
 
 describe("chat media send scheduler", () => {
-  let scheduledFrame: FrameRequestCallback | undefined;
+  let scheduledFrames: FrameRequestCallback[];
   let requestFrame: jest.SpyInstance;
   let cancelFrame: jest.SpyInstance;
 
   beforeEach(() => {
-    scheduledFrame = undefined;
-    requestFrame = jest.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
-      scheduledFrame = callback;
-      return 17;
-    });
-    cancelFrame = jest.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => undefined);
+    scheduledFrames = [];
+    requestFrame = jest
+      .spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        scheduledFrames.push(callback);
+        return 16 + scheduledFrames.length;
+      });
+    cancelFrame = jest
+      .spyOn(globalThis, "cancelAnimationFrame")
+      .mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -23,7 +27,7 @@ describe("chat media send scheduler", () => {
     jest.useRealTimers();
   });
 
-  it("waits until the optimistic row had a render opportunity and starts every upload independently", async () => {
+  it("waits through a complete optimistic frame and starts every upload independently", async () => {
     const failure = new Error("first failed");
     const first = jest.fn(async () => {
       throw failure;
@@ -39,7 +43,12 @@ describe("chat media send scheduler", () => {
 
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
-    scheduledFrame?.(0);
+    scheduledFrames.shift()?.(0);
+    await flushMicrotasks();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+
+    scheduledFrames.shift()?.(16);
     await flushMicrotasks();
 
     expect(first).toHaveBeenCalledTimes(1);
@@ -57,7 +66,8 @@ describe("chat media send scheduler", () => {
     await flushMicrotasks();
     expect(start).toHaveBeenCalledTimes(1);
 
-    scheduledFrame?.(0);
+    scheduledFrames.shift()?.(0);
+    scheduledFrames.shift()?.(16);
     await flushMicrotasks();
     expect(start).toHaveBeenCalledTimes(1);
   });

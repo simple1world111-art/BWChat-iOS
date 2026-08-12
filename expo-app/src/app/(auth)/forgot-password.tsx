@@ -23,7 +23,6 @@ import {
   authPalette,
 } from "@/components/auth/AuthChrome";
 import { useLocalization } from "@/providers/LocalizationProvider";
-import { useRemoteConfig } from "@/providers/RemoteConfigProvider";
 import {
   accountComplianceErrorCode,
   accountComplianceFallbackMessage,
@@ -33,19 +32,15 @@ import {
   resendPasswordResetSession,
   type VerificationSession,
 } from "@/services/account/AccountComplianceService";
-import {
-  copySupportEmail,
-  normalizedSupportEmail,
-  openSupportEmail,
-} from "@/services/account/SupportEmailService";
+import { copySupportEmail, openSupportEmail } from "@/services/account/SupportEmailService";
+import { useConfiguredSupportEmail } from "@/services/account/useConfiguredSupportEmail";
 import { newPasswordValidationMessage } from "@/services/auth/passwordChangePolicy";
 
 type PasswordResetPhase = "identifier" | "verification" | "success";
 
 export default function ForgotPasswordScreen() {
   const { t } = useLocalization();
-  const { config } = useRemoteConfig();
-  const supportEmail = normalizedSupportEmail(config.account?.supportEmail);
+  const { supportEmail } = useConfiguredSupportEmail();
   const mounted = useRef(true);
   const generation = useRef(0);
   const submitLock = useRef(false);

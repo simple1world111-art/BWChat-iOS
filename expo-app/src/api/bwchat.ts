@@ -1766,16 +1766,8 @@ function appendChatVideoFiles(
     thumbnailFilename: string;
   },
 ) {
-  form.append("video", {
-    uri: video.uri,
-    name: video.filename,
-    type: video.mimeType,
-  } as unknown as Blob);
-  form.append("thumbnail", {
-    uri: video.thumbnailUri,
-    name: video.thumbnailFilename,
-    type: "image/jpeg",
-  } as unknown as Blob);
+  appendExpoFilePart(form, "video", video.uri, video.filename, video.mimeType);
+  appendExpoFilePart(form, "thumbnail", video.thumbnailUri, video.thumbnailFilename, "image/jpeg");
 }
 
 function appendChatVoiceFile(

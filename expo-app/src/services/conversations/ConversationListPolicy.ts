@@ -193,6 +193,12 @@ export function reconcileLatestConversationPreviews(
       (timeOrder === 0 &&
         live.last_message_id !== undefined &&
         (row.last_message_id === undefined || live.last_message_id > row.last_message_id));
+    const liveKnowsSameMessageSender =
+      timeOrder === 0 &&
+      live.last_message_id !== undefined &&
+      live.last_message_id === row.last_message_id &&
+      live.last_message === row.last_message &&
+      Boolean(live.last_message_sender_id?.trim());
     const readThrough = Math.max(
       live.read_through_message_id ?? 0,
       row.read_through_message_id ?? 0,
@@ -214,9 +220,15 @@ export function reconcileLatestConversationPreviews(
             last_message: live.last_message,
             last_message_time: live.last_message_time,
             last_message_id: live.last_message_id,
+            last_message_sender_id: live.last_message_sender_id,
             subtitle: live.subtitle,
           }
-        : {}),
+        : liveKnowsSameMessageSender
+          ? {
+              last_message_sender_id: live.last_message_sender_id,
+              subtitle: live.subtitle,
+            }
+          : {}),
       unread_count: unreadCount,
       ...(readThrough > 0 ? { read_through_message_id: readThrough } : {}),
     };
@@ -337,12 +349,32 @@ function parseConversationStickerJSON(
 export function conversationSenderPrefix(
   conversation: Conversation,
   translate?: (key: string, ...args: (string | number)[]) => string,
+  viewerId?: string,
 ): string | undefined {
+  if (
+    normalizedConversationType(conversation) === "group" &&
+    sameNonEmptyUserId(conversation.last_message_sender_id, viewerId)
+  ) {
+    return undefined;
+  }
   return conversationSenderPrefixText(
     conversation.subtitle,
     conversation.last_message ?? "",
     translate,
   );
+}
+
+export function conversationEventSender(
+  messageType: string,
+  content: string,
+  senderId: string | undefined,
+  senderName: string | undefined,
+  viewerId: string | undefined,
+  translate?: (key: string, ...args: (string | number)[]) => string,
+): string | undefined {
+  if (sameNonEmptyUserId(senderId, viewerId)) return undefined;
+  if (!shouldShowConversationEventSender(messageType, content)) return undefined;
+  return conversationSenderPrefixText(senderName, content, translate);
 }
 
 export function conversationSenderPrefixText(
@@ -369,6 +401,12 @@ export function shouldShowConversationEventSender(messageType: string, content: 
     return false;
   }
   return !isChatMoneyReceiptType(type) && normalizeChatMoneyReceipt(content) === null;
+}
+
+function sameNonEmptyUserId(left: string | undefined, right: string | undefined): boolean {
+  const normalizedLeft = left?.trim();
+  const normalizedRight = right?.trim();
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
 }
 
 export function aggregateConversationUnread(conversations: readonly Conversation[]): number {

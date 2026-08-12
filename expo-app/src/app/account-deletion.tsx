@@ -23,7 +23,6 @@ import {
 } from "@/components/profile/ProfileSettingsChrome";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
-import { useRemoteConfig } from "@/providers/RemoteConfigProvider";
 import {
   accountComplianceErrorCode,
   accountComplianceFallbackMessage,
@@ -35,13 +34,10 @@ import {
   type DeletionAuthorization,
 } from "@/services/account/AccountComplianceService";
 import { colors } from "@/theme";
-import { normalizedSupportEmail } from "@/services/account/SupportEmailService";
 
 export default function AccountDeletionScreen() {
   const { activeLanguage, t } = useLocalization();
   const { user, isSessionUnverified, finalizeAccountDeletion } = useAuth();
-  const { config } = useRemoteConfig();
-  const supportEmail = normalizedSupportEmail(config.account?.supportEmail);
   const ownerId = user?.user_id ?? "";
   const mounted = useRef(true);
   const generation = useRef(0);
@@ -137,7 +133,6 @@ export default function AccountDeletionScreen() {
         params: {
           requestId: receipt.requestId,
           purgeBy: receipt.purgeBy,
-          ...(supportEmail ? { supportEmail } : {}),
         },
       } as never);
     } catch (nextError) {

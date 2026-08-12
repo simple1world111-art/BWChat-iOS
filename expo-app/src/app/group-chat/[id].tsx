@@ -104,6 +104,7 @@ import { useCall } from "@/providers/CallProvider";
 import { useChatAppearance } from "@/providers/ChatAppearanceProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { cacheUserInfoBatch, peekCachedUserInfo } from "@/services/cache/UserInfoCache";
+import { conversationEventSender } from "@/services/conversations/ConversationListPolicy";
 import { markConversationRead } from "@/services/conversations/ConversationReadService";
 import { dismissActiveConversationNotifications } from "@/services/push/PushService";
 import { publishGroupConversationPreviewUpdate } from "@/services/conversations/ConversationRepository";
@@ -235,7 +236,7 @@ import {
   type ChatTextRange,
 } from "@/services/messages/chatMentionPolicy";
 import { saveImageToLibrary, saveVideoToLibrary } from "@/services/media/MediaLibrarySaver";
-import { chatImagePresentationUrlFor } from "@/services/media/ChatImageSourcePolicy";
+import { chatImageOriginalUrlFor } from "@/services/media/ChatImageSourcePolicy";
 import {
   preloadChatImagePreview,
   preloadPreferredChatImagePreview,
@@ -1570,12 +1571,12 @@ export default function GroupChatScreen() {
 
   const loadMoreGalleryImages = useCallback(async () => {
     const existing = new Set(
-      messagesRef.current.filter(isImageMessage).map(chatImagePresentationUrlFor),
+      messagesRef.current.filter(isImageMessage).map(chatImageOriginalUrlFor),
     );
     const older = await loadMore();
     return older
       .filter(isImageMessage)
-      .map(chatImagePresentationUrlFor)
+      .map(chatImageOriginalUrlFor)
       .filter((url) => !existing.has(url));
   }, [loadMore]);
 
@@ -2049,7 +2050,7 @@ export default function GroupChatScreen() {
           const result =
             message.msg_type === "video"
               ? await saveVideoToLibrary(message.content)
-              : await saveImageToLibrary(chatImagePresentationUrlFor(message));
+              : await saveImageToLibrary(chatImageOriginalUrlFor(message));
           if (activeSessionRef.current !== expectedSession) return;
           if (result === "permissionDenied") {
             Alert.alert(
@@ -2166,6 +2167,16 @@ export default function GroupChatScreen() {
           messagesRef.current = merged;
           return merged;
         });
+        isNearBottomRef.current = true;
+        setIsNearBottom(true);
+        setNewMessagesBelowCount(0);
+        setMentionLocatorMessageIds([]);
+        setReplyLocatorMessageIds([]);
+        requestAnimationFrame(() => {
+          if (activeSessionRef.current === expectedSession) {
+            listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+          }
+        });
         startChatMediaUploadsAfterOptimisticRender(
           jobs.map((job) => ({
             start: () =>
@@ -2224,7 +2235,7 @@ export default function GroupChatScreen() {
   };
 
   const imageUrls = useMemo(
-    () => visibleMessages.filter(isImageMessage).map(chatImagePresentationUrlFor),
+    () => visibleMessages.filter(isImageMessage).map(chatImageOriginalUrlFor),
     [visibleMessages],
   );
   const timelineLocator = resolveChatTimelineLocator({
@@ -2835,7 +2846,7 @@ function MessageContent({
     );
   }
   if (type === "image") {
-    const presentationUrl = chatImagePresentationUrlFor(message);
+    const originalUrl = chatImageOriginalUrlFor(message);
     return (
       <ChatImageBubble
         imageUrls={imageUrls}
@@ -2844,7 +2855,7 @@ function MessageContent({
             ? { width: message.media_width, height: message.media_height }
             : undefined
         }
-        index={Math.max(0, imageUrls.indexOf(presentationUrl))}
+        index={Math.max(0, imageUrls.indexOf(originalUrl))}
         loadMoreOlder={loadMoreGalleryImages}
         messageId={identity(message)}
         onOpen={onImageOpen}
@@ -3419,7 +3430,13 @@ function groupConversationPreviewFields(
   messages: readonly GroupMessage[],
   viewerId: string,
   t: (key: string, ...args: (string | number)[]) => string,
-): { last_message?: string; last_message_time?: string; last_message_id?: number } {
+): {
+  last_message?: string;
+  last_message_time?: string;
+  last_message_id?: number;
+  last_message_sender_id?: string;
+  subtitle?: string;
+} {
   const latest = [...messages]
     .filter((message) => message.delivery_status !== "failed")
     .sort(compareMessages)
@@ -3437,10 +3454,20 @@ function groupConversationPreviewFields(
           : type === "sticker"
             ? t("message.sticker")
             : latest.content;
+  const subtitle = conversationEventSender(
+    latest.msg_type,
+    latest.content,
+    latest.sender_id,
+    latest.sender_nickname,
+    viewerId,
+    t,
+  );
   return {
     last_message: lastMessage,
     last_message_time: latest.timestamp,
     last_message_id: latest.id,
+    last_message_sender_id: latest.sender_id,
+    ...(subtitle !== undefined ? { subtitle } : {}),
   };
 }
 

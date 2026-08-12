@@ -41,7 +41,6 @@ import {
 } from "@/services/discover/DiscoverRefreshPolicy";
 import {
   captureMomentsUnreadRefresh,
-  clearMomentsNew,
   publishMomentsUnreadInfo,
   useMomentsHasNew,
   useMomentsUnread,
@@ -180,7 +179,6 @@ export default function DiscoverScreen() {
   const open = useCallback(
     async (item: DiscoverItem) => {
       const id = normalizeToken(item.id);
-      if (isMoments(item)) clearMomentsNew(accountOwnerId);
       if (id === "live") {
         router.push("/live-lobby" as Href);
         return;
@@ -208,7 +206,7 @@ export default function DiscoverScreen() {
       );
       if (!outcome.handled) Alert.alert(outcome.title, outcome.message, [{ text: t("common.ok") }]);
     },
-    [accountOwnerId, activeLanguage, config.webViewPolicy, t],
+    [activeLanguage, config.webViewPolicy, t],
   );
 
   return (

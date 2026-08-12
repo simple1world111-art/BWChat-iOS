@@ -240,7 +240,13 @@ function GroupListRow({
       })
     : undefined;
   const sender = group.last_message
-    ? conversationSenderPrefixText(group.last_message_sender, group.last_message, t)
+    ? conversationSenderPrefixText(
+        group.last_message_sender_id?.trim() === ownerId.trim()
+          ? undefined
+          : group.last_message_sender,
+        group.last_message,
+        t,
+      )
     : undefined;
 
   return (

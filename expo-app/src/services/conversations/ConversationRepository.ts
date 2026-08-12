@@ -40,6 +40,8 @@ export interface GroupConversationPreviewUpdate {
   last_message?: string | undefined;
   last_message_time?: string | undefined;
   last_message_id?: number | undefined;
+  last_message_sender_id?: string | undefined;
+  subtitle?: string | undefined;
 }
 
 const readReceiptListeners = new Set<(event: AccountReadReceipt) => void>();
@@ -339,6 +341,10 @@ export async function publishGroupConversationPreviewUpdate(
       ? { last_message_time: update.last_message_time }
       : {}),
     ...(update.last_message_id !== undefined ? { last_message_id: update.last_message_id } : {}),
+    ...(update.last_message_sender_id !== undefined
+      ? { last_message_sender_id: update.last_message_sender_id.trim() }
+      : {}),
+    ...(update.subtitle !== undefined ? { subtitle: update.subtitle.trim() } : {}),
   };
   for (const listener of [...groupPreviewListeners]) listener(normalized);
   await serializeLocalStateMutation(ownerId, async () => {
@@ -370,6 +376,10 @@ export function applyGroupConversationPreviewUpdate(
     else replacement.last_message_time = update.last_message_time;
     if (update.last_message_id === undefined) delete replacement.last_message_id;
     else replacement.last_message_id = update.last_message_id;
+    if (update.last_message_sender_id === undefined) delete replacement.last_message_sender_id;
+    else replacement.last_message_sender_id = update.last_message_sender_id;
+    if (update.subtitle === undefined) delete replacement.subtitle;
+    else replacement.subtitle = update.subtitle;
     return replacement;
   });
 }

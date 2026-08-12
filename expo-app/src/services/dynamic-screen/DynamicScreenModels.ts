@@ -1,4 +1,5 @@
 import type { DynamicRoute } from "@/services/remote-config/types";
+import { normalizedSupportEmail } from "@/services/account/SupportEmailService";
 
 export type DynamicJSONValue =
   string | number | boolean | null | DynamicJSONValue[] | { [key: string]: DynamicJSONValue };
@@ -22,6 +23,7 @@ export interface DynamicScreen {
   title?: string | undefined;
   titleI18n?: Record<string, string> | undefined;
   refreshIntervalSeconds?: number | undefined;
+  supportEmail?: string | undefined;
   components: DynamicComponent[];
 }
 
@@ -160,11 +162,16 @@ export function parseLegalDocumentWire(value: unknown): DynamicScreen | null {
   const effectiveAt = optionalString(raw.effective_at);
   const locale = optionalString(raw.locale);
   if (!documentVersion.ok || !effectiveAt.ok || !locale.ok) return null;
+  const support = record(raw.support);
+  const supportEmail = normalizedSupportEmail(
+    support && typeof support.email === "string" ? support.email : undefined,
+  );
 
   return {
     screenId,
     title,
     ...(documentVersion.value ? { configVersion: documentVersion.value } : {}),
+    ...(supportEmail ? { supportEmail } : {}),
     components: [
       {
         id: `${screenId}_document_body`,
@@ -247,6 +254,16 @@ function parseDynamicScreenValue(
       optionalInteger,
       "refresh_interval_seconds",
       ...(allowStoredAliases ? ["refreshIntervalSeconds"] : []),
+    )
+  )
+    return null;
+  if (
+    !assignOptionalField(
+      screen,
+      "supportEmail",
+      raw,
+      optionalString,
+      ...(allowStoredAliases ? ["supportEmail"] : ["support_email"]),
     )
   )
     return null;

@@ -780,6 +780,7 @@ export interface ChatGroup {
   last_message?: string | undefined;
   last_message_time?: string | undefined;
   last_message_sender?: string | undefined;
+  last_message_sender_id?: string | undefined;
   unread_count: number;
   is_public: boolean;
   is_muted: boolean;
@@ -935,6 +936,7 @@ export interface Conversation {
   avatar_url: string;
   last_message?: string | undefined;
   last_message_time?: string | undefined;
+  last_message_sender_id?: string | undefined;
   unread_count: number;
   subtitle?: string | undefined;
   group_id?: number | undefined;

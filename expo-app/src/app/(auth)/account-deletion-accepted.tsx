@@ -3,25 +3,17 @@ import { SymbolView } from "expo-symbols";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useLocalization } from "@/providers/LocalizationProvider";
-import { useRemoteConfig } from "@/providers/RemoteConfigProvider";
-import {
-  copySupportEmail,
-  normalizedSupportEmail,
-  openSupportEmail,
-} from "@/services/account/SupportEmailService";
+import { copySupportEmail, openSupportEmail } from "@/services/account/SupportEmailService";
+import { useConfiguredSupportEmail } from "@/services/account/useConfiguredSupportEmail";
 import { colors } from "@/theme";
 
 export default function AccountDeletionAcceptedScreen() {
   const params = useLocalSearchParams<{
     requestId?: string;
     purgeBy?: string;
-    supportEmail?: string;
   }>();
   const { activeLanguage, t } = useLocalization();
-  const { config } = useRemoteConfig();
-  const supportEmail =
-    normalizedSupportEmail(firstParam(params.supportEmail)) ??
-    normalizedSupportEmail(config.account?.supportEmail);
+  const { supportEmail } = useConfiguredSupportEmail();
   const requestId = firstParam(params.requestId);
   const purgeBy = firstParam(params.purgeBy);
 

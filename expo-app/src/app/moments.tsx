@@ -2,6 +2,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   router,
   Stack,
+  useFocusEffect,
   useLocalSearchParams,
   type NativeStackNavigationOptions,
 } from "expo-router";
@@ -79,8 +80,8 @@ import { momentFeedPreviewUrls } from "@/services/moments/MomentMediaPolicy";
 import { markMomentsNotificationsReadEverywhere } from "@/services/moments/MomentsReadService";
 import {
   captureMomentsUnreadRefresh,
-  clearMomentsNew,
   clearMomentsUnread,
+  consumeMomentsNew,
   publishMomentsUnread,
   useMomentsUnread,
 } from "@/services/moments/MomentsUnreadStore";
@@ -441,15 +442,17 @@ function MomentsAccountScreen({
     [isMyMoments, ownerId, persistTab, updateTab],
   );
 
-  useEffect(() => {
-    didBeginScrollingRef.current = false;
-    return runAfterNavigationInteractions(() => void loadFeed(selectedTab, true));
-  }, [loadFeed, selectedTab]);
+  useFocusEffect(
+    useCallback(() => {
+      didBeginScrollingRef.current = false;
+      const forceRefresh = isMyMoments ? false : consumeMomentsNew(ownerId);
+      return runAfterNavigationInteractions(() => void loadFeed(selectedTab, true, forceRefresh));
+    }, [isMyMoments, loadFeed, ownerId, selectedTab]),
+  );
 
   useEffect(() => {
     if (!ownerId || isMyMoments) return;
     let active = true;
-    clearMomentsNew(ownerId);
     const momentsRefresh = captureMomentsUnreadRefresh(ownerId);
     const cancel = runAfterNavigationInteractions(() => {
       void getMomentsUnreadInfo()

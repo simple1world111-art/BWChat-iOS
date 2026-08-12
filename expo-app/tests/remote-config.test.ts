@@ -7,6 +7,7 @@ import {
   effectiveTabs,
   fetchRemoteConfig,
   parseRemoteConfig,
+  readCachedRemoteConfig,
   requiresStoreUpdate,
 } from "@/services/remote-config/RemoteConfigService";
 import { readAccessToken } from "@/storage/tokenStorage";
@@ -75,6 +76,24 @@ describe("parseRemoteConfig", () => {
       dataPrivacyScreenId: "data_privacy",
       accountDeletionUrl: "https://id7.com/account-deletion",
     });
+  });
+
+  it("reads support only from data.account.support_email", () => {
+    const config = parseRemoteConfig({
+      code: 0,
+      message: "ok",
+      support_email: "wrong-root@example.com",
+      account: { support_email: "wrong-envelope@example.com" },
+      data: {
+        schema_version: 1,
+        config_version: "nested-support",
+        support_email: "wrong-data@example.com",
+        supportEmail: "wrong-camel@example.com",
+        account: { support_email: "nested@example.com" },
+      },
+    });
+
+    expect(config.account?.supportEmail).toBe("nested@example.com");
   });
 
   it("removes the retired test tab even when an older remote config still sends it", () => {
@@ -339,6 +358,47 @@ describe("parseRemoteConfig", () => {
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("If-None-Match")).toBe('W/"old"');
     expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("If-None-Match")).toBeNull();
   });
+
+  it("replaces support email on HTTP 200 even when config_version is unchanged", async () => {
+    mockReadAccessToken.mockResolvedValue(null);
+    jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        remoteResponse(200, remoteConfigWithSupport("same-version", "old@example.com")),
+      )
+      .mockResolvedValueOnce(
+        remoteResponse(200, remoteConfigWithSupport("same-version", "new@example.com")),
+      );
+
+    await fetchRemoteConfig("same-version");
+    await fetchRemoteConfig("same-version");
+
+    await expect(readCachedRemoteConfig("same-version")).resolves.toMatchObject({
+      configVersion: "same-version",
+      account: { supportEmail: "new@example.com" },
+    });
+  });
+
+  it("uses the normalized cached support email after HTTP 304", async () => {
+    mockReadAccessToken.mockResolvedValue(null);
+    const fetchMock = jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        remoteResponse(200, remoteConfigWithSupport("etag-version", "cached@example.com"), {
+          ETag: 'W/"support"',
+        }),
+      )
+      .mockResolvedValueOnce(remoteResponse(304, null, { ETag: 'W/"support"' }));
+
+    await fetchRemoteConfig("etag-owner");
+    await expect(fetchRemoteConfig("etag-owner")).resolves.toMatchObject({
+      source: "cache",
+      config: { account: { supportEmail: "cached@example.com" } },
+    });
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("If-None-Match")).toBe(
+      'W/"support"',
+    );
+  });
 });
 
 function remoteConfig(configVersion: string) {
@@ -352,11 +412,28 @@ function remoteConfig(configVersion: string) {
   };
 }
 
-function remoteResponse(status: number, payload: unknown): Response {
+function remoteConfigWithSupport(configVersion: string, supportEmail: string) {
+  return {
+    code: 0,
+    data: {
+      schema_version: 1,
+      config_version: configVersion,
+      refresh_interval_seconds: 300,
+      account: {
+        support_email: supportEmail,
+        privacy_screen_id: "privacy_policy",
+        data_privacy_screen_id: "data_privacy",
+        account_deletion_url: "https://id7.com/account-deletion",
+      },
+    },
+  };
+}
+
+function remoteResponse(status: number, payload: unknown, headers: HeadersInit = {}): Response {
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: new Headers(),
+    headers: new Headers(headers),
     json: async () => payload,
   } as Response;
 }

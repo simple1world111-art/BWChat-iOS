@@ -8,11 +8,8 @@ import {
   getAccountSecurity,
   type AccountSecuritySummary,
 } from "@/services/account/AccountComplianceService";
-import {
-  copySupportEmail,
-  normalizedSupportEmail,
-  openSupportEmail,
-} from "@/services/account/SupportEmailService";
+import { copySupportEmail, openSupportEmail } from "@/services/account/SupportEmailService";
+import { useConfiguredSupportEmail } from "@/services/account/useConfiguredSupportEmail";
 import {
   ProfileGroupedCard,
   ProfileNoticeBanner,
@@ -27,20 +24,18 @@ import { colors } from "@/theme";
 export default function AccountSecurityScreen() {
   const { t } = useLocalization();
   const { isSessionUnverified } = useAuth();
+  const { config, isRefreshing: isConfigRefreshing } = useRemoteConfig();
   const {
-    config,
-    error: configError,
-    isRefreshing: isConfigRefreshing,
-    refresh: refreshConfig,
-  } = useRemoteConfig();
-  const supportEmail = normalizedSupportEmail(config.account?.supportEmail);
+    supportEmail,
+    isLoading: supportIsLoading,
+    isUnavailable: supportIsUnavailable,
+    refreshSupportEmail,
+  } = useConfiguredSupportEmail();
   const mounted = useRef(true);
   const generation = useRef(0);
-  const supportRefreshStarted = useRef(false);
   const [summary, setSummary] = useState<AccountSecuritySummary | null>(null);
   const [isLoading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [supportRefreshFinished, setSupportRefreshFinished] = useState(false);
   const privacyScreenId = config.account?.privacyScreenId ?? "privacy_policy";
   const dataPrivacyScreenId = config.account?.dataPrivacyScreenId ?? "data_privacy";
   const sensitiveDisabled = isSessionUnverified;
@@ -78,23 +73,9 @@ export default function AccountSecurityScreen() {
     return () => clearTimeout(task);
   }, [load]);
 
-  useEffect(() => {
-    if (supportEmail || isConfigRefreshing || supportRefreshStarted.current) return;
-    supportRefreshStarted.current = true;
-    void refreshConfig({ ignoreETag: true }).finally(() => {
-      if (mounted.current) setSupportRefreshFinished(true);
-    });
-  }, [isConfigRefreshing, refreshConfig, supportEmail]);
-
   const refreshAll = useCallback(async () => {
-    supportRefreshStarted.current = true;
-    setSupportRefreshFinished(false);
-    try {
-      await Promise.all([load(), refreshConfig({ ignoreETag: true })]);
-    } finally {
-      if (mounted.current) setSupportRefreshFinished(true);
-    }
-  }, [load, refreshConfig]);
+    await Promise.all([load(), refreshSupportEmail()]);
+  }, [load, refreshSupportEmail]);
 
   const contactSupport = async () => {
     if (!supportEmail) {
@@ -116,12 +97,11 @@ export default function AccountSecurityScreen() {
     : summary?.email.verified
       ? t("account.email.verifiedValue", summary.email.maskedEmail ?? "")
       : t("account.email.unbound");
-  const supportIsLoading = !supportEmail && (isConfigRefreshing || !supportRefreshFinished);
   const supportTrailingText = supportEmail
     ? supportEmail
     : supportIsLoading
       ? t("common.loading")
-      : configError
+      : supportIsUnavailable
         ? t("account.support.unavailableShort")
         : t("account.support.notConfigured");
 

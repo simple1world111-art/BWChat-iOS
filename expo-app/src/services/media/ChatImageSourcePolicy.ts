@@ -3,19 +3,26 @@ export interface ChatImageSource {
   thumbnail_url?: string | undefined;
 }
 
-/**
- * The thumbnail is the image already presented in the message timeline. Keep
- * gallery and save actions on that same server-projected asset when one is
- * available so a mismatched original URL cannot replace it after activation.
- */
-export function chatImagePresentationUrl(
-  content: string,
-  thumbnailUrl?: string | undefined,
-): string {
+/** Uses the lightweight derivative while the image is rendered in the timeline. */
+export function chatImageThumbnailUrl(content: string, thumbnailUrl?: string | undefined): string {
   const thumbnail = thumbnailUrl?.trim();
   return thumbnail || content.trim();
 }
 
-export function chatImagePresentationUrlFor(message: ChatImageSource): string {
-  return chatImagePresentationUrl(message.content, message.thumbnail_url);
+export function chatImageThumbnailUrlFor(message: ChatImageSource): string {
+  return chatImageThumbnailUrl(message.content, message.thumbnail_url);
+}
+
+/**
+ * Full-screen preview and save actions must use the original image. Falling
+ * back to the thumbnail keeps historical/malformed records usable when their
+ * original path is missing, without upscaling every valid thumbnail.
+ */
+export function chatImageOriginalUrl(content: string, thumbnailUrl?: string | undefined): string {
+  const original = content.trim();
+  return original || thumbnailUrl?.trim() || "";
+}
+
+export function chatImageOriginalUrlFor(message: ChatImageSource): string {
+  return chatImageOriginalUrl(message.content, message.thumbnail_url);
 }

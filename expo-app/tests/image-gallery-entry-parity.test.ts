@@ -23,11 +23,12 @@ describe("native ImagePreviewView entry parity", () => {
 
     expect(bubble).toContain("<ImageGallerySource");
     expect(bubble).toContain("loadMoreOlder");
-    expect(bubble).toContain("url: presentationUrl");
-    expect(direct).toContain("map(chatImagePresentationUrlFor)");
-    expect(group).toContain("map(chatImagePresentationUrlFor)");
-    expect(direct).toContain("saveImageToLibrary(chatImagePresentationUrlFor(message))");
-    expect(group).toContain("saveImageToLibrary(chatImagePresentationUrlFor(message))");
+    expect(bubble).toContain("url: originalUrl");
+    expect(bubble).toContain("chatImageThumbnailUrl(url, thumbnailUrl)");
+    expect(direct).toContain("map(chatImageOriginalUrlFor)");
+    expect(group).toContain("map(chatImageOriginalUrlFor)");
+    expect(direct).toContain("saveImageToLibrary(chatImageOriginalUrlFor(message))");
+    expect(group).toContain("saveImageToLibrary(chatImageOriginalUrlFor(message))");
     expect(direct).toContain("loadMoreGalleryImages={loadMoreGalleryImages}");
     expect(group).toContain("loadMoreGalleryImages={loadMoreGalleryImages}");
     expect(direct).toContain("<ImageGallery onClose=");

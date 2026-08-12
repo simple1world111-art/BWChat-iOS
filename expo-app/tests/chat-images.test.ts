@@ -31,10 +31,38 @@ jest.mock("@/api/client", () => {
   const actual = jest.requireActual("@/api/client") as object;
   return { ...actual, apiRequest: jest.fn() };
 });
+jest.mock("expo-file-system", () => ({
+  File: class MockFile {
+    bytes() {
+      return Promise.resolve(new Uint8Array([86]));
+    }
+  },
+}));
+
+const NativeFormData = jest.requireActual("react-native/Libraries/Network/FormData")
+  .default as typeof FormData;
+const { installFormDataPatch } = jest.requireActual("expo/src/winter/FormData") as {
+  installFormDataPatch(formData: typeof FormData): typeof FormData;
+};
+const { convertFormDataAsync } = jest.requireActual("expo/src/winter/fetch/convertFormData") as {
+  convertFormDataAsync(
+    formData: FormData,
+    boundary?: string,
+  ): Promise<{ body: Uint8Array; boundary: string }>;
+};
 
 const request = jest.mocked(apiRequest);
+const StandardFormData = global.FormData;
 
 describe("native chat image contracts", () => {
+  beforeAll(() => {
+    global.FormData = installFormDataPatch(NativeFormData);
+  });
+
+  afterAll(() => {
+    global.FormData = StandardFormData;
+  });
+
   beforeEach(() => request.mockReset());
 
   it("uses the original landscape, portrait and square footprints", () => {
@@ -242,8 +270,9 @@ describe("native chat image contracts", () => {
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.get("receiver_id")).toBe("friend");
     expect(form.get("client_message_id")).toBe("client-video-direct");
-    expect(form.has("video")).toBe(true);
-    expect(form.has("thumbnail")).toBe(true);
+    expectExpoByteBackedFile(form.get("video"), "movie.mov", "video/quicktime");
+    expectExpoByteBackedFile(form.get("thumbnail"), "movie_thumb.jpg", "image/jpeg");
+    await expectExpoSerializableVideoMultipart(form);
   });
 
   it("uploads group video without a receiver field", async () => {
@@ -266,8 +295,9 @@ describe("native chat image contracts", () => {
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.has("receiver_id")).toBe(false);
     expect(form.get("client_message_id")).toBe("client-video-group");
-    expect(form.has("video")).toBe(true);
-    expect(form.has("thumbnail")).toBe(true);
+    expectExpoByteBackedFile(form.get("video"), "movie.mov", "video/quicktime");
+    expectExpoByteBackedFile(form.get("thumbnail"), "movie_thumb.jpg", "image/jpeg");
+    await expectExpoSerializableVideoMultipart(form);
   });
 
   it("does not confirm a video bubble without a canonical server record", async () => {
@@ -320,4 +350,20 @@ function videoInput() {
     thumbnailUri: "file:///thumb.jpg",
     thumbnailFilename: "movie_thumb.jpg",
   };
+}
+
+function expectExpoByteBackedFile(value: FormDataEntryValue | null, name: string, type: string) {
+  expect(value).toMatchObject({ name, type, bytes: expect.any(Function) });
+  expect(value).not.toHaveProperty("uri");
+}
+
+async function expectExpoSerializableVideoMultipart(form: FormData) {
+  const boundary = "----ExpoFetchFormBoundaryVideoRegression";
+  const result = await convertFormDataAsync(form, boundary);
+  const multipart = new TextDecoder().decode(result.body);
+  expect(result.boundary).toBe(boundary);
+  expect(multipart).toContain('name="video"; filename="movie.mov"');
+  expect(multipart).toContain("content-type: video/quicktime");
+  expect(multipart).toContain('name="thumbnail"; filename="movie_thumb.jpg"');
+  expect(multipart).toContain("content-type: image/jpeg");
 }

@@ -14,6 +14,7 @@ import {
   applyConversationLocalState,
   applyServerPinnedRows,
   conversationHiddenSnapshot,
+  conversationEventSender,
   conversationListIdentity,
   conversationListTime,
   conversationPreviewText,
@@ -244,6 +245,69 @@ describe("native conversation-list contract", () => {
     expect(reconciled[0]?.unread_count).toBe(1);
   });
 
+  it("keeps locally known sender identity for the same group message after refresh", () => {
+    const reconciled = reconcileLatestConversationPreviews(
+      [
+        row({
+          type: "group",
+          id: "7",
+          group_id: 7,
+          last_message: "还是没有",
+          last_message_time: "2026-08-08T10:00:00Z",
+          last_message_id: 41,
+          subtitle: "Peter",
+        }),
+      ],
+      [
+        row({
+          type: "group",
+          id: "7",
+          group_id: 7,
+          last_message: "还是没有",
+          last_message_time: "2026-08-08T10:00:00Z",
+          last_message_id: 41,
+          last_message_sender_id: "owner-a",
+          subtitle: undefined,
+        }),
+      ],
+    );
+
+    expect(reconciled[0]?.last_message_sender_id).toBe("owner-a");
+    expect(reconciled[0]?.subtitle).toBeUndefined();
+    expect(conversationSenderPrefix(reconciled[0]!, undefined, "owner-a")).toBeUndefined();
+  });
+
+  it("does not reuse sender metadata after the server changes a same-id preview", () => {
+    const reconciled = reconcileLatestConversationPreviews(
+      [
+        row({
+          type: "group",
+          id: "7",
+          group_id: 7,
+          last_message: "Peter撤回了一条消息",
+          last_message_time: "2026-08-08T10:00:00Z",
+          last_message_id: 41,
+          subtitle: undefined,
+        }),
+      ],
+      [
+        row({
+          type: "group",
+          id: "7",
+          group_id: 7,
+          last_message: "旧内容",
+          last_message_time: "2026-08-08T10:00:00Z",
+          last_message_id: 41,
+          last_message_sender_id: "peter",
+          subtitle: "Peter",
+        }),
+      ],
+    );
+
+    expect(reconciled[0]?.subtitle).toBeUndefined();
+    expect(reconciled[0]?.last_message_sender_id).toBeUndefined();
+  });
+
   it("rejects stale or duplicate realtime previews and accepts monotonic messages", () => {
     const current = row({
       last_message_time: "2026-08-08T10:00:00Z",
@@ -375,6 +439,26 @@ describe("native conversation-list contract", () => {
       ),
     ).toBe(false);
     expect(shouldShowConversationEventSender("text", "普通消息")).toBe(true);
+  });
+
+  it("never labels the current user's group message as another sender", () => {
+    expect(conversationEventSender("text", "还是没有", "owner-a", "Peter", "owner-a")).toBe(
+      undefined,
+    );
+    expect(conversationEventSender("text", "普通消息", "peter", "Peter", "owner-a")).toBe("Peter");
+    expect(
+      conversationSenderPrefix(
+        row({
+          type: "group",
+          group_id: 7,
+          subtitle: "Peter",
+          last_message: "还是没有",
+          last_message_sender_id: "owner-a",
+        }),
+        undefined,
+        "owner-a",
+      ),
+    ).toBeUndefined();
   });
 
   it("sorts self first, then pinned rows, then real timestamps and deterministic identity", () => {

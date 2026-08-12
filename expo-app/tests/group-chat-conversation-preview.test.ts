@@ -32,6 +32,24 @@ describe("owner-scoped group local conversation preview", () => {
     ]);
   });
 
+  it("clears a stale sender when the latest preview belongs to the current user", () => {
+    const rows = [{ ...conversation(21, "previous", 20), subtitle: "Peter" }];
+    const updated = applyGroupConversationPreviewUpdate(rows, {
+      owner_id: "owner-a",
+      group_id: 21,
+      last_message: "还是没有",
+      last_message_time: "2026-08-08T00:00:21Z",
+      last_message_id: 21,
+      last_message_sender_id: "owner-a",
+    });
+
+    expect(updated[0]).toMatchObject({
+      last_message: "还是没有",
+      last_message_sender_id: "owner-a",
+    });
+    expect(updated[0]?.subtitle).toBeUndefined();
+  });
+
   it("keeps the preview for a non-current delete, projects recall, and clears no remainder", () => {
     const rows = [conversation(21, "latest", 20)];
     expect(
@@ -111,10 +129,15 @@ describe("owner-scoped group local conversation preview", () => {
       last_message: "just sent",
       last_message_time: "2026-08-08T00:01:00Z",
       last_message_id: -1,
+      last_message_sender_id: "owner-a",
     });
 
     expect(listener).toHaveBeenCalledWith(
-      expect.objectContaining({ last_message: "just sent", last_message_id: -1 }),
+      expect.objectContaining({
+        last_message: "just sent",
+        last_message_id: -1,
+        last_message_sender_id: "owner-a",
+      }),
     );
     await persistence;
     unsubscribe();

@@ -84,7 +84,12 @@ jest.mock("@/providers/LocalizationProvider", () => ({
 }));
 
 jest.mock("@/providers/RemoteConfigProvider", () => ({
-  useRemoteConfig: () => ({ config: { screens: [], webViewPolicy: {} } }),
+  useRemoteConfig: () => ({
+    config: { screens: [], webViewPolicy: {} },
+    error: null,
+    isRefreshing: false,
+    refresh: jest.fn().mockResolvedValue(undefined),
+  }),
 }));
 
 jest.mock("@/services/dynamic-screen/DynamicScreenRepository", () => ({

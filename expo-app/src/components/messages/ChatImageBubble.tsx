@@ -14,7 +14,10 @@ import {
 import { useChatMessageActivationGuard } from "@/components/messages/ChatReplyViews";
 import { env } from "@/config/env";
 import { useLocalization } from "@/providers/LocalizationProvider";
-import { chatImagePresentationUrl } from "@/services/media/ChatImageSourcePolicy";
+import {
+  chatImageOriginalUrl,
+  chatImageThumbnailUrl,
+} from "@/services/media/ChatImageSourcePolicy";
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
@@ -47,16 +50,17 @@ export function ChatImageBubble({
     () => lockedDisplaySize ?? chatImageThumbnailSize(naturalSize),
     [lockedDisplaySize, naturalSize],
   );
-  const presentationUrl = chatImagePresentationUrl(url, thumbnailUrl);
-  const displayUrl = resolveMediaUrl(presentationUrl, env.apiBaseUrl);
+  const thumbnailPresentationUrl = chatImageThumbnailUrl(url, thumbnailUrl);
+  const originalUrl = chatImageOriginalUrl(url, thumbnailUrl);
+  const displayUrl = resolveMediaUrl(thumbnailPresentationUrl, env.apiBaseUrl);
   const selection = useMemo<ImageGallerySelection>(
     () => ({
-      media: { id: messageId, type: "image", url: presentationUrl },
+      media: { id: messageId, type: "image", url: originalUrl },
       images: imageUrls,
       index,
       loadMoreOlder,
     }),
-    [imageUrls, index, loadMoreOlder, messageId, presentationUrl],
+    [imageUrls, index, loadMoreOlder, messageId, originalUrl],
   );
   const frame = { width: displaySize.width, height: displaySize.height };
   if (!displayUrl) return <ChatImagePlaceholder size={frame} />;
@@ -67,6 +71,7 @@ export function ChatImageBubble({
       contentFit="cover"
       cornerRadius={10}
       fallback={<ChatImagePlaceholder size={frame} />}
+      loadingFallback={<ChatImagePlaceholder size={frame} />}
       imageStyle={[styles.image, frame]}
       maximumAuthenticatedRetries={chatMediaAvailabilityRetryPolicy.maximumRetries}
       onNaturalSize={lockedDisplaySize ? undefined : setNaturalSize}

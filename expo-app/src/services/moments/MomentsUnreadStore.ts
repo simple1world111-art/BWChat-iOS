@@ -96,6 +96,12 @@ export function clearMomentsNew(ownerId: string): void {
   if (changed) notify();
 }
 
+export function consumeMomentsNew(ownerId: string): boolean {
+  const hadNewMoments = momentsHasNewSnapshot(ownerId);
+  clearMomentsNew(ownerId);
+  return hadNewMoments;
+}
+
 export function momentsUnreadSnapshot(ownerId: string): number {
   const owner = ownerId.trim();
   return owner && owner === activeOwnerId ? unreadCount : 0;

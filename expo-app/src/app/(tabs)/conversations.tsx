@@ -54,6 +54,7 @@ import {
   conversationListTime,
   conversationPreferenceTarget,
   conversationPreviewText,
+  conversationEventSender,
   conversationSenderPrefix,
   isAgentConversation,
   isScriptRoomConversation,
@@ -64,7 +65,6 @@ import {
   resolvedGroupId,
   shouldApplyConversationPreview,
   shouldResolveScriptRoomAvatar,
-  shouldShowConversationEventSender,
   visibleChatConversations,
 } from "@/services/conversations/ConversationListPolicy";
 import { ConversationAccountScope } from "@/services/conversations/ConversationAccountScope";
@@ -642,12 +642,15 @@ export default function ConversationsScreen() {
                 ),
                 last_message_time: event.message.timestamp,
                 last_message_id: event.message.id,
-                subtitle: shouldShowConversationEventSender(
+                last_message_sender_id: event.message.sender_id,
+                subtitle: conversationEventSender(
                   event.message.msg_type,
                   event.message.content,
-                )
-                  ? event.message.sender_nickname
-                  : undefined,
+                  event.message.sender_id,
+                  event.message.sender_nickname,
+                  ownerId,
+                  t,
+                ),
                 unread_count:
                   incoming &&
                   !chatRealtimeService.isConversationActive("group", String(event.message.group_id))
@@ -1288,7 +1291,7 @@ function ConversationRow({
   const { user } = useAuth();
   const { activeLanguage } = useLocalization();
   const unreadCount = Math.max(0, conversation.unread_count ?? 0);
-  const sender = conversationSenderPrefix(conversation, t);
+  const sender = conversationSenderPrefix(conversation, t, user?.user_id);
   const preview =
     conversationPreviewText(conversation, {
       activeLanguage,

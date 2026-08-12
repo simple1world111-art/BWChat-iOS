@@ -208,7 +208,7 @@ import {
   type ChatSelectionEntry,
 } from "@/services/messages/chatForwardPolicy";
 import { saveImageToLibrary, saveVideoToLibrary } from "@/services/media/MediaLibrarySaver";
-import { chatImagePresentationUrlFor } from "@/services/media/ChatImageSourcePolicy";
+import { chatImageOriginalUrlFor } from "@/services/media/ChatImageSourcePolicy";
 import {
   preloadChatImagePreview,
   preloadPreferredChatImagePreview,
@@ -1220,12 +1220,12 @@ export default function ChatScreen() {
 
   const loadMoreGalleryImages = useCallback(async () => {
     const existing = new Set(
-      messagesRef.current.filter(isImageMessage).map(chatImagePresentationUrlFor),
+      messagesRef.current.filter(isImageMessage).map(chatImageOriginalUrlFor),
     );
     const older = await loadMore();
     return older
       .filter(isImageMessage)
-      .map(chatImagePresentationUrlFor)
+      .map(chatImageOriginalUrlFor)
       .filter((url) => !existing.has(url));
   }, [loadMore]);
 
@@ -1559,7 +1559,7 @@ export default function ChatScreen() {
           const result =
             message.msg_type === "video"
               ? await saveVideoToLibrary(message.content)
-              : await saveImageToLibrary(chatImagePresentationUrlFor(message));
+              : await saveImageToLibrary(chatImageOriginalUrlFor(message));
           if (activeSessionRef.current !== expectedSession) return;
           if (result === "permissionDenied") {
             Alert.alert(
@@ -1778,6 +1778,15 @@ export default function ChatScreen() {
           messagesRef.current = merged;
           return merged;
         });
+        isNearBottomRef.current = true;
+        setIsNearBottom(true);
+        setNewMessagesBelowCount(0);
+        setReplyLocatorMessageIds([]);
+        requestAnimationFrame(() => {
+          if (activeSessionRef.current === expectedSession) {
+            listRef.current?.scrollToOffset({ animated: true, offset: 0 });
+          }
+        });
         startChatMediaUploadsAfterOptimisticRender(
           jobs.map((job) => ({
             start: () =>
@@ -1835,7 +1844,7 @@ export default function ChatScreen() {
   };
 
   const imageUrls = useMemo(
-    () => visibleMessages.filter(isImageMessage).map(chatImagePresentationUrlFor),
+    () => visibleMessages.filter(isImageMessage).map(chatImageOriginalUrlFor),
     [visibleMessages],
   );
   const timelineLocator = resolveChatTimelineLocator({
@@ -2347,7 +2356,7 @@ function MessageContent({
     );
   }
   if (normalizedType === "image") {
-    const presentationUrl = chatImagePresentationUrlFor(message);
+    const originalUrl = chatImageOriginalUrlFor(message);
     return (
       <ChatImageBubble
         imageUrls={imageUrls}
@@ -2356,7 +2365,7 @@ function MessageContent({
             ? { width: message.media_width, height: message.media_height }
             : undefined
         }
-        index={Math.max(0, imageUrls.indexOf(presentationUrl))}
+        index={Math.max(0, imageUrls.indexOf(originalUrl))}
         loadMoreOlder={loadMoreGalleryImages}
         messageId={timelineIdentity(message)}
         onOpen={onImageOpen}

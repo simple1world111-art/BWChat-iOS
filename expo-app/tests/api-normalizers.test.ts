@@ -43,6 +43,7 @@ describe("native-compatible API normalizers", () => {
       avatarURL: "/avatar.png",
       lastMessage: { text: "集合" },
       lastMessageTime: "2026-08-06T10:00:00Z",
+      lastMessageSenderID: "owner-a",
       unread: "8",
       groupID: "31",
       lastMessageId: "44",
@@ -59,6 +60,7 @@ describe("native-compatible API normalizers", () => {
       group_id: 31,
       member_count: 4,
       last_message_id: 44,
+      last_message_sender_id: "owner-a",
       read_through_message_id: 42,
       is_muted: true,
     });

@@ -6,6 +6,7 @@ import {
   captureMomentsUnreadRefresh,
   clearMomentsNew,
   clearMomentsUnread,
+  consumeMomentsNew,
   incrementMomentsUnread,
   momentsHasNewSnapshot,
   momentsUnreadBadgeText,
@@ -66,6 +67,16 @@ describe("owner-scoped moments native-tab unread store", () => {
     expect(momentsUnreadSnapshot("owner-a")).toBe(4);
   });
 
+  it("atomically consumes the new-feed signal without clearing notification count", () => {
+    activateMomentsUnreadOwner("owner-a");
+    publishMomentsUnreadInfo("owner-a", { unread_count: 4, has_new_moments: true });
+
+    expect(consumeMomentsNew("owner-a")).toBe(true);
+    expect(consumeMomentsNew("owner-a")).toBe(false);
+    expect(momentsHasNewSnapshot("owner-a")).toBe(false);
+    expect(momentsUnreadSnapshot("owner-a")).toBe(4);
+  });
+
   it("does not let an in-flight unread response restore an optimistically cleared badge", () => {
     activateMomentsUnreadOwner("owner-a");
     publishMomentsUnread("owner-a", 5);
@@ -88,9 +99,10 @@ describe("owner-scoped moments native-tab unread store", () => {
       "publishMomentsUnreadInfo(accountOwnerId, momentsResult.value, momentsRefresh)",
     );
     expect(discover).toContain("useMomentsHasNew(accountOwnerId)");
-    expect(discover).toContain("clearMomentsNew(accountOwnerId)");
+    expect(discover).not.toContain("clearMomentsNew(accountOwnerId)");
     expect(moments).toContain("publishMomentsUnread(ownerId, info.unread_count, momentsRefresh)");
-    expect(moments).toContain("clearMomentsNew(ownerId)");
+    expect(moments).toContain("consumeMomentsNew(ownerId)");
+    expect(moments).toContain("loadFeed(selectedTab, true, forceRefresh)");
     expect(moments).toContain("clearMomentsUnread(ownerId)");
     expect(notifications).toContain("clearMomentsUnread(ownerId)");
     expect(push).toContain('pushOpenTarget(input, "received")?.kind === "moments"');

@@ -4,7 +4,12 @@ import { StyleSheet } from "react-native";
 import { ChatImageBubble } from "@/components/messages/ChatImageBubble";
 
 interface MockImageGallerySourceProps {
+  loadingFallback?: unknown;
   onNaturalSize?: ((size: { width: number; height: number }) => void) | undefined;
+  selection: {
+    media: { url: string };
+    images: string[];
+  };
   sourceId: string;
   style: unknown;
   uri: string;
@@ -54,6 +59,7 @@ describe("ChatImageBubble stable presentation", () => {
       uri: "file:///picker/portrait.jpg",
       onNaturalSize: undefined,
     });
+    expect(mockSourceProps?.loadingFallback).toBeTruthy();
 
     await screen.rerender(
       <ChatImageBubble
@@ -86,5 +92,26 @@ describe("ChatImageBubble stable presentation", () => {
     await act(async () => mockSourceProps?.onNaturalSize?.({ width: 800, height: 1_200 }));
     expect(StyleSheet.flatten(mockSourceProps?.style)).toMatchObject({ width: 110, height: 156 });
     await screen.unmount();
+  });
+
+  it("renders the thumbnail in the timeline but opens the original image", async () => {
+    await render(
+      <ChatImageBubble
+        imageUrls={["/media/original.jpg"]}
+        index={0}
+        messageId="server:92"
+        onOpen={jest.fn()}
+        thumbnailUrl="/media/thumbnail.jpg"
+        url="/media/original.jpg"
+      />,
+    );
+
+    expect(mockSourceProps).toMatchObject({
+      uri: expect.stringContaining("/media/thumbnail.jpg"),
+      selection: {
+        media: { url: "/media/original.jpg" },
+        images: ["/media/original.jpg"],
+      },
+    });
   });
 });

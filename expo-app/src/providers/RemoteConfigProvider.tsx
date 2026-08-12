@@ -105,7 +105,12 @@ export function RemoteConfigProvider({ children }: { children: React.ReactNode }
         if (!isCurrent()) return;
         const interval =
           cached?.refreshIntervalSeconds ?? defaultRemoteConfig.refreshIntervalSeconds;
-        const needsRefresh = await shouldRefreshRemoteConfig(requestOwnerId, interval);
+        // A pre-account-schema cache can carry a still-current ETag even though
+        // its decoder discarded the new account object. Bypass both the normal
+        // interval and that ETag once so a 304 cannot preserve the omission.
+        const needsAccountCacheMigration = Boolean(cached && !cached.account);
+        const needsRefresh =
+          needsAccountCacheMigration || (await shouldRefreshRemoteConfig(requestOwnerId, interval));
         if (!isCurrent()) return;
         setRemoteState({
           ownerId: requestOwnerId,
@@ -114,7 +119,9 @@ export function RemoteConfigProvider({ children }: { children: React.ReactNode }
           isRefreshing: needsRefresh,
           error: null,
         });
-        if (needsRefresh && isCurrent()) await refresh();
+        if (needsRefresh && isCurrent()) {
+          await refresh(needsAccountCacheMigration ? { ignoreETag: true } : undefined);
+        }
       } catch (nextError) {
         if (!isCurrent()) return;
         const message = nextError instanceof Error ? nextError.message : "远程配置缓存加载失败";

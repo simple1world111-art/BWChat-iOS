@@ -94,6 +94,7 @@ import {
   isCurrentAgentMessageScope,
 } from "@/services/agents/AgentMessagePresentationPolicy";
 import type { ChatMessageAnchor } from "@/services/messages/chatReplyPolicy";
+import { waitForChatOptimisticRender } from "@/services/messages/ChatMediaSendScheduler";
 import { saveImageToLibrary, saveVideoToLibrary } from "@/services/media/MediaLibrarySaver";
 import {
   applyAgentMediaUnlockToMessages,
@@ -1342,6 +1343,10 @@ export default function AgentChatScreen() {
       detachComposerImage();
     }
     try {
+      if (selectedImage) {
+        await waitForChatOptimisticRender();
+        if (!isCurrentSend()) return;
+      }
       const parts: AgentTurnInputPart[] = [];
       if (selectedImage && submission.uploadIdempotencyKey) {
         const assetId = await uploadAgentChatImage(

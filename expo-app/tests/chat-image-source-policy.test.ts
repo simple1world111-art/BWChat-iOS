@@ -1,23 +1,36 @@
 import {
-  chatImagePresentationUrl,
-  chatImagePresentationUrlFor,
+  chatImageOriginalUrl,
+  chatImageOriginalUrlFor,
+  chatImageThumbnailUrl,
+  chatImageThumbnailUrlFor,
 } from "@/services/media/ChatImageSourcePolicy";
 
 describe("chat image presentation source policy", () => {
-  it("keeps timeline, gallery and save actions on the thumbnail projection", () => {
-    expect(chatImagePresentationUrl(" /media/noise.jpg ", " /media/blue-thumbnail.jpg ")).toBe(
-      "/media/blue-thumbnail.jpg",
+  it("uses the thumbnail in the timeline and the original in full-screen/save surfaces", () => {
+    expect(chatImageThumbnailUrl(" /media/original.jpg ", " /media/thumbnail.jpg ")).toBe(
+      "/media/thumbnail.jpg",
+    );
+    expect(chatImageOriginalUrl(" /media/original.jpg ", " /media/thumbnail.jpg ")).toBe(
+      "/media/original.jpg",
     );
     expect(
-      chatImagePresentationUrlFor({
-        content: "/media/noise.jpg",
-        thumbnail_url: "/media/blue-thumbnail.jpg",
+      chatImageThumbnailUrlFor({
+        content: "/media/original.jpg",
+        thumbnail_url: "/media/thumbnail.jpg",
       }),
-    ).toBe("/media/blue-thumbnail.jpg");
+    ).toBe("/media/thumbnail.jpg");
+    expect(
+      chatImageOriginalUrlFor({
+        content: "/media/original.jpg",
+        thumbnail_url: "/media/thumbnail.jpg",
+      }),
+    ).toBe("/media/original.jpg");
   });
 
-  it("falls back to the original when no usable thumbnail exists", () => {
-    expect(chatImagePresentationUrl(" /media/original.jpg ")).toBe("/media/original.jpg");
-    expect(chatImagePresentationUrl(" /media/original.jpg ", "   ")).toBe("/media/original.jpg");
+  it("falls back in both directions for incomplete historical records", () => {
+    expect(chatImageThumbnailUrl(" /media/original.jpg ")).toBe("/media/original.jpg");
+    expect(chatImageThumbnailUrl(" /media/original.jpg ", "   ")).toBe("/media/original.jpg");
+    expect(chatImageOriginalUrl("   ", " /media/thumbnail.jpg ")).toBe("/media/thumbnail.jpg");
+    expect(chatImageOriginalUrl(" /media/original.jpg ", "   ")).toBe("/media/original.jpg");
   });
 });

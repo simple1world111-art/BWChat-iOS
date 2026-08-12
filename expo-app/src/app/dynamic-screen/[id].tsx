@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ActivityIndicator,
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -36,6 +37,12 @@ import {
 } from "@/services/dynamic-screen/DynamicScreenVisualPolicy";
 import type { DynamicRoute } from "@/services/remote-config/types";
 import { openDynamicRoute } from "@/services/web/DynamicRouteNavigator";
+import {
+  copySupportEmail,
+  normalizedSupportEmail,
+  openSupportEmail,
+} from "@/services/account/SupportEmailService";
+import { useConfiguredSupportEmail } from "@/services/account/useConfiguredSupportEmail";
 
 export default function DynamicScreenPage() {
   const params = useLocalSearchParams<{ id: string }>();
@@ -77,6 +84,9 @@ export function DynamicScreenContent({
   const title = screen
     ? displayDynamicScreenTitle(screen, activeLanguage, t)
     : fallbackTitle || screenId;
+  const isLegalScreen = ["privacy_policy", "data_privacy"].includes(
+    screenId.trim().replaceAll("-", "_").toLowerCase(),
+  );
 
   useLayoutEffect(() => {
     if (!isTabRoot) navigation.setOptions({ title });
@@ -245,7 +255,55 @@ export function DynamicScreenContent({
         .map((component) => (
           <DynamicComponentRenderer component={component} key={component.id} onRoute={openRoute} />
         ))}
+      {isLegalScreen ? (
+        <DynamicLegalSupportFooter documentSupportEmail={screen.supportEmail} theme={theme} />
+      ) : null}
     </ScrollView>
+  );
+}
+
+function DynamicLegalSupportFooter({
+  documentSupportEmail,
+  theme,
+}: {
+  documentSupportEmail: string | undefined;
+  theme: ReturnType<typeof dynamicScreenPalette>;
+}) {
+  const { t } = useLocalization();
+  const { supportEmail: configuredSupportEmail, isLoading } = useConfiguredSupportEmail();
+  const supportEmail = normalizedSupportEmail(documentSupportEmail) ?? configuredSupportEmail;
+
+  const contactSupport = async () => {
+    if (!supportEmail) {
+      Alert.alert(t("common.notice"), t("account.support.unavailable"));
+      return;
+    }
+    if (await openSupportEmail(supportEmail)) return;
+    Alert.alert(t("account.support.openFailed.title"), t("account.support.openFailed.message"), [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("account.support.copy"), onPress: () => void copySupportEmail(supportEmail) },
+    ]);
+  };
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ busy: isLoading, disabled: isLoading }}
+      disabled={isLoading}
+      onPress={() => void contactSupport()}
+      style={({ pressed }) => [
+        styles.supportCard,
+        { backgroundColor: theme.card },
+        pressed ? styles.supportCardPressed : null,
+      ]}
+    >
+      <Text style={[styles.supportTitle, { color: theme.text }]}>
+        {t("account.contactSupport")}
+      </Text>
+      <Text style={[styles.supportEmail, { color: theme.accent }]}>
+        {supportEmail ?? (isLoading ? t("common.loading") : t("account.support.notConfigured"))}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -273,4 +331,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "left",
   },
+  supportCard: {
+    alignItems: "flex-start",
+    borderRadius: 14,
+    justifyContent: "center",
+    minHeight: 64,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  supportCardPressed: { opacity: 0.72 },
+  supportEmail: { fontSize: 14, fontWeight: "600", marginTop: 4 },
+  supportTitle: { fontSize: 15, fontWeight: "700" },
 });

@@ -2109,6 +2109,19 @@ export function normalizeChatGroup(value: unknown): ChatGroup {
     ...(flexString(value.last_message_sender, value.lastMessageSender) !== undefined
       ? { last_message_sender: flexString(value.last_message_sender, value.lastMessageSender) }
       : {}),
+    ...(flexString(
+      value.last_message_sender_id,
+      value.lastMessageSenderId,
+      value.lastMessageSenderID,
+    ) !== undefined
+      ? {
+          last_message_sender_id: flexString(
+            value.last_message_sender_id,
+            value.lastMessageSenderId,
+            value.lastMessageSenderID,
+          ),
+        }
+      : {}),
     unread_count: flexInt(value.unread_count, value.unread, value.unreadCount) ?? 0,
     is_public: flexBool(value.is_public, value.isPublic) ?? false,
     is_muted: flexBool(value.is_muted, value.isMuted) ?? false,
@@ -2859,6 +2872,19 @@ export function normalizeConversation(value: unknown): Conversation {
     ...(lastMessage !== undefined ? { last_message: lastMessage } : {}),
     ...(flexString(value.last_message_time, value.lastMessageTime) !== undefined
       ? { last_message_time: flexString(value.last_message_time, value.lastMessageTime) }
+      : {}),
+    ...(flexString(
+      value.last_message_sender_id,
+      value.lastMessageSenderId,
+      value.lastMessageSenderID,
+    ) !== undefined
+      ? {
+          last_message_sender_id: flexString(
+            value.last_message_sender_id,
+            value.lastMessageSenderId,
+            value.lastMessageSenderID,
+          ),
+        }
       : {}),
     unread_count: flexInt(value.unread_count, value.unread, value.unreadCount) ?? 0,
     ...(flexString(value.subtitle) !== undefined ? { subtitle: flexString(value.subtitle) } : {}),
