@@ -1299,5 +1299,5 @@
 "account.deletion.category.securityEvents" = "Sicherheitsereignisse";
 "account.deletion.category.deletionAudit" = "Löschprotokoll";
 "account.deletion.reason.financialCompliance" = "Finanz- und Zahlungsvorschriften";
-"account.privacyPolicy.fallback" = "Die Datenschutzrichtlinie kann derzeit nicht geladen werden. Versuche es später erneut.";
-"account.dataPrivacy.fallback" = "Der Hinweis zu Daten und Datenschutz kann derzeit nicht geladen werden.";
+"account.privacyPolicy.fallback" = "BBchat verarbeitet Konto-, Geräte-, Kommunikations-, Standort- und Zahlungsdaten nur für Betrieb, Sicherheit, Support und gesetzliche Pflichten.";
+"account.dataPrivacy.fallback" = "Sie können Zugriff, Berichtigung und Löschung beantragen. Profildaten werden fristgerecht gelöscht; minimale anonymisierte Finanz- und Sicherheitsnachweise bleiben gesetzlich befristet erhalten.";

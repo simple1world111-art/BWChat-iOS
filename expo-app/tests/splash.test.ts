@@ -63,7 +63,7 @@ describe("native SplashScreen contracts", () => {
     const layout = fs.readFileSync(path.join(process.cwd(), "src/app/_layout.tsx"), "utf8");
     const gateStart = layout.indexOf("<BootstrapGate>");
     const realtimeStart = layout.indexOf("<RealtimeProvider>");
-    const stackStart = layout.indexOf("<Stack screenOptions=");
+    const stackStart = layout.search(/<Stack\s+screenOptions=/u);
 
     expect(layout).toContain("return isBootstrapping ? <SplashView /> : children;");
     expect(gateStart).toBeGreaterThan(-1);

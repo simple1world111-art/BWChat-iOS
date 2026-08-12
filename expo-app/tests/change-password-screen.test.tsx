@@ -45,6 +45,11 @@ describe("Change Password screen interactions", () => {
     const view = await render(<ChangePasswordScreen />);
     expect(view.queryByText("password.validation.currentRequired")).toBeNull();
     expect(view.getAllByLabelText("password.show")).toHaveLength(3);
+    expect(view.getAllByTestId("profile-field-divider")).toHaveLength(2);
+    for (const divider of view.getAllByTestId("profile-field-divider")) {
+      expect(divider.props.style).toMatchObject({ alignSelf: "stretch" });
+      expect(divider.props.style).not.toHaveProperty("marginLeft");
+    }
 
     const current = view.getByLabelText("password.current");
     expect(current.props.secureTextEntry).toBe(true);

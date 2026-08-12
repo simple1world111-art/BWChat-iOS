@@ -1298,5 +1298,5 @@
 "account.deletion.category.securityEvents" = "安全事件";
 "account.deletion.category.deletionAudit" = "刪除稽核";
 "account.deletion.reason.financialCompliance" = "財務與付款合規";
-"account.privacyPolicy.fallback" = "隱私權政策暫時無法連線載入，請稍後再試。";
-"account.dataPrivacy.fallback" = "資料與隱私說明暫時無法連線載入，請稍後再試。";
+"account.privacyPolicy.fallback" = "BBchat 僅為服務運行、安全、客服及法定義務處理帳號、裝置、通訊、位置和支付資料。";
+"account.dataPrivacy.fallback" = "您可申請存取、更正和刪除資料。資料會在承諾期限內清除；最小化、去識別化的財務和安全記錄按法定期限留存。";

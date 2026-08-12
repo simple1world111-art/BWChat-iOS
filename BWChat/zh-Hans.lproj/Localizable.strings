@@ -1298,5 +1298,5 @@
 "account.deletion.category.securityEvents" = "安全事件";
 "account.deletion.category.deletionAudit" = "删除审计";
 "account.deletion.reason.financialCompliance" = "财务与支付合规";
-"account.privacyPolicy.fallback" = "隐私政策暂时无法联网加载，请稍后重试。";
-"account.dataPrivacy.fallback" = "数据与隐私说明暂时无法联网加载，请稍后重试。";
+"account.privacyPolicy.fallback" = "BBchat 仅为服务运行、安全、客服及法定义务处理账号、设备、通信、位置和支付数据。";
+"account.dataPrivacy.fallback" = "您可申请访问、更正和删除数据。资料会在承诺期限内清除；最小化、去标识化的财务和安全记录按法定期限留存。";

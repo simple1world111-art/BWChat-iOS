@@ -1299,5 +1299,5 @@
 "account.deletion.category.securityEvents" = "セキュリティイベント";
 "account.deletion.category.deletionAudit" = "削除監査";
 "account.deletion.reason.financialCompliance" = "財務・決済コンプライアンス";
-"account.privacyPolicy.fallback" = "プライバシーポリシーを読み込めません。後でもう一度お試しください。";
-"account.dataPrivacy.fallback" = "データとプライバシーの説明を読み込めません。後でもう一度お試しください。";
+"account.privacyPolicy.fallback" = "BBchat はサービス運用、セキュリティ、サポート、法的義務のためにアカウント、端末、通信、位置情報、決済データを処理します。";
+"account.dataPrivacy.fallback" = "アクセス、訂正、削除を請求できます。プロフィールデータは期限内に削除され、最小限の匿名化された財務・セキュリティ記録のみ法定期間保存されます。";

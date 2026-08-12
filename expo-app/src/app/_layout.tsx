@@ -82,7 +82,14 @@ function RootLayout() {
                             <WalletProvider>
                               <UpdateProvider>
                                 <AppGate>
-                                  <Stack screenOptions={{ headerBackTitle: "返回" }}>
+                                  <Stack
+                                    screenOptions={{
+                                      headerBackButtonDisplayMode: "minimal",
+                                      headerBackTitle: "",
+                                      headerShadowVisible: false,
+                                      headerStyle: { backgroundColor: "transparent" },
+                                    }}
+                                  >
                                     <Stack.Screen
                                       name="index"
                                       options={{ animation: "none", headerShown: false }}

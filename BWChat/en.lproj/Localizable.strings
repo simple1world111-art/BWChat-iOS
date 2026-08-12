@@ -1299,5 +1299,5 @@
 "account.deletion.category.securityEvents" = "Security events";
 "account.deletion.category.deletionAudit" = "Deletion audit";
 "account.deletion.reason.financialCompliance" = "Financial and payment compliance";
-"account.privacyPolicy.fallback" = "The Privacy Policy cannot be loaded right now. Please try again later.";
-"account.dataPrivacy.fallback" = "The Data & Privacy notice cannot be loaded right now. Please try again later.";
+"account.privacyPolicy.fallback" = "BBchat processes account, device, communication, location, and payment data only for operation, security, support, and legal duties.";
+"account.dataPrivacy.fallback" = "You may request access, correction, and deletion. Profile data is purged on schedule; minimal de-identified financial and security records remain for configured legal periods.";

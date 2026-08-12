@@ -14,9 +14,9 @@ import {
 
 import { changePassword } from "@/api/bwchat";
 import {
+  ProfileFieldDivider,
   ProfileGroupedCard,
   ProfileNoticeBanner,
-  ProfileRowDivider,
 } from "@/components/profile/ProfileSettingsChrome";
 import { TopToast } from "@/components/TopToast";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -105,7 +105,7 @@ export default function ChangePasswordScreen() {
             showLabel={t("password.show")}
             hideLabel={t("password.hide")}
           />
-          <ProfileRowDivider />
+          <ProfileFieldDivider />
           <PasswordRow
             title={t("password.new")}
             placeholder={t("password.new.placeholder")}
@@ -116,7 +116,7 @@ export default function ChangePasswordScreen() {
             showLabel={t("password.show")}
             hideLabel={t("password.hide")}
           />
-          <ProfileRowDivider />
+          <ProfileFieldDivider />
           <PasswordRow
             title={t("password.confirm")}
             placeholder={t("password.confirm.placeholder")}

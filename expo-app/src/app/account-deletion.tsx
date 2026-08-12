@@ -14,6 +14,7 @@ import {
 
 import { SilentRefreshControl as RefreshControl } from "@/components/ui/SilentRefreshControl";
 import {
+  ProfileFieldDivider,
   ProfileGroupedCard,
   ProfileNoticeBanner,
   ProfileRowDivider,
@@ -282,7 +283,7 @@ export default function AccountDeletionScreen() {
                   requestIdRef.current = null;
                 }}
               />
-              <ProfileRowDivider />
+              <ProfileFieldDivider />
               <DeletionInput
                 label={t("account.deletion.typeUsername")}
                 placeholder={preview.confirmationUsername}

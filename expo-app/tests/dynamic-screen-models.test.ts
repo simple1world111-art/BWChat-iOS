@@ -2,6 +2,7 @@ import {
   displayDynamicScreenTitle,
   dynamicInteger,
   localizedDynamicProp,
+  parseLegalDocumentWire,
   parseDynamicScreen,
   parseDynamicScreenWire,
 } from "@/services/dynamic-screen/DynamicScreenModels";
@@ -155,5 +156,33 @@ describe("dynamic screen native protocol", () => {
     expect(displayDynamicScreenTitle(screen, "en", (key) => key)).toBe("  Screen title  ");
     expect(localizedDynamicProp(screen.components[0]!.props, "title", "en")).toBe("  Body copy  ");
     expect(localizedDynamicProp(screen.components[0]!.props, "subtitle", "en")).toBeUndefined();
+  });
+
+  it("adapts the strict legal-document wire shape into a readable SDUI card", () => {
+    expect(
+      parseLegalDocumentWire({
+        screen_id: "privacy_policy",
+        document_version: "2026-08-12.1",
+        effective_at: "2026-08-12T00:00:00Z",
+        locale: "zh-Hans",
+        title: "隐私政策",
+        body: "仅处理提供服务所必需的数据。",
+      }),
+    ).toEqual({
+      screenId: "privacy_policy",
+      configVersion: "2026-08-12.1",
+      title: "隐私政策",
+      components: [
+        {
+          id: "privacy_policy_document_body",
+          type: "text",
+          props: { text: "仅处理提供服务所必需的数据。", style: "legal_body" },
+        },
+      ],
+    });
+    expect(parseLegalDocumentWire({ screen_id: "privacy_policy", title: "隐私政策" })).toBeNull();
+    expect(
+      parseLegalDocumentWire({ screenId: "privacy_policy", title: "隐私政策", body: "正文" }),
+    ).toBeNull();
   });
 });

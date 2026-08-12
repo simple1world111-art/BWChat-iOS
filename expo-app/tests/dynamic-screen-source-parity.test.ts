@@ -70,6 +70,15 @@ describe("dynamic screen source parity", () => {
     expect(fs.existsSync(path.join(root, "src/app/feature/[slug].tsx"))).toBe(true);
   });
 
+  it("keeps detail navigation transparent and removes the localized back label", () => {
+    const layout = fs.readFileSync(path.join(root, "src/app/_layout.tsx"), "utf8");
+    expect(layout).toContain('headerBackButtonDisplayMode: "minimal"');
+    expect(layout).toContain('headerBackTitle: ""');
+    expect(layout).toContain("headerShadowVisible: false");
+    expect(layout).toContain('headerStyle: { backgroundColor: "transparent" }');
+    expect(layout).not.toContain('headerBackTitle: "返回"');
+  });
+
   it("statically maps every in-scope copied native imageset for dynamic fallback assets", () => {
     const source = fs.readFileSync(
       path.join(root, "src/components/dynamic-screen/DynamicRemoteAssetImage.tsx"),

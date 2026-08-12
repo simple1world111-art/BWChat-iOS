@@ -10,6 +10,7 @@ import {
   normalizeDynamicToken,
   parseDynamicScreen,
   parseDynamicScreenWire,
+  parseLegalDocumentWire,
   type DynamicScreen,
 } from "@/services/dynamic-screen/DynamicScreenModels";
 import { readAccessToken } from "@/storage/tokenStorage";
@@ -193,7 +194,11 @@ async function requestDynamicScreen(
       throw nativeHTTPError(payload, response.status, responseBody);
     }
     const wrapped = record(payload);
-    const screen = parseDynamicScreenWire(wrapped?.data) ?? parseDynamicScreenWire(payload);
+    const screen =
+      parseDynamicScreenWire(wrapped?.data) ??
+      parseLegalDocumentWire(wrapped?.data) ??
+      parseDynamicScreenWire(payload) ??
+      parseLegalDocumentWire(payload);
     if (!screen) {
       throw new DynamicScreenRequestError(
         "decoding",

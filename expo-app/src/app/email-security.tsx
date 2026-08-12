@@ -13,9 +13,9 @@ import {
 } from "react-native";
 
 import {
+  ProfileFieldDivider,
   ProfileGroupedCard,
   ProfileNoticeBanner,
-  ProfileRowDivider,
 } from "@/components/profile/ProfileSettingsChrome";
 import { TopToast } from "@/components/TopToast";
 import { useAuth } from "@/providers/AuthProvider";
@@ -202,7 +202,7 @@ export default function EmailSecurityScreen() {
               value={currentPassword}
               onChange={setCurrentPassword}
             />
-            <ProfileRowDivider />
+            <ProfileFieldDivider />
             <InputRow
               label={t("account.email.new")}
               placeholder={t("account.email.placeholder")}

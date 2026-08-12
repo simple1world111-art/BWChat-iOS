@@ -139,7 +139,7 @@ export const bundledDynamicScreens: readonly DynamicScreen[] = [
       {
         id: "privacy_policy_fallback",
         type: "text",
-        props: { title_key: "account.privacyPolicy.fallback" },
+        props: { title_key: "account.privacyPolicy.fallback", style: "legal_body" },
       },
     ],
   },
@@ -152,7 +152,7 @@ export const bundledDynamicScreens: readonly DynamicScreen[] = [
       {
         id: "data_privacy_fallback",
         type: "text",
-        props: { title_key: "account.dataPrivacy.fallback" },
+        props: { title_key: "account.dataPrivacy.fallback", style: "legal_body" },
       },
     ],
   },

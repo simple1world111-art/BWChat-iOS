@@ -52,13 +52,15 @@ describe("dynamic screen repository", () => {
     expect(screen?.title).toBeUndefined();
   });
 
-  it("ships all five Swift bundled fixtures", () => {
+  it("ships the activity and legal-document bundled fixtures", () => {
     for (const id of [
       "daily_rewards",
       "festival_home",
       "agent_hub",
       "help_center",
       "wallet_terms",
+      "privacy_policy",
+      "data_privacy",
     ]) {
       expect(embeddedDynamicScreen(id, undefined)?.screenId).toBe(id);
     }
@@ -130,6 +132,39 @@ describe("dynamic screen repository", () => {
     await expect(fetchDynamicScreen("daily_rewards")).resolves.toMatchObject({
       screen: { screenId: "daily_rewards" },
       notModified: false,
+    });
+  });
+
+  it("renders the deployed legal-document envelope without requiring SDUI components", async () => {
+    jest.spyOn(global, "fetch").mockResolvedValueOnce(
+      response(
+        {
+          code: 0,
+          message: "ok",
+          data: {
+            screen_id: "data_privacy",
+            document_version: "2026-08-12.1",
+            effective_at: "2026-08-12T00:00:00Z",
+            locale: "zh-Hans",
+            title: "数据权利与账号删除",
+            body: "您可申请访问、更正和删除数据。",
+          },
+        },
+        200,
+      ),
+    );
+    await expect(fetchDynamicScreen("data_privacy")).resolves.toMatchObject({
+      notModified: false,
+      screen: {
+        screenId: "data_privacy",
+        title: "数据权利与账号删除",
+        components: [
+          {
+            type: "text",
+            props: { text: "您可申请访问、更正和删除数据。", style: "legal_body" },
+          },
+        ],
+      },
     });
   });
 

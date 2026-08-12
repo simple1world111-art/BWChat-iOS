@@ -129,7 +129,17 @@ export function DynamicComponentRenderer({
     );
   }
   if (token === "text") {
-    const isTitle = normalizeDynamicToken(dynamicString(component.props.style) ?? "") === "title";
+    const textStyle = normalizeDynamicToken(dynamicString(component.props.style) ?? "");
+    const isTitle = textStyle === "title";
+    if (textStyle === "legal_body") {
+      return (
+        <View style={[styles.legalDocumentCard, { backgroundColor: theme.card }]}>
+          <Text selectable style={[styles.legalDocumentBody, { color: theme.text }]}>
+            {title}
+          </Text>
+        </View>
+      );
+    }
     return (
       <Text
         style={[
@@ -392,6 +402,13 @@ const styles = StyleSheet.create({
   bannerSubtitle: { fontSize: 14 },
   titleText: { fontSize: 22, fontWeight: "700", width: "100%" },
   bodyText: { fontSize: 15, width: "100%" },
+  legalDocumentCard: {
+    borderRadius: metrics.cardCornerRadius,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    width: "100%",
+  },
+  legalDocumentBody: { fontSize: 16, lineHeight: 25, width: "100%" },
   image: { borderRadius: metrics.cardCornerRadius, overflow: "hidden", width: "100%" },
   button: {
     alignItems: "center",

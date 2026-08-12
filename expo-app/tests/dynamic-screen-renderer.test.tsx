@@ -109,6 +109,19 @@ describe("dynamic component renderer interactions", () => {
     expect(view.queryByText("未知")).toBeNull();
   });
 
+  it("renders adapted legal copy in a selectable full-width card", async () => {
+    const view = await render(
+      <DynamicComponentRenderer
+        component={component("legal", "text", {
+          text: "法律文档正文",
+          style: "legal_body",
+        })}
+        onRoute={jest.fn()}
+      />,
+    );
+    expect(view.getByText("法律文档正文").props.selectable).toBe(true);
+  });
+
   it("refreshes the wallet balance and opens the wallet fallback route", async () => {
     const onRoute = jest.fn();
     const view = await render(

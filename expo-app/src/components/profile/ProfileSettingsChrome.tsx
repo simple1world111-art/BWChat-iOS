@@ -12,6 +12,11 @@ export function ProfileRowDivider() {
   return <View style={styles.divider} />;
 }
 
+/** Form fields do not have a leading icon, so their separator must not inherit the row inset. */
+export function ProfileFieldDivider() {
+  return <View style={styles.fieldDivider} testID="profile-field-divider" />;
+}
+
 export function ProfileNoticeBanner({ message }: { message: string }) {
   return (
     <View style={styles.notice}>
@@ -133,6 +138,13 @@ const styles = StyleSheet.create({
   divider: {
     height: 21,
     marginLeft: 55,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.separator,
+  },
+  fieldDivider: {
+    alignSelf: "stretch",
+    height: 21,
     paddingVertical: 10,
     borderTopWidth: 1,
     borderTopColor: colors.separator,

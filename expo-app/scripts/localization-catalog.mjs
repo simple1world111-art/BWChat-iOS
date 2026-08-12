@@ -6,7 +6,7 @@ import process from "node:process";
 const locales = ["de", "en", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-Hans", "zh-Hant"];
 const expectedEntriesPerLocale = 1_247;
 const expectedUniqueKeysPerLocale = 1_246;
-const expectedAggregate = "f1f1beaf7b4d3c0d139f87dd4b2875e669fc0b11044e0297d094b8df32846976";
+const expectedAggregate = "a961946b1c5655f60ac046172a9dc7847f8dcc1502b31242651427caa6dcf43c";
 const projectRoot = process.cwd();
 const nativeRoot = path.resolve(projectRoot, "../BWChat");
 const generatedRoot = path.resolve(projectRoot, "src/localization/generated");

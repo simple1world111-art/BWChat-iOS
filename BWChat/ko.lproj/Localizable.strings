@@ -1299,5 +1299,5 @@
 "account.deletion.category.securityEvents" = "보안 이벤트";
 "account.deletion.category.deletionAudit" = "삭제 감사";
 "account.deletion.reason.financialCompliance" = "재무 및 결제 규정 준수";
-"account.privacyPolicy.fallback" = "개인정보 처리방침을 불러올 수 없습니다. 나중에 다시 시도하세요.";
-"account.dataPrivacy.fallback" = "데이터 및 개인정보 안내를 불러올 수 없습니다. 나중에 다시 시도하세요.";
+"account.privacyPolicy.fallback" = "BBchat은 운영, 보안, 지원 및 법적 의무를 위해 계정, 기기, 통신, 위치 및 결제 데이터를 처리합니다.";
+"account.dataPrivacy.fallback" = "열람, 정정 및 삭제를 요청할 수 있습니다. 프로필 데이터는 기한 내 삭제되며 최소한의 비식별 재무·보안 기록만 법정 기간 보존됩니다.";

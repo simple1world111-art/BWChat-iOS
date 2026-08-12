@@ -105,6 +105,42 @@ export function parseDynamicScreenWire(value: unknown): DynamicScreen | null {
   return parseDynamicScreenValue(value, false);
 }
 
+/**
+ * The versioned legal-document service predates the SDUI component envelope.
+ * Adapt its strict snake_case wire shape into one read-only SDUI text card so
+ * legal copy remains visible while both backends converge on one schema.
+ */
+export function parseLegalDocumentWire(value: unknown): DynamicScreen | null {
+  const raw = record(value);
+  if (!raw || Array.isArray(raw.components)) return null;
+  const screenId = requiredStringField(raw, "screen_id");
+  const title = requiredStringField(raw, "title");
+  const body = requiredStringField(raw, "body");
+  if (screenId === null || title === null || body === null) return null;
+  if (!nonblank(screenId) || !nonblank(title) || !nonblank(body)) {
+    return null;
+  }
+  if (title.length > 500 || body.length > 200_000) return null;
+
+  const documentVersion = optionalString(raw.document_version);
+  const effectiveAt = optionalString(raw.effective_at);
+  const locale = optionalString(raw.locale);
+  if (!documentVersion.ok || !effectiveAt.ok || !locale.ok) return null;
+
+  return {
+    screenId,
+    title,
+    ...(documentVersion.value ? { configVersion: documentVersion.value } : {}),
+    components: [
+      {
+        id: `${screenId}_document_body`,
+        type: "text",
+        props: { text: body, style: "legal_body" },
+      },
+    ],
+  };
+}
+
 function parseDynamicScreenValue(
   value: unknown,
   allowStoredAliases: boolean,

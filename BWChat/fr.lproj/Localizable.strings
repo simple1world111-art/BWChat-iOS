@@ -1299,5 +1299,5 @@
 "account.deletion.category.securityEvents" = "Événements de sécurité";
 "account.deletion.category.deletionAudit" = "Audit de suppression";
 "account.deletion.reason.financialCompliance" = "Conformité financière et des paiements";
-"account.privacyPolicy.fallback" = "Impossible de charger la Politique de confidentialité. Réessayez plus tard.";
-"account.dataPrivacy.fallback" = "Impossible de charger l’avis Données et confidentialité. Réessayez plus tard.";
+"account.privacyPolicy.fallback" = "BBchat traite les données de compte, d’appareil, de communication, de localisation et de paiement pour le service, la sécurité, l’assistance et les obligations légales.";
+"account.dataPrivacy.fallback" = "Vous pouvez demander l’accès, la rectification et la suppression. Les données de profil sont purgées dans le délai prévu; des traces financières et de sécurité minimales et désidentifiées sont conservées légalement.";
