@@ -80,7 +80,7 @@ export const chatMoneyDetailPolicy = {
   envelopeContentTopRatio: 0.22,
   openButtonSize: 92,
   waitingButtonSize: 82,
-  claimMinimumAnimationMs: 750,
+  claimFeedbackAnimationMs: 420,
   headerHeight: 182,
   headerCurveRatio: 0.63,
   claimedAmountFontSize: 58,

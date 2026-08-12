@@ -40,6 +40,7 @@ interface TransferActionReceipt {
 
 const configurationCache = new Map<string, ChatMoneyConfiguration>();
 const detailCache = new Map<string, ChatMoneyDetail>();
+const detailRequests = new Map<string, Promise<ChatMoneyDetail>>();
 const configurationCachePrefix = "bwchat.chat-money.config.v1:";
 const detailCachePrefix = "bwchat.chat-money.detail.v1:";
 let activeOperation: { ownerId: string; assetId: string } | null = null;
@@ -56,6 +57,9 @@ export function resetChatMoneyMemoryForAccount(ownerId: string): void {
   const detailPrefix = `${owner}|`;
   for (const key of detailCache.keys()) {
     if (key.startsWith(detailPrefix)) detailCache.delete(key);
+  }
+  for (const key of detailRequests.keys()) {
+    if (key.startsWith(detailPrefix)) detailRequests.delete(key);
   }
   if (activeOperation?.ownerId === owner) activeOperation = null;
 }
@@ -94,7 +98,7 @@ export async function createChatMoneyRedPacket(input: {
   amountPerPacket?: number | undefined;
 }): Promise<ChatMoneyCreationResult> {
   ensureEligible(input.ownerId, "red_packet");
-  return perform(input.ownerId, input.clientMessageId, async () => {
+  return performMutation(input.ownerId, input.clientMessageId, async () => {
     const result = await createRedPacketMessage({
       clientMessageId: input.clientMessageId,
       scope: input.scope,
@@ -128,7 +132,7 @@ export async function createChatMoneyTransfer(input: {
   groupId?: number | undefined;
 }): Promise<ChatMoneyCreationResult> {
   ensureEligible(input.ownerId, "transfer");
-  return perform(input.ownerId, input.clientMessageId, async () => {
+  return performMutation(input.ownerId, input.clientMessageId, async () => {
     const result = await createTransferMessage({
       clientMessageId: input.clientMessageId,
       scope: input.scope,
@@ -154,18 +158,28 @@ export async function loadChatMoneyDetail(input: {
   const persisted = await readStoredDetail(input.ownerId, input.assetId);
   if (persisted) detailCache.set(key, persisted);
   if (!input.force && persisted) return persisted;
-  try {
-    return await perform(input.ownerId, input.assetId, async () => {
+
+  const existingRequest = detailRequests.get(key);
+  if (existingRequest) return existingRequest;
+
+  const request = (async () => {
+    try {
       const server = await getChatMoneyDetail(input.assetId);
       const normalized = await normalizeForLocalReceipts(input.ownerId, server);
       const merged = mergeChatMoneyDetail(detailCache.get(key), normalized);
       detailCache.set(key, merged);
       await writeStoredValue(detailStorageKey(input.ownerId, input.assetId), merged);
       return merged;
-    });
-  } catch (error) {
-    if (persisted) return persisted;
-    throw error;
+    } catch (error) {
+      if (persisted) return persisted;
+      throw error;
+    }
+  })();
+  detailRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (detailRequests.get(key) === request) detailRequests.delete(key);
   }
 }
 
@@ -182,7 +196,7 @@ export async function claimChatMoneyRedPacket(input: {
   if (await hasViewerClaimedChatMoney(input.ownerId, input.assetId)) {
     throw new Error("red_packet_already_claimed");
   }
-  return perform(input.ownerId, input.assetId, async () => {
+  return performMutation(input.ownerId, input.assetId, async () => {
     const result = await claimRedPacket(input.assetId);
     await recordViewerClaim(input, result.detail);
     const normalized = await normalizeForLocalReceipts(input.ownerId, result.detail);
@@ -230,7 +244,7 @@ async function finalizeTransfer(
   if (await hasFinalizedChatMoneyTransfer(input.ownerId, input.assetId)) {
     throw new Error("transfer_already_finalized");
   }
-  return perform(input.ownerId, input.assetId, async () => {
+  return performMutation(input.ownerId, input.assetId, async () => {
     const result = await operation(input.assetId);
     const receipts = await transferReceipts(input.ownerId);
     const completedAt = new Date().toISOString();
@@ -325,7 +339,7 @@ function ensureEligible(ownerId: string, kind: "red_packet" | "transfer"): void 
   }
 }
 
-async function perform<T>(
+async function performMutation<T>(
   ownerId: string,
   assetId: string,
   operation: () => Promise<T>,

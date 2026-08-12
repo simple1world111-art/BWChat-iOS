@@ -118,7 +118,7 @@ export function ChatMoneyDetailModal({
       if (hasLocalClaim) setEnvelopeDetailOverrideAssetId(initialPayload.asset_id);
       setShowsEnvelope(shouldShowRedPacketEnvelopeFromPayload(initialPayload, isSender, hasLocalClaim));
     });
-    void Promise.resolve().then(() => load(initialPayload.kind === "red_packet"));
+    void Promise.resolve().then(() => load(true));
     // load is intentionally scoped to the current modal generation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPayload, isSender, ownerId, visible]);
@@ -153,7 +153,12 @@ export function ChatMoneyDetailModal({
         initialSenderAvatar,
         isSender,
       )
-    : null);
+    : provisionalTransferDetail(
+        initialPayload,
+        initialSenderName,
+        initialSenderAvatar,
+        ownerId,
+      ));
   const envelopeIsOverridden = envelopeDetailOverrideAssetId === initialPayload.asset_id;
   const automaticallyShowsEnvelope = isRedPacket && !envelopeIsOverridden
     && (activeDetail
@@ -167,7 +172,6 @@ export function ChatMoneyDetailModal({
     claimInFlightRef.current = true;
     setOpening(true);
     setLoadError(null);
-    const startedAt = Date.now();
     try {
       const result = await claimChatMoneyRedPacket({
         ownerId,
@@ -175,8 +179,6 @@ export function ChatMoneyDetailModal({
         ...(ownerAvatar ? { ownerAvatar } : {}),
         assetId: activeDetail.asset_id,
       });
-      const wait = chatMoneyDetailPolicy.claimMinimumAnimationMs - (Date.now() - startedAt);
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
       setPendingClaimResult(result);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -199,14 +201,14 @@ export function ChatMoneyDetailModal({
   };
 
   const performTransfer = async (operation: "accept" | "return") => {
-    if (!detail || isProcessing || transferInFlightRef.current) return;
+    if (activeDetail.kind !== "transfer" || isProcessing || transferInFlightRef.current) return;
     transferInFlightRef.current = true;
     setProcessing(true);
     setLoadError(null);
     try {
       const result = operation === "accept"
-        ? await acceptChatMoneyTransfer({ ownerId, assetId: detail.asset_id })
-        : await returnChatMoneyTransfer({ ownerId, assetId: detail.asset_id });
+        ? await acceptChatMoneyTransfer({ ownerId, assetId: activeDetail.asset_id })
+        : await returnChatMoneyTransfer({ ownerId, assetId: activeDetail.asset_id });
       setDetail(result.detail);
       onResult(result);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -343,11 +345,12 @@ function RedPacketOpenEnvelope({
       rotation.setValue(0);
       return;
     }
-    animationRef.current = Animated.loop(Animated.timing(rotation, {
-      duration: chatMoneyDetailPolicy.claimMinimumAnimationMs,
+    rotation.setValue(0);
+    animationRef.current = Animated.timing(rotation, {
+      duration: chatMoneyDetailPolicy.claimFeedbackAnimationMs,
       toValue: 1,
       useNativeDriver: true,
-    }), { iterations: 20 });
+    });
     animationRef.current.start();
     return () => animationRef.current?.stop();
   }, [isOpening, rotation]);
@@ -441,7 +444,7 @@ function RedPacketOpenEnvelope({
                 ]}
               >
                 <Animated.View style={[styles.openButton, {
-                  transform: [{ perspective: 700 }, { rotateY: rotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "720deg"] }) }],
+                  transform: [{ perspective: 700 }, { rotateY: rotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }],
                 }] }>
                   <Text style={styles.openText}>{t("chatMoney.redPacket.open")}</Text>
                 </Animated.View>
@@ -488,6 +491,38 @@ function provisionalRedPacketDetail(
       ? Math.max(payload.packet_count - claimedCount, 0)
       : 1,
     ...(canClaim ? { viewer_state: "claimable" as const } : {}),
+  };
+}
+
+function provisionalTransferDetail(
+  payload: ChatMoneyPayload,
+  senderName: string | undefined,
+  senderAvatar: string | undefined,
+  ownerId: string,
+): ChatMoneyDetail {
+  const pending = payload.status === "pending" || payload.status === "partial";
+  const viewerIsRecipient = payload.recipient_id === ownerId;
+  const viewerState = payload.status === "accepted"
+    ? "accepted" as const
+    : payload.status === "returned"
+      ? "returned" as const
+      : payload.status === "expired_refunded"
+        ? "expired_refunded" as const
+        : viewerIsRecipient
+          ? "transfer_receivable" as const
+          : payload.sender_id === ownerId
+            ? "transfer_sender_waiting" as const
+            : "transfer_observer" as const;
+  return {
+    ...payload,
+    ...(senderName ? { sender_name: senderName } : {}),
+    ...(senderAvatar ? { sender_avatar_url: senderAvatar } : {}),
+    ...(payload.amount !== undefined ? { total_amount: payload.amount } : {}),
+    can_claim: false,
+    can_accept: pending && viewerIsRecipient,
+    can_return: pending && viewerIsRecipient,
+    claims: [],
+    viewer_state: viewerState,
   };
 }
 

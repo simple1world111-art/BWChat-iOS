@@ -33,6 +33,7 @@ import {
 import {
   cachedChatMoneyConfiguration,
   cachedChatMoneyDetail,
+  claimChatMoneyRedPacket,
   loadChatMoneyConfiguration,
   loadChatMoneyDetail,
   resetChatMoneyMemoryForAccount,
@@ -94,7 +95,7 @@ describe("native chat-money contracts", () => {
       transferGlyphSize: 42,
     });
     expect(chatMoneyComposerPolicy).toMatchObject({ inputRowHeight: 64, recipientRowHeight: 56, submitWidth: 188, submitHeight: 48, focusDelayMs: 350 });
-    expect(chatMoneyDetailPolicy).toMatchObject({ overlayOpacity: 0.52, envelopeMaximumWidth: 340, envelopeMinimumHeight: 430, envelopeMaximumHeight: 550, openButtonSize: 92, claimMinimumAnimationMs: 750, headerHeight: 182, claimRowHeight: 68 });
+    expect(chatMoneyDetailPolicy).toMatchObject({ overlayOpacity: 0.52, envelopeMaximumWidth: 340, envelopeMinimumHeight: 430, envelopeMaximumHeight: 550, openButtonSize: 92, claimFeedbackAnimationMs: 420, headerHeight: 182, claimRowHeight: 68 });
     expect(chatMoneyTheme).toMatchObject({ cardOrange: "#FA9D3B", cardMutedOrange: "#F6C58E", envelopeRed: "#D95940", envelopeDarkRed: "#C94B38", gold: "#F4D49B" });
   });
 
@@ -257,5 +258,34 @@ describe("native chat-money contracts", () => {
     await expect(loadChatMoneyConfiguration("owner-a")).resolves.toMatchObject({ red_packet_enabled: true });
     await expect(loadChatMoneyDetail({ ownerId: "owner-a", assetId: "persisted-asset" })).resolves.toMatchObject({ asset_id: "persisted-asset" });
     expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("allows a claim while the same red-packet detail is refreshing", async () => {
+    let resolveRefresh: ((value: ChatMoneyDetail) => void) | undefined;
+    request.mockImplementation((path) => {
+      if (path === "/wallet/chat-money/red-1") {
+        return new Promise((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      if (path === "/wallet/red-packets/red-1/claim") {
+        return Promise.resolve({
+          detail: redDetail({ status: "completed", version: 2, viewer_claim_amount: 8 }),
+          payload: redPayload({ status: "completed", version: 2 }),
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    const refresh = loadChatMoneyDetail({ ownerId: "owner-a", assetId: "red-1", force: true });
+    await Promise.resolve();
+    await expect(claimChatMoneyRedPacket({
+      ownerId: "owner-a",
+      ownerName: "Viewer",
+      assetId: "red-1",
+    })).resolves.toMatchObject({ detail: { status: "completed" } });
+
+    resolveRefresh?.(redDetail({ version: 1 }));
+    await expect(refresh).resolves.toMatchObject({ status: "completed", version: 2 });
   });
 });

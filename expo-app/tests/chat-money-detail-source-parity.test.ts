@@ -15,6 +15,8 @@ describe("chat-money detail presentation parity", () => {
     expect(detail).toContain('overlayLoading: { alignItems: "center", backgroundColor: "transparent"');
     expect(detail).toContain('animationType={isRedPacket ? "none" : "slide"}');
     expect(detail).toContain("provisionalRedPacketDetail(");
+    expect(detail).toContain("provisionalTransferDetail(");
+    expect(detail).toContain("void Promise.resolve().then(() => load(true))");
     expect(detail).toContain("Animated.spring(entrance");
     expect(detail).toContain("useNativeDriver: true");
   });
@@ -38,6 +40,7 @@ describe("chat-money detail presentation parity", () => {
     expect(detail).toContain("pressed && styles.moneyActionPressed");
     expect(detail).not.toContain("isOpening ? <ActivityIndicator");
     expect(detail).not.toContain("isProcessing ? <ActivityIndicator");
+    expect(detail).not.toContain("claimMinimumAnimationMs");
   });
 
   it("crossfades a claimed envelope into the red-packet detail screen", () => {
