@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentMessagePart } from "@/models";
 import {
+  agentCurrentInputImageInstruction,
   agentGalleryImagePaths,
   agentImageGenerationBlockReason,
   agentImagePath,
@@ -115,8 +116,16 @@ describe("native agent image reply and gallery policy", () => {
   });
 
   it("never exposes the internal transform tool instruction in history", () => {
-    expect(agentUserVisibleText(agentTransformOutboundText("换成蓝色"))).toBe("换成蓝色");
+    const outbound = agentTransformOutboundText("换成蓝色");
+    expect(outbound).toContain(agentCurrentInputImageInstruction);
+    expect(outbound).toContain("不得使用智能体头像、参考图、历史图片或上一轮图片替代");
+    expect(agentUserVisibleText(outbound)).toBe("换成蓝色");
     expect(agentUserVisibleText(agentTransformOutboundText(""))).toBe("");
+    expect(
+      agentUserVisibleText(
+        "请基于我上传的图片进行调整并生成一张新的图片。请实际调用图片生成工具，不要只用文字描述。调整要求：换成红色",
+      ),
+    ).toBe("换成红色");
     expect(agentUserVisibleText("普通消息")).toBe("普通消息");
   });
 

@@ -6,6 +6,8 @@ import type {
 } from "@/models";
 
 export const agentTransformInstructionPrefix = "请基于我上传的图片进行调整并生成一张新的图片。";
+export const agentCurrentInputImageInstruction =
+  "必须仅使用当前这条用户消息中附带的 input_image 作为唯一源图；不得使用智能体头像、参考图、历史图片或上一轮图片替代。若当前图片无法读取，请停止生成并明确报错。";
 export const agentToolInvocationInstruction =
   "请实际调用图片生成工具，不要只用文字描述。调整要求：";
 export const agentDefaultTransformInstruction = "请保持主体特征和整体构图。";
@@ -98,6 +100,7 @@ export function agentTransformOutboundText(userText: string): string {
   const trimmed = userText.trim();
   return (
     agentTransformInstructionPrefix +
+    agentCurrentInputImageInstruction +
     agentToolInvocationInstruction +
     (trimmed || agentDefaultTransformInstruction)
   );
@@ -108,12 +111,20 @@ export function agentUserVisibleText(outboundText: string): string {
   if (!isAgentTransformRequest(trimmed)) return trimmed;
 
   const payload = trimmed.slice(agentTransformInstructionPrefix.length);
+  const currentInstructionPrefix =
+    agentCurrentInputImageInstruction + agentToolInvocationInstruction;
   if (
     payload === agentDefaultTransformInstruction ||
-    payload === agentToolInvocationInstruction + agentDefaultTransformInstruction
+    payload === agentToolInvocationInstruction + agentDefaultTransformInstruction ||
+    payload === currentInstructionPrefix + agentDefaultTransformInstruction
   ) {
     return "";
   }
+  if (payload.startsWith(currentInstructionPrefix)) {
+    return payload.slice(currentInstructionPrefix.length).trim();
+  }
+  // Preserve display compatibility for messages created before the current-image
+  // binding instruction was added.
   if (payload.startsWith(agentToolInvocationInstruction)) {
     return payload.slice(agentToolInvocationInstruction.length).trim();
   }
