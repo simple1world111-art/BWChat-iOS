@@ -2,12 +2,29 @@ import { useEvent } from "expo";
 import { StatusBar } from "expo-status-bar";
 import { SymbolView } from "expo-symbols";
 import { useVideoPlayer, VideoView, type VideoSource } from "expo-video";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Modal,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { trimFoundationWhitespacesAndNewlines } from "@/api/normalizers";
 import { AuthenticatedImage } from "@/components/AuthenticatedImage";
-import { resolveChatVideoPlaybackUrl } from "@/components/media/videoPlayerMath";
+import {
+  predictedVideoTranslation,
+  resolveChatVideoPlaybackUrl,
+  shouldDismissVideo,
+  VIDEO_PAN_MINIMUM_DISTANCE,
+} from "@/components/media/videoPlayerMath";
 import { env } from "@/config/env";
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
@@ -124,6 +141,8 @@ function VideoPlayerContent({
   posterUrl?: string | null | undefined;
   videoUrl: string;
 }) {
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { t } = useLocalization();
   const playbackUrl = useMemo(
     () => resolveChatVideoPlaybackUrl(videoUrl, env.apiBaseUrl),
@@ -141,6 +160,9 @@ function VideoPlayerContent({
     !playbackUrl || (sourceState?.identity === sourceIdentity && sourceState.error);
   const [activationErrorIdentity, setActivationErrorIdentity] = useState<string | null>(null);
   const [hasRenderedFirstFrame, setHasRenderedFirstFrame] = useState(false);
+  const [verticalDrag] = useState(() => new Animated.Value(0));
+  const isDismissingRef = useRef(false);
+  const hasClosedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -243,6 +265,8 @@ function VideoPlayerContent({
   }, [player, sourceIdentity, status]);
 
   const dismiss = useCallback(() => {
+    if (hasClosedRef.current) return;
+    hasClosedRef.current = true;
     try {
       pauseVideoPlayer(player);
     } catch (error) {
@@ -252,13 +276,121 @@ function VideoPlayerContent({
     }
   }, [onClose, player]);
 
+  const restoreAfterDrag = useCallback(() => {
+    Animated.spring(verticalDrag, {
+      damping: 20,
+      mass: 0.8,
+      stiffness: 220,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start(() => {
+      isDismissingRef.current = false;
+    });
+  }, [verticalDrag]);
+
+  const finishSwipeDismiss = useCallback(
+    (direction: -1 | 1) => {
+      if (isDismissingRef.current) return;
+      isDismissingRef.current = true;
+      Animated.timing(verticalDrag, {
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        toValue: direction * Math.max(height, 1),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) dismiss();
+        else restoreAfterDrag();
+      });
+    },
+    [dismiss, height, restoreAfterDrag, verticalDrag],
+  );
+
+  const updateVerticalDrag = useCallback(
+    (translationY: number, activeTouches: number) => {
+      if (!isDismissingRef.current && activeTouches === 1) {
+        verticalDrag.setValue(translationY);
+      }
+    },
+    [verticalDrag],
+  );
+
+  /* eslint-disable react-hooks/refs -- PanResponder stores these callbacks for later gesture events; it does not invoke them during render. */
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          gesture.numberActiveTouches === 1 &&
+          Math.hypot(gesture.dx, gesture.dy) >= VIDEO_PAN_MINIMUM_DISTANCE &&
+          Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onMoveShouldSetPanResponderCapture: (_, gesture) =>
+          gesture.numberActiveTouches === 1 &&
+          Math.hypot(gesture.dx, gesture.dy) >= VIDEO_PAN_MINIMUM_DISTANCE &&
+          Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderGrant: () => {
+          verticalDrag.stopAnimation();
+        },
+        onPanResponderMove: (_, gesture) => {
+          updateVerticalDrag(gesture.dy, gesture.numberActiveTouches);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          // PanResponder reports velocity in points per millisecond while the
+          // shared native parity helper accepts points per second.
+          const predictedY = predictedVideoTranslation(gesture.dy, gesture.vy * 1_000);
+          if (
+            shouldDismissVideo({
+              translationX: gesture.dx,
+              translationY: gesture.dy,
+              predictedTranslationY: predictedY,
+            })
+          ) {
+            finishSwipeDismiss((predictedY || gesture.dy) < 0 ? -1 : 1);
+          } else {
+            restoreAfterDrag();
+          }
+        },
+        onPanResponderTerminate: restoreAfterDrag,
+        onPanResponderTerminationRequest: () => false,
+      }),
+    [finishSwipeDismiss, restoreAfterDrag, updateVerticalDrag, verticalDrag],
+  );
+  /* eslint-enable react-hooks/refs */
+
+  const backdropOpacity = verticalDrag.interpolate({
+    extrapolate: "clamp",
+    inputRange: [-320, 0, 320],
+    outputRange: [0.1, 1, 0.1],
+  });
+  const playerScale = verticalDrag.interpolate({
+    extrapolate: "clamp",
+    inputRange: [-900, -8, 8, 900],
+    outputRange: [0.55, 1, 1, 0.55],
+  });
+  const closeOpacity = verticalDrag.interpolate({
+    extrapolate: "clamp",
+    inputRange: [-1, 0, 1],
+    outputRange: [0, 1, 0],
+  });
+
   const didFail = sourceError || activationErrorIdentity === sourceIdentity || status === "error";
 
   return (
-    <View accessibilityViewIsModal onAccessibilityEscape={dismiss} style={styles.root}>
+    <View
+      accessibilityViewIsModal
+      onAccessibilityEscape={dismiss}
+      style={styles.root}
+      {...panResponder.panHandlers}
+    >
       <StatusBar hidden />
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.backdrop]} />
-      <View style={styles.playerSurface}>
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, styles.backdrop, { opacity: backdropOpacity }]}
+      />
+      <Animated.View
+        style={[
+          styles.playerSurface,
+          { transform: [{ translateY: verticalDrag }, { scale: playerScale }] },
+        ]}
+      >
         {preparedSource && !didFail ? (
           <VideoView
             allowsPictureInPicture={false}
@@ -270,6 +402,7 @@ function VideoPlayerContent({
             player={player}
             startsPictureInPictureAutomatically={false}
             style={styles.player}
+            surfaceType="textureView"
           />
         ) : null}
         {!didFail && !hasRenderedFirstFrame && posterUrl ? (
@@ -285,17 +418,29 @@ function VideoPlayerContent({
             <ActivityIndicator color="#FFFFFF" />
           </View>
         ) : null}
-      </View>
-      <View style={styles.closeSlot}>
+      </Animated.View>
+      <Animated.View
+        pointerEvents="box-none"
+        style={[
+          styles.closeSlot,
+          {
+            opacity: closeOpacity,
+            right: Math.max(insets.right, 0) + 8,
+            top: Math.max(insets.top + 8, 44),
+          },
+        ]}
+      >
         <Pressable
           accessibilityLabel={t("common.close")}
+          accessibilityRole="button"
           hitSlop={12}
           onPress={dismiss}
           style={styles.closeButton}
+          testID="video-preview-close-button"
         >
           <SymbolView name="xmark.circle.fill" size={28} tintColor="rgba(255,255,255,0.8)" />
         </Pressable>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -325,12 +470,19 @@ function VideoPoster({ posterUrl }: { posterUrl: string }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "transparent" },
+  root: { flex: 1, backgroundColor: "#000000" },
   backdrop: { backgroundColor: "#000000" },
   playerSurface: { flex: 1 },
   player: { flex: 1 },
   state: { flex: 1, alignItems: "center", justifyContent: "center", rowGap: 12 },
   errorText: { color: "#8E8E93", fontSize: 16 },
-  closeSlot: { position: "absolute", right: 0, top: 64 },
-  closeButton: { padding: 16 },
+  closeSlot: { position: "absolute", zIndex: 20, elevation: 20 },
+  closeButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.52)",
+  },
 });

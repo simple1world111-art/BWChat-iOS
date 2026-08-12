@@ -152,12 +152,18 @@ describe("native VideoPlayerView parity", () => {
     );
   });
 
-  it("preserves loading, error, close and native controls without a crash-prone display-link graph", () => {
+  it("preserves loading, error, native controls and a reliably layered close action", () => {
     const player = expo("src/components/media/VideoPlayerOverlay.tsx");
     expect(player).toContain('<ActivityIndicator color="#FFFFFF" />');
     expect(player).toContain('name="exclamationmark.triangle" size={40}');
     expect(player).toContain('t("video.loadFailed")');
     expect(player).toContain('name="xmark.circle.fill" size={28}');
+    expect(player).toContain('testID="video-preview-close-button"');
+    expect(player).toContain('accessibilityRole="button"');
+    expect(player).toContain("useSafeAreaInsets()");
+    expect(player).toContain("zIndex: 20, elevation: 20");
+    expect(player).toContain('backgroundColor: "rgba(0,0,0,0.52)"');
+    expect(player).toContain('surfaceType="textureView"');
     expect(player).toContain("nativeControls");
     expect(player).toContain('animationType="none"');
     expect(player).toContain("allowsVideoFrameAnalysis={false}");
@@ -172,6 +178,21 @@ describe("native VideoPlayerView parity", () => {
     expect(player).not.toContain("GestureDetector");
     expect(player).not.toContain('t("common.retry")');
     expect(player).not.toContain("onRetry");
+  });
+
+  it("dismisses on a clearly vertical drag without taking horizontal native scrubbing", () => {
+    const player = expo("src/components/media/VideoPlayerOverlay.tsx");
+    expect(player).toContain("PanResponder.create({");
+    expect(player).toContain("onMoveShouldSetPanResponderCapture");
+    expect(player).toContain("Math.hypot(gesture.dx, gesture.dy) >= VIDEO_PAN_MINIMUM_DISTANCE");
+    expect(player).toContain("Math.abs(gesture.dy) > Math.abs(gesture.dx)");
+    expect(player).toContain("predictedVideoTranslation(gesture.dy, gesture.vy * 1_000)");
+    expect(player).toContain("shouldDismissVideo({");
+    expect(player).toContain("Animated.spring(verticalDrag");
+    expect(player).toContain("Animated.timing(verticalDrag");
+    expect(player).toContain("useNativeDriver: true");
+    expect(player).not.toContain("react-native-reanimated");
+    expect(player).not.toContain("react-native-gesture-handler");
   });
 
   it("contains synchronous player exceptions instead of letting Hermes abort the app", () => {
