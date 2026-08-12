@@ -31,14 +31,21 @@ export function DynamicComponentRenderer({
   component: DynamicComponent;
   onRoute: (route?: DynamicRoute | undefined) => void;
 }) {
-  const { activeLanguage } = useLocalization();
+  const { activeLanguage, t } = useLocalization();
   const theme = dynamicScreenPalette(useColorScheme());
   const token = normalizeDynamicToken(component.type);
   const title =
     localizedDynamicProp(component.props, "title", activeLanguage) ??
     localizedDynamicProp(component.props, "text", activeLanguage) ??
+    (dynamicString(component.props.title_key)
+      ? t(dynamicString(component.props.title_key) as string)
+      : undefined) ??
     component.id;
-  const subtitle = localizedDynamicProp(component.props, "subtitle", activeLanguage);
+  const subtitle =
+    localizedDynamicProp(component.props, "subtitle", activeLanguage) ??
+    (dynamicString(component.props.subtitle_key)
+      ? t(dynamicString(component.props.subtitle_key) as string)
+      : undefined);
   const systemImage = dynamicString(component.props.system_image);
   const children = component.children?.filter((child) => child.visible ?? true) ?? [];
   const childStack = (

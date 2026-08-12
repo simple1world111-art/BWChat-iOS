@@ -152,7 +152,12 @@ async function executeResource(
         });
       }
       const payload: unknown = await response.json().catch(() => null);
-      throw new APIError(serverMessage(payload, response.status), response.status, payload);
+      throw new APIError(
+        serverMessage(payload, response.status),
+        response.status,
+        payload,
+        apiResponseCode(payload),
+      );
     }
 
     return response;
@@ -256,7 +261,12 @@ async function execute<T>(
           transientAttempt: state.transientAttempt + 1,
         });
       }
-      throw new APIError(serverMessage(payload, response.status), response.status, payload);
+      throw new APIError(
+        serverMessage(payload, response.status),
+        response.status,
+        payload,
+        apiResponseCode(payload),
+      );
     }
 
     return decodeSuccessfulPayload<T>(
@@ -449,7 +459,22 @@ export function decodeSuccessfulPayload<T>(
 
 function assertNativeSuccessCode(payload: object, httpStatus: number): void {
   const record = payload as Record<string, unknown>;
-  const code = nativeAPIResponseCode(record.code);
+  const rawCode = record.code;
+  const code =
+    typeof rawCode === "number" && Number.isSafeInteger(rawCode)
+      ? rawCode
+      : typeof rawCode === "string" && /^[+-]?\d+$/u.test(rawCode)
+        ? Number(rawCode)
+        : undefined;
+  if (code === undefined || !Number.isSafeInteger(code)) {
+    const rawMessage = typeof record.message === "string" ? record.message : "";
+    throw new APIError(
+      trimFoundationWhitespacesAndNewlines(rawMessage) ? rawMessage : "api.invalidResponse",
+      httpStatus,
+      payload,
+      typeof rawCode === "string" ? rawCode : "decoding_error",
+    );
+  }
   if (code === 0) return;
   const rawMessage = typeof record.message === "string" ? record.message : "";
   const message = code >= 500 && code <= 599 ? "服务暂时不可用，请稍后重试" : rawMessage;

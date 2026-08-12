@@ -33,7 +33,10 @@ describe("wallet VoiceOver, dynamic type, and dark appearance contracts", () => 
     expect(source).toContain('accessibilityRole="tab"');
     expect(source).toContain("accessibilityState={{ selected: active }}");
     expect(source).toContain('accessibilityRole="checkbox"');
+    expect(source).toContain('accessibilityRole="link"');
     expect(source).toContain("accessibilityState={{ checked: agreed }}");
+    expect(source).toContain('pathname: "/dynamic-screen/[id]"');
+    expect(source).toContain("params: { id: runtime.termsScreenId }");
     expect(source).toContain("accessibilityState={{ expanded: networkExpanded }}");
     expect(source).toContain("accessibilityViewIsModal={networkExpanded}");
     const toastSource = readFileSync(`${process.cwd()}/src/components/TopToast.tsx`, "utf8");

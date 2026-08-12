@@ -44,3 +44,15 @@ export function passwordChangeValidationMessage(
   if (confirmPassword !== newPassword) return t("password.validation.confirmMismatch");
   return null;
 }
+
+export function newPasswordValidationMessage(
+  newPassword: string,
+  confirmPassword: string,
+  t: Translate,
+): string | null {
+  if (passwordSegments(newPassword).length < passwordChangePolicy.minimumNewPasswordCharacters) {
+    return t("password.validation.tooShort");
+  }
+  if (confirmPassword !== newPassword) return t("password.validation.confirmMismatch");
+  return null;
+}

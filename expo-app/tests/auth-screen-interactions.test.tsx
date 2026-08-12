@@ -5,9 +5,13 @@ import { Keyboard } from "react-native";
 
 import LoginScreen from "@/app/(auth)/login";
 import RegisterScreen from "@/app/(auth)/register";
+import type { VerifiedRegistrationInput } from "@/services/account/AccountComplianceService";
 
 const mockSignIn = jest.fn<Promise<boolean>, [string, string]>();
-const mockSignUp = jest.fn<Promise<boolean>, [string, string, string]>();
+const mockSignUp = jest.fn<Promise<boolean>, [VerifiedRegistrationInput]>();
+const mockCreateRegistrationSession = jest.fn();
+const mockResendRegistrationSession = jest.fn();
+const mockVerifyRegistrationEmail = jest.fn();
 let mockPrimaryPress: (() => void) | undefined;
 let mockCatMood: string | undefined;
 
@@ -102,11 +106,28 @@ jest.mock("@/providers/LocalizationProvider", () => ({
   useLocalization: () => ({ t: (key: string) => key }),
 }));
 
+jest.mock("@/services/account/AccountComplianceService", () => ({
+  accountComplianceErrorCode: () => undefined,
+  createClientRequestId: () => "client-request-id",
+  createRegistrationEmailVerificationSession: (...args: unknown[]) =>
+    mockCreateRegistrationSession(...args),
+  resendRegistrationEmailVerificationSession: (...args: unknown[]) =>
+    mockResendRegistrationSession(...args),
+  verifyRegistrationEmail: (...args: unknown[]) => mockVerifyRegistrationEmail(...args),
+}));
+
 describe("authentication screen interactions", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockPrimaryPress = undefined;
     mockCatMood = undefined;
+    mockCreateRegistrationSession.mockResolvedValue(verificationSession());
+    mockResendRegistrationSession.mockResolvedValue(verificationSession());
+    mockVerifyRegistrationEmail.mockResolvedValue({
+      emailVerificationToken: "verified-email-token",
+      normalizedEmail: "member@example.com",
+      expiresAt: "2026-08-12T00:15:00Z",
+    });
   });
 
   it("submits login only once when two press callbacks arrive in the same render frame", async () => {
@@ -136,6 +157,17 @@ describe("authentication screen interactions", () => {
     await fireEvent.changeText(view.getByPlaceholderText("auth.nickname.optional"), " Nick ");
     await fireEvent.changeText(view.getByPlaceholderText("auth.password.rules"), "secret1");
     await fireEvent.changeText(view.getByPlaceholderText("auth.confirmPassword"), "secret1");
+    await fireEvent.press(view.getByLabelText("auth.register.next"));
+    await fireEvent.changeText(
+      view.getByPlaceholderText("account.email.placeholder"),
+      "member@example.com",
+    );
+    await fireEvent.press(view.getByLabelText("account.sendVerificationCode"));
+    await waitFor(() => expect(mockCreateRegistrationSession).toHaveBeenCalledTimes(1));
+    await fireEvent.changeText(
+      view.getByPlaceholderText("account.verificationCode.placeholder"),
+      "123456",
+    );
     const press = mockPrimaryPress;
     expect(press).toBeDefined();
 
@@ -144,7 +176,14 @@ describe("authentication screen interactions", () => {
       press?.();
     });
     expect(mockSignUp).toHaveBeenCalledTimes(1);
-    expect(mockSignUp).toHaveBeenCalledWith("new-user", "secret1", " Nick ");
+    expect(mockSignUp).toHaveBeenCalledWith({
+      username: "new-user",
+      password: "secret1",
+      nickname: " Nick ",
+      email: "member@example.com",
+      emailVerificationToken: "verified-email-token",
+      clientRequestId: "client-request-id",
+    });
 
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/(tabs)/conversations"));
   });
@@ -225,21 +264,19 @@ describe("authentication screen interactions", () => {
     expect(view.getByPlaceholderText("auth.nickname.optional").props.value).toBe("");
   });
 
-  it("preserves native register hint priority over an earlier server error", async () => {
-    mockSignUp.mockRejectedValueOnce(new Error("rejected"));
+  it("preserves credential values when returning from email verification", async () => {
     const view = await render(<RegisterScreen />);
     const secret = ["s", "e", "c", "r", "e", "t"].join("");
     await fireEvent.changeText(view.getByPlaceholderText("auth.username.rules"), "valid-name");
+    await fireEvent.changeText(view.getByPlaceholderText("auth.nickname.optional"), " Raw Nick ");
     await fireEvent.changeText(view.getByPlaceholderText("auth.password.rules"), secret);
     await fireEvent.changeText(view.getByPlaceholderText("auth.confirmPassword"), secret);
-    await fireEvent.press(view.getByLabelText("auth.register.action"));
-    await waitFor(() => expect(view.getByText("auth.register.failed")).toBeTruthy());
-
-    await fireEvent.changeText(view.getByPlaceholderText("auth.username.rules"), "ab");
-    expect(view.getByText("auth.validation.usernameTooShort")).toBeTruthy();
-    expect(view.queryByText("auth.register.failed")).toBeNull();
-    await fireEvent.changeText(view.getByPlaceholderText("auth.username.rules"), "valid-name");
-    expect(view.getByText("auth.register.failed")).toBeTruthy();
+    await fireEvent.press(view.getByLabelText("auth.register.next"));
+    await fireEvent.press(view.getByText("common.back"));
+    expect(view.getByPlaceholderText("auth.username.rules").props.value).toBe("valid-name");
+    expect(view.getByPlaceholderText("auth.nickname.optional").props.value).toBe(" Raw Nick ");
+    expect(view.getByPlaceholderText("auth.password.rules").props.value).toBe(secret);
+    expect(view.getByPlaceholderText("auth.confirmPassword").props.value).toBe(secret);
   });
 
   it("uses native-equivalent register presentation and dismissal routes", async () => {
@@ -285,8 +322,10 @@ describe("authentication screen interactions", () => {
     await fireEvent.changeText(view.getByPlaceholderText("auth.nickname.optional"), "\u200B");
     await fireEvent.changeText(view.getByPlaceholderText("auth.password.rules"), "secret1");
     await fireEvent.changeText(view.getByPlaceholderText("auth.confirmPassword"), "secret1");
-    await fireEvent.press(view.getByLabelText("auth.register.action"));
-    await waitFor(() => expect(mockSignUp).toHaveBeenCalledWith("new-user", "secret1", ""));
+    await finishRegistration(view);
+    await waitFor(() =>
+      expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({ nickname: "" })),
+    );
     await view.unmount();
 
     jest.clearAllMocks();
@@ -308,8 +347,10 @@ describe("authentication screen interactions", () => {
       byteOrderMarkView.getByPlaceholderText("auth.confirmPassword"),
       "secret1",
     );
-    await fireEvent.press(byteOrderMarkView.getByLabelText("auth.register.action"));
-    await waitFor(() => expect(mockSignUp).toHaveBeenCalledWith("new-user", "secret1", "\uFEFF"));
+    await finishRegistration(byteOrderMarkView);
+    await waitFor(() =>
+      expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({ nickname: "\uFEFF" })),
+    );
   });
 
   it("does not navigate or write page state after a late registration completion is unmounted", async () => {
@@ -319,7 +360,7 @@ describe("authentication screen interactions", () => {
     await fireEvent.changeText(view.getByPlaceholderText("auth.username.rules"), "late-user");
     await fireEvent.changeText(view.getByPlaceholderText("auth.password.rules"), "late-password");
     await fireEvent.changeText(view.getByPlaceholderText("auth.confirmPassword"), "late-password");
-    await fireEvent.press(view.getByLabelText("auth.register.action"));
+    await finishRegistration(view);
     expect(mockSignUp).toHaveBeenCalledTimes(1);
 
     await view.unmount();
@@ -333,12 +374,39 @@ describe("authentication screen interactions", () => {
     await fireEvent.changeText(view.getByPlaceholderText("auth.username.rules"), "new-user");
     await fireEvent.changeText(view.getByPlaceholderText("auth.password.rules"), "new-password");
     await fireEvent.changeText(view.getByPlaceholderText("auth.confirmPassword"), "new-password");
-    await fireEvent.press(view.getByLabelText("auth.register.action"));
+    await finishRegistration(view);
     await waitFor(() => expect(mockSignUp).toHaveBeenCalledTimes(1));
     expect(router.replace).not.toHaveBeenCalled();
     expect(view.queryByText("auth.register.failed")).toBeNull();
   });
 });
+
+async function finishRegistration(view: Awaited<ReturnType<typeof render>>) {
+  await fireEvent.press(view.getByLabelText("auth.register.next"));
+  await fireEvent.changeText(
+    view.getByPlaceholderText("account.email.placeholder"),
+    "member@example.com",
+  );
+  await fireEvent.press(view.getByLabelText("account.sendVerificationCode"));
+  await waitFor(() => expect(mockCreateRegistrationSession).toHaveBeenCalled());
+  await fireEvent.changeText(
+    view.getByPlaceholderText("account.verificationCode.placeholder"),
+    "123456",
+  );
+  await fireEvent.press(view.getByLabelText("auth.register.createAccount"));
+  await waitFor(() => expect(mockVerifyRegistrationEmail).toHaveBeenCalled());
+}
+
+function verificationSession() {
+  return {
+    sessionId: "verification-session",
+    maskedEmail: "m***@example.com",
+    serverTime: "2026-08-12T00:00:00Z",
+    expiresAt: "2026-08-12T00:10:00Z",
+    resendAvailableAt: "2026-08-12T00:01:00Z",
+    codeLength: 6 as const,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

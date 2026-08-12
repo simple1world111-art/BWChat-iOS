@@ -36,6 +36,47 @@ describe("parseRemoteConfig", () => {
     ]);
   });
 
+  it("decodes only the snake_case account support and legal-screen contract", () => {
+    const config = parseRemoteConfig({
+      schema_version: 1,
+      config_version: "account-compliance",
+      account: {
+        support_email: "support@example.com",
+        privacy_screen_id: "privacy_policy_v2",
+        data_privacy_screen_id: "data_privacy_v2",
+        account_deletion_url: "https://id7.com/account-deletion",
+      },
+      wallet: { terms_screen_id: "wallet_terms_v2" },
+    });
+    expect(config.account).toEqual({
+      supportEmail: "support@example.com",
+      privacyScreenId: "privacy_policy_v2",
+      dataPrivacyScreenId: "data_privacy_v2",
+      accountDeletionUrl: "https://id7.com/account-deletion",
+    });
+    expect(config.wallet).toEqual({ terms_screen_id: "wallet_terms_v2" });
+
+    expect(() =>
+      parseRemoteConfig({
+        schema_version: 1,
+        config_version: "unsafe-legal-route",
+        account: { privacy_screen_id: "../privacy" },
+      }),
+    ).toThrow();
+
+    const camelCase = parseRemoteConfig({
+      schema_version: 1,
+      config_version: "no-account-camel-aliases",
+      account: { supportEmail: "unsafe@example.com" },
+    });
+    expect(camelCase.account?.supportEmail).toBeUndefined();
+    expect(camelCase.account).toMatchObject({
+      privacyScreenId: "privacy_policy",
+      dataPrivacyScreenId: "data_privacy",
+      accountDeletionUrl: "https://id7.com/account-deletion",
+    });
+  });
+
   it("removes the retired test tab even when an older remote config still sends it", () => {
     const config = parseRemoteConfig({
       schema_version: 1,

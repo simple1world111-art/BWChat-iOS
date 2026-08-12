@@ -496,28 +496,51 @@ export default function WalletScreen() {
                 {purchaseTitle}
               </Text>
             </Pressable>
-            <Pressable
-              accessibilityLabel={`${t("wallet.terms.agreePrefix")} ${t("wallet.terms.title")}`}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: agreed }}
-              onPress={() => setAgreed((value) => !value)}
+            <View
               style={[
                 styles.termsRow,
                 { marginTop: compact ? 6 : 8, paddingBottom: compact ? 2 : 4 },
               ]}
             >
-              <SymbolView
-                name={agreed ? "checkmark.circle.fill" : "circle"}
-                size={compact ? 12 : 14}
-                tintColor={agreed ? "#F0A020" : "rgba(128,128,128,0.45)"}
-              />
-              <Text numberOfLines={1} style={[styles.termsPrefix, { fontSize: compact ? 10 : 12 }]}>
-                {t("wallet.terms.agreePrefix")}
-              </Text>
-              <Text numberOfLines={1} style={[styles.termsTitle, { fontSize: compact ? 10 : 12 }]}>
-                {t("wallet.terms.title")}
-              </Text>
-            </Pressable>
+              <Pressable
+                accessibilityLabel={t("wallet.terms.agreePrefix")}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: agreed }}
+                hitSlop={{ top: 16, bottom: 16, left: 12, right: 3 }}
+                onPress={() => setAgreed((value) => !value)}
+                style={styles.termsAgreementControl}
+              >
+                <SymbolView
+                  name={agreed ? "checkmark.circle.fill" : "circle"}
+                  size={compact ? 12 : 14}
+                  tintColor={agreed ? "#F0A020" : "rgba(128,128,128,0.45)"}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[styles.termsPrefix, { fontSize: compact ? 10 : 12 }]}
+                >
+                  {t("wallet.terms.agreePrefix")}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel={t("wallet.terms.title")}
+                accessibilityRole="link"
+                hitSlop={{ top: 16, bottom: 16, left: 3, right: 12 }}
+                onPress={() =>
+                  router.push({
+                    pathname: "/dynamic-screen/[id]",
+                    params: { id: runtime.termsScreenId },
+                  })
+                }
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.termsTitle, { fontSize: compact ? 10 : 12 }]}
+                >
+                  {t("wallet.terms.title")}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       ) : (
@@ -1327,6 +1350,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { fontWeight: "700", color: "#000000" },
   termsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", columnGap: 6 },
+  termsAgreementControl: { flexDirection: "row", alignItems: "center", columnGap: 6 },
   termsPrefix: { color: "rgba(0,0,0,0.6)" },
   termsTitle: { color: "rgba(0,0,0,0.82)" },
   summary: {

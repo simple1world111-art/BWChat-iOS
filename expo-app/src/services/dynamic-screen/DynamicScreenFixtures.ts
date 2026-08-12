@@ -118,18 +118,41 @@ export const bundledDynamicScreens: readonly DynamicScreen[] = [
   {
     screenId: "wallet_terms",
     schemaVersion: 1,
-    configVersion: "bundled-fixture",
-    titleI18n: { "zh-Hans": "钱包说明", en: "Wallet Terms" },
+    configVersion: "bundled-account-compliance-v1",
+    titleKey: "wallet.terms.title",
     components: [
       {
         id: "wallet_terms_text",
         type: "text",
         props: {
-          title: {
-            "zh-Hans": "金币购买始终通过 App Store StoreKit 完成。价格以系统展示为准。",
-            en: "Gold Coins purchases always use App Store StoreKit. System price display is authoritative.",
-          },
+          title_key: "wallet.terms.fallback",
         },
+      },
+    ],
+  },
+  {
+    screenId: "privacy_policy",
+    schemaVersion: 1,
+    configVersion: "bundled-account-compliance-v1",
+    titleKey: "account.privacyPolicy",
+    components: [
+      {
+        id: "privacy_policy_fallback",
+        type: "text",
+        props: { title_key: "account.privacyPolicy.fallback" },
+      },
+    ],
+  },
+  {
+    screenId: "data_privacy",
+    schemaVersion: 1,
+    configVersion: "bundled-account-compliance-v1",
+    titleKey: "account.dataPrivacy",
+    components: [
+      {
+        id: "data_privacy_fallback",
+        type: "text",
+        props: { title_key: "account.dataPrivacy.fallback" },
       },
     ],
   },

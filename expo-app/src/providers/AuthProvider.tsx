@@ -11,6 +11,11 @@ import {
 import * as api from "@/api/bwchat";
 import { APIError, subscribeAuthSessionEvents } from "@/api/client";
 import type { AuthSession, User } from "@/models";
+import {
+  registerVerifiedAccount,
+  type VerifiedRegistrationInput,
+} from "@/services/account/AccountComplianceService";
+import { clearCurrentAccountData } from "@/services/cache/AppCacheService";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { loginLocationRecorder } from "@/services/location/MapLocationService";
 import { cacheUser } from "@/services/cache/UserInfoCache";
@@ -28,8 +33,9 @@ interface AuthContextValue {
   isBootstrapping: boolean;
   isSessionUnverified: boolean;
   signIn(username: string, password: string): Promise<boolean>;
-  signUp(username: string, password: string, nickname: string): Promise<boolean>;
+  signUp(input: VerifiedRegistrationInput): Promise<boolean>;
   signOut(): Promise<void>;
+  finalizeAccountDeletion(ownerId: string): void;
   updateUser(user: User): Promise<void>;
 }
 
@@ -197,11 +203,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signUp = useCallback(
-    async (username: string, password: string, nickname: string) => {
+    async (input: VerifiedRegistrationInput) => {
       const generation = ++authGenerationRef.current;
       manualAuthOperationsRef.current += 1;
       try {
-        const session = await api.register(username, password, nickname);
+        const session = await registerVerifiedAccount(input);
         if (generation !== authGenerationRef.current) return false;
         return await applyLogin(session, generation);
       } finally {
@@ -241,9 +247,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await persistUserBestEffort(nextUser, "update_user");
   }, []);
 
+  const finalizeAccountDeletion = useCallback((ownerId: string) => {
+    authGenerationRef.current += 1;
+    manualAuthOperationsRef.current += 1;
+    authenticatedUserIdRef.current = null;
+    setIsBootstrapping(false);
+    setSessionUnverified(false);
+    setUser(null);
+    void Promise.allSettled([
+      clearAuthPersistenceBestEffort("account_deletion_storage"),
+      clearCurrentAccountData(ownerId),
+    ]).finally(() => {
+      manualAuthOperationsRef.current = Math.max(0, manualAuthOperationsRef.current - 1);
+    });
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isBootstrapping, isSessionUnverified, signIn, signUp, signOut, updateUser }),
-    [isBootstrapping, isSessionUnverified, signIn, signOut, signUp, updateUser, user],
+    () => ({
+      user,
+      isBootstrapping,
+      isSessionUnverified,
+      signIn,
+      signUp,
+      signOut,
+      finalizeAccountDeletion,
+      updateUser,
+    }),
+    [
+      finalizeAccountDeletion,
+      isBootstrapping,
+      isSessionUnverified,
+      signIn,
+      signOut,
+      signUp,
+      updateUser,
+      user,
+    ],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

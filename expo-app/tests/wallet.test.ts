@@ -118,6 +118,7 @@ describe("native wallet parity contracts", () => {
         { network: "OFF", enabled: false, minimum_usdt: 0.1 },
       ],
       ad_reward_enabled: true,
+      terms_screen_id: "legal_wallet_terms_v2",
       ad_reward: {
         reward_item: "gold_coin",
         ios_wallet_ad_unit_id: "ca-app-pub-1877504503518465/1011630693",
@@ -137,8 +138,13 @@ describe("native wallet parity contracts", () => {
       adRewardEnabled: true,
       adRewardsGoldCoins: true,
       iosWalletAdUnitId: "ca-app-pub-1877504503518465/1011630693",
+      termsScreenId: "legal_wallet_terms_v2",
     });
     expect(resolveWalletRuntimeConfig({ ad_reward_enabled: true }).adRewardsGoldCoins).toBe(false);
+    expect(resolveWalletRuntimeConfig({}).termsScreenId).toBe("wallet_terms");
+    expect(resolveWalletRuntimeConfig({ terms_screen_id: "../wallet" }).termsScreenId).toBe(
+      "wallet_terms",
+    );
   });
 
   it("matches native USDT normalization, minimum, step, maximum and coin rounding", () => {

@@ -250,7 +250,7 @@ export function normalizeCallType(...values: unknown[]): CallType | undefined {
 
 export function normalizeCallConnectionCredentials(
   value: unknown,
-  fallbackLiveKitUrl = "http://52.193.78.191/livekit",
+  fallbackLiveKitUrl = "wss://id7.com/livekit",
 ): CallConnectionCredentials {
   if (!isRecord(value)) throw new Error("通话连接响应格式无效");
   const roomName = flexString(value.room_name, value.roomName, value.room);

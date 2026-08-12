@@ -125,6 +125,13 @@ export default function SettingsScreen() {
             gradient={["#3A86FF", "#2EC4B6"]}
             onPress={() => router.push("/change-password")}
           />
+          <ProfileRowDivider />
+          <ProfileSettingsRow
+            title={t("account.security.title")}
+            systemImage="person.badge.shield.checkmark.fill"
+            gradient={["#667EEA", "#764BA2"]}
+            onPress={() => router.push("/account-security" as never)}
+          />
         </ProfileGroupedCard>
 
         <ProfileGroupedCard>

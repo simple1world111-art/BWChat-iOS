@@ -138,11 +138,14 @@ export default function LoginScreen() {
               >
                 <TextInput
                   ref={usernameRef}
+                  accessibilityLabel={t("auth.username")}
+                  accessibilityState={{ busy: isSubmitting, disabled: isSubmitting }}
                   allowFontScaling={false}
                   autoCapitalize="none"
                   autoComplete="username"
                   autoCorrect={false}
                   clearButtonMode="never"
+                  editable={!isSubmitting}
                   inputAccessoryViewID={inputAccessoryID}
                   onBlur={() => (focusedField === "username" ? changeFocus(null) : undefined)}
                   onChangeText={setUsername}
@@ -159,6 +162,8 @@ export default function LoginScreen() {
                   <Pressable
                     accessibilityLabel={t("common.clear")}
                     accessibilityRole="button"
+                    accessibilityState={{ disabled: isSubmitting }}
+                    disabled={isSubmitting}
                     hitSlop={8}
                     onPress={() => setUsername("")}
                   >
@@ -179,8 +184,11 @@ export default function LoginScreen() {
               >
                 <TextInput
                   ref={passwordRef}
+                  accessibilityLabel={t("auth.password")}
+                  accessibilityState={{ busy: isSubmitting, disabled: isSubmitting }}
                   allowFontScaling={false}
                   autoComplete="current-password"
+                  editable={!isSubmitting}
                   inputAccessoryViewID={inputAccessoryID}
                   onBlur={() => (focusedField === "password" ? changeFocus(null) : undefined)}
                   onChangeText={setPassword}
@@ -209,6 +217,16 @@ export default function LoginScreen() {
                   />
                 </Pressable>
               </AuthFieldChrome>
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/(auth)/forgot-password" as never)}
+                style={styles.forgotPasswordButton}
+              >
+                <Text allowFontScaling={false} style={styles.forgotPasswordText}>
+                  {t("auth.forgotPassword")}
+                </Text>
+              </Pressable>
 
               {error !== null ? <AuthInlineMessage message={error} /> : null}
 
@@ -269,6 +287,13 @@ const styles = StyleSheet.create({
     columnGap: 4,
     transform: [{ translateX: 1 / 3 }],
   },
+  forgotPasswordButton: {
+    minHeight: 44,
+    marginVertical: -7,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  forgotPasswordText: { color: authPalette.coral, fontSize: 14, fontWeight: "600" },
   noAccount: { color: authPalette.mutedText, fontSize: 14, fontWeight: "500" },
   registerNow: { color: authPalette.coral, fontSize: 14, fontWeight: "600" },
   passwordVisibilitySymbol: { transform: [{ scaleY: 38 / 39 }] },

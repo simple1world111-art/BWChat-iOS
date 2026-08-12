@@ -44,9 +44,11 @@ export function sessionRedirectPath(
   isBootstrapping: boolean,
   hasUser: boolean,
   rootSegment: string,
+  pathname = "",
 ): "/(tabs)/conversations" | "/(auth)/login" | undefined {
   if (isBootstrapping) return undefined;
   const inAuth = rootSegment === "(auth)";
+  if (pathname.endsWith("/account-deletion-accepted")) return undefined;
   if (hasUser && inAuth) return "/(tabs)/conversations";
   if (!hasUser && !inAuth && rootSegment !== "index") return "/(auth)/login";
   return undefined;

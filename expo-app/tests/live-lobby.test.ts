@@ -243,7 +243,7 @@ describe("one-to-one live lobby models", () => {
 
   it("uses the native LiveKit fallback when the join payload omits a server URL", () => {
     expect(normalizeCallJoin({ room_name: "room", token: "token" }).livekit_url).toBe(
-      "http://52.193.78.191/livekit",
+      "wss://id7.com/livekit",
     );
   });
 

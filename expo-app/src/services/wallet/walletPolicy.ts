@@ -32,6 +32,7 @@ export interface WalletRuntimeConfig {
   products: GoldCoinProductConfig[];
   withdrawalNetworks: WalletWithdrawalNetworkConfig[];
   termsUrl?: string | undefined;
+  termsScreenId: string;
   adRewardEnabled: boolean;
   adRewardsGoldCoins: boolean;
   iosWalletAdUnitId?: string | undefined;
@@ -144,14 +145,19 @@ export function resolveWalletRuntimeConfig(value: unknown): WalletRuntimeConfig 
       const productId = flexString(item.product_id, item.productId, item.id);
       const fallback = productId ? knownProducts.get(productId) : undefined;
       if (!productId || !fallback) return [];
-      return [{
-        product: {
-          productId,
-          coins: Math.max(flexInt(item.gold_coin_amount, item.goldCoinAmount, item.coins) ?? fallback.coins, 0),
-          fallbackPriceUsd: fallback.fallbackPriceUsd,
+      return [
+        {
+          product: {
+            productId,
+            coins: Math.max(
+              flexInt(item.gold_coin_amount, item.goldCoinAmount, item.coins) ?? fallback.coins,
+              0,
+            ),
+            fallbackPriceUsd: fallback.fallbackPriceUsd,
+          },
+          order: flexInt(item.order, item.sort_order, item.sortOrder) ?? Number.MAX_SAFE_INTEGER,
         },
-        order: flexInt(item.order, item.sort_order, item.sortOrder) ?? Number.MAX_SAFE_INTEGER,
-      }];
+      ];
     })
     .filter((item) => item.product.coins > 0)
     .sort((left, right) => left.order - right.order)
@@ -171,10 +177,7 @@ export function resolveWalletRuntimeConfig(value: unknown): WalletRuntimeConfig 
       ? wallet.adReward
       : {};
 
-  const globalMinimum = flexDouble(
-    wallet.minimum_withdrawal_usdt,
-    wallet.minimumWithdrawalUSDT,
-  );
+  const globalMinimum = flexDouble(wallet.minimum_withdrawal_usdt, wallet.minimumWithdrawalUSDT);
   const enabledMinimums = withdrawalNetworks.flatMap((item) =>
     item.minimumUsdt !== undefined && item.minimumUsdt > 0 ? [item.minimumUsdt] : [],
   );
@@ -188,15 +191,26 @@ export function resolveWalletRuntimeConfig(value: unknown): WalletRuntimeConfig 
     ...(flexString(wallet.terms_url, wallet.termsUrl)
       ? { termsUrl: flexString(wallet.terms_url, wallet.termsUrl) }
       : {}),
+    termsScreenId: validDynamicScreenId(wallet.terms_screen_id) ?? "wallet_terms",
     adRewardEnabled: flexBool(wallet.ad_reward_enabled, wallet.adRewardEnabled) ?? false,
     adRewardsGoldCoins:
       flexString(nestedAd.reward_item, nestedAd.rewardItem)?.toLocaleLowerCase() === "gold_coin",
     ...(validAdUnitId(nestedAd.ios_wallet_ad_unit_id, nestedAd.iosWalletAdUnitId)
-      ? { iosWalletAdUnitId: validAdUnitId(nestedAd.ios_wallet_ad_unit_id, nestedAd.iosWalletAdUnitId) }
+      ? {
+          iosWalletAdUnitId: validAdUnitId(
+            nestedAd.ios_wallet_ad_unit_id,
+            nestedAd.iosWalletAdUnitId,
+          ),
+        }
       : {}),
     iosAdUnitIds: normalizedAdUnitIds(nestedAd.ios_ad_unit_ids, nestedAd.iosAdUnitIds),
     ...(validAdUnitId(nestedAd.android_wallet_ad_unit_id, nestedAd.androidWalletAdUnitId)
-      ? { androidWalletAdUnitId: validAdUnitId(nestedAd.android_wallet_ad_unit_id, nestedAd.androidWalletAdUnitId) }
+      ? {
+          androidWalletAdUnitId: validAdUnitId(
+            nestedAd.android_wallet_ad_unit_id,
+            nestedAd.androidWalletAdUnitId,
+          ),
+        }
       : {}),
     androidAdUnitIds: normalizedAdUnitIds(nestedAd.android_ad_unit_ids, nestedAd.androidAdUnitIds),
     baseWithdrawalPolicy: makeWithdrawalPolicy(
@@ -216,8 +230,9 @@ export function withdrawalPolicyFor(
   const match = normalized
     ? config.withdrawalNetworks.find((item) => item.network.toLocaleLowerCase() === normalized)
     : undefined;
-  const enabledMinimums = config.withdrawalNetworks
-    .flatMap((item) => (item.minimumUsdt !== undefined && item.minimumUsdt > 0 ? [item.minimumUsdt] : []));
+  const enabledMinimums = config.withdrawalNetworks.flatMap((item) =>
+    item.minimumUsdt !== undefined && item.minimumUsdt > 0 ? [item.minimumUsdt] : [],
+  );
   return makeWithdrawalPolicy(
     match?.usdtPerGoldCoin ?? config.baseWithdrawalPolicy.usdtPerGoldCoin,
     match?.minimumUsdt ??
@@ -315,7 +330,10 @@ export function nextShanghaiMidnight(now = Date.now()): number {
     day: "numeric",
   }).formatToParts(new Date(now));
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day) + 1) - 8 * 60 * 60 * 1_000;
+  return (
+    Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day) + 1) -
+    8 * 60 * 60 * 1_000
+  );
 }
 
 export function formatWalletDetailedDateTime(value: string): string {
@@ -347,14 +365,16 @@ export function walletTransactionSignedAmount(transaction: WalletTransaction): n
   if (["gift_sent", "red_packet_sent", "transfer_sent"].includes(transaction.type)) {
     return -Math.abs(amount);
   }
-  if ([
-    "ios_iap",
-    "gift_received",
-    "red_packet_received",
-    "red_packet_refund",
-    "transfer_received",
-    "transfer_returned",
-  ].includes(transaction.type)) {
+  if (
+    [
+      "ios_iap",
+      "gift_received",
+      "red_packet_received",
+      "red_packet_refund",
+      "transfer_received",
+      "transfer_returned",
+    ].includes(transaction.type)
+  ) {
     return Math.abs(amount);
   }
   return amount;
@@ -383,14 +403,17 @@ export function walletTransactionSubtitleKey(transaction: WalletTransaction): st
   if (transaction.type === "ios_iap") return "wallet.transaction.iapSubtitle";
   if (transaction.type === "gift_sent") return "wallet.transaction.giftSentSubtitle";
   if (transaction.type === "gift_received") return "wallet.transaction.giftReceivedSubtitle";
-  if ([
-    "red_packet_sent",
-    "red_packet_received",
-    "red_packet_refund",
-    "transfer_sent",
-    "transfer_received",
-    "transfer_returned",
-  ].includes(transaction.type)) return "wallet.transaction.chatMoneySubtitle";
+  if (
+    [
+      "red_packet_sent",
+      "red_packet_received",
+      "red_packet_refund",
+      "transfer_sent",
+      "transfer_received",
+      "transfer_returned",
+    ].includes(transaction.type)
+  )
+    return "wallet.transaction.chatMoneySubtitle";
   return undefined;
 }
 
@@ -410,7 +433,10 @@ export function walletTransactionIcon(transaction: WalletTransaction) {
 }
 
 export function walletWithdrawalCanCancel(withdrawal: WalletWithdrawal): boolean {
-  return withdrawal.can_cancel ?? ["pending", "requested", "reviewing"].includes(withdrawal.status.toLocaleLowerCase());
+  return (
+    withdrawal.can_cancel ??
+    ["pending", "requested", "reviewing"].includes(withdrawal.status.toLocaleLowerCase())
+  );
 }
 
 export function walletWithdrawalPayoutText(withdrawal: WalletWithdrawal): string {
@@ -446,13 +472,18 @@ export function walletRewardedAdUnitId(
 ): string {
   if (platform === "android") {
     if (isDevelopment) return androidTestRewardedAdUnitId;
-    const configured = config.androidAdUnitIds.filter((value) => value !== androidTestRewardedAdUnitId);
+    const configured = config.androidAdUnitIds.filter(
+      (value) => value !== androidTestRewardedAdUnitId,
+    );
     return config.androidWalletAdUnitId && configured.includes(config.androidWalletAdUnitId)
       ? config.androidWalletAdUnitId
-      : configured[0] ?? androidTestRewardedAdUnitId;
+      : (configured[0] ?? androidTestRewardedAdUnitId);
   }
   const configured = config.iosAdUnitIds.filter((value) => !value.endsWith("/1712485313"));
-  if (config.iosWalletAdUnitId && (configured.length === 0 || configured.includes(config.iosWalletAdUnitId))) {
+  if (
+    config.iosWalletAdUnitId &&
+    (configured.length === 0 || configured.includes(config.iosWalletAdUnitId))
+  ) {
     return config.iosWalletAdUnitId;
   }
   return configured[0] ?? iosProductionRewardedAdUnitId;
@@ -466,19 +497,21 @@ function normalizeWithdrawalNetwork(value: unknown): WalletWithdrawalNetworkConf
   if (!isRecord(value)) return [];
   const network = flexString(value.network)?.trim() ?? "";
   return network
-    ? [{
-        network,
-        enabled: flexBool(value.enabled) ?? true,
-        ...(positive(value.min_usdt, value.minimum_usdt, value.minimumUSDT) !== undefined
-          ? { minimumUsdt: positive(value.min_usdt, value.minimum_usdt, value.minimumUSDT) }
-          : {}),
-        ...(positive(value.step_usdt, value.stepUSDT) !== undefined
-          ? { stepUsdt: positive(value.step_usdt, value.stepUSDT) }
-          : {}),
-        ...(positive(value.usdt_per_gold_coin, value.usdtPerGoldCoin) !== undefined
-          ? { usdtPerGoldCoin: positive(value.usdt_per_gold_coin, value.usdtPerGoldCoin) }
-          : {}),
-      }]
+    ? [
+        {
+          network,
+          enabled: flexBool(value.enabled) ?? true,
+          ...(positive(value.min_usdt, value.minimum_usdt, value.minimumUSDT) !== undefined
+            ? { minimumUsdt: positive(value.min_usdt, value.minimum_usdt, value.minimumUSDT) }
+            : {}),
+          ...(positive(value.step_usdt, value.stepUSDT) !== undefined
+            ? { stepUsdt: positive(value.step_usdt, value.stepUSDT) }
+            : {}),
+          ...(positive(value.usdt_per_gold_coin, value.usdtPerGoldCoin) !== undefined
+            ? { usdtPerGoldCoin: positive(value.usdt_per_gold_coin, value.usdtPerGoldCoin) }
+            : {}),
+        },
+      ]
     : [];
 }
 
@@ -488,8 +521,10 @@ function makeWithdrawalPolicy(
   step: number | undefined,
 ): WalletWithdrawalPolicy {
   return {
-    usdtPerGoldCoin: rate !== undefined && rate > 0 ? rate : fallbackWithdrawalPolicy.usdtPerGoldCoin,
-    minimumUsdt: minimum !== undefined && minimum > 0 ? minimum : fallbackWithdrawalPolicy.minimumUsdt,
+    usdtPerGoldCoin:
+      rate !== undefined && rate > 0 ? rate : fallbackWithdrawalPolicy.usdtPerGoldCoin,
+    minimumUsdt:
+      minimum !== undefined && minimum > 0 ? minimum : fallbackWithdrawalPolicy.minimumUsdt,
     stepUsdt: step !== undefined && step > 0 ? step : fallbackWithdrawalPolicy.stepUsdt,
   };
 }
@@ -511,29 +546,84 @@ function normalizedAdUnitIds(...values: unknown[]): string[] {
   return [...new Set(source.flatMap((item) => validAdUnitId(item) ?? []))];
 }
 
-function localizedWalletRecordKind(transaction: WalletTransaction): {
-  titleKey: string;
-  subtitleKey: string;
-} | undefined {
-  const values = [transaction.type, transaction.title, transaction.note]
-    .flatMap((value) => (value ? [normalizeRecordText(value)] : []));
-  if (values.some((value) => value === "activity wheel prize" || (value.includes("wheel") && value.includes("activity") && (value.includes("prize") || value.includes("payout"))))) {
-    return { titleKey: "wallet.transaction.activityWheelPrize", subtitleKey: "activityCenter.tab.wheel" };
+function validDynamicScreenId(value: unknown): string | undefined {
+  const screenId = flexString(value);
+  return screenId && /^[a-z0-9][a-z0-9_-]{0,159}$/u.test(screenId) ? screenId : undefined;
+}
+
+function localizedWalletRecordKind(transaction: WalletTransaction):
+  | {
+      titleKey: string;
+      subtitleKey: string;
+    }
+  | undefined {
+  const values = [transaction.type, transaction.title, transaction.note].flatMap((value) =>
+    value ? [normalizeRecordText(value)] : [],
+  );
+  if (
+    values.some(
+      (value) =>
+        value === "activity wheel prize" ||
+        (value.includes("wheel") &&
+          value.includes("activity") &&
+          (value.includes("prize") || value.includes("payout"))),
+    )
+  ) {
+    return {
+      titleKey: "wallet.transaction.activityWheelPrize",
+      subtitleKey: "activityCenter.tab.wheel",
+    };
   }
-  if (values.some((value) => value === "activity wheel cost" || (value.includes("wheel") && value.includes("activity") && (value.includes("cost") || value.includes("debit"))))) {
-    return { titleKey: "wallet.transaction.activityWheelCost", subtitleKey: "activityCenter.tab.wheel" };
+  if (
+    values.some(
+      (value) =>
+        value === "activity wheel cost" ||
+        (value.includes("wheel") &&
+          value.includes("activity") &&
+          (value.includes("cost") || value.includes("debit"))),
+    )
+  ) {
+    return {
+      titleKey: "wallet.transaction.activityWheelCost",
+      subtitleKey: "activityCenter.tab.wheel",
+    };
   }
-  if (values.some((value) => value === "game round start" || value === "paid game start" || value.includes("收费游戏开局") || value.includes("收费游戏入场") || value.includes("遊戲入場") || value.includes("游戏入场"))) {
+  if (
+    values.some(
+      (value) =>
+        value === "game round start" ||
+        value === "paid game start" ||
+        value.includes("收费游戏开局") ||
+        value.includes("收费游戏入场") ||
+        value.includes("遊戲入場") ||
+        value.includes("游戏入场"),
+    )
+  ) {
     return { titleKey: "wallet.transaction.gameRoundStart", subtitleKey: "gameCenter.title" };
   }
-  if (values.some((value) => value === "ranking reward" || value === "game ranking reward" || value === "leaderboard reward" || value.includes("排行榜奖励") || value.includes("排行榜獎勵"))) {
+  if (
+    values.some(
+      (value) =>
+        value === "ranking reward" ||
+        value === "game ranking reward" ||
+        value === "leaderboard reward" ||
+        value.includes("排行榜奖励") ||
+        value.includes("排行榜獎勵"),
+    )
+  ) {
     return { titleKey: "wallet.transaction.gameRankingReward", subtitleKey: "gameCenter.title" };
   }
   return undefined;
 }
 
 function normalizeRecordText(value: string): string {
-  return value.trim().toLocaleLowerCase().replaceAll("_", " ").replaceAll("-", " ").split(/\s+/u).join(" ");
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .split(/\s+/u)
+    .join(" ");
 }
 
 function compactWalletLine(network: string | undefined, address: string): string {

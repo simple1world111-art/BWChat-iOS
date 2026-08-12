@@ -6,7 +6,12 @@ import * as api from "@/api/bwchat";
 import { APIError } from "@/api/client";
 import type { User } from "@/models";
 import { AuthProvider, useAuth } from "@/providers/AuthProvider";
+import {
+  registerVerifiedAccount,
+  type VerifiedRegistrationInput,
+} from "@/services/account/AccountComplianceService";
 import { cacheUser } from "@/services/cache/UserInfoCache";
+import { clearCurrentAccountData } from "@/services/cache/AppCacheService";
 import { loginLocationRecorder } from "@/services/location/MapLocationService";
 import { clearCachedUser, readCachedUser, saveCachedUser } from "@/storage/authStorage";
 import { clearTokens, readAccessToken, saveTokens } from "@/storage/tokenStorage";
@@ -15,8 +20,15 @@ jest.mock("@/api/bwchat", () => ({
   verifySession: jest.fn(),
   refreshSession: jest.fn(),
   login: jest.fn(),
-  register: jest.fn(),
   logout: jest.fn(),
+}));
+
+jest.mock("@/services/account/AccountComplianceService", () => ({
+  registerVerifiedAccount: jest.fn(),
+}));
+
+jest.mock("@/services/cache/AppCacheService", () => ({
+  clearCurrentAccountData: jest.fn(),
 }));
 
 jest.mock("@/storage/authStorage", () => ({
@@ -53,8 +65,9 @@ const persistTokens = jest.mocked(saveTokens);
 const persistUser = jest.mocked(saveCachedUser);
 const persistAccountUser = jest.mocked(cacheUser);
 const recordLoginLocation = jest.mocked(loginLocationRecorder.recordAfterLogin);
+const clearAccountData = jest.mocked(clearCurrentAccountData);
 const signIn = jest.mocked(api.login);
-const signUp = jest.mocked(api.register);
+const signUp = jest.mocked(registerVerifiedAccount);
 const signOut = jest.mocked(api.logout);
 
 describe("native cached-session splash bootstrap", () => {
@@ -68,6 +81,7 @@ describe("native cached-session splash bootstrap", () => {
     persistAccountUser.mockResolvedValue();
     recordLoginLocation.mockResolvedValue();
     signOut.mockResolvedValue(undefined);
+    clearAccountData.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -202,10 +216,10 @@ describe("native cached-session splash bootstrap", () => {
     await flushTasks();
     await act(async () => {
       jest.advanceTimersByTime(500);
-      await actions.current?.signUp("new-user", "new-password", " Nick ");
+      await actions.current?.signUp(registrationInput("new-user", "new-password", " Nick "));
     });
 
-    expect(signUp).toHaveBeenCalledWith("new-user", "new-password", " Nick ");
+    expect(signUp).toHaveBeenCalledWith(registrationInput("new-user", "new-password", " Nick "));
     expect(persistTokens).toHaveBeenCalledWith({
       accessToken: "registered-access",
       refreshToken: "registered-refresh",
@@ -214,6 +228,30 @@ describe("native cached-session splash bootstrap", () => {
     expect(persistAccountUser).toHaveBeenCalledWith(registered.user);
     expect(readState()).toBe("ready|registered-user|verified");
     expect(recordLoginLocation).toHaveBeenCalledWith("registered-user", expect.any(Function));
+  });
+
+  it("terminates a deleted account locally without calling logout", async () => {
+    readToken.mockResolvedValue(null);
+    readUser.mockResolvedValue(null);
+    signIn.mockResolvedValue(authSession("deleted-owner"));
+    const { actions } = await renderProvider();
+    await flushTasks();
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+      await actions.current?.signIn("user", "password");
+    });
+    expect(readState()).toBe("ready|deleted-owner|verified");
+
+    await act(async () => {
+      actions.current?.finalizeAccountDeletion("deleted-owner");
+      await flushTasks();
+    });
+
+    expect(readState()).toBe("ready|none|verified");
+    expect(signOut).not.toHaveBeenCalled();
+    expect(clearStoredTokens).toHaveBeenCalled();
+    expect(clearUser).toHaveBeenCalled();
+    expect(clearAccountData).toHaveBeenCalledWith("deleted-owner");
   });
 
   it("lets only the newest manual registration response commit its account", async () => {
@@ -229,10 +267,10 @@ describe("native cached-session splash bootstrap", () => {
     let firstResult: boolean | undefined;
     let secondResult: boolean | undefined;
     const firstCall = actions.current
-      ?.signUp("first-user", "first-password", "First")
+      ?.signUp(registrationInput("first-user", "first-password", "First"))
       .then((value) => (firstResult = value));
     const secondCall = actions.current
-      ?.signUp("second-user", "second-password", "Second")
+      ?.signUp(registrationInput("second-user", "second-password", "Second"))
       .then((value) => (secondResult = value));
     await act(async () => first.resolve(authSession("first-user")));
     await firstCall;
@@ -256,7 +294,9 @@ describe("native cached-session splash bootstrap", () => {
     await flushTasks();
     await act(async () => jest.advanceTimersByTime(500));
 
-    const registration = actions.current?.signUp("late-user", "late-password", "Late");
+    const registration = actions.current?.signUp(
+      registrationInput("late-user", "late-password", "Late"),
+    );
     await act(async () => actions.current?.signOut());
     await act(async () => pending.resolve(authSession("late-user")));
     await expect(registration).resolves.toBe(false);
@@ -382,8 +422,24 @@ describe("native cached-session splash bootstrap", () => {
 
 interface AuthActions {
   signIn(username: string, password: string): Promise<boolean>;
-  signUp(username: string, password: string, nickname: string): Promise<boolean>;
+  signUp(input: VerifiedRegistrationInput): Promise<boolean>;
   signOut(): Promise<void>;
+  finalizeAccountDeletion(ownerId: string): void;
+}
+
+function registrationInput(
+  username: string,
+  password: string,
+  nickname: string,
+): VerifiedRegistrationInput {
+  return {
+    username,
+    password,
+    nickname,
+    email: `${username}@example.com`,
+    emailVerificationToken: `verified-${username}`,
+    clientRequestId: `request-${username}`,
+  };
 }
 
 const Probe = forwardRef<AuthActions>(function Probe(_props, ref) {
@@ -393,12 +449,18 @@ const Probe = forwardRef<AuthActions>(function Probe(_props, ref) {
     signIn: performSignIn,
     signUp: performSignUp,
     signOut: performSignOut,
+    finalizeAccountDeletion,
     user: currentUser,
   } = useAuth();
   useImperativeHandle(
     ref,
-    () => ({ signIn: performSignIn, signUp: performSignUp, signOut: performSignOut }),
-    [performSignIn, performSignOut, performSignUp],
+    () => ({
+      signIn: performSignIn,
+      signUp: performSignUp,
+      signOut: performSignOut,
+      finalizeAccountDeletion,
+    }),
+    [finalizeAccountDeletion, performSignIn, performSignOut, performSignUp],
   );
   return (
     <Text testID="state">

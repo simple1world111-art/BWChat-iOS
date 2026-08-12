@@ -23,8 +23,10 @@ describe("push source parity", () => {
 
   it("passes an already-known APNs token to login/register and preserves the original upload endpoint/retry schedule", () => {
     const api = read("src/api/bwchat.ts");
+    const accountCompliance = read("src/services/account/AccountComplianceService.ts");
     const service = read("src/services/push/PushService.ts");
-    expect(api.match(/device_token: deviceToken/gu)).toHaveLength(2);
+    expect(api.match(/device_token: deviceToken/gu)).toHaveLength(1);
+    expect(accountCompliance.match(/device_token: deviceToken/gu)).toHaveLength(1);
     expect(service).toContain('apiRequest<unknown>("/push/device-token"');
     expect(service).toContain("requiredEnvelope: true");
     expect(service).toContain("beginNativePushUploadSession");

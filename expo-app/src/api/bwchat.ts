@@ -1,4 +1,5 @@
 import { APIError, apiRequest } from "@/api/client";
+import { env } from "@/config/env";
 import { readRefreshToken } from "@/storage/tokenStorage";
 import { File } from "expo-file-system";
 import {
@@ -188,28 +189,6 @@ export async function login(username: string, password: string): Promise<AuthSes
       requiredData: true,
       requiredEnvelope: true,
       body: { username, password, ...(deviceToken ? { device_token: deviceToken } : {}) },
-    }),
-  );
-}
-
-export async function register(
-  username: string,
-  password: string,
-  nickname: string,
-): Promise<AuthSession> {
-  const deviceToken = await readCachedNativePushToken().catch(() => null);
-  return normalizeNativeAuthSession(
-    await apiRequest<unknown>("/auth/register", {
-      method: "POST",
-      auth: false,
-      requiredData: true,
-      requiredEnvelope: true,
-      body: {
-        username,
-        password,
-        ...(nickname.length > 0 ? { nickname } : {}),
-        ...(deviceToken ? { device_token: deviceToken } : {}),
-      },
     }),
   );
 }
@@ -507,7 +486,7 @@ function normalizeNativeCallJoinResponse(
       : typeof value.server_url === "string" &&
           trimFoundationWhitespacesAndNewlines(value.server_url).length > 0
         ? value.server_url
-        : "http://52.193.78.191/livekit";
+        : env.liveKitUrl;
   const billingPolicy = isRecord(value.billing_policy)
     ? normalizeNativeLiveBillingPolicy(value.billing_policy)
     : undefined;
@@ -777,7 +756,7 @@ function normalizeNativeGroupCallStartResponse(
       : typeof value.server_url === "string" &&
           trimFoundationWhitespacesAndNewlines(value.server_url).length > 0
         ? value.server_url
-        : "http://52.193.78.191/livekit";
+        : env.liveKitUrl;
   return {
     ...(typeof value.call_id === "string" ? { call_id: value.call_id } : {}),
     room_name: value.room_name as string,

@@ -88,6 +88,13 @@ export interface AppKillSwitch {
   message?: string | Record<string, string> | undefined;
 }
 
+export interface AccountRemoteConfig {
+  supportEmail?: string | undefined;
+  privacyScreenId: string;
+  dataPrivacyScreenId: string;
+  accountDeletionUrl: string;
+}
+
 export interface RemoteConfig {
   schemaVersion: number;
   configVersion: string;
@@ -106,17 +113,20 @@ export interface RemoteConfig {
   assetManifest?: unknown;
   stickerPacks?: unknown[] | undefined;
   wallet?: unknown;
+  account?: AccountRemoteConfig | undefined;
   reviewMode?: unknown;
   screens?: import("@/services/dynamic-screen/DynamicScreenModels").DynamicScreen[] | undefined;
 
   // Compatibility projection used by migrated screens while their individual
   // native feature-flag keys are being ported.
   features: Record<FeatureKey, boolean>;
-  update?: {
-    forceUpdate: boolean;
-    message?: string | undefined;
-    storeUrl?: string | undefined;
-  } | undefined;
+  update?:
+    | {
+        forceUpdate: boolean;
+        message?: string | undefined;
+        storeUrl?: string | undefined;
+      }
+    | undefined;
 }
 
 export type RemoteConfigSource = "bundled" | "cache" | "remote";

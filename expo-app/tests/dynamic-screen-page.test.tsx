@@ -201,6 +201,21 @@ describe("DynamicScreen page lifecycle", () => {
     expect(mockPersistDynamicScreenETag).not.toHaveBeenCalled();
   });
 
+  it("keeps the cached remote legal document when its bundled fallback receives 304", async () => {
+    mockEmbeddedDynamicScreen.mockReturnValue(screen("screen", "Bundled fallback"));
+    mockReadCachedDynamicScreen.mockResolvedValue({
+      screen: screen("screen", "Cached legal document"),
+      etag: '"legal-v4"',
+    });
+    mockFetchDynamicScreen.mockResolvedValue({ screen: null, etag: null, notModified: true });
+
+    const view = await render(<DynamicScreenPage />);
+
+    await waitFor(() => expect(view.getByText("Cached legal document")).toBeTruthy());
+    expect(view.queryByText("Bundled fallback")).toBeNull();
+    expect(mockFetchDynamicScreen).toHaveBeenCalledWith("screen", '"legal-v4"');
+  });
+
   it("suppresses a late route alert after unmount", async () => {
     const outcome = deferred<{ handled: false; title: string; message: string }>();
     const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);

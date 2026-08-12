@@ -26,12 +26,14 @@ describe("API successful envelope decoding", () => {
   );
 
   it.each([
-    ["missing", undefined],
-    ["invalid", " 409 "],
-  ])("treats a %s required success code as native zero", (_label, rawCode) => {
+    ["missing", undefined, "decoding_error"],
+    ["invalid", " 409 ", " 409 "],
+  ])("rejects a %s required success code", (_label, rawCode, expectedCode) => {
     const payload: Record<string, unknown> = { message: "ok", data: { id: 1 } };
     if (rawCode !== undefined) payload.code = rawCode;
-    expect(decodeSuccessfulPayload(payload, 200, true, true, true)).toEqual({ id: 1 });
+    expect(() => decodeSuccessfulPayload(payload, 200, true, true, true)).toThrow(
+      expect.objectContaining({ status: 200, code: expectedCode, message: "ok", payload }),
+    );
   });
 
   it("uses native server-unavailable presentation while preserving a required 5xx code", () => {
@@ -218,6 +220,33 @@ describe("API transient retry option", () => {
       }),
     ).rejects.toMatchObject({ status: 200, code: 409, message: "round rejected", payload });
     expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("requiredSuccessCode");
+  });
+
+  it("rejects symbolic or missing codes on endpoints that require an explicit success code", async () => {
+    const fetchMock = jest
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        mockResponse(200, {
+          code: "INVALID_VERIFICATION_CODE",
+          message: "invalid code",
+          data: {},
+        }),
+      )
+      .mockResolvedValueOnce(mockResponse(200, { message: "ok", data: {} }));
+
+    const options = {
+      requiredData: true,
+      requiredEnvelope: true,
+      requiredSuccessCode: true,
+    } as const;
+    await expect(apiRequest("/strict-symbolic-code", options)).rejects.toMatchObject({
+      code: "INVALID_VERIFICATION_CODE",
+    });
+    await expect(apiRequest("/strict-missing-code", options)).rejects.toMatchObject({
+      code: "decoding_error",
+      message: "ok",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

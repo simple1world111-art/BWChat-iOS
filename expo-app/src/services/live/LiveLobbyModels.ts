@@ -4,6 +4,7 @@ import type {
   LiveBillingPolicy,
   PropConsumptionResult,
 } from "@/models";
+import { env } from "@/config/env";
 import { normalizeLiveExperienceSnapshot } from "@/services/live/LiveCallExperience";
 
 export type { LiveBillingPolicy } from "@/models";
@@ -269,7 +270,7 @@ export function normalizeCallJoin(value: unknown): CallConnectionCredentials {
   const token = stringValue(source.token) ?? "";
   const livekitUrl =
     stringValue(source.livekit_url, source.livekitUrl, source.server_url, source.serverUrl) ??
-    "http://52.193.78.191/livekit";
+    env.liveKitUrl;
   const liveExperience = normalizeLiveExperienceSnapshot(
     source.live_experience ?? source.liveExperience ?? source.experience,
     stringValue(source.server_time, source.serverTime),

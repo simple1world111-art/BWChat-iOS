@@ -156,6 +156,11 @@ export const defaultRemoteConfig: RemoteConfig = {
   profileSections: defaultProfileSections,
   contactModules: defaultContactModules,
   webViewPolicy: defaultWebViewPolicy,
+  account: {
+    privacyScreenId: "privacy_policy",
+    dataPrivacyScreenId: "data_privacy",
+    accountDeletionUrl: "https://id7.com/account-deletion",
+  },
   screens: [...bundledDynamicScreens],
   features: defaultFeatures,
 };

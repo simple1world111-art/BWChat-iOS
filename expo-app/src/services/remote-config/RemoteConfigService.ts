@@ -30,6 +30,7 @@ import { parseDynamicScreenWire } from "@/services/dynamic-screen/DynamicScreenM
 const cachePrefix = "bwchat.remote-config.v2";
 const supportedSchemaVersion = 1;
 const fetchInFlightByScope = new Map<string, Promise<RemoteConfigFetchResult>>();
+const dynamicScreenIdSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,159}$/u);
 
 const featureFlagSchema = z.object({
   key: z.string().min(1).max(160),
@@ -130,6 +131,14 @@ const normalizedConfigSchema = z.object({
   assetManifest: z.unknown().optional(),
   stickerPacks: z.array(z.unknown()).optional(),
   wallet: z.unknown().optional(),
+  account: z
+    .object({
+      supportEmail: z.string().email().max(254).optional(),
+      privacyScreenId: dynamicScreenIdSchema,
+      dataPrivacyScreenId: dynamicScreenIdSchema,
+      accountDeletionUrl: z.string().url().max(2_000),
+    })
+    .optional(),
   reviewMode: z.unknown().optional(),
   screens: z.array(z.unknown()).optional(),
   features: z.record(z.string(), z.boolean()),
@@ -182,12 +191,28 @@ export function parseRemoteConfig(value: unknown): RemoteConfig {
     ...optional("assetManifest", raw.asset_manifest ?? raw.assetManifest),
     ...optional("stickerPacks", arrayValueOptional(raw.sticker_packs, raw.stickerPacks)),
     ...optional("wallet", raw.wallet),
+    ...optional("account", normalizeAccountConfig(raw.account)),
     ...optional("reviewMode", raw.review_mode ?? raw.reviewMode),
     ...optional("screens", normalizeDynamicScreens(raw.screens)),
     features: projectFeatures(featureFlags, legacyFeatures),
     ...optional("update", normalizeUpdate(raw.update)),
   };
   return normalizedConfigSchema.parse(normalized) as RemoteConfig;
+}
+
+function normalizeAccountConfig(value: unknown): RemoteConfig["account"] {
+  if (!isRecord(value)) return undefined;
+  const supportEmail = stringValue(value.support_email);
+  const privacyScreenId = stringValue(value.privacy_screen_id) ?? "privacy_policy";
+  const dataPrivacyScreenId = stringValue(value.data_privacy_screen_id) ?? "data_privacy";
+  const accountDeletionUrl =
+    stringValue(value.account_deletion_url) ?? "https://id7.com/account-deletion";
+  return {
+    ...(supportEmail ? { supportEmail } : {}),
+    privacyScreenId,
+    dataPrivacyScreenId,
+    accountDeletionUrl,
+  };
 }
 
 function normalizeDynamicScreens(value: unknown) {

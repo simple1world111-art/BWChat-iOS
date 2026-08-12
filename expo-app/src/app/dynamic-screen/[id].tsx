@@ -116,14 +116,16 @@ export function DynamicScreenContent({
       const cached = await readCachedDynamicScreen(ownerId, screenId);
       if (!isCurrent()) return;
       etagRef.current = cached.etag;
-      if (!screenRef.current && current) {
-        screenRef.current = current;
-        setScreen(current);
-      }
-      if (!current && cached.screen) {
+      // A persisted remote document must outrank the bundled fallback. If its
+      // ETag receives 304, keeping the fallback here would silently hide the
+      // last verified legal document on every subsequent visit.
+      if (cached.screen) {
         current = cached.screen;
         screenRef.current = cached.screen;
         setScreen(cached.screen);
+      } else if (!screenRef.current && current) {
+        screenRef.current = current;
+        setScreen(current);
       }
       const result = await fetchDynamicScreen(screenId, etagRef.current);
       if (!isCurrent()) return;

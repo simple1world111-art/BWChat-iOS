@@ -248,6 +248,9 @@ function RootLayout() {
                                       name="change-password"
                                       options={{ title: "修改密码" }}
                                     />
+                                    <Stack.Screen name="account-security" options={{ title: "" }} />
+                                    <Stack.Screen name="email-security" options={{ title: "" }} />
+                                    <Stack.Screen name="account-deletion" options={{ title: "" }} />
                                     <Stack.Screen
                                       name="chat-background-settings"
                                       options={{ title: "聊天背景" }}

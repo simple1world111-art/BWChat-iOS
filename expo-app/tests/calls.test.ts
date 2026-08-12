@@ -62,7 +62,7 @@ describe("native friend and group call contracts", () => {
       participant_count: 0,
     });
     expect(normalizeCallConnectionCredentials({ room_name: "r", token: "t" }).livekit_url).toBe(
-      "http://52.193.78.191/livekit",
+      "wss://id7.com/livekit",
     );
     expect(() => normalizeCallConnectionCredentials({ room_name: "r" })).toThrow("缺少房间或令牌");
   });
@@ -390,7 +390,7 @@ describe("native friend and group call contracts", () => {
       call_id: "",
       room_name: "",
       token: "",
-      livekit_url: "http://52.193.78.191/livekit",
+      livekit_url: "wss://id7.com/livekit",
       call_type: "",
       participant_count: 0,
     });
