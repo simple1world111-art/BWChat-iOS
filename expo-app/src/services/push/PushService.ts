@@ -102,6 +102,7 @@ const directPushTypes = new Set([
   "dm_message",
   "message",
   "new_message",
+  "private_message",
 ]);
 const agentPushTypes = new Set([
   "agent",
@@ -143,6 +144,7 @@ export function initializePushNotifications(): void {
       const input = notification.request.content.data;
       const route = parseNotificationRoute(input);
       const policy = presentationPolicyForPush(input, {
+        hasActiveConversation: () => chatRealtimeService.hasActiveConversation(),
         isConversationActive: (type, id) =>
           (
             chatRealtimeService.isConversationActive as (
@@ -275,6 +277,8 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
     "peer_id",
     "peer_user_id",
     "contact_id",
+    "user_id",
+    "userId",
   ]);
   const inferredType = agentConversationId
     ? "agent"
@@ -465,6 +469,7 @@ export function presentationPolicyForPush(
   input: unknown,
   context: {
     isConversationActive: (type: NotificationConversationType, id: string) => boolean;
+    hasActiveConversation?: (() => boolean) | undefined;
     now?: (() => number) | undefined;
     coalesce?: boolean | undefined;
   },
@@ -481,6 +486,13 @@ export function presentationPolicyForPush(
   if (type && securityPushTypes.has(type)) return behavior(true, true);
   const route = parseNotificationRoute(payload);
   if (route?.notificationMode === "badge_only") return behavior(false, false);
+  // Legacy message pushes can arrive without enough identity to distinguish
+  // one chat from another. While a conversation is visibly focused, fail
+  // silent instead of showing a banner over the conversation itself. Canonical
+  // v2 payloads still take the precise route-matching path below.
+  if (!route && type && isMessagePushType(type) && context.hasActiveConversation?.()) {
+    return behavior(false, false);
+  }
   if (
     route &&
     notificationRouteIdentities(route).some((identity) => {

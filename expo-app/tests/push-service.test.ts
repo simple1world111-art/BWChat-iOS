@@ -260,9 +260,62 @@ describe("native push service", () => {
         active,
       ),
     ).toEqual(policy(false, false));
-    expect(presentationPolicyForPush({ push_type: "new_message", message_id: 9 }, active)).toEqual(
-      policy(true, true),
-    );
+    expect(
+      presentationPolicyForPush(
+        { push_type: "new_message", message_id: 9 },
+        { ...active, hasActiveConversation: () => true },
+      ),
+    ).toEqual(policy(false, false));
+    expect(
+      presentationPolicyForPush(
+        { push_type: "new_message", message_id: 9 },
+        { ...active, hasActiveConversation: () => false },
+      ),
+    ).toEqual(policy(true, true));
+    expect(
+      presentationPolicyForPush(
+        { push_type: "private_message", message_id: 10 },
+        { ...active, hasActiveConversation: () => true },
+      ),
+    ).toEqual(policy(false, false));
+    expect(parseNotificationRoute({ push_type: "private_message", user_id: "u1" })).toMatchObject({
+      conversationType: "dm",
+      conversationId: "u1",
+      senderId: "u1",
+    });
+    expect(
+      presentationPolicyForPush(
+        { push_type: "security_alert", message_id: 11 },
+        { ...active, hasActiveConversation: () => true },
+      ),
+    ).toEqual(policy(true, true));
+    expect(
+      presentationPolicyForPush(
+        { push_type: "moments_update", message_id: 12 },
+        { ...active, hasActiveConversation: () => true },
+      ),
+    ).toEqual(policy(true, true));
+  });
+
+  it("uses precise identities before the malformed-message active-chat fallback", () => {
+    const context = {
+      hasActiveConversation: () => true,
+      isConversationActive: (type: NotificationConversationType, id: string) =>
+        type === "dm" && id === "u1",
+    };
+
+    expect(
+      presentationPolicyForPush(
+        { push_type: "dm_message", surface_type: "dm", surface_id: "u2", message_id: 13 },
+        context,
+      ),
+    ).toEqual(policy(true, true));
+    expect(
+      presentationPolicyForPush(
+        { push_type: "dm_message", surface_type: "dm", surface_id: "u1", message_id: 14 },
+        context,
+      ),
+    ).toEqual(policy(false, false));
   });
 
   it("suppresses active agent/script surfaces and coalesces ordinary foreground banners for 1.5 seconds", () => {
