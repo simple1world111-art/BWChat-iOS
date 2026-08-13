@@ -136,6 +136,7 @@ describe("native group @ mention contracts", () => {
     });
     expect(request).toHaveBeenCalledWith("/groups/7/messages/text", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-1" },
       requiredData: true,
       requiredEnvelope: true,
       body: {

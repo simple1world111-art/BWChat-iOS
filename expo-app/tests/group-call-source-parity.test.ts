@@ -10,7 +10,7 @@ import {
 
 const root = process.cwd();
 const copiedNativeRoot = resolve(root, "..");
-const originalNativeRoot = resolve(root, "../../BWChat-iOS");
+const originalNativeRoot = resolve(root, "..");
 const overlay = readFileSync(resolve(root, "src/components/calls/CallOverlay.tsx"), "utf8");
 const provider = readFileSync(resolve(root, "src/providers/CallProvider.tsx"), "utf8");
 const groupChat = readFileSync(resolve(root, "src/app/group-chat/[id].tsx"), "utf8");
@@ -68,7 +68,7 @@ describe("GroupCallView source and lifecycle parity", () => {
       "BWChat/Models/Call.swift":
         "cb57f765bd72a70c2ddfe04d76732fd1bd096e847bb2fad6751dc63002a0e0ca",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/WebSocketService.swift":
         "1d9db3787bbcf1c10de58e9861d2c925516c2d8d184c7905ef3320894ddcc262",
       "BWChat/Services/PushService.swift":

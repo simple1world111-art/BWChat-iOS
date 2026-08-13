@@ -207,10 +207,6 @@ export interface WalletBalanceSnapshot {
   gold_coin_balance: number;
   activity_cat_food_balance: number;
   spendable_balance: number;
-  recharge_gold_coin_balance: number;
-  gift_income_gold_coin_balance: number;
-  withdraw_frozen_gold_coin_balance: number;
-  withdrawable_gold_coin_balance: number;
   chat_money_frozen_gold_coin_balance: number;
 }
 
@@ -245,24 +241,6 @@ export interface ActivityCatFoodTransaction {
 export interface ActivityCatFoodTransactionPage {
   items: ActivityCatFoodTransaction[];
   next_cursor?: string | undefined;
-}
-
-export interface WalletWithdrawal {
-  id: string;
-  currency: "gold_coin";
-  gold_coin_amount: number;
-  payout_usd?: number | undefined;
-  payout_cents?: number | undefined;
-  provider?: string | undefined;
-  payout_method?: string | undefined;
-  payout_account?: string | undefined;
-  network?: string | undefined;
-  wallet_address?: string | undefined;
-  status: string;
-  can_cancel?: boolean | undefined;
-  note?: string | undefined;
-  created_at?: string | undefined;
-  updated_at?: string | undefined;
 }
 
 export interface WalletAdRewardStatus {
@@ -636,8 +614,22 @@ export interface AgentConversation {
   agent_profile: AgentProfile;
   agent_capabilities: AgentCapabilities;
   latest_message?: AgentMessage | undefined;
+  unread_count?: number | undefined;
+  read_through_sequence?: number | undefined;
+  total_unread_count?: number | undefined;
+  revision?: number | undefined;
   created_at: string;
   updated_at: string;
+}
+
+export interface AgentConversationReadReceipt {
+  conversation_id: string;
+  read_through_sequence: number;
+  read_through_message_id?: string | undefined;
+  unread_count: number;
+  total_unread_count?: number | undefined;
+  revision?: number | undefined;
+  server_time?: string | undefined;
 }
 
 export interface AgentMessagePage {
@@ -949,7 +941,11 @@ export interface Conversation {
   agent_avatar_asset_id?: string | undefined;
   agent_greeting_id?: string | undefined;
   last_message_id?: number | undefined;
+  last_message_version?: number | undefined;
+  last_message_sequence?: number | undefined;
   read_through_message_id?: number | undefined;
+  conversation_revision?: number | undefined;
+  unread_revision?: number | undefined;
   revision?: number | undefined;
   is_muted: boolean;
   is_pinned?: boolean | undefined;
@@ -1052,9 +1048,34 @@ export interface ScriptRoomCreationData {
 export interface ConversationSyncSnapshot {
   conversations: Conversation[];
   revision?: number | undefined;
+  conversation_revision?: number | undefined;
+  unread_revision?: number | undefined;
+  event_sequence?: number | undefined;
   server_time?: string | undefined;
   total_unread_count?: number | undefined;
   snapshot_complete?: boolean | undefined;
+}
+
+/**
+ * Canonical event returned by the opt-in messaging sync-v2 catch-up endpoint.
+ * Payloads deliberately stay opaque here and are decoded by the same realtime
+ * event parser used for WebSocket delivery.
+ */
+export interface ChatSyncEvent {
+  type: string;
+  event_sequence: number;
+  data: unknown;
+  event_id?: string | undefined;
+  server_time?: string | undefined;
+}
+
+export interface ChatSyncPage {
+  events: ChatSyncEvent[];
+  next_event_seq: number;
+  has_more: boolean;
+  snapshot_revision: number;
+  server_time: string;
+  full_sync_required: boolean;
 }
 
 export interface ConversationReadReceipt {
@@ -1063,6 +1084,7 @@ export interface ConversationReadReceipt {
   read_through_message_id: number;
   unread_count: number;
   total_unread_count?: number | undefined;
+  unread_revision?: number | undefined;
   revision?: number | undefined;
   server_time?: string | undefined;
 }

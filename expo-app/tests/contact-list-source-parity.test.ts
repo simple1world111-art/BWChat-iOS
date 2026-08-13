@@ -19,9 +19,9 @@ describe("ContactList source parity", () => {
       "BWChat/Models/Group.swift":
         "9cc71d2d874002629302dd14f06183bd80cb396f7bfcdd3fbf5838b549bee792",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Services/MessageStore.swift":
         "51d68cb2481dab3ebf2fcaabc0ce1a79d8eac3e8df1720531e2a92f4972402a7",
       "BWChat/Services/PushService.swift":
@@ -60,7 +60,7 @@ describe("ContactList source parity", () => {
     expect(page).toContain("getAgentConversations()");
     expect(page).toContain("getInstalledAgents()");
     expect(page).toContain("chatRealtimeService.subscribe");
-    expect(page).toContain("shouldApplyConversationPreview");
+    expect(page).toContain("shouldApplyRealtimeConversationPreview");
     expect(page).toContain("reconcileLatestConversationPreviews");
     expect(page).toContain("locallyInitiatedDmIds.current");
     expect(page).toContain("activeCall?.is_live_pair");
@@ -90,11 +90,23 @@ describe("ContactList source parity", () => {
 
   it("keeps automatic reconciliation in the background and reserves the spinner for user actions", () => {
     const page = sourceExpo("src/app/(tabs)/conversations.tsx");
-    expect(page).toContain('type ConversationLoadMode = "initial" | "manual" | "background"');
+    const provider = sourceExpo("src/providers/RealtimeProvider.tsx");
+    const catchUp = sourceExpo("src/services/conversations/ChatSyncCatchUp.ts");
+    expect(page).toContain(
+      'type ConversationLoadMode = "initial" | "manual" | "projection" | "dependencies"',
+    );
     expect(page).toContain('const showRefreshIndicator = mode === "manual"');
-    expect(page).toContain('if (state === "active" && ownerId) void load("background")');
+    expect(page).toContain("subscribeConversationSnapshotUpdates(ownerId");
+    expect(page).not.toContain('AppState.addEventListener("change"');
     expect(page).toContain('if (event.type === "refresh_conversations")');
-    expect(page).toContain('queueMicrotask(() => void load("background"))');
+    expect(page).not.toContain("conversationSyncCoordinator.subscribe(ownerId");
+    expect(provider.match(/conversationSyncCoordinator\.subscribe\(ownerId/gu)).toHaveLength(1);
+    expect(provider).toContain("catchUpConversationState(ownerId, controller.signal)");
+    expect(provider).toContain("if (request.full) publishConversationCatalogRefresh(ownerId)");
+    expect(page).toContain("subscribeConversationCatalogRefreshes(ownerId");
+    expect(page).toContain('load("dependencies")');
+    expect(catchUp).toContain("loadConversationSnapshotWithNativeCache(");
+    expect(catchUp).toContain("publishConversationSnapshotUpdate(owner, snapshot)");
     expect(page).toContain('retry={() => void load("manual")}');
     expect(page).toContain('void load("manual")');
   });

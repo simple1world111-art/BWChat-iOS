@@ -5,7 +5,10 @@ import DynamicScreenPage from "@/app/dynamic-screen/[id]";
 import type { DynamicScreen } from "@/services/dynamic-screen/DynamicScreenModels";
 
 const mockSetOptions = jest.fn();
-const mockEmbeddedDynamicScreen = jest.fn<DynamicScreen | null, [string, unknown]>();
+const mockEmbeddedDynamicScreen = jest.fn<
+  DynamicScreen | null,
+  [string, unknown, "wallet_terms" | "privacy_policy" | "data_privacy" | null | undefined]
+>();
 const mockReadCachedDynamicScreen = jest.fn();
 const mockFetchDynamicScreen = jest.fn();
 const mockPersistDynamicScreen = jest.fn<Promise<void>, unknown[]>();
@@ -14,6 +17,13 @@ const mockOpenDynamicRoute = jest.fn();
 const mockTranslate = (key: string) => key;
 let mockOwnerId = "owner-a";
 let mockScreenId = "screen";
+let mockLanguage = "en";
+let mockRemoteConfig: {
+  screens: unknown[];
+  webViewPolicy: Record<string, never>;
+  account?: { privacyScreenId?: string; dataPrivacyScreenId?: string };
+  wallet?: { terms_screen_id?: string };
+};
 
 jest.mock("react-native", () => {
   const actual = jest.requireActual("react-native");
@@ -78,14 +88,14 @@ jest.mock("@/providers/AuthProvider", () => ({
 
 jest.mock("@/providers/LocalizationProvider", () => ({
   useLocalization: () => ({
-    activeLanguage: "en",
+    activeLanguage: mockLanguage,
     t: mockTranslate,
   }),
 }));
 
 jest.mock("@/providers/RemoteConfigProvider", () => ({
   useRemoteConfig: () => ({
-    config: { screens: [], webViewPolicy: {} },
+    config: mockRemoteConfig,
     error: null,
     isRefreshing: false,
     refresh: jest.fn().mockResolvedValue(undefined),
@@ -93,7 +103,13 @@ jest.mock("@/providers/RemoteConfigProvider", () => ({
 }));
 
 jest.mock("@/services/dynamic-screen/DynamicScreenRepository", () => ({
-  embeddedDynamicScreen: (...args: [string, unknown]) => mockEmbeddedDynamicScreen(...args),
+  embeddedDynamicScreen: (
+    ...args: [
+      string,
+      unknown,
+      "wallet_terms" | "privacy_policy" | "data_privacy" | null | undefined,
+    ]
+  ) => mockEmbeddedDynamicScreen(...args),
   fetchDynamicScreen: (...args: unknown[]) => mockFetchDynamicScreen(...args),
   persistDynamicScreen: (...args: unknown[]) => mockPersistDynamicScreen(...args),
   persistDynamicScreenETag: (...args: unknown[]) => mockPersistDynamicScreenETag(...args),
@@ -109,6 +125,8 @@ describe("DynamicScreen page lifecycle", () => {
     jest.clearAllMocks();
     mockOwnerId = "owner-a";
     mockScreenId = "screen";
+    mockLanguage = "en";
+    mockRemoteConfig = { screens: [], webViewPolicy: {} };
     mockEmbeddedDynamicScreen.mockReturnValue(null);
     mockReadCachedDynamicScreen.mockResolvedValue({ screen: null, etag: null });
     mockFetchDynamicScreen.mockResolvedValue({ screen: null, etag: null, notModified: true });
@@ -143,6 +161,7 @@ describe("DynamicScreen page lifecycle", () => {
     expect(mockPersistDynamicScreen).not.toHaveBeenCalledWith(
       "owner-a",
       "screen",
+      "en",
       expect.objectContaining({ screenId: "old" }),
       '"old"',
     );
@@ -207,29 +226,94 @@ describe("DynamicScreen page lifecycle", () => {
   });
 
   it("keeps the cached remote legal document when its bundled fallback receives 304", async () => {
-    mockEmbeddedDynamicScreen.mockReturnValue(screen("screen", "Bundled fallback"));
+    mockScreenId = "privacy_policy";
+    mockEmbeddedDynamicScreen.mockReturnValue(screen("privacy_policy", "Bundled fallback"));
     mockReadCachedDynamicScreen.mockResolvedValue({
-      screen: screen("screen", "Cached legal document"),
+      screen: legalScreen("privacy_policy", "Cached legal document".repeat(100)),
       etag: '"legal-v4"',
     });
     mockFetchDynamicScreen.mockResolvedValue({ screen: null, etag: null, notModified: true });
 
     const view = await render(<DynamicScreenPage />);
 
-    await waitFor(() => expect(view.getByText("Cached legal document")).toBeTruthy());
+    await waitFor(() => expect(view.getByText("Cached legal document".repeat(100))).toBeTruthy());
     expect(view.queryByText("Bundled fallback")).toBeNull();
-    expect(mockFetchDynamicScreen).toHaveBeenCalledWith("screen", '"legal-v4"');
+    expect(mockFetchDynamicScreen).toHaveBeenCalledWith("privacy_policy", '"legal-v4"');
+  });
+
+  it("shows accessible remote legal metadata without inventing it for the bundled fallback", async () => {
+    mockScreenId = "privacy_policy";
+    mockEmbeddedDynamicScreen.mockReturnValue(screen("privacy_policy", "Bundled policy"));
+    const request = deferred<{ screen: DynamicScreen; etag: string; notModified: false }>();
+    mockFetchDynamicScreen.mockReturnValue(request.promise);
+
+    const view = await render(<DynamicScreenPage />);
+    expect(view.queryByLabelText(/legal\.document\.version/u)).toBeNull();
+
+    await act(async () => {
+      request.resolve({
+        screen: legalScreen("privacy_policy", "Remote legal body. ".repeat(100)),
+        etag: '"legal-v5"',
+        notModified: false,
+      });
+      await request.promise;
+    });
+
+    expect(
+      view.getByLabelText(
+        "legal.document.version: 2026-08-13.1; legal.document.effectiveAt: 2026-08-13T00:00:00Z",
+      ),
+    ).toBeTruthy();
+    expect(view.getByText("2026-08-13.1")).toBeTruthy();
+    expect(view.getByText("2026-08-13T00:00:00Z")).toBeTruthy();
+  });
+
+  it("treats language changes as a separate cache and request identity", async () => {
+    mockEmbeddedDynamicScreen.mockReturnValue(screen("embedded", "Embedded"));
+    mockReadCachedDynamicScreen.mockResolvedValue({ screen: null, etag: null });
+    const view = await render(<DynamicScreenPage />);
+    await waitFor(() =>
+      expect(mockReadCachedDynamicScreen).toHaveBeenCalledWith("owner-a", "screen", "en"),
+    );
+
+    mockLanguage = "pt-BR";
+    await view.rerender(<DynamicScreenPage />);
+    await waitFor(() =>
+      expect(mockReadCachedDynamicScreen).toHaveBeenCalledWith("owner-a", "screen", "pt-BR"),
+    );
+  });
+
+  it("recognizes configured versioned wallet terms as legal and keeps the BBchat title", async () => {
+    mockScreenId = "wallet-legal-2026";
+    mockRemoteConfig = {
+      screens: [],
+      webViewPolicy: {},
+      wallet: { terms_screen_id: "wallet-legal-2026" },
+    };
+    mockEmbeddedDynamicScreen.mockReturnValue(screen("wallet_terms", "Bundled wallet terms"));
+
+    const view = await render(<DynamicScreenPage />);
+
+    await waitFor(() =>
+      expect(mockEmbeddedDynamicScreen).toHaveBeenCalledWith(
+        "wallet-legal-2026",
+        [],
+        "wallet_terms",
+      ),
+    );
+    expect(mockSetOptions).toHaveBeenCalledWith({ title: "wallet.terms.title" });
+    expect(view.getByText("account.contactSupport")).toBeTruthy();
   });
 
   it("keeps the bundled legal document when cache and server contain placeholders", async () => {
     mockScreenId = "privacy_policy";
     mockEmbeddedDynamicScreen.mockReturnValue(screen("privacy_policy", "Bundled complete policy"));
     mockReadCachedDynamicScreen.mockResolvedValue({
-      screen: screen("privacy_policy", "Cached placeholder"),
+      screen: legalScreen("privacy_policy", "Cached placeholder"),
       etag: '"placeholder-v1"',
     });
     mockFetchDynamicScreen.mockResolvedValue({
-      screen: screen("privacy_policy", "Remote placeholder"),
+      screen: legalScreen("privacy_policy", "Remote placeholder"),
       etag: '"placeholder-v1"',
       notModified: false,
     });
@@ -272,6 +356,15 @@ function screen(id: string, copy: string, action?: { type: string }): DynamicScr
         ...(action ? { action } : {}),
       },
     ],
+  };
+}
+
+function legalScreen(id: string, copy: string, locale = "en"): DynamicScreen {
+  return {
+    ...screen(id, copy),
+    documentVersion: "2026-08-13.1",
+    effectiveAt: "2026-08-13T00:00:00Z",
+    locale,
   };
 }
 

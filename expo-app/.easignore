@@ -1,5 +1,6 @@
 # Dependencies and local Expo state
 node_modules/
+node_modules
 .expo/
 dist/
 dist-*/

@@ -25,7 +25,6 @@ jest.mock("@/services/visualAcceptance", () => ({
   walletVisualAcceptanceEnabled: false,
   walletVisualAcceptanceTransactions: [],
   walletVisualAcceptanceVariant: undefined,
-  walletVisualAcceptanceWithdrawals: [],
 }));
 
 jest.mock("@/services/wallet/WalletRepository", () => {
@@ -101,10 +100,6 @@ function balance(spendable: number): WalletBalanceSnapshot {
     gold_coin_balance: spendable - 5,
     activity_cat_food_balance: 5,
     spendable_balance: spendable,
-    recharge_gold_coin_balance: spendable - 10,
-    gift_income_gold_coin_balance: 5,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 5,
     chat_money_frozen_gold_coin_balance: 0,
   };
 }

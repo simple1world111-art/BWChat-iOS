@@ -16,10 +16,11 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "EAS_PROJECT_ID": "f623eda4-1a5f-4227-9890-1a2eb5a6df2c",
         "EXPO_OWNER": "wegpt",
-        "EXPO_PUBLIC_API_BASE_URL": "http://52.193.78.191/api/v1",
-        "EXPO_PUBLIC_WEB_BASE_URL": "http://52.193.78.191",
-        "EXPO_PUBLIC_WEBSOCKET_URL": "ws://52.193.78.191/ws",
-        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "http://52.193.78.191/api/v1/app/config",
+        "EXPO_PUBLIC_API_BASE_URL": "https://id7.com/api/v1",
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://id7.com",
+        "EXPO_PUBLIC_WEBSOCKET_URL": "wss://id7.com/ws",
+        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "https://id7.com/api/v1/app/config",
+        "EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS": "https://d3rijhu8azna1i.cloudfront.net",
         "EXPO_PUBLIC_IOS_ADMOB_APP_ID": "ca-app-pub-1877504503518465~7347579927",
         "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
       }
@@ -34,10 +35,11 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "EAS_PROJECT_ID": "f623eda4-1a5f-4227-9890-1a2eb5a6df2c",
         "EXPO_OWNER": "wegpt",
-        "EXPO_PUBLIC_API_BASE_URL": "http://52.193.78.191/api/v1",
-        "EXPO_PUBLIC_WEB_BASE_URL": "http://52.193.78.191",
-        "EXPO_PUBLIC_WEBSOCKET_URL": "ws://52.193.78.191/ws",
-        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "http://52.193.78.191/api/v1/app/config",
+        "EXPO_PUBLIC_API_BASE_URL": "https://id7.com/api/v1",
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://id7.com",
+        "EXPO_PUBLIC_WEBSOCKET_URL": "wss://id7.com/ws",
+        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "https://id7.com/api/v1/app/config",
+        "EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS": "https://d3rijhu8azna1i.cloudfront.net",
         "EXPO_PUBLIC_IOS_ADMOB_APP_ID": "ca-app-pub-1877504503518465~7347579927",
         "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
       }
@@ -58,10 +60,11 @@
         "SENTRY_DISABLE_AUTO_UPLOAD": "true",
         "EAS_PROJECT_ID": "f623eda4-1a5f-4227-9890-1a2eb5a6df2c",
         "EXPO_OWNER": "wegpt",
-        "EXPO_PUBLIC_API_BASE_URL": "http://52.193.78.191/api/v1",
-        "EXPO_PUBLIC_WEB_BASE_URL": "http://52.193.78.191",
-        "EXPO_PUBLIC_WEBSOCKET_URL": "ws://52.193.78.191/ws",
-        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "http://52.193.78.191/api/v1/app/config",
+        "EXPO_PUBLIC_API_BASE_URL": "https://id7.com/api/v1",
+        "EXPO_PUBLIC_WEB_BASE_URL": "https://id7.com",
+        "EXPO_PUBLIC_WEBSOCKET_URL": "wss://id7.com/ws",
+        "EXPO_PUBLIC_REMOTE_CONFIG_URL": "https://id7.com/api/v1/app/config",
+        "EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS": "https://d3rijhu8azna1i.cloudfront.net",
         "EXPO_PUBLIC_IOS_ADMOB_APP_ID": "ca-app-pub-1877504503518465~7347579927",
         "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID": "ca-app-pub-3940256099942544~3347511713"
       }

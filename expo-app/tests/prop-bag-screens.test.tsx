@@ -40,14 +40,9 @@ const mockWalletState = {
     gold_coin_balance: 20,
     activity_cat_food_balance: 8,
     spendable_balance: 28,
-    recharge_gold_coin_balance: 20,
-    gift_income_gold_coin_balance: 0,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 0,
     chat_money_frozen_gold_coin_balance: 0,
   } as WalletBalanceSnapshot | null,
   transactions: [],
-  withdrawals: [],
   activityCatFoodTransactions: [
     {
       id: "check-in",
@@ -62,20 +57,14 @@ const mockWalletState = {
   activityCatFoodDisabledByServer: false,
   isLoadingBalance: false,
   isLoadingTransactions: false,
-  isLoadingWithdrawals: false,
-  isSubmittingWithdrawal: false,
   isLoadingActivityCatFoodTransactions: false,
   balanceError: null as string | null,
   transactionError: null,
-  withdrawalError: null,
   activityCatFoodTransactionError: null as string | null,
   refreshBalance: mockRefreshBalance,
   refreshTransactions: jest.fn(async () => undefined),
   loadMoreTransactions: jest.fn(async () => undefined),
   refreshActivityCatFoodTransactions: mockRefreshActivityTransactions,
-  refreshWithdrawals: jest.fn(async () => undefined),
-  requestWithdrawal: jest.fn(async () => undefined),
-  cancelWithdrawal: jest.fn(async () => undefined),
   applyBalance: jest.fn(async () => undefined),
 };
 
@@ -128,10 +117,6 @@ describe("prop-bag screen interactions", () => {
     gold_coin_balance: 20,
     activity_cat_food_balance: 8,
     spendable_balance: 28,
-    recharge_gold_coin_balance: 20,
-    gift_income_gold_coin_balance: 0,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 0,
     chat_money_frozen_gold_coin_balance: 0,
   };
 

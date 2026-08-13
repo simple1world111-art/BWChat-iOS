@@ -622,7 +622,7 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
           />
           <ToggleSection
             isOn={values.paidImages}
-            label="付费图片"
+            label="金币解锁图片"
             onChange={(value) => setField("paidImages", value)}
             scheme={scheme}
             styles={styles}
@@ -632,10 +632,10 @@ function AgentCreatorForm({ agentId, ownerId }: { agentId: string; ownerId: stri
           <FormSection title="视频能力" styles={styles}>
             <View style={styles.toggleRow}>
               <Text maxFontSizeMultiplier={1.25} style={styles.toggleLabelDisabled}>
-                付费视频
+                金币解锁视频
               </Text>
               <Switch
-                accessibilityLabel="付费视频"
+                accessibilityLabel="金币解锁视频"
                 accessibilityState={{ checked: false, disabled: true }}
                 disabled
                 ios_backgroundColor={theme.separator}

@@ -4,6 +4,7 @@ import {
   endCall,
   getAgent,
   getAgentMessages,
+  markAgentMessagesRead,
   getAgentRuntimeConfig,
   getAgentTurn,
   getWalletBalance,
@@ -49,6 +50,26 @@ describe("AgentChat thirteen backend chains", () => {
       ["/wallet/balance", { requiredData: true, requiredEnvelope: true, timeoutMs: 60_000 }],
       ["/agent-conversations/conversation%2Fa/messages?limit=30&before_sequence=41"],
     ]);
+  });
+
+  it("marks an agent conversation through a canonical sequence and message", async () => {
+    await probe(
+      markAgentMessagesRead("conversation/a", {
+        throughSequence: 42,
+        throughMessageId: "message/a",
+        idempotencyKey: "read-agent",
+      }),
+    );
+    expect(request).toHaveBeenCalledWith("/agent-conversations/conversation%2Fa/read", {
+      method: "POST",
+      headers: { "Idempotency-Key": "read-agent" },
+      requiredEnvelope: true,
+      body: {
+        idempotency_key: "read-agent",
+        through_sequence: 42,
+        through_message_id: "message/a",
+      },
+    });
   });
 
   it("locks image upload, turn creation/polling and paid-media unlock mutations", async () => {

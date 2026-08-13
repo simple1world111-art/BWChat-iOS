@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   Keyboard,
   Pressable,
@@ -23,7 +24,6 @@ import {
   endScriptRoom,
   getGroupMessages,
   getScriptRoom,
-  markGroupMessagesRead,
   retryScriptTurn,
   submitScriptTurn,
 } from "@/api/bwchat";
@@ -37,11 +37,13 @@ import type { GroupMessage, ScriptRole, ScriptRoom, ScriptTurnState } from "@/mo
 import { useAuth } from "@/providers/AuthProvider";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { markConversationRead } from "@/services/conversations/ConversationReadService";
-import {
-  applyConversationReadReceipt,
-  clearConversationUnreadLocally,
-} from "@/services/conversations/ConversationRepository";
+import { recordConversationNotificationRead } from "@/services/conversations/ConversationNotificationReadState";
+import { clearConversationUnreadLocally } from "@/services/conversations/ConversationRepository";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
+import {
+  dismissActiveConversationNotifications,
+  dismissReadConversationNotifications,
+} from "@/services/push/PushService";
 import {
   clearPendingScriptRoomConversation,
   pendingScriptRoomConversation,
@@ -97,6 +99,7 @@ export default function ScriptRoomChatScreen() {
   const messagesRef = useRef(messages);
   const sendingRef = useRef(false);
   const locallyPublishedMessageIdsRef = useRef(new Set<number>());
+  const screenFocusedRef = useRef(false);
   const visibleRef = useRef(false);
   const activeOwnerRef = useRef(ownerId);
   const activeRoomIdRef = useRef(roomId);
@@ -369,6 +372,31 @@ export default function ScriptRoomChatScreen() {
           setErrorMessage(readableError(error));
         }
       }
+      if (
+        visibleRef.current &&
+        scrollOffsetRef.current <= 24 &&
+        isActiveSession(
+          activeOwnerRef,
+          activeRoomIdRef,
+          sessionGenerationRef,
+          requestedOwner,
+          requestedRoomId,
+          requestedGeneration,
+        )
+      ) {
+        const latestMessageId = messagesRef.current.reduce(
+          (maximum, message) => Math.max(maximum, message.id),
+          0,
+        );
+        if (latestMessageId > 0) {
+          await markScriptRoomRead(
+            requestedOwner,
+            requestedRoomId,
+            loadedRoom.group_id,
+            latestMessageId,
+          );
+        }
+      }
     },
     [persistMessages],
   );
@@ -469,6 +497,14 @@ export default function ScriptRoomChatScreen() {
   }, [ownerId, roomId, syncMessages]);
 
   useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      visibleRef.current = screenFocusedRef.current && state === "active";
+      if (visibleRef.current) void load();
+    });
+    return () => subscription.remove();
+  }, [load]);
+
+  useEffect(() => {
     const requestedGeneration = sessionGenerationRef.current;
     return chatRealtimeService.subscribe((event) => {
       if (
@@ -489,6 +525,7 @@ export default function ScriptRoomChatScreen() {
         event.message.group_id === currentRoom.group_id
       ) {
         if (locallyPublishedMessageIdsRef.current.delete(event.message.id)) return;
+        const shouldFollowNewestMessage = scrollOffsetRef.current <= 24;
         void persistMessages(
           currentRoom.group_id,
           [event.message],
@@ -496,14 +533,18 @@ export default function ScriptRoomChatScreen() {
           roomId,
           requestedGeneration,
         );
-        if (visibleRef.current) {
-          void markScriptRoomRead(ownerId, currentRoom.group_id, event.message.id);
+        if (visibleRef.current && shouldFollowNewestMessage) {
+          void markScriptRoomRead(ownerId, roomId, currentRoom.group_id, event.message.id);
         }
-        scrollToBottom(ownerId, roomId, requestedGeneration);
+        if (shouldFollowNewestMessage) {
+          scrollToBottom(ownerId, roomId, requestedGeneration);
+        }
       } else if (event.type === "script_turn_state" && event.state.room_id === roomId) {
         setTurnState(event.state);
         if (event.state.status === "failed") setErrorMessage(event.state.message ?? null);
-        scrollToBottom(ownerId, roomId, requestedGeneration);
+        if (scrollOffsetRef.current <= 24) {
+          scrollToBottom(ownerId, roomId, requestedGeneration);
+        }
       }
     });
   }, [ownerId, persistMessages, roomId, scrollToBottom]);
@@ -513,7 +554,14 @@ export default function ScriptRoomChatScreen() {
       const requestedOwner = ownerId;
       const requestedRoomId = roomId;
       const requestedGeneration = sessionGenerationRef.current;
-      visibleRef.current = true;
+      screenFocusedRef.current = true;
+      visibleRef.current =
+        AppState.currentState !== "background" && AppState.currentState !== "inactive";
+      const releaseActiveConversation = chatRealtimeService.activateConversation(
+        "script",
+        requestedRoomId,
+      );
+      void dismissActiveConversationNotifications("script", requestedRoomId);
       initialLoadCompleteRef.current = false;
       void load().finally(() => {
         if (
@@ -532,31 +580,52 @@ export default function ScriptRoomChatScreen() {
       });
       const currentRoom = roomRef.current;
       if (currentRoom && currentRoom.group_id > 0) {
-        chatRealtimeService.setActiveConversation("group", String(currentRoom.group_id));
-        void markScriptRoomRead(ownerId, currentRoom.group_id);
+        chatRealtimeService.addActiveConversationAlias(
+          "script",
+          requestedRoomId,
+          "group",
+          String(currentRoom.group_id),
+        );
+        void dismissActiveConversationNotifications("group", String(currentRoom.group_id));
+        const latestMessageId = messagesRef.current.reduce(
+          (maximum, message) => Math.max(maximum, message.id),
+          0,
+        );
+        if (visibleRef.current && scrollOffsetRef.current <= 24 && latestMessageId > 0) {
+          void markScriptRoomRead(ownerId, requestedRoomId, currentRoom.group_id, latestMessageId);
+        }
       }
       return () => {
         Keyboard.dismiss();
+        screenFocusedRef.current = false;
         visibleRef.current = false;
         initialLoadCompleteRef.current = false;
-        const groupId = roomRef.current?.group_id;
-        if (
-          groupId !== undefined &&
-          groupId > 0 &&
-          chatRealtimeService.isConversationActive("group", String(groupId))
-        ) {
-          chatRealtimeService.setActiveConversation("group", null);
-        }
+        releaseActiveConversation();
       };
     }, [load, ownerId, roomId]),
   );
 
   const roomGroupId = room?.group_id;
   useEffect(() => {
-    if (!visibleRef.current || roomGroupId === undefined || roomGroupId <= 0) return;
-    chatRealtimeService.setActiveConversation("group", String(roomGroupId));
-    void markScriptRoomRead(ownerId, roomGroupId);
-  }, [ownerId, roomGroupId]);
+    if (roomGroupId === undefined || roomGroupId <= 0) return;
+    const releaseAlias = chatRealtimeService.addActiveConversationAlias(
+      "script",
+      roomId,
+      "group",
+      String(roomGroupId),
+    );
+    if (visibleRef.current) {
+      void dismissActiveConversationNotifications("group", String(roomGroupId));
+      const latestMessageId = messagesRef.current.reduce(
+        (maximum, message) => Math.max(maximum, message.id),
+        0,
+      );
+      if (scrollOffsetRef.current <= 24 && latestMessageId > 0) {
+        void markScriptRoomRead(ownerId, roomId, roomGroupId, latestMessageId);
+      }
+    }
+    return releaseAlias;
+  }, [ownerId, roomGroupId, roomId]);
 
   const generating = isScriptGenerating(turnState, isSending);
   const canSend = canSendScriptTurn({
@@ -601,6 +670,13 @@ export default function ScriptRoomChatScreen() {
           requestedRoomId,
           requestedGeneration,
         );
+        const latestIncomingId = incoming.reduce(
+          (maximum, message) => Math.max(maximum, message.id),
+          0,
+        );
+        if (visibleRef.current && scrollOffsetRef.current <= 24 && latestIncomingId > 0) {
+          void markScriptRoomRead(requestedOwner, requestedRoomId, groupId, latestIncomingId);
+        }
       }
       if (response.user_message) {
         locallyPublishedMessageIdsRef.current.add(response.user_message.id);
@@ -852,7 +928,19 @@ export default function ScriptRoomChatScreen() {
             }
             onScrollBeginDrag={Keyboard.dismiss}
             onScroll={(event) => {
+              const wasNearBottom = scrollOffsetRef.current <= 24;
               scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+              const isNearBottom = scrollOffsetRef.current <= 24;
+              if (!wasNearBottom && isNearBottom) {
+                const latestMessageId = messagesRef.current.reduce(
+                  (maximum, message) => Math.max(maximum, message.id),
+                  0,
+                );
+                const groupId = roomRef.current?.group_id;
+                if (groupId !== undefined && latestMessageId > 0) {
+                  void markScriptRoomRead(ownerId, roomId, groupId, latestMessageId);
+                }
+              }
             }}
             scrollEventThrottle={16}
             renderItem={({ item }) => {
@@ -1433,24 +1521,20 @@ function isActiveSession(
 
 async function markScriptRoomRead(
   ownerId: string,
+  roomId: string,
   groupId: number,
-  throughMessageId?: number,
+  throughMessageId: number,
 ): Promise<void> {
-  if (!ownerId.trim() || groupId <= 0) return;
+  if (!ownerId.trim() || groupId <= 0 || throughMessageId <= 0) return;
   const localClear = clearConversationUnreadLocally(ownerId, "group", String(groupId)).catch(
     () => undefined,
   );
-  if (throughMessageId !== undefined && throughMessageId > 0) {
-    const remoteRead = markConversationRead(ownerId, "group", String(groupId), throughMessageId);
-    await Promise.all([localClear, remoteRead]);
-    return;
+  if (roomId.trim()) {
+    recordConversationNotificationRead(ownerId, "script", roomId, throughMessageId);
   }
-  const remoteRead = markGroupMessagesRead(groupId).catch(() => null);
-  await localClear;
-  try {
-    const receipt = await remoteRead;
-    if (receipt?.conversation_id.trim()) await applyConversationReadReceipt(ownerId, receipt);
-  } catch {
-    // Read acknowledgements are best effort and must not block the room.
-  }
+  const remoteRead = markConversationRead(ownerId, "group", String(groupId), throughMessageId);
+  const scriptCleanup = roomId.trim()
+    ? dismissReadConversationNotifications("script", roomId, throughMessageId)
+    : Promise.resolve(0);
+  await Promise.all([localClear, remoteRead, scriptCleanup]);
 }

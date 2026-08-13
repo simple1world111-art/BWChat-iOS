@@ -5,6 +5,7 @@ import { AppState } from "react-native";
 import { useAuth } from "@/providers/AuthProvider";
 import { publishCallNotification } from "@/services/calls/CallNotificationBridge";
 import { useConversationUnread } from "@/services/conversations/ConversationUnreadStore";
+import { conversationSyncCoordinator } from "@/services/conversations/ConversationSyncCoordinator";
 import { captureException } from "@/services/monitoring/MonitoringService";
 import { selectMainTabThenPush } from "@/services/main-tab/MainTabNavigation";
 import { useMomentsUnread } from "@/services/moments/MomentsUnreadStore";
@@ -60,6 +61,14 @@ export function PushNotificationBootstrap() {
         if (!target) return;
         try {
           if (!(await wasPushEventProcessed(target.eventId))) {
+            if (target.kind === "conversation") {
+              await conversationSyncCoordinator.request(user.user_id, "push_open", {
+                conversation_type: target.route.conversationType,
+                conversation_id: target.route.conversationId,
+                message_id: target.route.messageSequence ?? target.route.messageId,
+                message_version: target.route.messageVersion,
+              });
+            }
             navigatePushTarget(target);
             await markPushEventProcessed(target.eventId);
           }
@@ -169,12 +178,35 @@ function navigatePushTarget(target: PushOpenTarget): void {
     return;
   }
   const { route } = target;
+  if (route.conversationType === "agent") {
+    selectMainTabThenPush("messages", {
+      pathname: "/agent-chat",
+      params: {
+        conversationId: route.conversationId,
+        ...(route.agentId ? { agentId: route.agentId } : {}),
+        ...(route.conversationName || route.senderName
+          ? { name: route.conversationName ?? route.senderName }
+          : {}),
+        ...(route.agentAvatarAssetId ? { avatarId: route.agentAvatarAssetId } : {}),
+      },
+    });
+    return;
+  }
+  if (route.conversationType === "script") {
+    selectMainTabThenPush("messages", {
+      pathname: "/script-room-chat",
+      params: { roomId: route.scriptRoomId ?? route.conversationId },
+    });
+    return;
+  }
   if (route.conversationType === "group") {
     selectMainTabThenPush("messages", {
       pathname: "/group-chat/[id]",
       params: {
         id: route.conversationId,
-        ...(route.groupName ? { name: route.groupName } : {}),
+        ...(route.groupName || route.conversationName
+          ? { name: route.groupName ?? route.conversationName }
+          : {}),
         ...(route.messageId !== undefined ? { messageId: String(route.messageId) } : {}),
         ...(route.messageId !== undefined ? { latestMessageId: String(route.messageId) } : {}),
       },

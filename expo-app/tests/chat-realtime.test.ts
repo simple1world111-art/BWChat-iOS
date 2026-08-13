@@ -3,12 +3,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   chatRealtimeService,
   chatRealtimeReconnectDelay,
+  jitteredChatRealtimeReconnectDelay,
+  nextPersistedRealtimeEventSequence,
   directMessageContactId,
   makeChatWebSocketURL,
   parseChatRealtimeEnvelope,
+  parseChatRealtimeEnvelopeMetadata,
   persistChatRealtimeMessage,
 } from "@/services/realtime/ChatRealtimeService";
-import { readDirectChatCachedMessages } from "@/services/messages/DirectChatHistoryRepository";
+import {
+  directChatHistoryKey,
+  readDirectChatCachedMessages,
+} from "@/services/messages/DirectChatHistoryRepository";
 import { readGroupChatCachedMessages } from "@/services/messages/GroupChatHistoryRepository";
 
 describe("native WebSocket event contracts", () => {
@@ -22,6 +28,52 @@ describe("native WebSocket event contracts", () => {
     expect([0, 1, 2, 3, 4, 5, 9].map(chatRealtimeReconnectDelay)).toEqual([
       1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000,
     ]);
+  });
+
+  it("adds a resume cursor and uses bounded full-jitter without changing legacy backoff", () => {
+    expect(makeChatWebSocketURL("wss://example.test/ws?after_event_seq=1", "token", 42)).toBe(
+      "wss://example.test/ws?token=token&after_event_seq=42",
+    );
+    expect(jitteredChatRealtimeReconnectDelay(3, () => 0)).toBe(0);
+    expect(jitteredChatRealtimeReconnectDelay(3, () => 0.5)).toBe(4_000);
+    expect(jitteredChatRealtimeReconnectDelay(9, () => 1)).toBe(30_000);
+  });
+
+  it("reads replay metadata independently from message payload normalization", () => {
+    expect(
+      parseChatRealtimeEnvelopeMetadata({
+        type: "new_message",
+        event_id: "event-77",
+        event_sequence: "77",
+        server_time: "2026-08-13T10:00:00Z",
+        data: { id: 8 },
+      }),
+    ).toEqual({
+      event_id: "event-77",
+      event_sequence: 77,
+      server_time: "2026-08-13T10:00:00Z",
+    });
+  });
+
+  it("never advances a durable cursor across a gap or failed side-effect persistence", () => {
+    expect(
+      nextPersistedRealtimeEventSequence(40, 42, {
+        hasGap: true,
+        persistenceSucceeded: true,
+      }),
+    ).toBe(40);
+    expect(
+      nextPersistedRealtimeEventSequence(40, 41, {
+        hasGap: false,
+        persistenceSucceeded: false,
+      }),
+    ).toBe(40);
+    expect(
+      nextPersistedRealtimeEventSequence(40, 41, {
+        hasGap: false,
+        persistenceSucceeded: true,
+      }),
+    ).toBe(41);
   });
 
   it("does not let a stale screen cleanup clear the newer active conversation lease", () => {
@@ -40,7 +92,44 @@ describe("native WebSocket event contracts", () => {
     expect(chatRealtimeService.isConversationActive("group", "7")).toBe(true);
     releaseDirect();
     expect(chatRealtimeService.isConversationActive("group", "7")).toBe(true);
+    expect(chatRealtimeService.isConversationActive("agent", "thread-1")).toBe(false);
     releaseGroup();
+  });
+
+  it("pauses focused-conversation suppression outside the active app state", () => {
+    const release = chatRealtimeService.activateConversation("dm", "friend-a");
+    expect(chatRealtimeService.isConversationActive("dm", "friend-a")).toBe(true);
+
+    chatRealtimeService.setApplicationActive(false);
+    expect(chatRealtimeService.hasActiveConversation()).toBe(false);
+    expect(chatRealtimeService.isConversationActive("dm", "friend-a")).toBe(false);
+
+    chatRealtimeService.setApplicationActive(true);
+    expect(chatRealtimeService.isConversationActive("dm", "friend-a")).toBe(true);
+    release();
+  });
+
+  it("tracks agent/script surfaces and script aliases under one cleanup lease", () => {
+    chatRealtimeService.stop();
+    const releaseAgent = chatRealtimeService.activateConversation("agent", "thread-1");
+    expect(chatRealtimeService.isConversationActive("agent", "thread-1")).toBe(true);
+
+    const releaseScript = chatRealtimeService.activateConversation("script", "room-7");
+    const releaseGroupAlias = chatRealtimeService.addActiveConversationAlias(
+      "script",
+      "room-7",
+      "group",
+      "7",
+    );
+    releaseAgent();
+    expect(chatRealtimeService.isConversationActive("script", "room-7")).toBe(true);
+    expect(chatRealtimeService.isConversationActive("group", "7")).toBe(true);
+
+    releaseGroupAlias();
+    expect(chatRealtimeService.isConversationActive("group", "7")).toBe(false);
+    expect(chatRealtimeService.isConversationActive("script", "room-7")).toBe(true);
+    releaseScript();
+    expect(chatRealtimeService.hasActiveConversation()).toBe(false);
   });
 
   it("parses direct and group messages through canonical normalizers", () => {
@@ -90,13 +179,90 @@ describe("native WebSocket event contracts", () => {
         type: "message_updated",
         data: { message: directMessage(61) },
       }),
-    ).toMatchObject([{ type: "direct_message", message: { id: 61 } }]);
+    ).toMatchObject([{ type: "direct_message", message: { id: 61 }, is_update: true }]);
     expect(
       parseChatRealtimeEnvelope({
         type: "group_message_updated",
         data: { message: groupMessage(62) },
       }),
-    ).toMatchObject([{ type: "group_message", message: { id: 62, group_id: 7 } }]);
+    ).toMatchObject([{ type: "group_message", message: { id: 62, group_id: 7 }, is_update: true }]);
+  });
+
+  it("parses canonical and legacy agent-message realtime aliases", () => {
+    for (const type of ["agent_message", "new-agent-message", "agent_message_updated"]) {
+      expect(
+        parseChatRealtimeEnvelope({
+          type,
+          data: {
+            message: {
+              id: "message-1",
+              conversation_id: "thread-1",
+              sequence_no: 9,
+              sender: { type: "agent", id: "agent-1" },
+              parts: [{ id: "part-1", ordinal: 0, type: "text", text: "你好" }],
+            },
+          },
+        }),
+      ).toMatchObject([
+        {
+          type: "agent_message",
+          message: { id: "message-1", conversation_id: "thread-1", sequence_no: 9 },
+        },
+      ]);
+    }
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "agent_message_updated",
+        data: {
+          message: {
+            id: "message-update",
+            conversation_id: "thread-1",
+            sequence_no: 9,
+            sender: { type: "agent", id: "agent-1" },
+            parts: [],
+          },
+        },
+      }),
+    ).toMatchObject([{ type: "agent_message", is_update: true }]);
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "agent_message",
+        data: {
+          conversation_id: "thread-outer",
+          message: {
+            id: "message-outer",
+            sequence_no: 10,
+            sender: { type: "agent", id: "agent-1" },
+            parts: [],
+          },
+        },
+      }),
+    ).toMatchObject([
+      {
+        type: "agent_message",
+        message: { id: "message-outer", conversation_id: "thread-outer", sequence_no: 10 },
+      },
+    ]);
+    expect(
+      parseChatRealtimeEnvelope({
+        type: "agent_message",
+        data: {
+          surface_type: "agent",
+          surface_id: "thread-v2",
+          message: {
+            message_id: "message-v2",
+            message_sequence: "11",
+            sender: { type: "agent", id: "agent-1" },
+            parts: [],
+          },
+        },
+      }),
+    ).toMatchObject([
+      {
+        type: "agent_message",
+        message: { id: "message-v2", conversation_id: "thread-v2", sequence_no: 11 },
+      },
+    ]);
   });
 
   it("resolves only account-scoped direct-message cache identities", () => {
@@ -138,6 +304,90 @@ describe("native WebSocket event contracts", () => {
     await expect(readGroupChatCachedMessages("me", 7)).resolves.toEqual([
       expect.objectContaining({ id: 11, content: "{}" }),
     ]);
+  });
+
+  it("atomically ingests a 100-event delta page through the canonical realtime lane", async () => {
+    await AsyncStorage.clear();
+    chatRealtimeService.stop();
+    chatRealtimeService.start("sync-owner-100");
+    const received: number[] = [];
+    const unsubscribe = chatRealtimeService.subscribe((event) => {
+      if (event.type === "direct_message_hint") received.push(event.message_id);
+    });
+    const events = Array.from({ length: 100 }, (_, index) => ({
+      event_id: `event-${index + 1}`,
+      event_sequence: index + 1,
+      type: "contact_update",
+      server_time: "2026-08-13T10:00:00Z",
+      data: {
+        sender_id: "friend",
+        receiver_id: "sync-owner-100",
+        message_id: index + 1,
+      },
+    }));
+
+    await expect(chatRealtimeService.ingestCatchUpPage("sync-owner-100", events)).resolves.toBe(
+      100,
+    );
+    await expect(chatRealtimeService.persistedEventSequence("sync-owner-100")).resolves.toBe(100);
+    expect(received).toHaveLength(100);
+    unsubscribe();
+    chatRealtimeService.stop();
+  });
+
+  it("does not advance a delta cursor across a gap or failed message persistence", async () => {
+    await AsyncStorage.clear();
+    chatRealtimeService.stop();
+    chatRealtimeService.start("sync-owner-failure");
+    await expect(
+      chatRealtimeService.ingestCatchUpPage("sync-owner-failure", [
+        {
+          event_sequence: 2,
+          type: "contact_update",
+          data: { sender_id: "friend", receiver_id: "sync-owner-failure", message_id: 2 },
+        },
+      ]),
+    ).rejects.toThrow("chat_sync_sequence_gap");
+    await expect(chatRealtimeService.persistedEventSequence("sync-owner-failure")).resolves.toBe(0);
+
+    const storageWrite = jest
+      .spyOn(AsyncStorage, "setItem")
+      .mockRejectedValueOnce(new Error("disk unavailable"));
+    const event = {
+      event_id: "event-1",
+      event_sequence: 1,
+      type: "new_message",
+      data: {
+        id: 1,
+        sender_id: "friend",
+        receiver_id: "sync-owner-failure",
+        msg_type: "text",
+        content: "retry me",
+        timestamp: "2026-08-13T10:00:00Z",
+        version: 1,
+      },
+    } as const;
+    await expect(
+      chatRealtimeService.ingestCatchUpPage("sync-owner-failure", [event]),
+    ).rejects.toThrow("chat_sync_persistence_failed");
+    await expect(chatRealtimeService.persistedEventSequence("sync-owner-failure")).resolves.toBe(0);
+    expect(
+      (chatRealtimeService as unknown as { ingestedMessageVersions: Map<string, number> })
+        .ingestedMessageVersions.size,
+    ).toBe(0);
+
+    await expect(
+      chatRealtimeService.ingestCatchUpPage("sync-owner-failure", [event]),
+    ).resolves.toBe(1);
+    await expect(chatRealtimeService.persistedEventSequence("sync-owner-failure")).resolves.toBe(1);
+    await expect(
+      AsyncStorage.getItem(directChatHistoryKey("sync-owner-failure", "friend")!),
+    ).resolves.toContain("retry me");
+    await expect(readDirectChatCachedMessages("sync-owner-failure", "friend")).resolves.toEqual([
+      expect.objectContaining({ id: 1, content: "retry me" }),
+    ]);
+    storageWrite.mockRestore();
+    chatRealtimeService.stop();
   });
 
   it("parses meaningful read, history, preference, rename and removal events", () => {
@@ -258,12 +508,12 @@ describe("native WebSocket event contracts", () => {
     expect(
       parseChatRealtimeEnvelope({
         type: "group_contact_update",
-        data: { groupId: 7, lastMessageId: 52 },
+        data: { groupId: 7, lastMessageId: 52, messageVersion: 4 },
       }),
-    ).toEqual([
-      { type: "refresh_conversations", reason: "group_contact_update" },
-      { type: "group_message_hint", group_id: 7, message_id: 52 },
-    ]);
+    ).toEqual([{ type: "group_message_hint", group_id: 7, message_id: 52, message_version: 4 }]);
+    expect(
+      parseChatRealtimeEnvelope({ type: "group_contact_update", data: { groupId: 7 } }),
+    ).toEqual([{ type: "refresh_conversations", reason: "group_contact_update" }]);
     expect(parseChatRealtimeEnvelope({ type: "pong" })).toEqual([]);
   });
 
@@ -275,16 +525,17 @@ describe("native WebSocket event contracts", () => {
           senderId: "u1",
           receiver_id: "me",
           lastMessageID: "53",
+          message_version: "5",
           last_message: "[图片]",
         },
       }),
     ).toEqual([
-      { type: "refresh_conversations", reason: "contact_update" },
       {
         type: "direct_message_hint",
         sender_id: "u1",
         receiver_id: "me",
         message_id: 53,
+        message_version: 5,
       },
     ]);
     expect(parseChatRealtimeEnvelope({ type: "contact_update", data: {} })).toEqual([

@@ -310,6 +310,7 @@ describe("native reply, recall and message-menu contracts", () => {
         "/chat/messages/text",
         {
           method: "POST",
+          headers: { "Idempotency-Key": "dm-client" },
           requiredData: true,
           requiredEnvelope: true,
           body: {
@@ -324,6 +325,7 @@ describe("native reply, recall and message-menu contracts", () => {
         "/chat/messages/sticker",
         {
           method: "POST",
+          headers: { "Idempotency-Key": "dm-sticker" },
           requiredData: true,
           requiredEnvelope: true,
           body: {
@@ -339,6 +341,7 @@ describe("native reply, recall and message-menu contracts", () => {
         "/groups/7/messages/text",
         {
           method: "POST",
+          headers: { "Idempotency-Key": "group-client" },
           requiredData: true,
           requiredEnvelope: true,
           body: {
@@ -354,6 +357,7 @@ describe("native reply, recall and message-menu contracts", () => {
         "/groups/7/messages/sticker",
         {
           method: "POST",
+          headers: { "Idempotency-Key": "group-sticker" },
           requiredData: true,
           requiredEnvelope: true,
           body: {

@@ -210,7 +210,9 @@ describe("native agent turn lifecycle policy", () => {
     expect(source).toContain("await delay(agentTurnPollingPolicy.intervalMilliseconds)");
     expect(source).toContain("mergeAgentTimeline(current, incoming)");
     expect(source).toContain("isAwaitingGeneratedMedia ||");
-    expect(source).toContain("void load().finally(() => void resumeUnfinishedTurnIfNeeded())");
+    expect(source).toContain("void load().finally(() => {");
+    expect(source).toContain("markLatestMessageRead(latest);");
+    expect(source).toContain("void resumeUnfinishedTurnIfNeeded();");
     expect(source).toContain("Native keeps polling through transient reload failures");
     expect(source).toContain('message: "发送失败，点击重试"');
     expect(source).toContain("upsertCachedAgentConversation(ownerId, cachedConversation)");

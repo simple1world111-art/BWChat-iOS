@@ -4,6 +4,7 @@ import { hideConversation, updateConversationPreference } from "@/api/bwchat";
 import { apiRequest } from "@/api/client";
 import type {
   AgentConversation,
+  AgentMessage,
   AgentSummary,
   Conversation,
   ConversationSyncSnapshot,
@@ -11,6 +12,7 @@ import type {
 } from "@/models";
 import {
   aggregateConversationUnread,
+  applyAgentRealtimeMessage,
   applyConversationLocalState,
   applyServerPinnedRows,
   conversationHiddenSnapshot,
@@ -19,19 +21,25 @@ import {
   conversationListTime,
   conversationPreviewText,
   conversationSenderPrefix,
+  consumeConversationRealtimeUnreadEvent,
   mergeAgentConversationRows,
   preservingIncompleteConversationRows,
   reconcileLivePairConversationRows,
   reconcileLatestConversationPreviews,
   reconcileRetainedDirectConversationRows,
+  resetConversationRealtimeUnreadEventsForTests,
   shouldResolveScriptRoomAvatar,
   shouldShowConversationEventSender,
   shouldApplyConversationPreview,
+  shouldApplyRealtimeConversationPreview,
   sortConversationRows,
   visibleChatConversations,
 } from "@/services/conversations/ConversationListPolicy";
 import {
+  applyConversationReadReceipt,
+  applyConversationReadReceiptToSnapshot,
   applyDirectConversationCandidate,
+  applyDirectConversationPreviewUpdate,
   hideCachedConversation,
   loadCachedConversationSnapshot,
   loadConversationInitiatedDmIds,
@@ -46,6 +54,7 @@ import {
   saveConversationInitiatedDmIds,
   saveConversationLivePairIds,
   saveConversationPinnedKeys,
+  shouldAcceptConversationSnapshot,
   subscribeDirectConversationCandidates,
   unhideCachedConversation,
 } from "@/services/conversations/ConversationRepository";
@@ -58,6 +67,7 @@ describe("native conversation-list contract", () => {
     request.mockReset();
     resetConversationRepositoryMemoryForAccount("owner-a");
     resetConversationRepositoryMemoryForAccount("owner-b");
+    resetConversationRealtimeUnreadEventsForTests();
     await AsyncStorage.clear();
   });
 
@@ -213,6 +223,34 @@ describe("native conversation-list contract", () => {
     });
   });
 
+  it("keeps the highest message ID when a late snapshot has a misleading newer timestamp", () => {
+    const reconciled = reconcileLatestConversationPreviews(
+      [
+        row({
+          id: "friend",
+          last_message: "message 100",
+          last_message_time: "2026-08-08T10:00:02Z",
+          last_message_id: 100,
+          unread_count: 1,
+        }),
+      ],
+      [
+        row({
+          id: "friend",
+          last_message: "message 101",
+          last_message_time: "2026-08-08T10:00:01Z",
+          last_message_id: 101,
+          unread_count: 2,
+        }),
+      ],
+    );
+    expect(reconciled[0]).toMatchObject({
+      last_message: "message 101",
+      last_message_id: 101,
+      unread_count: 2,
+    });
+  });
+
   it("does not resurrect unread state already covered by a local read-through watermark", () => {
     const reconciled = reconcileLatestConversationPreviews(
       [row({ id: "friend", last_message_id: 41, unread_count: 4 })],
@@ -317,6 +355,278 @@ describe("native conversation-list contract", () => {
     expect(shouldApplyConversationPreview(current, "2026-08-08T10:00:00Z", 10)).toBe(false);
     expect(shouldApplyConversationPreview(current, "2026-08-08T10:00:00Z", 11)).toBe(true);
     expect(shouldApplyConversationPreview(current, "2026-08-08T10:00:01Z", 1)).toBe(true);
+    expect(shouldApplyRealtimeConversationPreview(current, "2026-08-08T10:00:01Z", 9, true)).toBe(
+      false,
+    );
+    expect(shouldApplyRealtimeConversationPreview(current, "2026-08-08T10:00:01Z", 10, true)).toBe(
+      true,
+    );
+    expect(shouldApplyRealtimeConversationPreview(current, "2026-08-08T09:59:59Z", 11, false)).toBe(
+      true,
+    );
+  });
+
+  it("uses message sequence and version before timestamps for canonical previews", () => {
+    const current = row({
+      last_message_id: 40,
+      last_message_sequence: 100,
+      last_message_version: 3,
+      last_message_time: "2026-08-08T10:00:00Z",
+    });
+    expect(
+      shouldApplyRealtimeConversationPreview(current, "2026-08-08T11:00:00Z", 40, true, 2, 100),
+    ).toBe(false);
+    expect(
+      shouldApplyRealtimeConversationPreview(current, "2026-08-08T09:00:00Z", 40, true, 4, 100),
+    ).toBe(true);
+    expect(
+      shouldApplyRealtimeConversationPreview(current, "2026-08-08T12:00:00Z", 99, false, 1, 99),
+    ).toBe(false);
+  });
+
+  it("does not let a late snapshot roll back sequence, version or named revisions", () => {
+    const [result] = reconcileLatestConversationPreviews(
+      [
+        row({
+          id: "friend",
+          last_message: "stale",
+          last_message_id: 9,
+          last_message_sequence: 109,
+          last_message_version: 1,
+          conversation_revision: 7,
+          unread_revision: 12,
+        }),
+      ],
+      [
+        row({
+          id: "friend",
+          last_message: "canonical",
+          last_message_id: 10,
+          last_message_sequence: 110,
+          last_message_version: 2,
+          conversation_revision: 9,
+          unread_revision: 14,
+        }),
+      ],
+    );
+    expect(result).toMatchObject({
+      last_message: "canonical",
+      last_message_id: 10,
+      last_message_sequence: 110,
+      last_message_version: 2,
+      conversation_revision: 9,
+      unread_revision: 14,
+    });
+  });
+
+  it("uses the same monotonic gate for repository-backed detail preview publications", () => {
+    const current = row({
+      id: "friend",
+      last_message: "version 3",
+      last_message_id: 40,
+      last_message_sequence: 100,
+      last_message_version: 3,
+      last_message_time: "2026-08-08T10:00:00Z",
+    });
+    expect(
+      applyDirectConversationPreviewUpdate([current], {
+        owner_id: "owner",
+        contact_id: "friend",
+        last_message: "late version 2",
+        last_message_id: 40,
+        last_message_sequence: 100,
+        last_message_version: 2,
+        last_message_time: "2026-08-08T11:00:00Z",
+      }),
+    ).toEqual([current]);
+  });
+
+  it("compares V2 snapshot revisions only within the same revision domain", () => {
+    const cached: ConversationSyncSnapshot = {
+      conversations: [row({ id: "friend" })],
+      revision: 9_999,
+      conversation_revision: 10,
+      event_sequence: 100,
+    };
+    expect(
+      shouldAcceptConversationSnapshot(
+        {
+          conversations: [row({ id: "friend" })],
+          revision: 1,
+          conversation_revision: 11,
+          event_sequence: 101,
+        },
+        cached,
+      ),
+    ).toBe(true);
+    expect(
+      shouldAcceptConversationSnapshot(
+        {
+          conversations: [row({ id: "friend" })],
+          revision: 99_999,
+          conversation_revision: 9,
+          event_sequence: 99,
+        },
+        cached,
+      ),
+    ).toBe(false);
+    expect(
+      shouldAcceptConversationSnapshot(
+        { conversations: [row({ id: "friend" })], revision: 99_999 },
+        cached,
+      ),
+    ).toBe(false);
+  });
+
+  it("applies named unread revisions without comparing them to conversation or legacy revisions", () => {
+    const snapshot: ConversationSyncSnapshot = {
+      conversations: [
+        row({
+          id: "friend",
+          unread_count: 3,
+          unread_revision: 9,
+          conversation_revision: 800,
+          revision: 8_000,
+        }),
+      ],
+      unread_revision: 9,
+      conversation_revision: 800,
+      revision: 8_000,
+      total_unread_count: 3,
+    };
+    const updated = applyConversationReadReceiptToSnapshot(snapshot, {
+      conversation_type: "dm",
+      conversation_id: "friend",
+      read_through_message_id: 40,
+      unread_count: 0,
+      total_unread_count: 0,
+      unread_revision: 10,
+      revision: 10,
+    });
+    expect(updated).toMatchObject({
+      unread_revision: 10,
+      conversation_revision: 800,
+      total_unread_count: 0,
+      conversations: [
+        expect.objectContaining({
+          unread_count: 0,
+          unread_revision: 10,
+          conversation_revision: 800,
+        }),
+      ],
+    });
+    const legacyReceiptAgainstV2 = applyConversationReadReceiptToSnapshot(snapshot, {
+      conversation_type: "dm",
+      conversation_id: "friend",
+      read_through_message_id: 40,
+      unread_count: 0,
+      revision: 10,
+    });
+    expect(legacyReceiptAgainstV2.revision).toBe(8_000);
+    expect(legacyReceiptAgainstV2.conversations[0]?.read_through_message_id).toBe(40);
+  });
+
+  it("projects agent realtime previews and increments unread only for a new inactive message", () => {
+    const current = row({
+      type: "agent",
+      id: "thread-1",
+      conversation_kind: "agent_conversation",
+      agent_conversation_id: "thread-1",
+      last_message: "旧回复",
+      last_message_time: "2026-08-08T10:00:00Z",
+      last_message_id: 10,
+      unread_count: 2,
+    });
+    const incoming = agentMessage({
+      id: "message-11",
+      sequence_no: 11,
+      updated_at: "2026-08-08T10:00:01Z",
+      parts: [{ id: "part-1", ordinal: 0, type: "text", text: "新回复", metadata: {} }],
+    });
+    expect(applyAgentRealtimeMessage(current, incoming, true, (key) => key)).toMatchObject({
+      last_message: "新回复",
+      last_message_id: 11,
+      unread_count: 3,
+    });
+    expect(applyAgentRealtimeMessage(current, incoming, false, (key) => key)).toMatchObject({
+      last_message: "新回复",
+      last_message_id: 11,
+      unread_count: 2,
+    });
+
+    const updatedSameSequence = agentMessage({
+      id: "message-10",
+      sequence_no: 10,
+      updated_at: "2026-08-08T10:00:02Z",
+      parts: [{ id: "part-2", ordinal: 0, type: "text", text: "生成完成", metadata: {} }],
+    });
+    expect(
+      applyAgentRealtimeMessage(current, updatedSameSequence, false, (key) => key, true),
+    ).toMatchObject({ last_message: "生成完成", last_message_id: 10, unread_count: 2 });
+    expect(
+      applyAgentRealtimeMessage(
+        current,
+        agentMessage({
+          id: "message-9",
+          sequence_no: 9,
+          updated_at: "2026-08-08T10:00:03Z",
+          parts: [{ id: "part-3", ordinal: 0, type: "text", text: "旧消息更新", metadata: {} }],
+        }),
+        false,
+        (key) => key,
+        true,
+      ),
+    ).toBe(current);
+    const afterCreate = applyAgentRealtimeMessage(current, incoming, true, (key) => key);
+    expect(
+      applyAgentRealtimeMessage(
+        afterCreate,
+        { ...incoming, updated_at: "2026-08-08T10:00:02Z" },
+        false,
+        (key) => key,
+        true,
+      ),
+    ).toMatchObject({ last_message_id: 11, unread_count: 3 });
+    expect(
+      applyAgentRealtimeMessage(
+        row({ type: "agent", id: "other", conversation_kind: "agent_conversation" }),
+        incoming,
+        false,
+        (key) => key,
+      ),
+    ).toMatchObject({ id: "other", unread_count: 0 });
+  });
+
+  it("counts distinct out-of-order messages once without regressing the newest preview", () => {
+    let current = row({
+      id: "friend",
+      last_message: "99",
+      last_message_time: "2026-08-08T09:59:59Z",
+      last_message_id: 99,
+      unread_count: 0,
+    });
+    const count = (messageId: number) =>
+      consumeConversationRealtimeUnreadEvent({
+        ownerId: "owner-a",
+        conversation: current,
+        messageId,
+        incoming: true,
+        isActive: false,
+        isUpdate: false,
+        alreadyProjected: messageId === current.last_message_id,
+      });
+    expect(count(101)).toBe(true);
+    current = {
+      ...current,
+      last_message: "101",
+      last_message_time: "2026-08-08T10:00:01Z",
+      last_message_id: 101,
+      unread_count: 1,
+    };
+    expect(count(100)).toBe(true);
+    current = { ...current, unread_count: 2 };
+    expect(count(100)).toBe(false);
+    expect(current).toMatchObject({ last_message: "101", last_message_id: 101, unread_count: 2 });
   });
 
   it("merges active agent threads with only unmatched owned installed agents", () => {
@@ -332,6 +642,75 @@ describe("native conversation-list contract", () => {
       "agent:thread-1",
       "agent-profile:agent-2",
     ]);
+  });
+
+  it("projects server-owned agent unread and read-through state", () => {
+    const merged = mergeAgentConversationRows(
+      [],
+      [],
+      [
+        {
+          ...agentConversation("thread-1", "agent-1"),
+          unread_count: 4,
+          read_through_sequence: 8,
+          revision: 11,
+          latest_message: {
+            id: "message-9",
+            conversation_id: "thread-1",
+            sequence_no: 9,
+            sender: { type: "agent", id: "agent-1" },
+            source: "agent",
+            status: "completed",
+            created_at: "2026-08-08T00:00:00Z",
+            updated_at: "2026-08-08T00:00:01Z",
+            parts: [{ id: "part-1", ordinal: 0, type: "text", text: "新消息", metadata: {} }],
+          },
+        },
+      ],
+      [],
+      (key) => key,
+    );
+    expect(merged[0]).toMatchObject({
+      unread_count: 4,
+      last_message_id: 9,
+      read_through_message_id: 8,
+      revision: 11,
+    });
+  });
+
+  it("does not let a stale agent catalog snapshot resurrect unread state", () => {
+    const current = row({
+      type: "agent",
+      id: "thread-1",
+      conversation_kind: "agent_conversation",
+      agent_conversation_id: "thread-1",
+      last_message: "最新回复",
+      last_message_time: "2026-08-08T00:00:20Z",
+      last_message_id: 20,
+      unread_count: 0,
+      read_through_message_id: 20,
+      revision: 12,
+    });
+    const stale = {
+      ...agentConversation("thread-1", "agent-1"),
+      unread_count: 4,
+      read_through_sequence: 10,
+      revision: 11,
+      latest_message: agentMessage({
+        id: "message-10",
+        conversation_id: "thread-1",
+        sequence_no: 10,
+        updated_at: "2026-08-08T00:00:30Z",
+      }),
+      updated_at: "2026-08-08T00:00:30Z",
+    };
+    expect(mergeAgentConversationRows([], [current], [stale], [], (key) => key)[0]).toMatchObject({
+      last_message: "最新回复",
+      last_message_id: 20,
+      unread_count: 0,
+      read_through_message_id: 20,
+      revision: 12,
+    });
   });
 
   it("does not invent a preview for an installed agent without native profile copy", () => {
@@ -611,6 +990,44 @@ describe("native conversation-list contract", () => {
     expect(await loadConversationLivePairIds("owner-b")).toEqual(new Set());
   });
 
+  it("does not let a stale UI projection overwrite a newer cached read receipt", async () => {
+    const unread = row({
+      id: "friend",
+      unread_count: 3,
+      last_message_id: 42,
+      read_through_message_id: 30,
+      revision: 11,
+    });
+    await reconcileConversationSnapshot(
+      "owner-a",
+      { conversations: [unread], revision: 11, snapshot_complete: true },
+      100,
+    );
+    await applyConversationReadReceipt("owner-a", {
+      conversation_type: "dm",
+      conversation_id: "friend",
+      read_through_message_id: 42,
+      unread_count: 0,
+      total_unread_count: 0,
+      revision: 12,
+    });
+
+    await saveCachedConversationItemsProjection("owner-a", [unread]);
+
+    expect(await loadCachedConversationSnapshot("owner-a")).toMatchObject({
+      revision: 12,
+      total_unread_count: 0,
+      conversations: [
+        {
+          id: "friend",
+          unread_count: 0,
+          read_through_message_id: 42,
+          revision: 12,
+        },
+      ],
+    });
+  });
+
   it("persists locally initiated dm visibility separately and per account", async () => {
     await saveConversationInitiatedDmIds("owner-a", new Set(["outgoing-peer"]));
     expect(await loadConversationInitiatedDmIds("owner-a")).toEqual(new Set(["outgoing-peer"]));
@@ -647,6 +1064,13 @@ describe("native conversation-list contract", () => {
         now: 100 + 122_000,
       }),
     ).toEqual(snapshot([row({ id: "network" })]));
+    await expect(
+      loadConversationSnapshotWithNativeCache("owner-a", offline, {
+        forceRefresh: true,
+        allowStaleOnError: false,
+        now: 100 + 123_000,
+      }),
+    ).rejects.toThrow("offline");
   });
 });
 
@@ -677,6 +1101,21 @@ function agentConversation(id: string, agentId: string): AgentConversation {
     agent_capabilities: { paid_images: false, paid_videos: false },
     created_at: "2026-08-01T00:00:00Z",
     updated_at: "2026-08-08T00:00:00Z",
+  };
+}
+
+function agentMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
+  return {
+    id: "message-1",
+    conversation_id: "thread-1",
+    sequence_no: 1,
+    sender: { type: "agent", id: "agent-1" },
+    source: "agent",
+    status: "completed",
+    created_at: "2026-08-08T10:00:00Z",
+    updated_at: "2026-08-08T10:00:00Z",
+    parts: [],
+    ...overrides,
   };
 }
 

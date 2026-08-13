@@ -2,15 +2,26 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { APIError } from "@/api/client";
 import type { Message, ReplyPreview } from "@/models";
+import {
+  chatVoiceOutboxContent,
+  isValidChatVoiceOutboxPayload,
+  type ChatVoiceOutboxPayload,
+} from "@/services/messages/ChatVoiceOutboxPayload";
+import {
+  chatOutboxNetworkRetryDelayMilliseconds,
+  type ChatOutboxRetryReason,
+} from "@/services/messages/ChatOutboxNetwork";
 
 export type DirectChatOutboxState = "queued" | "sending" | "retry_waiting" | "failed";
 
 export interface DirectChatOutboxJob {
   id: string;
+  client_message_id: string;
   owner_id: string;
   target_id: string;
-  msg_type: "text" | "sticker";
+  msg_type: "text" | "sticker" | "voice";
   content: string;
+  voice?: ChatVoiceOutboxPayload | undefined;
   sticker_pack_id?: string | undefined;
   sticker_id?: string | undefined;
   reply_to_id?: number | undefined;
@@ -19,8 +30,16 @@ export interface DirectChatOutboxJob {
   state: DirectChatOutboxState;
   attempt_count: number;
   next_attempt_at?: string | undefined;
+  retry_reason?: ChatOutboxRetryReason | undefined;
   last_error?: string | undefined;
 }
+
+type DirectChatOutboxJobInput = Omit<
+  DirectChatOutboxJob,
+  "state" | "attempt_count" | "client_message_id"
+> & {
+  client_message_id?: string | undefined;
+};
 
 export const directChatOutboxPolicy = Object.freeze({
   maximumAutomaticAttempts: 5,
@@ -30,9 +49,18 @@ export const directChatOutboxPolicy = Object.freeze({
 const storagePrefix = "bwchat.direct-message-outbox.v1";
 
 export async function createDirectChatOutboxJob(
-  input: Omit<DirectChatOutboxJob, "state" | "attempt_count">,
+  input: DirectChatOutboxJobInput,
 ): Promise<DirectChatOutboxJob> {
-  const job: DirectChatOutboxJob = { ...input, state: "queued", attempt_count: 0 };
+  const clientMessageId = input.client_message_id ?? input.id;
+  const job: DirectChatOutboxJob = {
+    ...input,
+    client_message_id: clientMessageId,
+    ...(input.msg_type === "voice" && input.voice
+      ? { content: chatVoiceOutboxContent(input.voice) }
+      : {}),
+    state: "queued",
+    attempt_count: 0,
+  };
   await saveDirectChatOutboxJob(job);
   return job;
 }
@@ -79,13 +107,25 @@ export function directChatOutboxFailure(
   now = Date.now(),
 ): DirectChatOutboxJob {
   const message = error instanceof Error ? error.message : String(error);
+  const keepsWaitingForNetwork =
+    job.msg_type === "voice" && error instanceof APIError && error.status === 0;
   if (
     !isTransientDirectChatOutboxError(error) ||
-    job.attempt_count >= directChatOutboxPolicy.maximumAutomaticAttempts
+    (!keepsWaitingForNetwork &&
+      job.attempt_count >= directChatOutboxPolicy.maximumAutomaticAttempts)
   ) {
-    return { ...job, state: "failed", last_error: message, next_attempt_at: undefined };
+    return {
+      ...job,
+      state: "failed",
+      last_error: message,
+      next_attempt_at: undefined,
+      retry_reason: undefined,
+    };
   }
-  const attemptCount = job.attempt_count + 1;
+  const attemptCount = Math.min(
+    job.attempt_count + 1,
+    directChatOutboxPolicy.maximumAutomaticAttempts,
+  );
   const seconds = Math.min(
     2 ** Math.max(0, job.attempt_count),
     directChatOutboxPolicy.maximumRetryDelaySeconds,
@@ -95,16 +135,42 @@ export function directChatOutboxFailure(
     state: "retry_waiting",
     attempt_count: attemptCount,
     next_attempt_at: new Date(now + seconds * 1_000).toISOString(),
+    retry_reason: "transient_error",
     last_error: message,
   };
 }
 
+export function directChatOutboxOfflineWait(
+  job: DirectChatOutboxJob,
+  now = Date.now(),
+): DirectChatOutboxJob {
+  return {
+    ...job,
+    state: "retry_waiting",
+    next_attempt_at: new Date(now + chatOutboxNetworkRetryDelayMilliseconds).toISOString(),
+    retry_reason: "network_offline",
+    last_error: undefined,
+  };
+}
+
 export function queuedDirectChatOutboxJob(job: DirectChatOutboxJob): DirectChatOutboxJob {
-  return { ...job, state: "queued", next_attempt_at: undefined, last_error: undefined };
+  return {
+    ...job,
+    state: "queued",
+    next_attempt_at: undefined,
+    retry_reason: undefined,
+    last_error: undefined,
+  };
 }
 
 export function sendingDirectChatOutboxJob(job: DirectChatOutboxJob): DirectChatOutboxJob {
-  return { ...job, state: "sending", next_attempt_at: undefined, last_error: undefined };
+  return {
+    ...job,
+    state: "sending",
+    next_attempt_at: undefined,
+    retry_reason: undefined,
+    last_error: undefined,
+  };
 }
 
 export function isTransientDirectChatOutboxError(error: unknown): boolean {
@@ -128,7 +194,7 @@ export function directOptimisticOutboxMessage(job: DirectChatOutboxJob): Message
     ...(job.reply_to_id !== undefined ? { reply_to_id: job.reply_to_id } : {}),
     ...(job.reply_to ? { reply_to: job.reply_to } : {}),
     timestamp: job.created_at,
-    client_message_id: job.id,
+    client_message_id: job.client_message_id,
     version: 1,
     delivery_status: job.state === "failed" ? "failed" : "sending",
   };
@@ -150,7 +216,11 @@ function jobKey(ownerId: string, clientMessageId: string): string {
 function decodeJob(encoded: string | null, ownerId: string): DirectChatOutboxJob | null {
   if (!encoded) return null;
   try {
-    const value = JSON.parse(encoded) as DirectChatOutboxJob;
+    const parsed = JSON.parse(encoded) as DirectChatOutboxJob;
+    const value = {
+      ...parsed,
+      client_message_id: parsed.client_message_id ?? parsed.id,
+    };
     return validJob(value, ownerId) ? value : null;
   } catch {
     return null;
@@ -163,16 +233,21 @@ function validJob(job: DirectChatOutboxJob, ownerId: string): boolean {
     job !== null &&
     typeof job.id === "string" &&
     job.id.length > 0 &&
+    job.client_message_id === job.id &&
     job.owner_id === ownerId &&
     typeof job.target_id === "string" &&
     job.target_id.length > 0 &&
-    (job.msg_type === "text" || job.msg_type === "sticker") &&
+    (job.msg_type === "text" || job.msg_type === "sticker" || job.msg_type === "voice") &&
     typeof job.content === "string" &&
     typeof job.created_at === "string" &&
     ["queued", "sending", "retry_waiting", "failed"].includes(job.state) &&
     Number.isSafeInteger(job.attempt_count) &&
     job.attempt_count >= 0 &&
+    (job.retry_reason === undefined ||
+      job.retry_reason === "network_offline" ||
+      job.retry_reason === "transient_error") &&
     (job.msg_type !== "sticker" ||
-      (typeof job.sticker_pack_id === "string" && typeof job.sticker_id === "string"))
+      (typeof job.sticker_pack_id === "string" && typeof job.sticker_id === "string")) &&
+    (job.msg_type !== "voice" || isValidChatVoiceOutboxPayload(job.voice))
   );
 }

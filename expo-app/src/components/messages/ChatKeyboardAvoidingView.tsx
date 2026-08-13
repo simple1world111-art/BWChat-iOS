@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
   Keyboard,
@@ -52,25 +52,30 @@ export function ChatKeyboardAvoidingView({
   );
   const [keyboardInset, setKeyboardInset] = useState(initialKeyboardInset);
   const [lastVisibleKeyboardInset, setLastVisibleKeyboardInset] = useState(initialKeyboardInset);
+  const keyboardInsetRef = useRef(initialKeyboardInset);
 
   useEffect(() => {
     if (Platform.OS !== "ios") return;
 
-    const updateInset = (event: KeyboardEvent) => {
-      Keyboard.scheduleLayoutAnimation(event);
+    const updateInset = (event: KeyboardEvent, schedulesAnimation: boolean) => {
       const nextInset = chatKeyboardInset(event.endCoordinates, Dimensions.get("screen").height);
+      if (nextInset === keyboardInsetRef.current) return;
+      if (schedulesAnimation) Keyboard.scheduleLayoutAnimation(event);
+      keyboardInsetRef.current = nextInset;
       setKeyboardInset(nextInset);
       if (nextInset > 0) setLastVisibleKeyboardInset(nextInset);
     };
-    const clearInset = (event: KeyboardEvent) => {
-      Keyboard.scheduleLayoutAnimation(event);
+    const clearInset = (event: KeyboardEvent, schedulesAnimation: boolean) => {
+      if (keyboardInsetRef.current === 0) return;
+      if (schedulesAnimation) Keyboard.scheduleLayoutAnimation(event);
+      keyboardInsetRef.current = 0;
       setKeyboardInset(0);
     };
     const subscriptions = [
-      Keyboard.addListener("keyboardWillChangeFrame", updateInset),
-      Keyboard.addListener("keyboardDidShow", updateInset),
-      Keyboard.addListener("keyboardWillHide", clearInset),
-      Keyboard.addListener("keyboardDidHide", clearInset),
+      Keyboard.addListener("keyboardWillChangeFrame", (event) => updateInset(event, true)),
+      Keyboard.addListener("keyboardDidShow", (event) => updateInset(event, false)),
+      Keyboard.addListener("keyboardWillHide", (event) => clearInset(event, true)),
+      Keyboard.addListener("keyboardDidHide", (event) => clearInset(event, false)),
     ];
 
     return () => subscriptions.forEach((subscription) => subscription.remove());

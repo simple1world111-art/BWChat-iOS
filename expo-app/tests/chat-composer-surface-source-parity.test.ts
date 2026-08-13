@@ -24,14 +24,17 @@ describe("native chat composer surface parity", () => {
     expect(expoSurface).toContain("chatComposerSurfacePolicy.toggleSymbolSize");
   });
 
-  it("keeps the 250ms height transition and uses an opaque keyboard backing surface", () => {
+  it("keeps the native panel timing and uses an opaque keyboard backing surface", () => {
     expect(nativeDirect).toContain("Animation.easeInOut(duration: 0.25)");
     expect(nativeGroup).toContain("Animation.easeInOut(duration: 0.25)");
     expect(expoSurface).toContain("chatComposerSurfacePolicy.transitionDurationMs");
-    expect(expoSurface).toContain("Easing.inOut(Easing.ease)");
+    expect(expoSurface).toContain("LayoutAnimation.configureNext(");
+    expect(expoSurface).toContain("LayoutAnimation.Types.easeInEaseOut");
+    expect(expoSurface).toContain("chatComposerPanelDismissDurationMs");
     expect(expoSurface).toContain("colors={[colors.card, colors.card]}");
     expect(expoSurface).toContain('backgroundColor: "rgba(242,242,247,0.98)"');
-    expect(expoSurface).toContain("keyboardHost: { backgroundColor: colors.card }");
+    expect(expoSurface).toContain("backgroundColor: colors.card");
+    expect(expoSurface).toContain('testID="chat-composer-panel-viewport"');
     expect(expoSurface).toContain("chatComposerBottomInset(");
   });
 

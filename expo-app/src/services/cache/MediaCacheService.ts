@@ -26,6 +26,7 @@ export interface MediaCacheEntry {
 export const mediaCachePolicy = {
   scheduleDelayMilliseconds: 5_000,
   minimumFreeSpaceBytes: 2 * 1_024 * 1_024 * 1_024,
+  maximumSingleFileBytes: 512 * 1_024 * 1_024,
   staleAgeMilliseconds: 30 * 24 * 60 * 60 * 1_000,
   minimumBudgetBytes: 512 * 1_024 * 1_024,
   maximumBudgetBytes: 5 * 1_024 * 1_024 * 1_024,
@@ -36,16 +37,26 @@ const indexPrefix = "bwchat.media-cache.v1:";
 const rootDirectory = new Directory(Paths.cache, "bwchat-media", "video");
 const indexes = new Map<string, Map<string, MediaCacheEntry>>();
 const loading = new Map<string, Promise<Map<string, MediaCacheEntry>>>();
-const downloads = new Map<string, Promise<string | null>>();
+type ActiveMediaDownload = {
+  controller: AbortController;
+  promise: Promise<string | null>;
+  waiters: Set<symbol>;
+};
+type MediaCacheGeneration = { global: number; owner: number };
+const downloads = new Map<string, ActiveMediaDownload>();
 const scheduled = new Map<string, ReturnType<typeof setTimeout>>();
 const usageListeners = new Map<string, Set<(byteCount: number) => void>>();
+const ownerGenerations = new Map<string, number>();
+let globalGeneration = 0;
 
 export function mediaCacheIndexKey(ownerId: string): string {
   return `${indexPrefix}${encodeURIComponent(ownerId.trim())}`;
 }
 
 export function chatVideoMediaCacheId(remoteUrl: string): string {
-  return `chat-video:${remoteUrl.trim()}`;
+  // v4 also bypasses the short-lived v3 native warm-up path. Older native
+  // modules could persist an HTTP error body after the JS Range probe passed.
+  return `chat-video:v4:${remoteUrl.trim()}`;
 }
 
 export function isHlsMediaUrl(remoteUrl: string): boolean {
@@ -97,6 +108,17 @@ export function mediaCacheBudgetBytes(availableBytes: number, cachedBytes: numbe
   );
 }
 
+export function mediaCacheDownloadByteLimit(availableBytes: number): number {
+  if (!Number.isFinite(availableBytes)) return 0;
+  return Math.max(
+    0,
+    Math.min(
+      mediaCachePolicy.maximumSingleFileBytes,
+      Math.floor(availableBytes) - mediaCachePolicy.minimumFreeSpaceBytes,
+    ),
+  );
+}
+
 export function mediaCachePruneIds(
   entries: readonly MediaCacheEntry[],
   availableBytes: number,
@@ -127,14 +149,19 @@ export async function getCachedMediaUri(ownerId: string, mediaId: string): Promi
   if (!owner || !id) return null;
   if (hasNativeMediaCache()) {
     const nativeUri = await getNativeCachedMediaUri(owner, id).catch(() => null);
-    if (nativeUri) return nativeUri;
+    if (nativeUri) {
+      if (nativeUri.toLowerCase().includes(".movpkg")) return nativeUri;
+      const nativeFile = new File(nativeUri);
+      if (mediaCacheFileLooksPlayable(nativeFile, nativeUri)) return nativeUri;
+    }
   }
   const entries = await loadIndex(owner);
   const entry = entries.get(id);
   if (!entry) return null;
   const directory = await accountDirectory(owner, false);
   const file = new File(directory, entry.relative_path);
-  if (!file.exists) {
+  if (!file.exists || !mediaCacheFileLooksPlayable(file, entry.remote_url)) {
+    if (file.exists) file.delete();
     entries.delete(id);
     await persistIndex(owner, entries);
     return null;
@@ -196,23 +223,39 @@ export async function cacheMediaFile(options: {
   mediaId: string;
   remoteUrl: string;
   authorizationPolicy?: VideoAuthorizationPolicy;
+  signal?: AbortSignal;
 }): Promise<string | null> {
   const owner = options.ownerId.trim();
   const mediaId = options.mediaId.trim();
   const remoteUrl = options.remoteUrl.trim();
   if (!owner || !mediaId || !isDownloadableRemoteUrl(remoteUrl) || isHlsMediaUrl(remoteUrl))
     return null;
+  const generation = currentMediaCacheGeneration(owner);
   const existing = await getCachedMediaUri(owner, mediaId);
+  if (!mediaCacheGenerationIsCurrent(owner, generation)) return null;
   if (existing) return existing;
-  if (Paths.availableDiskSpace <= mediaCachePolicy.minimumFreeSpaceBytes) return null;
+  if (options.signal?.aborted) return null;
+  const byteLimit = mediaCacheDownloadByteLimit(Paths.availableDiskSpace);
+  if (byteLimit < 12) return null;
   const key = flightKey(owner, mediaId);
   const active = downloads.get(key);
-  if (active) return active;
-  const task = downloadMediaFile(owner, mediaId, remoteUrl, options.authorizationPolicy).finally(
-    () => downloads.delete(key),
-  );
-  downloads.set(key, task);
-  return task;
+  if (active) return waitForMediaDownload(active, options.signal);
+
+  const controller = new AbortController();
+  const promise = downloadMediaFile(
+    owner,
+    mediaId,
+    remoteUrl,
+    options.authorizationPolicy,
+    controller,
+    byteLimit,
+    generation,
+  ).finally(() => {
+    downloads.delete(key);
+  });
+  const download = { controller, promise, waiters: new Set<symbol>() };
+  downloads.set(key, download);
+  return waitForMediaDownload(download, options.signal);
 }
 
 export async function adoptLocalMediaFile(options: {
@@ -225,6 +268,7 @@ export async function adoptLocalMediaFile(options: {
   const mediaId = options.mediaId.trim();
   const source = new File(options.sourceUri);
   if (!owner || !mediaId || !source.exists) return null;
+  const generation = currentMediaCacheGeneration(owner);
   if (hasNativeMediaCache()) {
     const adopted = await adoptNativeLocalMediaFile({
       ownerId: owner,
@@ -232,16 +276,29 @@ export async function adoptLocalMediaFile(options: {
       remoteUrl: options.remoteUrl,
       sourceUri: options.sourceUri,
     }).catch(() => null);
-    if (adopted) return adopted;
+    if (adopted && mediaCacheGenerationIsCurrent(owner, generation)) return adopted;
+    if (!mediaCacheGenerationIsCurrent(owner, generation)) return null;
   }
   const directory = await accountDirectory(owner, true);
+  if (!mediaCacheGenerationIsCurrent(owner, generation)) return null;
   const filename = `${await sha256(mediaId)}${safeExtension(options.sourceUri)}`;
+  if (!mediaCacheGenerationIsCurrent(owner, generation)) return null;
   const destination = new File(directory, filename);
   if (destination.exists) destination.delete();
   try {
     await source.copy(destination);
+    if (
+      !mediaCacheGenerationIsCurrent(owner, generation) ||
+      !mediaCacheFileLooksPlayable(destination, options.sourceUri)
+    ) {
+      throw new Error("Local media file failed container validation");
+    }
     const now = Date.now();
     const entries = await loadIndex(owner);
+    if (!mediaCacheGenerationIsCurrent(owner, generation)) {
+      if (destination.exists) destination.delete();
+      return null;
+    }
     entries.set(mediaId, {
       id: mediaId,
       remote_url: options.remoteUrl,
@@ -251,6 +308,11 @@ export async function adoptLocalMediaFile(options: {
       last_accessed_at: now,
     });
     await pruneMediaCache(owner, entries, now);
+    if (!mediaCacheGenerationIsCurrent(owner, generation)) {
+      entries.delete(mediaId);
+      if (destination.exists) destination.delete();
+      return null;
+    }
     await persistIndex(owner, entries);
     return destination.uri;
   } catch {
@@ -262,6 +324,7 @@ export async function adoptLocalMediaFile(options: {
 export async function clearMediaCacheForAccount(ownerId: string): Promise<void> {
   const owner = ownerId.trim();
   if (!owner) return;
+  ownerGenerations.set(owner, (ownerGenerations.get(owner) ?? 0) + 1);
   if (hasNativeMediaCache()) {
     await clearNativeMediaCacheAccount(owner).catch(() => undefined);
   }
@@ -270,6 +333,11 @@ export async function clearMediaCacheForAccount(ownerId: string): Promise<void> 
     clearTimeout(timer);
     scheduled.delete(key);
   }
+  const activeDownloads = [...downloads.entries()].filter(([key]) =>
+    key.startsWith(`${owner}\u0000`),
+  );
+  activeDownloads.forEach(([, download]) => download.controller.abort("account-cache-cleared"));
+  await Promise.allSettled(activeDownloads.map(([, download]) => download.promise));
   const directory = await accountDirectory(owner, false);
   if (directory.exists) directory.delete();
   indexes.delete(owner);
@@ -279,12 +347,16 @@ export async function clearMediaCacheForAccount(ownerId: string): Promise<void> 
 }
 
 export async function clearAllMediaCache(): Promise<void> {
+  globalGeneration += 1;
   const owners = new Set([...indexes.keys(), ...usageListeners.keys()]);
   if (hasNativeMediaCache()) {
     await clearAllNativeMediaCache().catch(() => undefined);
   }
   for (const timer of scheduled.values()) clearTimeout(timer);
   scheduled.clear();
+  const activeDownloads = [...downloads.values()];
+  activeDownloads.forEach((download) => download.controller.abort("all-media-cache-cleared"));
+  await Promise.allSettled(activeDownloads.map((download) => download.promise));
   if (rootDirectory.exists) rootDirectory.delete();
   indexes.clear();
   loading.clear();
@@ -326,22 +398,56 @@ async function downloadMediaFile(
   mediaId: string,
   remoteUrl: string,
   authorizationPolicy: VideoAuthorizationPolicy = "auto",
+  controller?: AbortController,
+  byteLimit = 0,
+  generation?: MediaCacheGeneration,
 ): Promise<string | null> {
+  const signal = controller?.signal;
+  if (!generation || !mediaCacheGenerationIsCurrent(owner, generation)) return null;
   const directory = await accountDirectory(owner, true);
   const filename = `${await sha256(mediaId)}${safeExtension(remoteUrl)}`;
+  if (!mediaCacheGenerationIsCurrent(owner, generation)) return null;
   const destination = new File(directory, filename);
   const partial = new File(directory, `${filename}.partial`);
   if (partial.exists) partial.delete();
   try {
-    const headers = await authorizationHeaders(remoteUrl, authorizationPolicy);
+    if (signal?.aborted) return null;
+    const headers = await authorizationHeaders(remoteUrl, authorizationPolicy, signal);
+    if (signal?.aborted || !mediaCacheGenerationIsCurrent(owner, generation)) return null;
     const downloaded = await File.downloadFileAsync(remoteUrl, partial, {
       ...(headers ? { headers } : {}),
       idempotent: true,
+      ...(signal ? { signal } : {}),
+      onProgress: ({ bytesWritten, totalBytes }) => {
+        if (
+          bytesWritten > byteLimit ||
+          totalBytes > byteLimit ||
+          Paths.availableDiskSpace <= mediaCachePolicy.minimumFreeSpaceBytes
+        ) {
+          controller?.abort("media-download-exceeds-cache-size-limit");
+        }
+      },
     });
+    if (
+      !mediaCacheGenerationIsCurrent(owner, generation) ||
+      downloaded.size <= 0 ||
+      downloaded.size > byteLimit ||
+      !mediaCacheFileLooksPlayable(downloaded, remoteUrl)
+    ) {
+      throw new Error("Downloaded media failed container validation");
+    }
     if (destination.exists) destination.delete();
     await downloaded.move(destination);
+    if (!mediaCacheGenerationIsCurrent(owner, generation)) {
+      if (destination.exists) destination.delete();
+      return null;
+    }
     const now = Date.now();
     const entries = await loadIndex(owner);
+    if (!mediaCacheGenerationIsCurrent(owner, generation)) {
+      if (destination.exists) destination.delete();
+      return null;
+    }
     entries.set(mediaId, {
       id: mediaId,
       remote_url: remoteUrl,
@@ -351,12 +457,50 @@ async function downloadMediaFile(
       last_accessed_at: now,
     });
     await pruneMediaCache(owner, entries, now);
+    if (!mediaCacheGenerationIsCurrent(owner, generation)) {
+      entries.delete(mediaId);
+      if (destination.exists) destination.delete();
+      return null;
+    }
     await persistIndex(owner, entries);
     return destination.uri;
   } catch {
     if (partial.exists) partial.delete();
     return null;
   }
+}
+
+function currentMediaCacheGeneration(owner: string): MediaCacheGeneration {
+  return { global: globalGeneration, owner: ownerGenerations.get(owner) ?? 0 };
+}
+
+function mediaCacheGenerationIsCurrent(owner: string, generation: MediaCacheGeneration): boolean {
+  return (
+    generation.global === globalGeneration &&
+    generation.owner === (ownerGenerations.get(owner) ?? 0)
+  );
+}
+
+async function waitForMediaDownload(
+  download: ActiveMediaDownload,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  if (signal?.aborted) return null;
+  const waiter = Symbol("media-download-waiter");
+  download.waiters.add(waiter);
+  return new Promise((resolve) => {
+    const finish = (value: string | null) => {
+      signal?.removeEventListener("abort", abort);
+      download.waiters.delete(waiter);
+      resolve(value);
+    };
+    const abort = () => {
+      finish(null);
+      if (download.waiters.size === 0) download.controller.abort(signal?.reason);
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    void download.promise.then(finish, () => finish(null));
+  });
 }
 
 async function loadIndex(owner: string): Promise<Map<string, MediaCacheEntry>> {
@@ -445,14 +589,109 @@ function finiteNumber(value: unknown): number {
 }
 
 function safeExtension(uri: string): string {
+  return explicitExtension(uri) ?? ".mp4";
+}
+
+function explicitExtension(uri: string): string | null {
   try {
     const pathname = new URL(uri).pathname;
     const match = pathname.match(/\.([a-z0-9]{1,8})$/i);
-    return match ? `.${match[1]!.toLowerCase()}` : ".mp4";
+    return match ? `.${match[1]!.toLowerCase()}` : null;
   } catch {
     const match = uri.match(/\.([a-z0-9]{1,8})(?:\?.*)?$/i);
-    return match ? `.${match[1]!.toLowerCase()}` : ".mp4";
+    return match ? `.${match[1]!.toLowerCase()}` : null;
   }
+}
+
+export function mediaFileHeaderLooksPlayable(
+  remoteUrl: string,
+  header: Uint8Array,
+  byteCount: number,
+): boolean {
+  if (!Number.isFinite(byteCount) || byteCount < 12 || header.length < 4) return false;
+  if (looksLikeTextErrorBody(header)) return false;
+
+  const isIsoBaseMedia = containsBytes(header, [0x66, 0x74, 0x79, 0x70], 4, 32);
+  const isEbml = startsWithBytes(header, [0x1a, 0x45, 0xdf, 0xa3]);
+  const isAvi =
+    startsWithBytes(header, [0x52, 0x49, 0x46, 0x46]) &&
+    containsBytes(header, [0x41, 0x56, 0x49, 0x20], 8, 12);
+  const isFlv = startsWithBytes(header, [0x46, 0x4c, 0x56]);
+  const isOgg = startsWithBytes(header, [0x4f, 0x67, 0x67, 0x53]);
+  const isMpeg = startsWithBytes(header, [0x00, 0x00, 0x01]);
+  const isTransportStream = byteCount >= 188 && header[0] === 0x47;
+  const hasKnownVideoContainer =
+    isIsoBaseMedia || isEbml || isAvi || isFlv || isOgg || isMpeg || isTransportStream;
+
+  switch (explicitExtension(remoteUrl)) {
+    case ".mp4":
+    case ".m4v":
+    case ".mov":
+    case ".3gp":
+    case ".3g2":
+      return isIsoBaseMedia;
+    case ".webm":
+    case ".mkv":
+      return isEbml;
+    case ".avi":
+      return isAvi;
+    case ".flv":
+      return isFlv;
+    case ".ogv":
+    case ".ogg":
+      return isOgg;
+    case ".mpg":
+    case ".mpeg":
+      return isMpeg;
+    case ".ts":
+      return isTransportStream;
+    default:
+      return hasKnownVideoContainer || !looksLikeMostlyText(header);
+  }
+}
+
+function mediaCacheFileLooksPlayable(file: File, remoteUrl: string): boolean {
+  if (!file.exists || file.size < 12) return false;
+  let handle: ReturnType<File["open"]> | null = null;
+  try {
+    handle = file.open();
+    return mediaFileHeaderLooksPlayable(remoteUrl, handle.readBytes(64), file.size);
+  } catch {
+    return false;
+  } finally {
+    handle?.close();
+  }
+}
+
+function startsWithBytes(value: Uint8Array, expected: readonly number[]): boolean {
+  return expected.every((byte, index) => value[index] === byte);
+}
+
+function containsBytes(
+  value: Uint8Array,
+  expected: readonly number[],
+  start: number,
+  end: number,
+): boolean {
+  const lastStart = Math.min(value.length - expected.length, end - expected.length);
+  for (let offset = Math.max(start, 0); offset <= lastStart; offset += 1) {
+    if (expected.every((byte, index) => value[offset + index] === byte)) return true;
+  }
+  return false;
+}
+
+function looksLikeTextErrorBody(header: Uint8Array): boolean {
+  const significant = [...header].find((byte) => ![0x09, 0x0a, 0x0d, 0x20].includes(byte));
+  if (significant === undefined) return true;
+  return significant === 0x3c || significant === 0x7b || significant === 0x5b;
+}
+
+function looksLikeMostlyText(header: Uint8Array): boolean {
+  if (header.length === 0) return true;
+  const printable = [...header].filter(
+    (byte) => byte === 0x09 || byte === 0x0a || byte === 0x0d || (byte >= 0x20 && byte <= 0x7e),
+  ).length;
+  return printable / header.length > 0.9;
 }
 
 function isDownloadableRemoteUrl(value: string): boolean {
@@ -467,8 +706,9 @@ function isDownloadableRemoteUrl(value: string): boolean {
 async function authorizationHeaders(
   remoteUrl: string,
   authorizationPolicy: VideoAuthorizationPolicy,
+  signal?: AbortSignal,
 ): Promise<Record<string, string> | undefined> {
-  return prepareVideoAuthorizationHeaders(remoteUrl, undefined, authorizationPolicy);
+  return prepareVideoAuthorizationHeaders(remoteUrl, undefined, authorizationPolicy, signal);
 }
 
 function flightKey(owner: string, mediaId: string): string {

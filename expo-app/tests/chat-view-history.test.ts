@@ -82,9 +82,9 @@ describe("native direct chat history cache", () => {
   it("pages by canonical server ID even when sender timestamps are skewed", async () => {
     await saveDirectChatMessages("owner-a", "friend-a", [
       { ...message(1), timestamp: "2026-08-08T00:00:40.000Z" },
-      { ...message(2), timestamp: "2026-08-08T00:00:30.000Z" },
+      { ...message(2), timestamp: "" },
       { ...message(3), timestamp: "2026-08-08T00:00:20.000Z" },
-      { ...message(4), timestamp: "2026-08-08T00:00:10.000Z" },
+      { ...message(4), timestamp: "" },
     ]);
     const latest = await readDirectChatCachedPage("owner-a", "friend-a", { limit: 2 });
     expect(latest.messages.map((item) => item.id).sort((left, right) => left - right)).toEqual([

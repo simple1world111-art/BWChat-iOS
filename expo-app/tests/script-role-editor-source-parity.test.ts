@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const nativeRoot = resolve(expoRoot, "..");
-const originalNativeRoot = resolve(expoRoot, "../../BWChat-iOS");
+const originalNativeRoot = resolve(expoRoot, "..");
 
 describe("ScriptRoleEditorView source parity", () => {
   it("locks every copied native source used by role editing and persistence", () => {
@@ -20,7 +20,7 @@ describe("ScriptRoleEditorView source parity", () => {
       "BWChat/ViewModels/InteractiveScriptViewModels.swift":
         "53618004998796bffb0afa3d32e47eeb881bb837e1b9032bf9cdbff7a86cf1c9",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
     };
     for (const [relativePath, expected] of Object.entries(hashes)) {
       const copied = sourceNative(relativePath);

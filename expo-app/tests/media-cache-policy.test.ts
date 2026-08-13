@@ -16,6 +16,7 @@ describe("MediaCacheService policy", () => {
     expect(mediaCachePolicy).toEqual({
       scheduleDelayMilliseconds: 5_000,
       minimumFreeSpaceBytes: 2 * gib,
+      maximumSingleFileBytes: 512 * mib,
       staleAgeMilliseconds: 30 * 24 * 60 * 60 * 1_000,
       minimumBudgetBytes: 512 * mib,
       maximumBudgetBytes: 5 * gib,

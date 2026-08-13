@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const originalRoot = "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat";
+const originalRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const expoRoot = resolve(__dirname, "../src");
 
 describe("locked Swift to Expo chat-background source parity", () => {
@@ -14,7 +14,7 @@ describe("locked Swift to Expo chat-background source parity", () => {
       "b4614b426e97f3559c8fc681c473c50175079a302af0ae20ff250f6d652ededf",
     );
     expect(hash(original("Services/APIService.swift"))).toBe(
-      "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+      "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
     );
   });
 

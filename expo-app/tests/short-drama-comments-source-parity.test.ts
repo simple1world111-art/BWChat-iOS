@@ -22,32 +22,32 @@ const root = resolve(__dirname, "..");
 const nativeSources = [
   {
     copied: "../BWChat/Views/ShortDramaCommentsSheet.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaCommentsSheet.swift",
+    original: "../BWChat/Views/ShortDramaCommentsSheet.swift",
     hash: "bfb9c0703c5690168fdcfe0f602db684476b83f381d47589e70f29842017c0b8",
   },
   {
     copied: "../BWChat/Views/ShortDramaFeedView.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaFeedView.swift",
+    original: "../BWChat/Views/ShortDramaFeedView.swift",
     hash: "61bd4af279a5855af0d3ceadce6c94157be754ee29b142e40919b11274fc5f9d",
   },
   {
     copied: "../BWChat/Models/ShortDrama.swift",
-    original: "../../BWChat-iOS/BWChat/Models/ShortDrama.swift",
+    original: "../BWChat/Models/ShortDrama.swift",
     hash: "13abb0d63f53893bd48eff56fcf6d40f3bb7d570267280bcae276100344d6a11",
   },
   {
     copied: "../BWChat/Services/APIService.swift",
-    original: "../../BWChat-iOS/BWChat/Services/APIService.swift",
-    hash: "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+    original: "../BWChat/Services/APIService.swift",
+    hash: "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
   },
   {
     copied: "../BWChat/Services/CacheRepository.swift",
-    original: "../../BWChat-iOS/BWChat/Services/CacheRepository.swift",
-    hash: "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+    original: "../BWChat/Services/CacheRepository.swift",
+    hash: "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
   },
   {
     copied: "../BWChat/Utils/Extensions.swift",
-    original: "../../BWChat-iOS/BWChat/Utils/Extensions.swift",
+    original: "../BWChat/Utils/Extensions.swift",
     hash: "e625dab1ea95cbd63d74c1e8bf33d4bf3f4a85adbd2001c1b0ca27a99bcc5ce5",
   },
 ] as const;

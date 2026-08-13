@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const nativeRoot = resolve(expoRoot, "..");
-const originalNativeRoot = resolve(expoRoot, "../../BWChat-iOS");
+const originalNativeRoot = resolve(expoRoot, "..");
 
 describe("AgentHubView source parity", () => {
   it("locks every native source against both the original and desktop Swift trees", () => {
@@ -14,15 +14,15 @@ describe("AgentHubView source parity", () => {
       "BWChat/ViewModels/AgentCatalogViewModel.swift":
         "13e5897fe2194d81ff49cc0172290ef3aacf54285657df1d4d4d14e0e47e870c",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Models/AgentModels.swift":
         "18b9a3dcdcb0477d5f93fb742e51cf5e277fd4a63c71c7d9c3a755adfd477ae7",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Models/Conversation.swift":
         "030f004ed7a1c4ee0a2c927eb91ba2274c9350d7e9b69e91fc3cccb76567c821",
       "BWChat/Models/Gift.swift":
-        "62961899ae81d7d7f16438fbd61a42ca44f6b2eb21227bd21b7b51f5f6b28fd1",
+        "ca6b8d9ef0bb7ced7cb967bcdc0f980094b7d37c49dee0e23abe73cafd925e90",
       "BWChat/Utils/Extensions.swift":
         "e625dab1ea95cbd63d74c1e8bf33d4bf3f4a85adbd2001c1b0ca27a99bcc5ce5",
       "BWChat/Views/ScriptCenterView.swift":

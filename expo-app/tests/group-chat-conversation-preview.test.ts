@@ -25,6 +25,7 @@ describe("owner-scoped group local conversation preview", () => {
         last_message: "previous",
         last_message_time: "2026-08-08T00:00:10Z",
         last_message_id: 10,
+        authoritative_fallback_from_message_id: 20,
       }),
     ).toEqual([
       expect.objectContaining({ group_id: 21, last_message: "previous", last_message_id: 10 }),
@@ -71,7 +72,11 @@ describe("owner-scoped group local conversation preview", () => {
       }),
     ).toEqual([expect.objectContaining({ last_message: "你撤回了一条消息" })]);
     expect(
-      applyGroupConversationPreviewUpdate(rows, { owner_id: "owner-a", group_id: 21 }),
+      applyGroupConversationPreviewUpdate(rows, {
+        owner_id: "owner-a",
+        group_id: 21,
+        authoritative_fallback_from_message_id: 20,
+      }),
     ).toEqual([
       expect.not.objectContaining({
         last_message: expect.anything(),
@@ -79,6 +84,18 @@ describe("owner-scoped group local conversation preview", () => {
         last_message_id: expect.anything(),
       }),
     ]);
+  });
+
+  it("rejects the same older preview without an authoritative delete tombstone", () => {
+    const rows = [conversation(21, "latest", 20)];
+    expect(
+      applyGroupConversationPreviewUpdate(rows, {
+        owner_id: "owner-a",
+        group_id: 21,
+        last_message: "stale",
+        last_message_id: 10,
+      }),
+    ).toEqual(rows);
   });
 
   it("persists only to the matching owner and serializes concurrent preview writes", async () => {

@@ -1,12 +1,9 @@
 import {
-  cancelWalletWithdrawal,
   confirmWalletIapPurchase,
   createWalletAdRewardSession,
-  createWalletWithdrawal,
   getWalletAdRewardStatus,
   getWalletBalance,
   getWalletTransactionPage,
-  getWalletWithdrawals,
 } from "@/api/bwchat";
 import { apiRequest } from "@/api/client";
 import {
@@ -15,7 +12,6 @@ import {
   normalizeWalletBalanceSnapshot,
   normalizeWalletIapConfirmation,
   normalizeWalletTransactionPage,
-  normalizeWalletWithdrawals,
 } from "@/api/normalizers";
 import type { WalletBalanceSnapshot, WalletTransactionPage } from "@/models";
 import {
@@ -23,20 +19,13 @@ import {
   mergeWalletTransactionPages,
 } from "@/services/wallet/WalletRepository";
 import {
-  canWithdraw,
   fallbackGoldCoinProducts,
   formatWalletDetailedDateTime,
-  isWalletPayoutAccountConfigured,
-  maximumUsdtAmount,
   nextShanghaiMidnight,
-  normalizeWithdrawalUsdtText,
   pendingRewardResolution,
-  requiredGoldCoins,
   resolveWalletRuntimeConfig,
   shanghaiBusinessDay,
   walletMetrics,
-  walletWithdrawalErrorKey,
-  withdrawalPolicyFor,
 } from "@/services/wallet/walletPolicy";
 
 jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
@@ -49,10 +38,6 @@ function balance(overrides: Partial<WalletBalanceSnapshot> = {}): WalletBalanceS
     gold_coin_balance: 1_000,
     activity_cat_food_balance: 5,
     spendable_balance: 900,
-    recharge_gold_coin_balance: 600,
-    gift_income_gold_coin_balance: 400,
-    withdraw_frozen_gold_coin_balance: 100,
-    withdrawable_gold_coin_balance: 300,
     chat_money_frozen_gold_coin_balance: 0,
     ...overrides,
   };
@@ -80,10 +65,6 @@ describe("native wallet parity contracts", () => {
       productCompactHeight: 66,
       purchaseStandardHeight: 52,
       purchaseCompactHeight: 42,
-      summaryStandardHeight: 148,
-      summaryCompactHeight: 130,
-      fieldStandardHeight: 68,
-      fieldCompactHeight: 62,
       recordHeaderSideWidth: 78,
       recordTabGap: 48,
       recordRowRadius: 12,
@@ -91,7 +72,6 @@ describe("native wallet parity contracts", () => {
       emptyCatHeight: 142,
       balanceCacheTtlMs: 30_000,
       listCacheTtlMs: 120_000,
-      maxCachedWithdrawals: 500,
       transactionPageSize: 50,
       dailyAdLimit: 10,
       adCreditPollAttempts: 6,
@@ -107,15 +87,11 @@ describe("native wallet parity contracts", () => {
     ]);
   });
 
-  it("decodes wallet remote products, network overrides and fail-closed reward delivery", () => {
+  it("decodes wallet remote products and fail-closed reward delivery", () => {
     const config = resolveWalletRuntimeConfig({
       gold_coin_products: [
         { product_id: "unknown", gold_coin_amount: 99, order: 1 },
         { product_id: "com.bwchat.app.catfood.800", gold_coin_amount: 888, order: 2 },
-      ],
-      withdrawal_networks: [
-        { network: "TRC20", enabled: true, minimum_usdt: 1, step_usdt: 0.25 },
-        { network: "OFF", enabled: false, minimum_usdt: 0.1 },
       ],
       ad_reward_enabled: true,
       terms_screen_id: "legal_wallet_terms_v2",
@@ -128,12 +104,6 @@ describe("native wallet parity contracts", () => {
     expect(config.products).toEqual([
       { productId: "com.bwchat.app.catfood.800", coins: 888, fallbackPriceUsd: "$7.99" },
     ]);
-    expect(config.withdrawalNetworks.map((item) => item.network)).toEqual(["TRC20"]);
-    expect(withdrawalPolicyFor(config, "trc20")).toMatchObject({
-      minimumUsdt: 1,
-      stepUsdt: 0.25,
-      usdtPerGoldCoin: 0.005,
-    });
     expect(config).toMatchObject({
       adRewardEnabled: true,
       adRewardsGoldCoins: true,
@@ -145,27 +115,6 @@ describe("native wallet parity contracts", () => {
     expect(resolveWalletRuntimeConfig({ terms_screen_id: "../wallet" }).termsScreenId).toBe(
       "wallet_terms",
     );
-  });
-
-  it("matches native USDT normalization, minimum, step, maximum and coin rounding", () => {
-    const policy = { usdtPerGoldCoin: 0.005, minimumUsdt: 0.5, stepUsdt: 0.5 };
-    expect(normalizeWithdrawalUsdtText(",5")).toBe("0.50");
-    expect(normalizeWithdrawalUsdtText("1.")).toBe("1.00");
-    expect(normalizeWithdrawalUsdtText("1.234")).toBeUndefined();
-    expect(maximumUsdtAmount(policy, 299)).toBe(1);
-    expect(maximumUsdtAmount(policy, 99)).toBe(0);
-    expect(canWithdraw(policy, 100)).toBe(true);
-    expect(canWithdraw(policy, 99)).toBe(false);
-    expect(requiredGoldCoins(policy, 1.01)).toBe(202);
-    expect(isWalletPayoutAccountConfigured("TRC20", "T12345678901")).toBe(true);
-    expect(isWalletPayoutAccountConfigured("TRC20", "short")).toBe(false);
-    expect(walletWithdrawalErrorKey({ status: 404 })).toBe("wallet.withdrawal.serviceUnavailable");
-    expect(
-      walletWithdrawalErrorKey({ status: 400, payload: { code: "insufficient_gold_coins" } }),
-    ).toBe("wallet.withdrawal.amount.insufficientGoldCoins");
-    expect(
-      walletWithdrawalErrorKey({ status: 400, message: '{"code":"invalid_usdt_account"}' }),
-    ).toBe("wallet.usdt.invalid");
   });
 
   it("keeps reward credit pending until the same business day server counter decreases", () => {
@@ -214,7 +163,7 @@ describe("native wallet parity contracts", () => {
           amount: "100",
         },
         { id: "two", type: "gift_sent", currency: "cat_coin", cat_food_amount: 20 },
-        { id: "bad", type: "gift_sent", currency: "usdt", amount: 3 },
+        { id: "bad", type: "gift_sent", currency: "usd", amount: 3 },
       ],
       nextCursor: "page-2",
     });
@@ -227,7 +176,7 @@ describe("native wallet parity contracts", () => {
     });
   });
 
-  it("normalizes reward sessions, server status, withdrawals and IAP confirmation aliases", () => {
+  it("normalizes reward sessions, server status and IAP confirmation aliases", () => {
     expect(
       normalizeWalletAdRewardStatus({
         enabled: true,
@@ -258,30 +207,6 @@ describe("native wallet parity contracts", () => {
       expires_at: "later",
       next_reset_at: "tomorrow",
     });
-    expect(
-      normalizeWalletWithdrawals({
-        rows: [
-          {
-            withdrawalId: "w",
-            currency: "gold_coin",
-            goldCoinAmount: "100",
-            payoutUSD: "0.5",
-            chain: "TRC20",
-            usdtAddress: "T123",
-            status: "requested",
-          },
-          { id: "bad", currency: "cat_food", gold_coin_amount: 2 },
-        ],
-      }),
-    ).toEqual([
-      expect.objectContaining({
-        id: "w",
-        gold_coin_amount: 100,
-        payout_usd: 0.5,
-        network: "TRC20",
-        wallet_address: "T123",
-      }),
-    ]);
     expect(
       normalizeWalletIapConfirmation({
         walletBalance: balance({ gold_coin_balance: 1_100 }),
@@ -322,13 +247,6 @@ describe("native wallet parity contracts", () => {
     request
       .mockResolvedValueOnce(balance())
       .mockResolvedValueOnce({ items: [], next_cursor: "next" })
-      .mockResolvedValueOnce({ withdrawals: [] })
-      .mockResolvedValueOnce({
-        withdrawal: { id: "w", currency: "gold_coin", gold_coin_amount: 100, status: "pending" },
-      })
-      .mockResolvedValueOnce({
-        withdrawal: { id: "w", currency: "gold_coin", gold_coin_amount: 100, status: "cancelled" },
-      })
       .mockResolvedValueOnce({
         enabled: true,
         daily_limit: 10,
@@ -345,14 +263,6 @@ describe("native wallet parity contracts", () => {
       .mockResolvedValueOnce({ balance: balance(), gold_coin_amount: 100 });
     await getWalletBalance();
     await getWalletTransactionPage({ cursor: "a/b", limit: 50 });
-    await getWalletWithdrawals();
-    await createWalletWithdrawal({
-      goldCoinAmount: 100,
-      usdtAmount: "0.50",
-      network: "TRC20",
-      walletAddress: "T-address",
-    });
-    await cancelWalletWithdrawal("w/a");
     await getWalletAdRewardStatus();
     await createWalletAdRewardSession({ adUnitId: "ca-app-pub-1/2", platform: "ios" });
     await confirmWalletIapPurchase({
@@ -370,23 +280,6 @@ describe("native wallet parity contracts", () => {
         "/wallet/transactions?limit=50&cursor=a%2Fb",
         { cache: "no-store", requiredData: true, requiredEnvelope: true },
       ],
-      ["/wallet/withdrawals", { requiredData: true, requiredEnvelope: true }],
-      [
-        "/wallet/withdrawals",
-        {
-          method: "POST",
-          requiredEnvelope: true,
-          body: {
-            gold_coin_amount: 100,
-            usdt_amount: "0.50",
-            payout_method: "usdt",
-            payout_account: "TRC20:T-address",
-            network: "TRC20",
-            wallet_address: "T-address",
-          },
-        },
-      ],
-      ["/wallet/withdrawals/w%2Fa/cancel", { method: "POST", body: {}, requiredEnvelope: true }],
       ["/wallet/ad-rewards/status", { requiredData: true, requiredEnvelope: true }],
       [
         "/wallet/ad-rewards/sessions",

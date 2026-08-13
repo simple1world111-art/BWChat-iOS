@@ -123,7 +123,7 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).not.toContain("runOnJS(beginDismiss)(decision)");
     expect(gallery).toContain("runOnJS(prepareSwipeDismiss)()");
     expect(gallery).toMatch(
-      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withTiming\(targetY,[\s\S]*?duration: SWIPE_DISMISS_DURATION_MS/u,
+      /const targetY = decision < 0 \? -height : height;[\s\S]*?verticalDrag\.value = withTiming\(targetY,[\s\S]*?duration: MEDIA_PULL_DISMISS_DURATION_MS/u,
     );
     expect(gallery).toMatch(
       /const stripStyle = useAnimatedStyle\(\(\) => \(\{\s+transform: \[\{ translateX: pageOffset\.value \}\],[\s\S]*?const currentImageStyle[\s\S]*?opacity: contentOpacity\.value \* dragOpacity,/u,
@@ -131,7 +131,7 @@ describe("ImagePreview owner and lifecycle isolation", () => {
     expect(gallery).not.toContain("swipeDismissCompletedPartsRef");
     expect(gallery).not.toContain("withSpring(");
     expect(gallery).toMatch(
-      /backdropOpacity\.value = withTiming\([\s\S]*?duration: SWIPE_DISMISS_DURATION_MS[\s\S]*?runOnJS\(finishSwipeDismiss\)\(\)/u,
+      /backdropOpacity\.value = withTiming\([\s\S]*?duration: MEDIA_PULL_DISMISS_DURATION_MS[\s\S]*?runOnJS\(finishSwipeDismiss\)\(\)/u,
     );
     expect(
       gallery.match(/if \(isDismissing\.value !== 0\) return;/gu)?.length,

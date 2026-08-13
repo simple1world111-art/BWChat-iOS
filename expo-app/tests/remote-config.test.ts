@@ -6,6 +6,7 @@ import {
   effectiveProfileItems,
   effectiveTabs,
   fetchRemoteConfig,
+  messagingSyncV2Enabled,
   parseRemoteConfig,
   readCachedRemoteConfig,
   requiresStoreUpdate,
@@ -31,10 +32,33 @@ describe("parseRemoteConfig", () => {
     expect(config.configVersion).toBe("7");
     expect(config.features.paymentEnabled).toBe(true);
     expect(config.features.maintenanceMode).toBe(false);
+    expect(config.capabilities.messagingSyncV2).toBe(false);
+    expect(messagingSyncV2Enabled(config)).toBe(false);
     expect(effectiveContactItems(config).map((item) => item.id)).toEqual([
       "friend_requests",
       "my_groups",
     ]);
+  });
+
+  it("enables messaging sync-v2 only through the explicit snake_case capability", () => {
+    const enabled = parseRemoteConfig({
+      schema_version: 1,
+      config_version: "sync-v2",
+      capabilities: { messaging_sync_v2: true },
+    });
+    const oldBackend = parseRemoteConfig({
+      schema_version: 1,
+      config_version: "old-backend",
+    });
+    const wrongAlias = parseRemoteConfig({
+      schema_version: 1,
+      config_version: "wrong-alias",
+      capabilities: { messagingSyncV2: true },
+    });
+
+    expect(messagingSyncV2Enabled(enabled)).toBe(true);
+    expect(messagingSyncV2Enabled(oldBackend)).toBe(false);
+    expect(messagingSyncV2Enabled(wrongAlias)).toBe(false);
   });
 
   it("decodes only the snake_case account support and legal-screen contract", () => {

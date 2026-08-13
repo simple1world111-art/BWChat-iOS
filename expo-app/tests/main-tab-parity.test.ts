@@ -17,7 +17,7 @@ describe("MainTab source and contract parity", () => {
       "BWChat/Services/DynamicRouteHandler.swift":
         "fba6f7c42e069901cd310940dad900f7c48a24b92b94fe6083efb7fa2abe24b2",
       "BWChat/Models/DynamicConfigModels.swift":
-        "8a09512ab3e119ac63499fae8aafd0f69c6d1dbc6489d97979bc7c29e3726803",
+        "b418631c7ed9f260e0b34b4e00f9ba0bfcf24506cbdc5717366a68dcc22b79e0",
     };
 
     for (const [relativePath, expected] of Object.entries(hashes)) {

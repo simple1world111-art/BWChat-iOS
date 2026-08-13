@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const copiedNativeRoot = resolve(expoRoot, "..");
-const originalNativeRoot = resolve(expoRoot, "../..", "BWChat-iOS");
+const originalNativeRoot = resolve(expoRoot, "..");
 
 describe("EditProfile source parity", () => {
   it("locks every copied native source used by the screen", () => {
@@ -14,7 +14,7 @@ describe("EditProfile source parity", () => {
       "BWChat/ViewModels/ProfileViewModel.swift":
         "126f560668b09acdb4f53132cf9ac32e777f404df3f18d19e8864df85be2bf06",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Models/User.swift":
         "20ea81372c06150c5a7e348432c91f2f00c5879eb1fadf073436a3ab415f2e5d",
       "BWChat/Managers/AuthManager.swift":

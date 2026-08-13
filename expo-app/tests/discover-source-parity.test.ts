@@ -13,7 +13,7 @@ describe("Discover source parity", () => {
       "BWChat/Models/DiscoverConfig.swift":
         "45357adc5150c76c99d590844319751e5877f3cbf52b536f8ea74cac506f7092",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/DynamicRouteHandler.swift":
         "fba6f7c42e069901cd310940dad900f7c48a24b92b94fe6083efb7fa2abe24b2",
       "BWChat/Services/AppRemoteConfigStore.swift":

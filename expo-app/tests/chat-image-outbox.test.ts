@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getNetworkStateAsync } from "expo-network";
 
 import { APIError } from "@/api/client";
 import type { ChatImageOutboxEvent } from "@/services/messages/ChatImageOutbox";
@@ -23,6 +24,10 @@ let mockManipulationIndex = 0;
 jest.mock("@/api/bwchat", () => ({
   sendDirectImageMessage: jest.fn(),
   sendGroupImageMessage: jest.fn(),
+}));
+
+jest.mock("expo-network", () => ({
+  getNetworkStateAsync: jest.fn(),
 }));
 
 jest.mock("expo-file-system", () => {
@@ -91,11 +96,14 @@ jest.mock("expo-image-manipulator", () => ({
 
 const directSend = jest.mocked(sendDirectImageMessage);
 const groupSend = jest.mocked(sendGroupImageMessage);
+const getNetworkState = jest.mocked(getNetworkStateAsync);
 
 describe("durable chat image outbox", () => {
   beforeEach(async () => {
     directSend.mockReset();
     groupSend.mockReset();
+    getNetworkState.mockReset();
+    getNetworkState.mockResolvedValue({ isConnected: true, isInternetReachable: true });
     mockExistingDirectories.clear();
     mockManipulationIndex = 0;
     await AsyncStorage.clear();
@@ -304,6 +312,7 @@ describe("durable chat image outbox", () => {
         asset: source("file:///picker/retry.jpg"),
       });
       await flushMicrotasks();
+      await flushMicrotasks();
 
       await expect(readChatImageJobs("owner-a")).resolves.toEqual([
         expect.objectContaining({
@@ -320,6 +329,75 @@ describe("durable chat image outbox", () => {
       await expect(readChatImageJobs("owner-a")).resolves.toEqual([]);
     } finally {
       random.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it("holds an explicitly offline upload without counting failure and resumes it once", async () => {
+    jest.useFakeTimers();
+    try {
+      getNetworkState
+        .mockResolvedValueOnce({ isConnected: false, isInternetReachable: false })
+        .mockResolvedValueOnce({ isConnected: false, isInternetReachable: false })
+        .mockResolvedValue({ isConnected: true, isInternetReachable: true });
+      directSend.mockResolvedValue({
+        id: 94,
+        sender_id: "owner-a",
+        receiver_id: "friend-a",
+        msg_type: "image",
+        content: "/chat/offline-recovered.jpg",
+        timestamp: "2026-08-06T10:00:02Z",
+        client_message_id: "offline-image-client",
+        version: 1,
+      });
+
+      await enqueueDirectChatImage({
+        owner: owner("owner-a"),
+        targetId: "friend-a",
+        clientMessageId: "offline-image-client",
+        asset: source("file:///picker/offline.jpg"),
+      });
+      await flushMicrotasks();
+
+      const [waiting] = await readChatImageJobs("owner-a");
+      expect(waiting).toMatchObject({
+        id: "offline-image-client",
+        state: "retry_waiting",
+        retry_reason: "network_offline",
+        attempt_count: 0,
+      });
+      expect(waiting?.last_error).toBeUndefined();
+      expect(directSend).not.toHaveBeenCalled();
+      expect(getNetworkState).toHaveBeenCalledTimes(1);
+
+      await resumeChatImageUploads("owner-a", "direct", "friend-a");
+      await resumeChatImageUploads("owner-a", "direct", "friend-a");
+      expect(directSend).not.toHaveBeenCalled();
+      expect(getNetworkState).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      await flushMicrotasks();
+
+      expect(directSend).not.toHaveBeenCalled();
+      expect(getNetworkState).toHaveBeenCalledTimes(2);
+      expect((await readChatImageJobs("owner-a"))[0]).toMatchObject({
+        state: "retry_waiting",
+        retry_reason: "network_offline",
+        attempt_count: 0,
+      });
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      await flushMicrotasks();
+
+      expect(directSend).toHaveBeenCalledTimes(1);
+      expect(directSend).toHaveBeenCalledWith(
+        "friend-a",
+        expect.any(Object),
+        "offline-image-client",
+      );
+      expect(getNetworkState).toHaveBeenCalledTimes(4);
+      await expect(readChatImageJobs("owner-a")).resolves.toEqual([]);
+    } finally {
       jest.useRealTimers();
     }
   });

@@ -277,8 +277,6 @@ function deletionPreview() {
     impact: {
       gold_coins_to_forfeit: 12,
       props_to_forfeit: 3,
-      cancellable_withdrawals: 1,
-      settling_withdrawals: 1,
       owned_groups_to_dissolve: 2,
     },
     delete_categories: ["profile", "private_media"],

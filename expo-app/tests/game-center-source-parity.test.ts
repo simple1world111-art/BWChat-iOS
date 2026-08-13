@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const root = resolve(__dirname, "..");
 const nativeRoot = resolve(root, "..");
-const originalNativeRoot = resolve(root, "../../BWChat-iOS");
+const originalNativeRoot = resolve(root, "..");
 const screen = readFileSync(resolve(root, "src/app/game-center.tsx"), "utf8");
 const web = readFileSync(resolve(root, "src/app/in-app-web.tsx"), "utf8");
 const walletProvider = readFileSync(resolve(root, "src/providers/WalletProvider.tsx"), "utf8");
@@ -23,9 +23,9 @@ describe("GameCenterView source parity", () => {
       "BWChat/Models/GameCenter.swift":
         "9fd28a012fd4f64d543353aac519dde9170ca4f7328408c39187237cf1bc4bc9",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Services/AdRewardService.swift":
         "da581ee90e805c67db0d0fdc9bffe1aace67a34daacaa13bad42ad37ab2abe90",
       "BWChat/Views/Web/InAppWebView.swift":
@@ -33,7 +33,7 @@ describe("GameCenterView source parity", () => {
       "BWChat/Services/AppRemoteConfigStore.swift":
         "6bcf0f8367120bd0fddeb6b27ca1b768fb3d92bb0182c4cdda5d04cdbe3ce85f",
       "BWChat/Services/WalletStore.swift":
-        "cbc20644b9619fd707cf3372265af42e13528f5dcc2d3924455351af66b3cbe6",
+        "ca08308c3e2f95fdd8382f4c0221e936f8a880a068b215ae3d93fcec91f710d8",
       "BWChat/BWChatApp.swift": "45f12ddeed0504b5f71550681d2c9b0916804f3e812d56ba57705c5b735c26ad",
       "BWChat/Info.plist": "ea56af87091d8ccf46777a768163814301e7a3486ed7fc0dc5397ae0919c63e3",
       "BWChat/Utils/Extensions.swift":

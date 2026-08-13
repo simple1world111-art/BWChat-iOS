@@ -15,9 +15,9 @@ describe("ScriptCenterView source parity", () => {
       "BWChat/Models/InteractiveScript.swift":
         "f272d793b0e060fdea99be654e0961abcb22a867264447bf9461dfa6d27ae8ed",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Managers/ImageCacheManager.swift":
         "b1ceea7c302eb044c00ec11ff58f3d58099058ac4b08f6a14db0976bfd52118a",
     };

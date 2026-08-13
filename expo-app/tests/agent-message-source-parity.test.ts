@@ -7,9 +7,22 @@ function source(relativePath: string): string {
 }
 
 describe("native AgentMessageView source parity", () => {
+  it("retries the latest visible read watermark when the app returns active", () => {
+    const screen = source("src/app/agent-chat.tsx");
+    const appStateHandler = screen.slice(
+      screen.indexOf('AppState.addEventListener("change"'),
+      screen.indexOf(
+        "return () => subscription.remove()",
+        screen.indexOf('AppState.addEventListener("change"'),
+      ),
+    );
+    expect(appStateHandler).toContain("messagesRef.current");
+    expect(appStateHandler).toContain("markLatestMessageRead(latest)");
+  });
+
   it("locks the complete read-only Swift fact source", () => {
     const native = fs.readFileSync(
-      "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat/Views/AgentMessageView.swift",
+      "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat/Views/AgentMessageView.swift",
     );
     expect(createHash("sha256").update(native).digest("hex")).toBe(
       "3f09ac9ddbc109874766ca852045a3d3ca7d9a6921b39395e7c4164dc4f5ba3c",

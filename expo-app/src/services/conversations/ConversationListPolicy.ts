@@ -1,8 +1,15 @@
-import type { AgentConversation, AgentSummary, Conversation, FriendInfo } from "@/models";
+import type {
+  AgentConversation,
+  AgentMessage,
+  AgentSummary,
+  Conversation,
+  FriendInfo,
+} from "@/models";
 import {
   agentAvatarAssetId,
   agentConversationPreview,
   agentDisplayName,
+  agentMessagePreview,
   compareMessageTimes,
   formatAgentHubListTime,
 } from "@/services/agents/agentHubPolicy";
@@ -22,6 +29,10 @@ export interface ConversationListLocalState {
   hiddenSnapshots: Record<string, string>;
   pinnedKeys: Set<string>;
 }
+
+const realtimeUnreadEventBuckets = new Map<string, Set<string>>();
+const maxRealtimeUnreadConversations = 256;
+const maxRealtimeUnreadEventsPerConversation = 512;
 
 export function conversationListIdentity(conversation: Conversation): string {
   if (normalizedConversationType(conversation) === "agent") {
@@ -188,11 +199,18 @@ export function reconcileLatestConversationPreviews(
     const live = currentRows.get(conversationListIdentity(row));
     if (!live) return row;
     const timeOrder = compareMessageTimes(live.last_message_time, row.last_message_time);
+    const liveSequence = live.last_message_sequence ?? live.last_message_id;
+    const rowSequence = row.last_message_sequence ?? row.last_message_id;
+    const versionOrder = (live.last_message_version ?? 0) - (row.last_message_version ?? 0);
     const liveMessageIsNewer =
-      timeOrder > 0 ||
-      (timeOrder === 0 &&
-        live.last_message_id !== undefined &&
-        (row.last_message_id === undefined || live.last_message_id > row.last_message_id));
+      liveSequence !== undefined && rowSequence !== undefined
+        ? liveSequence > rowSequence ||
+          (liveSequence === rowSequence &&
+            (versionOrder > 0 || (versionOrder === 0 && timeOrder > 0)))
+        : timeOrder > 0 ||
+          (timeOrder === 0 &&
+            live.last_message_id !== undefined &&
+            row.last_message_id === undefined);
     const liveKnowsSameMessageSender =
       timeOrder === 0 &&
       live.last_message_id !== undefined &&
@@ -220,6 +238,8 @@ export function reconcileLatestConversationPreviews(
             last_message: live.last_message,
             last_message_time: live.last_message_time,
             last_message_id: live.last_message_id,
+            last_message_version: live.last_message_version,
+            last_message_sequence: live.last_message_sequence,
             last_message_sender_id: live.last_message_sender_id,
             subtitle: live.subtitle,
           }
@@ -231,6 +251,17 @@ export function reconcileLatestConversationPreviews(
           : {}),
       unread_count: unreadCount,
       ...(readThrough > 0 ? { read_through_message_id: readThrough } : {}),
+      ...(live.conversation_revision !== undefined || row.conversation_revision !== undefined
+        ? {
+            conversation_revision: Math.max(
+              live.conversation_revision ?? 0,
+              row.conversation_revision ?? 0,
+            ),
+          }
+        : {}),
+      ...(live.unread_revision !== undefined || row.unread_revision !== undefined
+        ? { unread_revision: Math.max(live.unread_revision ?? 0, row.unread_revision ?? 0) }
+        : {}),
     };
   });
 }
@@ -245,7 +276,13 @@ export function mergeAgentConversationRows(
   const activeRows =
     agentConversations === undefined
       ? currentRows.filter(isAgentConversation)
-      : agentConversations.map((conversation) => agentConversationRow(conversation, translate));
+      : agentConversations.map((conversation) => {
+          const incoming = agentConversationRow(conversation, translate);
+          const current = currentRows.find(
+            (row) => conversationListIdentity(row) === conversationListIdentity(incoming),
+          );
+          return current ? mergeAgentConversationRowState(current, incoming) : incoming;
+        });
   const activeAgentIds = new Set(
     activeRows
       .map((row) => row.agent_id?.trim())
@@ -428,11 +465,115 @@ export function shouldApplyConversationPreview(
   return messageId > conversation.last_message_id;
 }
 
+export function shouldApplyRealtimeConversationPreview(
+  conversation: Conversation,
+  timestamp: string | undefined,
+  messageId: number | undefined,
+  isUpdate: boolean,
+  messageVersion?: number | undefined,
+  messageSequence?: number | undefined,
+): boolean {
+  const currentMessageId = conversation.last_message_id;
+  const currentSequence = conversation.last_message_sequence ?? currentMessageId;
+  const incomingSequence = messageSequence ?? messageId;
+  if (incomingSequence !== undefined && currentSequence !== undefined) {
+    if (incomingSequence !== currentSequence) return incomingSequence > currentSequence;
+    if (messageVersion !== undefined || conversation.last_message_version !== undefined) {
+      return (messageVersion ?? 0) > (conversation.last_message_version ?? 0);
+    }
+    if (isUpdate) {
+      return (
+        messageId === currentMessageId &&
+        compareMessageTimes(timestamp, conversation.last_message_time) >= 0
+      );
+    }
+    return false;
+  }
+  return shouldApplyConversationPreview(conversation, timestamp, messageId);
+}
+
+export function applyAgentRealtimeMessage(
+  conversation: Conversation,
+  message: AgentMessage,
+  incrementUnread: boolean,
+  translate: (key: string) => string,
+  isUpdate = false,
+): Conversation {
+  if (conversationListIdentity(conversation) !== `agent:${message.conversation_id.trim()}`) {
+    return conversation;
+  }
+  const timestamp = message.updated_at.trim() || message.created_at.trim();
+  const sequence = message.sequence_no > 0 ? message.sequence_no : undefined;
+  const shouldApply = shouldApplyRealtimeConversationPreview(
+    conversation,
+    timestamp || undefined,
+    sequence,
+    isUpdate,
+    undefined,
+    sequence,
+  );
+  if (!shouldApply) {
+    return incrementUnread
+      ? { ...conversation, unread_count: conversation.unread_count + 1 }
+      : conversation;
+  }
+  const preview = agentMessagePreview(message, conversation.name, translate).trim();
+  return {
+    ...conversation,
+    ...(preview ? { last_message: preview } : {}),
+    ...(timestamp ? { last_message_time: timestamp } : {}),
+    ...(sequence !== undefined ? { last_message_id: sequence } : {}),
+    ...(sequence !== undefined ? { last_message_sequence: sequence } : {}),
+    unread_count: incrementUnread ? conversation.unread_count + 1 : conversation.unread_count,
+  };
+}
+
+export function consumeConversationRealtimeUnreadEvent(input: {
+  ownerId: string;
+  conversation: Conversation;
+  messageId: string | number;
+  incoming: boolean;
+  isActive: boolean;
+  isUpdate: boolean;
+  alreadyProjected: boolean;
+}): boolean {
+  const owner = input.ownerId.trim();
+  const messageId = String(input.messageId).trim();
+  if (!owner || !messageId) return false;
+  const bucketIdentity = `${encodeURIComponent(owner)}:${conversationListIdentity(
+    input.conversation,
+  )}`;
+  let bucket = realtimeUnreadEventBuckets.get(bucketIdentity);
+  if (!bucket) {
+    bucket = new Set();
+    realtimeUnreadEventBuckets.set(bucketIdentity, bucket);
+    while (realtimeUnreadEventBuckets.size > maxRealtimeUnreadConversations) {
+      const oldestIdentity = realtimeUnreadEventBuckets.keys().next().value;
+      if (oldestIdentity === undefined) break;
+      realtimeUnreadEventBuckets.delete(oldestIdentity);
+    }
+  }
+  if (bucket.has(messageId)) return false;
+  bucket.add(messageId);
+  while (bucket.size > maxRealtimeUnreadEventsPerConversation) {
+    const oldestMessageId = bucket.values().next().value;
+    if (oldestMessageId === undefined) break;
+    bucket.delete(oldestMessageId);
+  }
+  return input.incoming && !input.isActive && !input.isUpdate && !input.alreadyProjected;
+}
+
+export function resetConversationRealtimeUnreadEventsForTests(): void {
+  realtimeUnreadEventBuckets.clear();
+}
+
 function agentConversationRow(
   conversation: AgentConversation,
   translate: (key: string) => string,
 ): Conversation {
   const preview = agentConversationPreview(conversation, translate).trim();
+  const latestSequence = conversation.latest_message?.sequence_no;
+  const readThroughSequence = conversation.read_through_sequence;
   return {
     type: "agent",
     id: conversation.id,
@@ -440,7 +581,14 @@ function agentConversationRow(
     avatar_url: "",
     ...(preview ? { last_message: preview } : {}),
     last_message_time: conversation.latest_message?.updated_at || conversation.updated_at,
-    unread_count: 0,
+    ...(latestSequence !== undefined && latestSequence > 0
+      ? { last_message_id: latestSequence }
+      : {}),
+    unread_count: Math.max(0, conversation.unread_count ?? 0),
+    ...(readThroughSequence !== undefined && readThroughSequence > 0
+      ? { read_through_message_id: readThroughSequence }
+      : {}),
+    ...(conversation.revision !== undefined ? { revision: conversation.revision } : {}),
     conversation_kind: "agent_conversation",
     agent_conversation_id: conversation.id,
     agent_id: conversation.agent_id,
@@ -448,6 +596,58 @@ function agentConversationRow(
       ? { agent_avatar_asset_id: conversation.agent_profile.avatar_asset_id }
       : {}),
     is_muted: false,
+  };
+}
+
+function mergeAgentConversationRowState(
+  current: Conversation,
+  incoming: Conversation,
+): Conversation {
+  const incomingPreviewIsNewer =
+    incoming.last_message_id !== undefined && current.last_message_id !== undefined
+      ? incoming.last_message_id > current.last_message_id ||
+        (incoming.last_message_id === current.last_message_id &&
+          compareMessageTimes(incoming.last_message_time, current.last_message_time) >= 0)
+      : shouldApplyConversationPreview(
+          current,
+          incoming.last_message_time,
+          incoming.last_message_id,
+        );
+  const currentRevision = current.revision;
+  const incomingRevision = incoming.revision;
+  const incomingRevisionIsNewer =
+    incomingRevision !== undefined &&
+    (currentRevision === undefined || incomingRevision > currentRevision);
+  const currentRevisionIsNewer =
+    currentRevision !== undefined &&
+    (incomingRevision === undefined || currentRevision > incomingRevision);
+  const unreadCount = incomingRevisionIsNewer
+    ? incoming.unread_count
+    : currentRevisionIsNewer
+      ? current.unread_count
+      : currentRevision !== undefined || incomingRevision !== undefined
+        ? Math.min(current.unread_count, incoming.unread_count)
+        : incomingPreviewIsNewer
+          ? incoming.unread_count
+          : current.unread_count;
+  const readThrough = Math.max(
+    current.read_through_message_id ?? 0,
+    incoming.read_through_message_id ?? 0,
+  );
+  return {
+    ...incoming,
+    ...(!incomingPreviewIsNewer
+      ? {
+          last_message: current.last_message,
+          last_message_time: current.last_message_time,
+          last_message_id: current.last_message_id,
+        }
+      : {}),
+    unread_count: unreadCount,
+    ...(readThrough > 0 ? { read_through_message_id: readThrough } : {}),
+    ...(currentRevision !== undefined || incomingRevision !== undefined
+      ? { revision: Math.max(currentRevision ?? 0, incomingRevision ?? 0) }
+      : {}),
   };
 }
 

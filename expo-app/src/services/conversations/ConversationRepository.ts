@@ -5,6 +5,7 @@ import type { Conversation, ConversationReadReceipt, ConversationSyncSnapshot } 
 import {
   conversationHiddenSnapshot,
   conversationListIdentity,
+  reconcileLatestConversationPreviews,
   type ConversationListLocalState,
 } from "@/services/conversations/ConversationListPolicy";
 
@@ -19,12 +20,20 @@ interface AccountReadReceipt {
   receipt: ConversationReadReceipt;
 }
 
+interface AccountSnapshotUpdate {
+  ownerId: string;
+  snapshot: ConversationSyncSnapshot;
+}
+
 export interface DirectConversationPreviewUpdate {
   owner_id: string;
   contact_id: string;
   last_message?: string | undefined;
   last_message_time?: string | undefined;
   last_message_id?: number | undefined;
+  last_message_version?: number | undefined;
+  last_message_sequence?: number | undefined;
+  authoritative_fallback_from_message_id?: number | undefined;
 }
 
 export interface DirectConversationCandidate {
@@ -40,11 +49,16 @@ export interface GroupConversationPreviewUpdate {
   last_message?: string | undefined;
   last_message_time?: string | undefined;
   last_message_id?: number | undefined;
+  last_message_version?: number | undefined;
+  last_message_sequence?: number | undefined;
+  authoritative_fallback_from_message_id?: number | undefined;
   last_message_sender_id?: string | undefined;
   subtitle?: string | undefined;
 }
 
 const readReceiptListeners = new Set<(event: AccountReadReceipt) => void>();
+const snapshotListeners = new Set<(event: AccountSnapshotUpdate) => void>();
+const catalogRefreshListeners = new Set<(ownerId: string) => void>();
 const directPreviewListeners = new Set<(event: DirectConversationPreviewUpdate) => void>();
 const directCandidateListeners = new Set<(event: DirectConversationCandidate) => void>();
 const groupPreviewListeners = new Set<(event: GroupConversationPreviewUpdate) => void>();
@@ -81,19 +95,61 @@ export async function reconcileConversationSnapshot(
   incoming: ConversationSyncSnapshot,
   now = Date.now(),
 ): Promise<ConversationSyncSnapshot> {
-  const cached = await loadCachedConversationSnapshot(ownerId);
-  if (!shouldAcceptConversationSnapshot(incoming, cached)) return cached ?? incoming;
-  await Promise.all([
-    AsyncStorage.setItem(cacheKey(ownerId), JSON.stringify(incoming)),
-    AsyncStorage.setItem(metadataKey(ownerId), String(now)),
-  ]);
-  return incoming;
+  return serializeLocalStateMutation(ownerId, async () => {
+    const cached = await loadCachedConversationSnapshot(ownerId);
+    if (!shouldAcceptConversationSnapshot(incoming, cached)) return cached ?? incoming;
+    const next = cached ? preserveMonotonicConversationReadState(incoming, cached) : incoming;
+    await Promise.all([
+      AsyncStorage.setItem(cacheKey(ownerId), JSON.stringify(next)),
+      AsyncStorage.setItem(metadataKey(ownerId), String(now)),
+    ]);
+    return next;
+  });
+}
+
+export function publishConversationSnapshotUpdate(
+  ownerId: string,
+  snapshot: ConversationSyncSnapshot,
+): void {
+  const owner = ownerId.trim();
+  if (!owner) return;
+  for (const listener of snapshotListeners) listener({ ownerId: owner, snapshot });
+}
+
+export function subscribeConversationSnapshotUpdates(
+  ownerId: string,
+  listener: (snapshot: ConversationSyncSnapshot) => void,
+): () => void {
+  const owner = ownerId.trim();
+  const accountListener = (event: AccountSnapshotUpdate) => {
+    if (event.ownerId === owner) listener(event.snapshot);
+  };
+  snapshotListeners.add(accountListener);
+  return () => snapshotListeners.delete(accountListener);
+}
+
+export function publishConversationCatalogRefresh(ownerId: string): void {
+  const owner = ownerId.trim();
+  if (!owner) return;
+  for (const listener of catalogRefreshListeners) listener(owner);
+}
+
+export function subscribeConversationCatalogRefreshes(
+  ownerId: string,
+  listener: () => void,
+): () => void {
+  const owner = ownerId.trim();
+  const accountListener = (eventOwnerId: string) => {
+    if (eventOwnerId === owner) listener();
+  };
+  catalogRefreshListeners.add(accountListener);
+  return () => catalogRefreshListeners.delete(accountListener);
 }
 
 export async function loadConversationSnapshotWithNativeCache(
   ownerId: string,
   fetchSnapshot: () => Promise<ConversationSyncSnapshot>,
-  options: { forceRefresh?: boolean; now?: number } = {},
+  options: { forceRefresh?: boolean; now?: number; allowStaleOnError?: boolean } = {},
 ): Promise<ConversationSyncSnapshot> {
   const owner = ownerId.trim();
   const generation = repositoryGeneration(owner);
@@ -113,14 +169,21 @@ export async function loadConversationSnapshotWithNativeCache(
     return cached;
   }
   const key = cacheKey(owner);
-  const inFlight = conversationLoads.get(key);
-  if (inFlight) return inFlight;
-  const load = (async () => {
-    try {
+  let load = conversationLoads.get(key);
+  if (!load) {
+    load = (async () => {
       const incoming = await fetchSnapshot();
       if (generation !== repositoryGeneration(owner)) return incoming;
       return reconcileConversationSnapshot(owner, incoming, now);
-    } catch (error) {
+    })().finally(() => {
+      if (conversationLoads.get(key) === load) conversationLoads.delete(key);
+    });
+    conversationLoads.set(key, load);
+  }
+  try {
+    return await load;
+  } catch (error) {
+    if (options.allowStaleOnError !== false) {
       if (
         cached &&
         savedAt !== undefined &&
@@ -130,13 +193,9 @@ export async function loadConversationSnapshotWithNativeCache(
       ) {
         return cached;
       }
-      throw error;
     }
-  })().finally(() => {
-    if (conversationLoads.get(key) === load) conversationLoads.delete(key);
-  });
-  conversationLoads.set(key, load);
-  return load;
+    throw error;
+  }
 }
 
 export function shouldAcceptConversationSnapshot(
@@ -144,17 +203,47 @@ export function shouldAcceptConversationSnapshot(
   cached: ConversationSyncSnapshot | null,
 ): boolean {
   if (!cached) return true;
+  if (conversationSnapshotIsOlder(incoming, cached)) return false;
+  if (snapshotHasOrderingRevision(cached) && !snapshotHasOrderingRevision(incoming)) return false;
+  if (incoming.conversations.length > 0 || cached.conversations.length === 0) return true;
+  if (incoming.snapshot_complete !== true) return false;
   if (
+    !snapshotHasV2Revision(cached) &&
+    cached.revision !== undefined &&
+    incoming.revision === undefined
+  )
+    return false;
+  return true;
+}
+
+function conversationSnapshotIsOlder(
+  incoming: ConversationSyncSnapshot,
+  cached: ConversationSyncSnapshot,
+): boolean {
+  if (incoming.event_sequence !== undefined && cached.event_sequence !== undefined) {
+    return incoming.event_sequence < cached.event_sequence;
+  }
+  if (incoming.conversation_revision !== undefined && cached.conversation_revision !== undefined) {
+    return incoming.conversation_revision < cached.conversation_revision;
+  }
+  if (snapshotHasOrderingRevision(incoming) || snapshotHasOrderingRevision(cached)) return false;
+  return (
     incoming.revision !== undefined &&
     cached.revision !== undefined &&
     incoming.revision < cached.revision
-  ) {
-    return false;
-  }
-  if (incoming.conversations.length > 0 || cached.conversations.length === 0) return true;
-  if (incoming.snapshot_complete !== true) return false;
-  if (cached.revision !== undefined && incoming.revision === undefined) return false;
-  return true;
+  );
+}
+
+function snapshotHasOrderingRevision(snapshot: ConversationSyncSnapshot): boolean {
+  return snapshot.event_sequence !== undefined || snapshot.conversation_revision !== undefined;
+}
+
+function snapshotHasV2Revision(snapshot: ConversationSyncSnapshot): boolean {
+  return (
+    snapshot.event_sequence !== undefined ||
+    snapshot.conversation_revision !== undefined ||
+    snapshot.unread_revision !== undefined
+  );
 }
 
 export async function clearCachedDirectConversationPreview(
@@ -194,6 +283,17 @@ export async function publishDirectConversationPreviewUpdate(
       ? { last_message_time: update.last_message_time }
       : {}),
     ...(update.last_message_id !== undefined ? { last_message_id: update.last_message_id } : {}),
+    ...(update.last_message_version !== undefined
+      ? { last_message_version: update.last_message_version }
+      : {}),
+    ...(update.last_message_sequence !== undefined
+      ? { last_message_sequence: update.last_message_sequence }
+      : {}),
+    ...(update.authoritative_fallback_from_message_id !== undefined
+      ? {
+          authoritative_fallback_from_message_id: update.authoritative_fallback_from_message_id,
+        }
+      : {}),
   };
   // Update mounted conversation screens before touching AsyncStorage. A chat
   // send and the following back navigation can happen in consecutive frames;
@@ -220,6 +320,8 @@ export function applyDirectConversationPreviewUpdate(
 ): Conversation[] {
   return conversations.map((conversation) => {
     if (conversation.type !== "dm" || conversation.id !== update.contact_id) return conversation;
+    if (!shouldApplyCanonicalPreviewUpdate(conversation, update)) return conversation;
+    const isFallback = isAuthoritativePreviewFallback(conversation, update);
     const replacement = { ...conversation };
     if (update.last_message === undefined) delete replacement.last_message;
     else replacement.last_message = update.last_message;
@@ -227,6 +329,12 @@ export function applyDirectConversationPreviewUpdate(
     else replacement.last_message_time = update.last_message_time;
     if (update.last_message_id === undefined) delete replacement.last_message_id;
     else replacement.last_message_id = update.last_message_id;
+    if (update.last_message_version !== undefined)
+      replacement.last_message_version = update.last_message_version;
+    else if (isFallback) delete replacement.last_message_version;
+    if (update.last_message_sequence !== undefined)
+      replacement.last_message_sequence = update.last_message_sequence;
+    else if (isFallback) delete replacement.last_message_sequence;
     return replacement;
   });
 }
@@ -341,6 +449,17 @@ export async function publishGroupConversationPreviewUpdate(
       ? { last_message_time: update.last_message_time }
       : {}),
     ...(update.last_message_id !== undefined ? { last_message_id: update.last_message_id } : {}),
+    ...(update.last_message_version !== undefined
+      ? { last_message_version: update.last_message_version }
+      : {}),
+    ...(update.last_message_sequence !== undefined
+      ? { last_message_sequence: update.last_message_sequence }
+      : {}),
+    ...(update.authoritative_fallback_from_message_id !== undefined
+      ? {
+          authoritative_fallback_from_message_id: update.authoritative_fallback_from_message_id,
+        }
+      : {}),
     ...(update.last_message_sender_id !== undefined
       ? { last_message_sender_id: update.last_message_sender_id.trim() }
       : {}),
@@ -369,6 +488,8 @@ export function applyGroupConversationPreviewUpdate(
     const resolvedGroupId =
       conversation.group_id !== undefined ? conversation.group_id : Number(conversation.id);
     if (conversation.type !== "group" || resolvedGroupId !== update.group_id) return conversation;
+    if (!shouldApplyCanonicalPreviewUpdate(conversation, update)) return conversation;
+    const isFallback = isAuthoritativePreviewFallback(conversation, update);
     const replacement = { ...conversation };
     if (update.last_message === undefined) delete replacement.last_message;
     else replacement.last_message = update.last_message;
@@ -376,6 +497,12 @@ export function applyGroupConversationPreviewUpdate(
     else replacement.last_message_time = update.last_message_time;
     if (update.last_message_id === undefined) delete replacement.last_message_id;
     else replacement.last_message_id = update.last_message_id;
+    if (update.last_message_version !== undefined)
+      replacement.last_message_version = update.last_message_version;
+    else if (isFallback) delete replacement.last_message_version;
+    if (update.last_message_sequence !== undefined)
+      replacement.last_message_sequence = update.last_message_sequence;
+    else if (isFallback) delete replacement.last_message_sequence;
     if (update.last_message_sender_id === undefined) delete replacement.last_message_sender_id;
     else replacement.last_message_sender_id = update.last_message_sender_id;
     if (update.subtitle === undefined) delete replacement.subtitle;
@@ -394,6 +521,48 @@ export function subscribeGroupConversationPreviewUpdates(
   };
   groupPreviewListeners.add(accountListener);
   return () => groupPreviewListeners.delete(accountListener);
+}
+
+function shouldApplyCanonicalPreviewUpdate(
+  current: Conversation,
+  update: Pick<
+    DirectConversationPreviewUpdate,
+    | "last_message_id"
+    | "last_message_version"
+    | "last_message_sequence"
+    | "last_message_time"
+    | "authoritative_fallback_from_message_id"
+  >,
+): boolean {
+  if (isAuthoritativePreviewFallback(current, update)) return true;
+  const currentSequence = current.last_message_sequence ?? current.last_message_id;
+  const incomingSequence = update.last_message_sequence ?? update.last_message_id;
+  if (currentSequence !== undefined && incomingSequence !== undefined) {
+    if (incomingSequence !== currentSequence) return incomingSequence > currentSequence;
+    const currentVersion = current.last_message_version ?? 0;
+    const incomingVersion = update.last_message_version ?? 0;
+    if (incomingVersion !== currentVersion) return incomingVersion > currentVersion;
+  }
+  const currentTime = Date.parse(current.last_message_time ?? "");
+  const incomingTime = Date.parse(update.last_message_time ?? "");
+  if (Number.isFinite(currentTime) && Number.isFinite(incomingTime)) {
+    return incomingTime >= currentTime;
+  }
+  return true;
+}
+
+function isAuthoritativePreviewFallback(
+  current: Conversation,
+  update: Pick<
+    DirectConversationPreviewUpdate,
+    "last_message_id" | "authoritative_fallback_from_message_id"
+  >,
+): boolean {
+  return (
+    update.authoritative_fallback_from_message_id !== undefined &&
+    current.last_message_id === update.authoritative_fallback_from_message_id &&
+    update.last_message_id !== current.last_message_id
+  );
 }
 
 export async function setCachedConversationPinned(
@@ -422,13 +591,12 @@ export async function saveCachedConversationItemsProjection(
 ): Promise<void> {
   await serializeLocalStateMutation(ownerId, async () => {
     const cached = await loadCachedConversationSnapshot(ownerId);
-    await AsyncStorage.setItem(
-      cacheKey(ownerId),
-      JSON.stringify({
-        ...(cached ?? { snapshot_complete: false }),
-        conversations: [...conversations],
-      }),
-    );
+    const projection: ConversationSyncSnapshot = {
+      ...(cached ?? { snapshot_complete: false }),
+      conversations: [...conversations],
+    };
+    const next = cached ? preserveMonotonicConversationReadState(projection, cached) : projection;
+    await AsyncStorage.setItem(cacheKey(ownerId), JSON.stringify(next));
   });
 }
 
@@ -531,11 +699,13 @@ export async function applyConversationReadReceipt(
   receipt: ConversationReadReceipt,
 ): Promise<ConversationSyncSnapshot | null> {
   if (!receipt.conversation_id.trim()) return loadCachedConversationSnapshot(ownerId);
-  const cached = await loadCachedConversationSnapshot(ownerId);
-  const next = cached ? applyConversationReadReceiptToSnapshot(cached, receipt) : null;
-  if (next) await AsyncStorage.setItem(cacheKey(ownerId), JSON.stringify(next));
-  for (const listener of readReceiptListeners) listener({ ownerId, receipt });
-  return next;
+  return serializeLocalStateMutation(ownerId, async () => {
+    const cached = await loadCachedConversationSnapshot(ownerId);
+    const next = cached ? applyConversationReadReceiptToSnapshot(cached, receipt) : null;
+    if (next) await AsyncStorage.setItem(cacheKey(ownerId), JSON.stringify(next));
+    for (const listener of readReceiptListeners) listener({ ownerId, receipt });
+    return next;
+  });
 }
 
 export async function clearConversationUnreadLocally(
@@ -578,30 +748,183 @@ export function applyConversationReadReceiptToSnapshot(
   receipt: ConversationReadReceipt,
 ): ConversationSyncSnapshot {
   const identity = conversationReadIdentity(receipt.conversation_type, receipt.conversation_id);
+  let accepted = false;
+  let authoritativeNewerRevision = false;
   const conversations = snapshot.conversations.map((conversation) => {
     if (conversationIdentity(conversation) !== identity) return conversation;
-    if (
-      receipt.revision !== undefined &&
-      conversation.revision !== undefined &&
-      receipt.revision < conversation.revision
-    ) {
+    const namedReceiptRevision = receipt.unread_revision;
+    const currentNamedRevision = Math.max(
+      conversation.unread_revision ?? 0,
+      snapshot.unread_revision ?? 0,
+    );
+    const useLegacyRevision =
+      namedReceiptRevision === undefined &&
+      conversation.unread_revision === undefined &&
+      snapshot.unread_revision === undefined &&
+      conversation.conversation_revision === undefined &&
+      !snapshotHasV2Revision(snapshot);
+    if (namedReceiptRevision !== undefined && namedReceiptRevision < currentNamedRevision)
       return conversation;
-    }
+    if (
+      useLegacyRevision &&
+      receipt.revision !== undefined &&
+      ((conversation.revision !== undefined && receipt.revision < conversation.revision) ||
+        (snapshot.revision !== undefined && receipt.revision < snapshot.revision))
+    )
+      return conversation;
+    accepted = true;
+    const newerRevision =
+      namedReceiptRevision !== undefined
+        ? namedReceiptRevision > currentNamedRevision
+        : useLegacyRevision &&
+          receipt.revision !== undefined &&
+          (conversation.revision === undefined || receipt.revision > conversation.revision);
+    authoritativeNewerRevision ||= newerRevision;
     return {
       ...conversation,
-      unread_count: receipt.unread_count,
-      read_through_message_id: receipt.read_through_message_id,
-      ...(receipt.revision !== undefined ? { revision: receipt.revision } : {}),
+      unread_count: newerRevision
+        ? receipt.unread_count
+        : Math.min(conversation.unread_count, receipt.unread_count),
+      read_through_message_id: Math.max(
+        conversation.read_through_message_id ?? 0,
+        receipt.read_through_message_id,
+      ),
+      ...(namedReceiptRevision !== undefined
+        ? { unread_revision: Math.max(currentNamedRevision, namedReceiptRevision) }
+        : {}),
+      ...(useLegacyRevision && receipt.revision !== undefined
+        ? { revision: receipt.revision }
+        : {}),
     };
   });
+  if (!accepted) return snapshot;
+  const totalUnreadCount =
+    receipt.total_unread_count === undefined
+      ? undefined
+      : authoritativeNewerRevision || snapshot.total_unread_count === undefined
+        ? receipt.total_unread_count
+        : Math.min(snapshot.total_unread_count, receipt.total_unread_count);
   return {
     ...snapshot,
     conversations,
-    ...(receipt.total_unread_count !== undefined
-      ? { total_unread_count: receipt.total_unread_count }
+    ...(receipt.unread_revision !== undefined
+      ? {
+          unread_revision: Math.max(snapshot.unread_revision ?? 0, receipt.unread_revision),
+        }
       : {}),
+    ...(receipt.unread_revision === undefined &&
+    receipt.revision !== undefined &&
+    !snapshotHasV2Revision(snapshot)
+      ? { revision: Math.max(snapshot.revision ?? 0, receipt.revision) }
+      : {}),
+    ...(totalUnreadCount !== undefined ? { total_unread_count: totalUnreadCount } : {}),
     ...(receipt.server_time !== undefined ? { server_time: receipt.server_time } : {}),
   };
+}
+
+function preserveMonotonicConversationReadState(
+  incoming: ConversationSyncSnapshot,
+  cached: ConversationSyncSnapshot,
+): ConversationSyncSnapshot {
+  const cachedRows = new Map(
+    cached.conversations.map((conversation) => [conversationIdentity(conversation), conversation]),
+  );
+  const previewReconciled = reconcileLatestConversationPreviews(
+    incoming.conversations,
+    cached.conversations,
+  );
+  const conversations = previewReconciled.map((conversation) => {
+    const previous = cachedRows.get(conversationIdentity(conversation));
+    if (!previous) return conversation;
+    const incomingRead = conversation.read_through_message_id ?? 0;
+    const previousRead = previous.read_through_message_id ?? 0;
+    const previousRevisionIsNewer = conversationRowUnreadRevisionIsNewer(previous, conversation);
+    const incomingRevisionIsNewer = conversationRowUnreadRevisionIsNewer(conversation, previous);
+    const incomingPreviewIsNewer =
+      conversation.last_message_id !== undefined &&
+      previous.last_message_id !== undefined &&
+      conversation.last_message_id > previous.last_message_id;
+    if (
+      !previousRevisionIsNewer &&
+      previousRead <= incomingRead &&
+      (incomingRevisionIsNewer || incomingPreviewIsNewer || previousRead < incomingRead)
+    ) {
+      return conversation;
+    }
+    const readThrough = Math.max(previousRead, incomingRead);
+    const readCoversIncoming =
+      conversation.last_message_id !== undefined && readThrough >= conversation.last_message_id;
+    return {
+      ...conversation,
+      read_through_message_id: readThrough,
+      unread_count: previousRevisionIsNewer
+        ? previous.unread_count
+        : readCoversIncoming
+          ? 0
+          : Math.min(previous.unread_count, conversation.unread_count),
+      ...(previousRevisionIsNewer && previous.revision !== undefined
+        ? { revision: previous.revision }
+        : {}),
+      ...(previousRevisionIsNewer && previous.unread_revision !== undefined
+        ? { unread_revision: previous.unread_revision }
+        : {}),
+    };
+  });
+  const cachedRevisionIsAtLeastAsNew = unreadSnapshotIsAtLeastAsNew(cached, incoming);
+  const totalUnreadCount =
+    cachedRevisionIsAtLeastAsNew && cached.total_unread_count !== undefined
+      ? incoming.total_unread_count === undefined
+        ? cached.total_unread_count
+        : Math.min(cached.total_unread_count, incoming.total_unread_count)
+      : incoming.total_unread_count;
+  return {
+    ...incoming,
+    conversations,
+    ...(cached.revision !== undefined || incoming.revision !== undefined
+      ? { revision: Math.max(cached.revision ?? 0, incoming.revision ?? 0) }
+      : {}),
+    ...(totalUnreadCount !== undefined ? { total_unread_count: totalUnreadCount } : {}),
+    ...(cached.conversation_revision !== undefined || incoming.conversation_revision !== undefined
+      ? {
+          conversation_revision: Math.max(
+            cached.conversation_revision ?? 0,
+            incoming.conversation_revision ?? 0,
+          ),
+        }
+      : {}),
+    ...(cached.unread_revision !== undefined || incoming.unread_revision !== undefined
+      ? { unread_revision: Math.max(cached.unread_revision ?? 0, incoming.unread_revision ?? 0) }
+      : {}),
+    ...(cached.event_sequence !== undefined || incoming.event_sequence !== undefined
+      ? { event_sequence: Math.max(cached.event_sequence ?? 0, incoming.event_sequence ?? 0) }
+      : {}),
+  };
+}
+
+function conversationRowUnreadRevisionIsNewer(left: Conversation, right: Conversation): boolean {
+  if (left.unread_revision !== undefined && right.unread_revision !== undefined) {
+    return left.unread_revision > right.unread_revision;
+  }
+  const leftHasV2 = left.conversation_revision !== undefined || left.unread_revision !== undefined;
+  const rightHasV2 =
+    right.conversation_revision !== undefined || right.unread_revision !== undefined;
+  if (leftHasV2 || rightHasV2) return false;
+  return (
+    left.revision !== undefined && (right.revision === undefined || left.revision > right.revision)
+  );
+}
+
+function unreadSnapshotIsAtLeastAsNew(
+  left: ConversationSyncSnapshot,
+  right: ConversationSyncSnapshot,
+): boolean {
+  if (left.unread_revision !== undefined && right.unread_revision !== undefined) {
+    return left.unread_revision >= right.unread_revision;
+  }
+  if (snapshotHasV2Revision(left) || snapshotHasV2Revision(right)) return false;
+  return (
+    left.revision !== undefined && (right.revision === undefined || left.revision >= right.revision)
+  );
 }
 
 export function applyConversationReadReceiptToItems(

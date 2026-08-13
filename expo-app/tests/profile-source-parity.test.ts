@@ -13,11 +13,11 @@ describe("Profile source parity", () => {
       "BWChat/ViewModels/ProfileViewModel.swift":
         "126f560668b09acdb4f53132cf9ac32e777f404df3f18d19e8864df85be2bf06",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/AppRemoteConfigStore.swift":
         "6bcf0f8367120bd0fddeb6b27ca1b768fb3d92bb0182c4cdda5d04cdbe3ce85f",
       "BWChat/Services/WalletStore.swift":
-        "cbc20644b9619fd707cf3372265af42e13528f5dcc2d3924455351af66b3cbe6",
+        "ca08308c3e2f95fdd8382f4c0221e936f8a880a068b215ae3d93fcec91f710d8",
       "BWChat/Services/DynamicRouteHandler.swift":
         "fba6f7c42e069901cd310940dad900f7c48a24b92b94fe6083efb7fa2abe24b2",
     };

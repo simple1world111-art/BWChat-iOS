@@ -6,7 +6,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   ActivityIndicator,
   Alert,
-  AppState,
   FlatList,
   Keyboard,
   Modal,
@@ -48,6 +47,7 @@ import { useLocalization } from "@/providers/LocalizationProvider";
 import { useRemoteConfig } from "@/providers/RemoteConfigProvider";
 import { loadCachedAgentCatalog, saveAgentCatalog } from "@/services/agents/AgentCatalogRepository";
 import {
+  applyAgentRealtimeMessage,
   applyConversationLocalState,
   applyServerPinnedRows,
   conversationListIdentity,
@@ -56,6 +56,7 @@ import {
   conversationPreviewText,
   conversationEventSender,
   conversationSenderPrefix,
+  consumeConversationRealtimeUnreadEvent,
   isAgentConversation,
   isScriptRoomConversation,
   mergeAgentConversationRows,
@@ -63,11 +64,12 @@ import {
   reconcileLatestConversationPreviews,
   reconcileRetainedDirectConversationRows,
   resolvedGroupId,
-  shouldApplyConversationPreview,
+  shouldApplyRealtimeConversationPreview,
   shouldResolveScriptRoomAvatar,
   visibleChatConversations,
 } from "@/services/conversations/ConversationListPolicy";
 import { ConversationAccountScope } from "@/services/conversations/ConversationAccountScope";
+import { conversationSyncCoordinator } from "@/services/conversations/ConversationSyncCoordinator";
 import {
   markConversationRead,
   resetConversationReadSubmissionForAccount,
@@ -90,7 +92,9 @@ import {
   saveConversationInitiatedDmIds,
   saveConversationLivePairIds,
   saveConversationPinnedKeys,
+  subscribeConversationCatalogRefreshes,
   subscribeConversationReadReceipts,
+  subscribeConversationSnapshotUpdates,
   subscribeDirectConversationCandidates,
   subscribeDirectConversationPreviewUpdates,
   subscribeGroupConversationPreviewUpdates,
@@ -135,7 +139,7 @@ const SWIPE_ACTION_WIDTH = 144;
 
 type Translate = (key: string, ...args: (string | number)[]) => string;
 type ConversationTheme = ReturnType<typeof palette>;
-type ConversationLoadMode = "initial" | "manual" | "background";
+type ConversationLoadMode = "initial" | "manual" | "projection" | "dependencies";
 
 export default function ConversationsScreen() {
   const insets = useSafeAreaInsets();
@@ -255,7 +259,8 @@ export default function ConversationsScreen() {
   const load = useCallback(
     async (mode: ConversationLoadMode = "initial") => {
       if (!ownerId) return;
-      const forceRefresh = mode !== "initial";
+      const forceRefresh = mode === "manual";
+      const forceDependencyRefresh = forceRefresh || mode === "dependencies";
       const showRefreshIndicator = mode === "manual";
       const generation = ++loadGeneration.current;
       if (showRefreshIndicator) setIsRefreshing(true);
@@ -306,13 +311,19 @@ export default function ConversationsScreen() {
           void refreshDrafts(provisional);
           setIsLoading(false);
         }
+        if (mode === "projection") {
+          setError(null);
+          return;
+        }
 
         const [snapshotResult, friendsResult, agentConversationsResult, installedAgentsResult] =
           await Promise.allSettled([
             loadConversationSnapshotWithNativeCache(ownerId, getConversationSyncSnapshot, {
               forceRefresh,
             }),
-            loadFriendsWithNativeCache(ownerId, getFriendList, { forceRefresh }),
+            loadFriendsWithNativeCache(ownerId, getFriendList, {
+              forceRefresh: forceDependencyRefresh,
+            }),
             getAgentConversations(),
             getInstalledAgents(),
           ]);
@@ -416,7 +427,7 @@ export default function ConversationsScreen() {
         setIsRefreshing(false);
         setRefreshControlRevision((current) => current + 1);
       });
-      void load(itemsRef.current.length > 0 ? "background" : "initial");
+      void load(itemsRef.current.length > 0 ? "projection" : "initial");
       void refreshDrafts(itemsRef.current);
       return () => {
         cancelAnimationFrame(resetRefreshFrame);
@@ -464,13 +475,6 @@ export default function ConversationsScreen() {
       return next;
     });
   }, [activeCall, ownerId, setItems]);
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" && ownerId) void load("background");
-    });
-    return () => subscription.remove();
-  }, [load, ownerId]);
 
   useEffect(() => {
     if (!ownerId) return;
@@ -541,11 +545,22 @@ export default function ConversationsScreen() {
 
   useEffect(() => {
     if (!ownerId) return;
+    return subscribeConversationSnapshotUpdates(ownerId, () => load("projection"));
+  }, [load, ownerId]);
+
+  useEffect(() => {
+    if (!ownerId) return;
+    return subscribeConversationCatalogRefreshes(ownerId, () => load("dependencies"));
+  }, [load, ownerId]);
+
+  useEffect(() => {
+    if (!ownerId) return;
     return chatRealtimeService.subscribe((event) => {
       const eventTicket = accountScopeRef.current.capture();
       if (eventTicket.ownerId !== ownerId) return;
       if (event.type === "refresh_conversations") {
-        void load("background");
+        // RealtimeProvider funnels refresh, foreground, network and push triggers through the
+        // account-scoped single-flight coordinator above.
         return;
       }
       if (event.type === "conversation_preference") {
@@ -566,6 +581,48 @@ export default function ConversationsScreen() {
         if (!accountScopeRef.current.isCurrent(eventTicket)) return current;
         let found = false;
         const next = current.flatMap((conversation) => {
+          if (event.type === "agent_message") {
+            if (
+              conversationListIdentity(conversation) !==
+              `agent:${event.message.conversation_id.trim()}`
+            ) {
+              return [conversation];
+            }
+            found = true;
+            const senderType = event.message.sender.type
+              .trim()
+              .toLocaleLowerCase()
+              .replaceAll("-", "_");
+            const senderId = event.message.sender.id.trim();
+            const outgoingUserMessage =
+              senderType === "user" && (!senderId || senderId === ownerId);
+            const incrementUnread = consumeConversationRealtimeUnreadEvent({
+              ownerId,
+              conversation,
+              messageId: event.message.id || event.message.sequence_no,
+              incoming: !outgoingUserMessage,
+              isActive: chatRealtimeService.isConversationActive(
+                "agent",
+                event.message.conversation_id,
+              ),
+              isUpdate: event.is_update === true,
+              alreadyProjected:
+                event.message.sequence_no > 0 &&
+                event.message.sequence_no === conversation.last_message_id,
+            });
+            const updated = applyAgentRealtimeMessage(
+              conversation,
+              event.message,
+              incrementUnread,
+              t,
+              event.is_update === true,
+            );
+            if (updated === conversation) return [conversation];
+            unhideConversation(ownerId, conversation, setHiddenSnapshots, () =>
+              accountScopeRef.current.isCurrent(eventTicket),
+            );
+            return [updated];
+          }
           if (event.type === "direct_message") {
             const contactId =
               event.message.sender_id === ownerId
@@ -573,19 +630,33 @@ export default function ConversationsScreen() {
                 : event.message.sender_id;
             if (conversationListIdentity(conversation) !== `dm:${contactId}`) return [conversation];
             found = true;
+            const incoming = event.message.sender_id !== ownerId;
+            const incrementUnread = consumeConversationRealtimeUnreadEvent({
+              ownerId,
+              conversation,
+              messageId: event.message.id,
+              incoming,
+              isActive: chatRealtimeService.isConversationActive("dm", contactId),
+              isUpdate: event.is_update === true,
+              alreadyProjected: event.message.id === conversation.last_message_id,
+            });
             if (
-              !shouldApplyConversationPreview(
+              !shouldApplyRealtimeConversationPreview(
                 conversation,
                 event.message.timestamp,
                 event.message.id,
+                event.is_update === true,
+                event.message.version,
+                event.message.id,
               )
             ) {
-              return [conversation];
+              return incrementUnread
+                ? [{ ...conversation, unread_count: conversation.unread_count + 1 }]
+                : [conversation];
             }
             unhideConversation(ownerId, conversation, setHiddenSnapshots, () =>
               accountScopeRef.current.isCurrent(eventTicket),
             );
-            const incoming = event.message.sender_id !== ownerId;
             return [
               {
                 ...conversation,
@@ -602,10 +673,11 @@ export default function ConversationsScreen() {
                 ),
                 last_message_time: event.message.timestamp,
                 last_message_id: event.message.id,
-                unread_count:
-                  incoming && !chatRealtimeService.isConversationActive("dm", contactId)
-                    ? conversation.unread_count + 1
-                    : conversation.unread_count,
+                last_message_version: event.message.version,
+                last_message_sequence: event.message.id,
+                unread_count: incrementUnread
+                  ? conversation.unread_count + 1
+                  : conversation.unread_count,
               },
             ];
           }
@@ -613,19 +685,36 @@ export default function ConversationsScreen() {
             const groupId = resolvedGroupId(conversation);
             if (groupId !== event.message.group_id) return [conversation];
             found = true;
+            const incoming = event.message.sender_id !== ownerId;
+            const incrementUnread = consumeConversationRealtimeUnreadEvent({
+              ownerId,
+              conversation,
+              messageId: event.message.id,
+              incoming,
+              isActive: chatRealtimeService.isConversationActive(
+                "group",
+                String(event.message.group_id),
+              ),
+              isUpdate: event.is_update === true,
+              alreadyProjected: event.message.id === conversation.last_message_id,
+            });
             if (
-              !shouldApplyConversationPreview(
+              !shouldApplyRealtimeConversationPreview(
                 conversation,
                 event.message.timestamp,
                 event.message.id,
+                event.is_update === true,
+                event.message.version,
+                event.message.history_sequence ?? event.message.id,
               )
             ) {
-              return [conversation];
+              return incrementUnread
+                ? [{ ...conversation, unread_count: conversation.unread_count + 1 }]
+                : [conversation];
             }
             unhideConversation(ownerId, conversation, setHiddenSnapshots, () =>
               accountScopeRef.current.isCurrent(eventTicket),
             );
-            const incoming = event.message.sender_id !== ownerId;
             return [
               {
                 ...conversation,
@@ -642,6 +731,8 @@ export default function ConversationsScreen() {
                 ),
                 last_message_time: event.message.timestamp,
                 last_message_id: event.message.id,
+                last_message_version: event.message.version,
+                last_message_sequence: event.message.history_sequence ?? event.message.id,
                 last_message_sender_id: event.message.sender_id,
                 subtitle: conversationEventSender(
                   event.message.msg_type,
@@ -651,11 +742,9 @@ export default function ConversationsScreen() {
                   ownerId,
                   t,
                 ),
-                unread_count:
-                  incoming &&
-                  !chatRealtimeService.isConversationActive("group", String(event.message.group_id))
-                    ? conversation.unread_count + 1
-                    : conversation.unread_count,
+                unread_count: incrementUnread
+                  ? conversation.unread_count + 1
+                  : conversation.unread_count,
               },
             ];
           }
@@ -683,8 +772,34 @@ export default function ConversationsScreen() {
           }
           return [conversation];
         });
-        if (!found && (event.type === "direct_message" || event.type === "group_message")) {
-          queueMicrotask(() => void load("background"));
+        if (!found && ["direct_message", "group_message", "agent_message"].includes(event.type)) {
+          queueMicrotask(() => {
+            if (event.type === "direct_message") {
+              const contactId =
+                event.message.sender_id === ownerId
+                  ? event.message.receiver_id
+                  : event.message.sender_id;
+              void conversationSyncCoordinator.request(ownerId, "realtime_missing_conversation", {
+                conversation_type: "dm",
+                conversation_id: contactId,
+                message_id: event.message.id,
+                message_version: event.message.version,
+              });
+            } else if (event.type === "group_message") {
+              void conversationSyncCoordinator.request(ownerId, "realtime_missing_conversation", {
+                conversation_type: "group",
+                conversation_id: String(event.message.group_id),
+                message_id: event.message.history_sequence ?? event.message.id,
+                message_version: event.message.version,
+              });
+            } else if (event.type === "agent_message") {
+              void conversationSyncCoordinator.request(ownerId, "realtime_missing_conversation", {
+                conversation_type: "agent",
+                conversation_id: event.message.conversation_id,
+                message_id: event.message.sequence_no,
+              });
+            }
+          });
           return current;
         }
         if (accountScopeRef.current.isCurrent(eventTicket)) {
@@ -693,7 +808,7 @@ export default function ConversationsScreen() {
         return next;
       });
     });
-  }, [activeLanguage, load, ownerId, setHiddenSnapshots, setItems, setPinnedKeys, t]);
+  }, [activeLanguage, ownerId, setHiddenSnapshots, setItems, setPinnedKeys, t]);
 
   const ownerStateIsCurrent = stateOwnerId === ownerId;
   const localProjection = useMemo(

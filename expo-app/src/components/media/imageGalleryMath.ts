@@ -1,12 +1,21 @@
+import {
+  mediaPullDismissDecision,
+  MEDIA_PULL_DISMISS_DISTANCE,
+  MEDIA_PULL_FLICK_VELOCITY,
+  MEDIA_PULL_MINIMUM_FLICK_DISTANCE,
+  MEDIA_PULL_VERTICAL_DIRECTION_RATIO,
+  MEDIA_PULL_VISUAL_DEAD_ZONE,
+} from "@/components/media/mediaPullDismissMath";
+
 export const GALLERY_MAXIMUM_SCALE = 5;
 export const GALLERY_MINIMUM_SCALE = 0.5;
 export const GALLERY_REST_SCALE_LIMIT = 1.05;
 export const GALLERY_DOUBLE_TAP_SCALE = 2.5;
-export const GALLERY_VERTICAL_DIRECTION_RATIO = 1.12;
-export const GALLERY_VISUAL_DEAD_ZONE = 18;
-export const GALLERY_DISMISS_DISTANCE = 72;
-export const GALLERY_MINIMUM_FLICK_DISTANCE = 28;
-export const GALLERY_FLICK_VELOCITY = 900;
+export const GALLERY_VERTICAL_DIRECTION_RATIO = MEDIA_PULL_VERTICAL_DIRECTION_RATIO;
+export const GALLERY_VISUAL_DEAD_ZONE = MEDIA_PULL_VISUAL_DEAD_ZONE;
+export const GALLERY_DISMISS_DISTANCE = MEDIA_PULL_DISMISS_DISTANCE;
+export const GALLERY_MINIMUM_FLICK_DISTANCE = MEDIA_PULL_MINIMUM_FLICK_DISTANCE;
+export const GALLERY_FLICK_VELOCITY = MEDIA_PULL_FLICK_VELOCITY;
 
 export interface GalleryFrame {
   x: number;
@@ -110,11 +119,7 @@ export function initialGalleryIndex(
 
 export function galleryDismissDecision(translationY: number, velocityY: number): -1 | 0 | 1 {
   "worklet";
-  const distance = Math.abs(translationY);
-  const shouldDismiss =
-    distance >= GALLERY_DISMISS_DISTANCE ||
-    (distance >= GALLERY_MINIMUM_FLICK_DISTANCE && Math.abs(velocityY) >= GALLERY_FLICK_VELOCITY);
-  return shouldDismiss ? (translationY < 0 ? -1 : 1) : 0;
+  return mediaPullDismissDecision(translationY, velocityY);
 }
 
 /**

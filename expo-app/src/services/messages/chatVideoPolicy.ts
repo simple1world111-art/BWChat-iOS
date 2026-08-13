@@ -6,11 +6,8 @@ export const chatVideoPreparationPolicy = {
 } as const;
 
 export function chatVideoThumbnailPath(videoUrl: string): string {
-  const publicPath = videoUrl.startsWith("/api/v1/images/")
-    ? videoUrl.replace("/api/v1/images/", "/api/v1/public/images/")
-    : videoUrl;
-  const dot = publicPath.lastIndexOf(".");
-  return `${dot >= 0 ? publicPath.slice(0, dot) : publicPath}_thumb.jpg`;
+  const dot = videoUrl.lastIndexOf(".");
+  return `${dot >= 0 ? videoUrl.slice(0, dot) : videoUrl}_thumb.jpg`;
 }
 
 export function chatVideoThumbnailFilename(filename: string): string {

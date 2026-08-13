@@ -76,9 +76,9 @@ describe("native group chat history cache", () => {
   it("advances before/after cursors by server id even when server timestamps are skewed", async () => {
     await saveGroupChatMessages("owner-a", 21, [
       { ...message(1), timestamp: "2026-08-08T00:00:40.000Z" },
-      { ...message(2), timestamp: "2026-08-08T00:00:30.000Z" },
+      { ...message(2), timestamp: "" },
       { ...message(3), timestamp: "2026-08-08T00:00:20.000Z" },
-      { ...message(4), timestamp: "2026-08-08T00:00:10.000Z" },
+      { ...message(4), timestamp: "" },
     ]);
     const latest = await readGroupChatCachedPage("owner-a", 21, { limit: 2 });
     expect(latest.messages.map((item) => item.id).sort((left, right) => left - right)).toEqual([

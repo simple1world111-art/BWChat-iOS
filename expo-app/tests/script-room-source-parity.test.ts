@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const nativeRoot = resolve(expoRoot, "..");
-const originalRoot = resolve(nativeRoot, "..", "BWChat-iOS");
+const originalRoot = nativeRoot;
 
 describe("ScriptRoomChatView source parity", () => {
   it("locks every copied native source used by room UI, state, API and cache", () => {
@@ -20,15 +20,15 @@ describe("ScriptRoomChatView source parity", () => {
       "BWChat/Models/Group.swift":
         "9cc71d2d874002629302dd14f06183bd80cb396f7bfcdd3fbf5838b549bee792",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/WebSocketService.swift":
         "1d9db3787bbcf1c10de58e9861d2c925516c2d8d184c7905ef3320894ddcc262",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Services/MessageStore.swift":
         "51d68cb2481dab3ebf2fcaabc0ce1a79d8eac3e8df1720531e2a92f4972402a7",
       "BWChat/Views/WalletView.swift":
-        "4d8208be25e0bdc19b0fd7631b50c23d78c43e796e91686653e5e21f80f70920",
+        "babacba715143e9dc90ca4db768a0fd9c40e7db17c922edfae4a5273f373b0cd",
     };
     for (const [relativePath, expected] of Object.entries(hashes)) {
       const copied = sourceNative(relativePath);

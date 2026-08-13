@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(__dirname, "..");
-const originalRoot = "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat";
+const originalRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const copiedRoot = resolve(root, "../BWChat");
 
 describe("CreateGroup native source topology", () => {
@@ -14,9 +14,9 @@ describe("CreateGroup native source topology", () => {
       "ViewModels/GroupsViewModel.swift":
         "71ea14e94edcfce52fce29d1db500b2678541663c568d74d6f5eb922c23512a0",
       "Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "Models/Follow.swift": "77d332a2b061e50f01ed036a2538e064f743c63745528d879793ae226db43dba",
     };
     for (const [file, expectedHash] of Object.entries(facts)) {

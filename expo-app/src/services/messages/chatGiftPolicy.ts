@@ -1,12 +1,9 @@
-import type {
-  GiftCatalogItem,
-  GiftMessagePayload,
-  GiftRecipient,
-} from "@/models";
+import type { GiftCatalogItem, GiftMessagePayload, GiftRecipient } from "@/models";
 
 type UnknownRecord = Record<string, unknown>;
 
 export const chatGiftPickerPolicy = {
+  modalBackdropColor: "transparent",
   recipientTitleFontSize: 17,
   recipientTitleHorizontalPadding: 16,
   recipientTitleTopPadding: 18,
@@ -160,19 +157,21 @@ export function normalizeGiftCatalog(value: unknown): GiftCatalogItem[] {
   const record = asRecord(value);
   const raw = Array.isArray(value)
     ? value
-    : [record?.gifts, record?.items, record?.catalog].find(Array.isArray) ?? [];
-  return raw.flatMap((item) => {
-    const normalized = normalizeGiftCatalogItem(item);
-    return normalized && normalized.active !== false && isSupportedGift(normalized)
-      ? [normalized]
-      : [];
-  }).sort((left, right) => {
-    const leftOrder = left.sort_order ?? Number.MAX_SAFE_INTEGER;
-    const rightOrder = right.sort_order ?? Number.MAX_SAFE_INTEGER;
-    return leftOrder === rightOrder
-      ? left.gift_id.localeCompare(right.gift_id, undefined, { numeric: true })
-      : leftOrder - rightOrder;
-  });
+    : ([record?.gifts, record?.items, record?.catalog].find(Array.isArray) ?? []);
+  return raw
+    .flatMap((item) => {
+      const normalized = normalizeGiftCatalogItem(item);
+      return normalized && normalized.active !== false && isSupportedGift(normalized)
+        ? [normalized]
+        : [];
+    })
+    .sort((left, right) => {
+      const leftOrder = left.sort_order ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = right.sort_order ?? Number.MAX_SAFE_INTEGER;
+      return leftOrder === rightOrder
+        ? left.gift_id.localeCompare(right.gift_id, undefined, { numeric: true })
+        : leftOrder - rightOrder;
+    });
 }
 
 export function normalizeGiftCatalogItem(value: unknown): GiftCatalogItem | null {
@@ -191,10 +190,22 @@ export function normalizeGiftCatalogItem(value: unknown): GiftCatalogItem | null
     asset_key: stringValue(record.asset_key, record.assetKey) ?? fixed?.asset_key ?? "gift_fish",
     receiver_currency: "gold_coin",
   };
-  assignOptional(item, "localized_name", localizedText(record.localized_name, record.localizedName));
-  assignOptional(item, "remote_asset_key", stringValue(record.remote_asset_key, record.remoteAssetKey));
+  assignOptional(
+    item,
+    "localized_name",
+    localizedText(record.localized_name, record.localizedName),
+  );
+  assignOptional(
+    item,
+    "remote_asset_key",
+    stringValue(record.remote_asset_key, record.remoteAssetKey),
+  );
   assignOptional(item, "image_url", stringValue(record.image_url, record.imageUrl));
-  assignOptional(item, "animation_asset_key", stringValue(record.animation_asset_key, record.animationAssetKey));
+  assignOptional(
+    item,
+    "animation_asset_key",
+    stringValue(record.animation_asset_key, record.animationAssetKey),
+  );
   assignOptional(item, "sort_order", integerValue(record.sort_order, record.sortOrder));
   assignOptional(item, "active", booleanValue(record.active));
   assignOptional(item, "badge_i18n", localizedText(record.badge_i18n));
@@ -259,41 +270,54 @@ export function normalizeGiftMessagePayload(value: unknown): GiftMessagePayload 
   if (receiverCurrency && receiverCurrency !== "gold_coin") return null;
   const payload: GiftMessagePayload = {
     gift_id: giftId,
-    gift_name: stringValue(record.gift_name, record.giftName, record.name, record.title)
-      ?? fixed?.name
-      ?? localizedFallbackTitle(),
+    gift_name:
+      stringValue(record.gift_name, record.giftName, record.name, record.title) ??
+      fixed?.name ??
+      localizedFallbackTitle(),
     asset_key: stringValue(record.asset_key, record.assetKey) ?? fixed?.asset_key ?? "gift_fish",
     gold_coin_amount: integerValue(record.gold_coin_amount, record.price) ?? fixed?.price ?? 0,
     receiver_currency: "gold_coin",
   };
-  assignOptional(payload, "recipient_id", stringValue(
-    record.recipient_id,
-    record.recipientId,
-    record.receiver_id,
-    record.receiverId,
-    record.to_user_id,
-  ));
-  assignOptional(payload, "recipient_name", stringValue(
-    record.recipient_name,
-    record.recipientName,
-    record.receiver_name,
-    record.receiver_nickname,
-    record.to_nickname,
-    recipientRecord?.nickname,
-    recipientRecord?.name,
-  ));
-  assignOptional(payload, "recipient_avatar_url", stringValue(
-    record.recipient_avatar_url,
-    record.recipientAvatarUrl,
-    record.recipient_avatar,
-    record.receiver_avatar_url,
-    record.receiverAvatarUrl,
-    record.receiver_avatar,
-    record.to_avatar_url,
-    recipientRecord?.avatar_url,
-    recipientRecord?.avatarUrl,
-    recipientRecord?.avatar,
-  ));
+  assignOptional(
+    payload,
+    "recipient_id",
+    stringValue(
+      record.recipient_id,
+      record.recipientId,
+      record.receiver_id,
+      record.receiverId,
+      record.to_user_id,
+    ),
+  );
+  assignOptional(
+    payload,
+    "recipient_name",
+    stringValue(
+      record.recipient_name,
+      record.recipientName,
+      record.receiver_name,
+      record.receiver_nickname,
+      record.to_nickname,
+      recipientRecord?.nickname,
+      recipientRecord?.name,
+    ),
+  );
+  assignOptional(
+    payload,
+    "recipient_avatar_url",
+    stringValue(
+      record.recipient_avatar_url,
+      record.recipientAvatarUrl,
+      record.recipient_avatar,
+      record.receiver_avatar_url,
+      record.receiverAvatarUrl,
+      record.receiver_avatar,
+      record.to_avatar_url,
+      recipientRecord?.avatar_url,
+      recipientRecord?.avatarUrl,
+      recipientRecord?.avatar,
+    ),
+  );
   assignOptional(payload, "sender_id", stringValue(record.sender_id, record.senderId));
   assignOptional(payload, "sender_name", stringValue(record.sender_name, record.sender_nickname));
   return payload;
@@ -355,7 +379,9 @@ export function giftMessagePreview(
   translate: (key: string, ...args: (string | number)[]) => string,
 ): string {
   const payload = parseGiftMessagePayload(content);
-  return payload ? translate("message.giftWithName", localizedGiftPayloadName(payload, translate)) : content;
+  return payload
+    ? translate("message.giftWithName", localizedGiftPayloadName(payload, translate))
+    : content;
 }
 
 export function giftIdempotencyKey(recipientId: string, giftId: string): string {
@@ -373,20 +399,31 @@ export function completeGiftIdempotency(recipientId: string, giftId: string): vo
 
 export function giftAnimationRotation(assetKey: string): { initial: number; final: number } {
   switch (assetKey) {
-    case "gift_fish": return { initial: -12, final: 10 };
-    case "gift_wand": return { initial: -18, final: 8 };
-    case "gift_yarn": return { initial: -35, final: 360 };
-    case "gift_bell": return { initial: -14, final: 14 };
-    default: return { initial: 0, final: 0 };
+    case "gift_fish":
+      return { initial: -12, final: 10 };
+    case "gift_wand":
+      return { initial: -18, final: 8 };
+    case "gift_yarn":
+      return { initial: -35, final: 360 };
+    case "gift_bell":
+      return { initial: -14, final: 14 };
+    default:
+      return { initial: 0, final: 0 };
   }
 }
 
-export function giftParticleSymbol(assetKey: string): "heart.fill" | "pawprint.fill" | "dot.radiowaves.left.and.right" | "sparkle" {
+export function giftParticleSymbol(
+  assetKey: string,
+): "heart.fill" | "pawprint.fill" | "dot.radiowaves.left.and.right" | "sparkle" {
   switch (assetKey) {
-    case "gift_can": return "heart.fill";
-    case "gift_tree": return "pawprint.fill";
-    case "gift_bell": return "dot.radiowaves.left.and.right";
-    default: return "sparkle";
+    case "gift_can":
+      return "heart.fill";
+    case "gift_tree":
+      return "pawprint.fill";
+    case "gift_bell":
+      return "dot.radiowaves.left.and.right";
+    default:
+      return "sparkle";
   }
 }
 
@@ -412,10 +449,12 @@ function payloadFromFixed(gift: GiftCatalogItem): GiftMessagePayload {
 }
 
 function isRenderableGiftPayload(payload: GiftMessagePayload): boolean {
-  return payload.gift_id.trim().length > 0
-    || (payload.gift_name.trim().length > 0 && payload.gift_name !== localizedFallbackTitle())
-    || payload.gold_coin_amount > 0
-    || (payload.asset_key.trim().length > 0 && payload.asset_key !== "gift_fish");
+  return (
+    payload.gift_id.trim().length > 0 ||
+    (payload.gift_name.trim().length > 0 && payload.gift_name !== localizedFallbackTitle()) ||
+    payload.gold_coin_amount > 0 ||
+    (payload.asset_key.trim().length > 0 && payload.asset_key !== "gift_fish")
+  );
 }
 
 function isSupportedGift(gift: GiftCatalogItem): boolean {
@@ -425,7 +464,10 @@ function isSupportedGift(gift: GiftCatalogItem): boolean {
     .every((value) => !retiredGiftIdentifiers.has(value));
 }
 
-function localizedDynamicValue(value: Record<string, string> | undefined, language: string): string | null {
+function localizedDynamicValue(
+  value: Record<string, string> | undefined,
+  language: string,
+): string | null {
   if (!value) return null;
   for (const key of [language, language.split("-")[0] ?? "", "en", "zh-Hans"]) {
     const candidate = value[key]?.trim();
@@ -454,7 +496,12 @@ function stringValue(...values: unknown[]): string | undefined {
 
 function integerValue(...values: unknown[]): number | undefined {
   for (const value of values) {
-    const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value.replaceAll(",", "")) : Number.NaN;
+    const numeric =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value.replaceAll(",", ""))
+          : Number.NaN;
     if (Number.isFinite(numeric)) return Math.trunc(numeric);
   }
   return undefined;
@@ -484,11 +531,15 @@ function parseJSONRecord(value: string): UnknownRecord | null {
 
 function asRecord(value: unknown): UnknownRecord | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as UnknownRecord
+    ? (value as UnknownRecord)
     : null;
 }
 
-function assignOptional<T extends object, K extends keyof T>(target: T, key: K, value: T[K] | undefined): void {
+function assignOptional<T extends object, K extends keyof T>(
+  target: T,
+  key: K,
+  value: T[K] | undefined,
+): void {
   if (value !== undefined) target[key] = value;
 }
 

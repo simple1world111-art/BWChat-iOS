@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const originalRoot = "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat";
+const originalRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const copiedRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const expoRoot = resolve(__dirname, "..");
 
@@ -12,17 +12,17 @@ describe("InAppWebView source/API parity", () => {
       "Views/Web/InAppWebView.swift":
         "7e96133cb669fc96569ee87d014155accceb56af8a23ad56cdafcefa7446192d",
       "Models/DynamicConfigModels.swift":
-        "8a09512ab3e119ac63499fae8aafd0f69c6d1dbc6489d97979bc7c29e3726803",
+        "b418631c7ed9f260e0b34b4e00f9ba0bfcf24506cbdc5717366a68dcc22b79e0",
       "Services/DynamicRouteHandler.swift":
         "fba6f7c42e069901cd310940dad900f7c48a24b92b94fe6083efb7fa2abe24b2",
       "Views/GameCenterView.swift":
         "a8e6eab3e5551521b73c0d5e975b72eeec5ca3a74fb115dbd58d2ff8c2de2f4c",
       "Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "Services/AdRewardService.swift":
         "da581ee90e805c67db0d0fdc9bffe1aace67a34daacaa13bad42ad37ab2abe90",
       "Services/WalletStore.swift":
-        "cbc20644b9619fd707cf3372265af42e13528f5dcc2d3924455351af66b3cbe6",
+        "ca08308c3e2f95fdd8382f4c0221e936f8a880a068b215ae3d93fcec91f710d8",
     };
     for (const [file, expected] of Object.entries(sources)) {
       const original = readFileSync(resolve(originalRoot, file));

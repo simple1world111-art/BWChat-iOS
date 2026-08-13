@@ -1,18 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { waitFor } from "@testing-library/react-native";
 
-import { getWalletBalance, getWalletTransactionPage, getWalletWithdrawals } from "@/api/bwchat";
-import type {
-  WalletBalanceSnapshot,
-  WalletTransaction,
-  WalletTransactionPage,
-  WalletWithdrawal,
-} from "@/models";
+import { getWalletBalance, getWalletTransactionPage } from "@/api/bwchat";
+import type { WalletBalanceSnapshot, WalletTransaction, WalletTransactionPage } from "@/models";
 import {
   loadMoreWalletTransactions,
   loadWalletBalance,
   loadWalletTransactions,
-  loadWalletWithdrawalList,
   readCachedWalletBalance,
   readCachedWalletTransactions,
   resetWalletRepositoryMemoryForTests,
@@ -21,11 +15,8 @@ import {
 import { walletMetrics } from "@/services/wallet/walletPolicy";
 
 jest.mock("@/api/bwchat", () => ({
-  cancelWalletWithdrawal: jest.fn(),
-  createWalletWithdrawal: jest.fn(),
   getWalletBalance: jest.fn(),
   getWalletTransactionPage: jest.fn(),
-  getWalletWithdrawals: jest.fn(),
 }));
 
 jest.mock("@/services/messages/ChatGiftRepository", () => ({
@@ -34,7 +25,6 @@ jest.mock("@/services/messages/ChatGiftRepository", () => ({
 
 const fetchBalance = jest.mocked(getWalletBalance);
 const fetchTransactions = jest.mocked(getWalletTransactionPage);
-const fetchWithdrawals = jest.mocked(getWalletWithdrawals);
 const now = Date.parse("2026-08-08T12:00:00.000Z");
 
 describe("native wallet cache and pagination state machine", () => {
@@ -145,16 +135,6 @@ describe("native wallet cache and pagination state machine", () => {
     });
     expect(fetchTransactions).toHaveBeenCalledWith({ cursor: "cursor-one", limit: 50 });
   });
-
-  it("caps the cached withdrawal history at the native five-hundred row limit", async () => {
-    fetchWithdrawals.mockResolvedValue(
-      Array.from({ length: 501 }, (_, index) => withdrawal(`withdrawal-${index}`)),
-    );
-    const result = await loadWalletWithdrawalList("owner");
-    expect(result.source).toBe("remote");
-    expect(result.value).toHaveLength(500);
-    expect(result.value.at(-1)?.id).toBe("withdrawal-499");
-  });
 });
 
 async function saveEnvelope(key: string, value: unknown, savedAt: number): Promise<void> {
@@ -167,10 +147,6 @@ function balance(value: number): WalletBalanceSnapshot {
     gold_coin_balance: value,
     activity_cat_food_balance: 0,
     spendable_balance: value,
-    recharge_gold_coin_balance: value,
-    gift_income_gold_coin_balance: 0,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 0,
     chat_money_frozen_gold_coin_balance: 0,
   };
 }
@@ -188,15 +164,6 @@ function page(transactions: WalletTransaction[], nextCursor?: string): WalletTra
   return {
     transactions,
     ...(nextCursor ? { next_cursor: nextCursor } : {}),
-  };
-}
-
-function withdrawal(id: string): WalletWithdrawal {
-  return {
-    id,
-    currency: "gold_coin",
-    gold_coin_amount: 100,
-    status: "pending",
   };
 }
 

@@ -182,10 +182,6 @@ describe("native public-profile content contracts", () => {
           gold_coin_balance: 8,
           activity_cat_food_balance: 1,
           spendable_balance: 9,
-          recharge_gold_coin_balance: 8,
-          gift_income_gold_coin_balance: 0,
-          withdraw_frozen_gold_coin_balance: 0,
-          withdrawable_gold_coin_balance: 0,
           chat_money_frozen_gold_coin_balance: 0,
         },
         consumed_prop: {

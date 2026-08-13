@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const nativeRoot = resolve(expoRoot, "..");
-const originalNativeRoot = resolve(expoRoot, "../../BWChat-iOS");
+const originalNativeRoot = resolve(expoRoot, "..");
 
 describe("FollowList source parity", () => {
   it("locks the native view, view-model, model, API and cache sources", () => {
@@ -16,9 +16,9 @@ describe("FollowList source parity", () => {
       "BWChat/Models/Follow.swift":
         "77d332a2b061e50f01ed036a2538e064f743c63745528d879793ae226db43dba",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Utils/Extensions.swift":
         "e625dab1ea95cbd63d74c1e8bf33d4bf3f4a85adbd2001c1b0ca27a99bcc5ce5",
       "BWChat/Components/AvatarView.swift":

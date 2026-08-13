@@ -4,13 +4,12 @@ import { Platform } from "react-native";
 
 import { apiRequest } from "@/api/client";
 import { conversationListIdentity } from "@/services/conversations/ConversationListPolicy";
+import { loadCachedConversationSnapshot } from "@/services/conversations/ConversationRepository";
+import { conversationSyncCoordinator } from "@/services/conversations/ConversationSyncCoordinator";
 import {
-  conversationReadIdentity,
-  loadCachedConversationSnapshot,
-} from "@/services/conversations/ConversationRepository";
-import {
-  conversationNotificationMessageIsRead,
+  conversationNotificationReadPosition,
   conversationNotificationRouteIdentities,
+  conversationNotificationRouteIsRead,
   hydrateAndCheckConversationNotificationRead,
   resetConversationNotificationReadStateForTests,
 } from "@/services/conversations/ConversationNotificationReadState";
@@ -30,22 +29,33 @@ import type { GroupNotificationSettings } from "@/models";
 
 export { readCachedNativePushToken } from "@/services/push/PushTokenStore";
 
-export type NotificationConversationType = "dm" | "group";
+export type NotificationConversationType = "dm" | "group" | "agent" | "script";
 
 export interface NotificationRoute {
   eventId: string;
   conversationType: NotificationConversationType;
   conversationId: string;
+  conversationKey: string;
+  messageKey?: string | undefined;
+  messageSequence?: number | undefined;
+  messageVersion?: number | undefined;
   senderId?: string | undefined;
   groupId?: number | undefined;
+  agentId?: string | undefined;
+  scriptRoomId?: string | undefined;
+  scriptId?: string | undefined;
+  agentAvatarAssetId?: string | undefined;
   messageId?: number | undefined;
   conversationRevision?: number | undefined;
+  unreadRevision?: number | undefined;
   unreadCount?: number | undefined;
   totalUnreadCount?: number | undefined;
   senderName?: string | undefined;
   senderAvatar?: string | undefined;
   groupName?: string | undefined;
   groupAvatar?: string | undefined;
+  conversationName?: string | undefined;
+  conversationAvatar?: string | undefined;
   messageType?: string | undefined;
   contentPreview?: string | undefined;
   sentAt?: string | undefined;
@@ -68,6 +78,8 @@ export interface PushPresentationPolicy {
 const legacyPendingOpenKey = "bwchat.push.pending-open.v1";
 const pendingOpenQueueKey = "bwchat.push.pending-open.v2";
 const processedEventIdsKey = "bwchat.push.processed-event-ids.v1";
+const receivedSideEffectIdsKey = "bwchat.push.received-side-effect-ids.v1";
+const unreadRevisionsKey = "bwchat.push.unread-revisions.v1";
 const groupPushTypes = new Set([
   "group",
   "group_message",
@@ -76,13 +88,35 @@ const groupPushTypes = new Set([
   "groupchat",
 ]);
 const callPushTypes = new Set(["call", "call_invite", "group_call", "group_call_invite"]);
+const securityPushTypes = new Set([
+  "account_security",
+  "safety_alert",
+  "security",
+  "security_alert",
+]);
 const directPushTypes = new Set([
   "chat",
   "chat_message",
   "direct_message",
   "dm",
+  "dm_message",
   "message",
   "new_message",
+]);
+const agentPushTypes = new Set([
+  "agent",
+  "agent_chat",
+  "agent_message",
+  "agent_conversation",
+  "new_agent_message",
+]);
+const scriptPushTypes = new Set([
+  "script",
+  "script_chat",
+  "script_message",
+  "script_room",
+  "script_room_message",
+  "new_script_message",
 ]);
 const maximumPendingOpenCount = 16;
 const uploadFlights = new Map<string, Promise<void>>();
@@ -90,9 +124,16 @@ const uploadedSessions = new Set<string>();
 const uploadSessionGenerations = new Map<string, number>();
 let initialized = false;
 let processedEventIdsPromise: Promise<Set<string>> | null = null;
+let receivedSideEffectIdsPromise: Promise<Set<string>> | null = null;
+let unreadRevisionsPromise: Promise<Map<string, number>> | null = null;
 let activePushOwnerId = "";
 let pendingOpenMutationChain: Promise<unknown> = Promise.resolve();
+let receivedSideEffectMutationChain: Promise<unknown> = Promise.resolve();
+let unreadRevisionMutationChain: Promise<unknown> = Promise.resolve();
 const claimedPushEventIds = new Set<string>();
+const claimedReceivedSideEffectIds = new Set<string>();
+const lastForegroundPresentationByConversation = new Map<string, number>();
+const foregroundPresentationWindowMilliseconds = 1_500;
 
 export function initializePushNotifications(): void {
   if (initialized) return;
@@ -102,29 +143,42 @@ export function initializePushNotifications(): void {
       const input = notification.request.content.data;
       const route = parseNotificationRoute(input);
       const policy = presentationPolicyForPush(input, {
-        hasActiveConversation: () => chatRealtimeService.hasActiveConversation(),
-        isConversationActive: (type, id) => chatRealtimeService.isConversationActive(type, id),
+        isConversationActive: (type, id) =>
+          (
+            chatRealtimeService.isConversationActive as (
+              surface: NotificationConversationType,
+              surfaceId: string,
+            ) => boolean
+          )(type, id),
+        coalesce: false,
       });
       if (!policy.shouldShowBanner || !activePushOwnerId) return policy;
       if (foregroundChatPushWasRead(input, activePushOwnerId)) return behavior(false, false);
-      if (route && (await hydrateAndCheckConversationNotificationRead(activePushOwnerId, route))) {
+      if (
+        route &&
+        (await hydrateAndCheckConversationNotificationRead(activePushOwnerId, readRoute(route)))
+      ) {
         return behavior(false, false);
       }
-      if (route?.conversationType !== "group" || !route.groupId) return policy;
+      if (
+        (route?.conversationType !== "group" && route?.conversationType !== "script") ||
+        !route.groupId
+      )
+        return coalesceForegroundPresentation(input, policy);
       try {
         const config = await readCachedRemoteConfig(activePushOwnerId);
         if (
           !config ||
           !featureFlagEnabled(config, "group_notification_settings_v1", activePushOwnerId, false)
         )
-          return policy;
+          return coalesceForegroundPresentation(input, policy);
         const detail = await loadCachedGroupDetail(activePushOwnerId, route.groupId);
         return detail && !shouldAlertForGroupSettings(detail.notification_settings, route)
           ? behavior(false, false)
-          : policy;
+          : coalesceForegroundPresentation(input, policy);
       } catch (error) {
         captureException(error, { operation: "push_group_foreground_policy" });
-        return policy;
+        return coalesceForegroundPresentation(input, policy);
       }
     },
     handleError: (_notificationId, error) =>
@@ -148,7 +202,9 @@ export function initializePushNotifications(): void {
 }
 
 export function setActivePushOwnerId(ownerId: string): void {
-  activePushOwnerId = ownerId.trim();
+  const nextOwnerId = ownerId.trim();
+  if (nextOwnerId !== activePushOwnerId) lastForegroundPresentationByConversation.clear();
+  activePushOwnerId = nextOwnerId;
 }
 
 export function shouldAlertForGroupSettings(
@@ -176,13 +232,33 @@ export function flattenNotificationPayload(input: unknown): Record<string, unkno
 
 export function parseNotificationRoute(input: unknown): NotificationRoute | null {
   const payload = flattenNotificationPayload(input);
-  const groupId = firstInteger(payload, [
+  const aps = recordValue(payload.aps);
+  const suppliedConversationKey =
+    firstString(payload, ["conversation_key", "conversationKey", "thread_id", "threadId"]) ??
+    firstString(aps ?? {}, ["thread-id", "thread_id", "threadId"]);
+  const keyIdentity = parseConversationKey(suppliedConversationKey);
+  const groupIdText = firstString(payload, [
     "group_id",
     "groupId",
     "groupID",
     "chat_group_id",
     "target_group_id",
   ]);
+  const groupId = integerValue(groupIdText);
+  const agentConversationId = firstString(payload, [
+    "agent_conversation_id",
+    "agentConversationId",
+    "agent_chat_id",
+  ]);
+  const scriptRoomId = firstString(payload, [
+    "script_room_id",
+    "scriptRoomId",
+    "room_id",
+    "roomId",
+  ]);
+  const explicitSurfaceType = normalizeNotificationConversationType(
+    firstString(payload, ["surface_type", "surfaceType", "surface_kind", "surfaceKind"]),
+  );
   const rawType = firstString(payload, [
     "conversation_type",
     "conversationType",
@@ -190,8 +266,6 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
     "pushType",
     "type",
   ])?.toLocaleLowerCase();
-  const conversationType: NotificationConversationType =
-    groupId !== undefined || (rawType ? groupPushTypes.has(rawType) : false) ? "group" : "dm";
   const senderId = firstString(payload, [
     "sender_id",
     "senderId",
@@ -202,46 +276,130 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
     "peer_user_id",
     "contact_id",
   ]);
+  const inferredType = agentConversationId
+    ? "agent"
+    : scriptRoomId
+      ? "script"
+      : groupIdText !== undefined
+        ? "group"
+        : normalizeNotificationConversationType(rawType);
+  const conversationType: NotificationConversationType =
+    explicitSurfaceType ?? keyIdentity?.type ?? inferredType ?? "dm";
+  const explicitSurfaceId = firstString(payload, ["surface_id", "surfaceId"]);
   const explicitConversationId = firstString(payload, [
     "conversation_id",
     "conversationId",
     "chat_id",
     "chatId",
   ]);
-  const conversationId =
-    conversationType === "group"
-      ? (explicitConversationId ?? (groupId !== undefined ? String(groupId) : undefined))
-      : (explicitConversationId ?? senderId);
+  const agentId = firstString(payload, ["agent_id", "agentId"]);
+  const scriptId = firstString(payload, ["script_id", "scriptId"]);
+  const conversationId = firstDefinedString([
+    explicitSurfaceId,
+    keyIdentity?.id,
+    conversationType === "agent" ? agentConversationId : undefined,
+    conversationType === "script" ? scriptRoomId : undefined,
+    explicitConversationId,
+    conversationType === "group" ? groupIdText : undefined,
+    conversationType === "agent" ? agentId : undefined,
+    senderId,
+  ]);
   if (!conversationId) return null;
+  const conversationKey = `${conversationType}:${conversationId}`;
+  const resolvedGroupId =
+    groupId ??
+    (conversationType === "group" || conversationType === "script"
+      ? integerValue(conversationId)
+      : undefined);
   // A bare `id` is frequently a notification, sender or group identity. Only
   // message-specific keys are safe for timeline reconciliation.
+  const messageKey = firstString(payload, ["message_id", "messageId", "msg_id", "msgId"]);
   const messageId = firstInteger(payload, ["message_id", "messageId", "msg_id", "msgId"]);
+  const messageSequence = firstInteger(payload, [
+    "message_sequence",
+    "messageSequence",
+    "sequence",
+  ]);
+  const messageVersion =
+    messageKey || messageSequence !== undefined
+      ? firstInteger(payload, ["message_version", "messageVersion", "version"])
+      : undefined;
   const suppliedEventId = firstString(payload, ["event_id", "eventId"]);
   const sentAt = firstString(payload, ["sent_at", "timestamp", "last_message_time"]);
   const eventId =
-    messageId !== undefined
-      ? `${conversationType}:${conversationId}:message:${messageId}`
-      : (suppliedEventId ?? [conversationType, conversationId, "", sentAt ?? ""].join(":"));
-  const aps = recordValue(payload.aps);
+    suppliedEventId ??
+    (messageKey
+      ? `${conversationKey}:message:${messageKey}`
+      : messageSequence !== undefined
+        ? `${conversationKey}:sequence:${messageSequence}`
+        : [conversationKey, "", sentAt ?? ""].join(":"));
   const totalUnreadCount =
-    firstInteger(payload, ["total_unread_count", "totalUnreadCount", "badge"]) ??
+    firstInteger(payload, ["total_unread", "total_unread_count", "totalUnreadCount", "badge"]) ??
     integerValue(aps?.badge);
+  const conversationName = notificationDisplayText(
+    firstString(payload, [
+      "conversation_name",
+      "conversationName",
+      "agent_name",
+      "agentName",
+      "script_name",
+      "scriptName",
+      "group_name",
+      "groupName",
+    ]),
+  );
+  const conversationAvatar = firstString(payload, [
+    "conversation_avatar_url",
+    "conversation_avatar",
+    "conversationAvatarURL",
+    "conversationAvatarUrl",
+    "agent_avatar_url",
+    "agentAvatarUrl",
+    "script_avatar_url",
+    "scriptAvatarUrl",
+    "script_cover_url",
+    "cover_url",
+    "group_avatar_url",
+    "group_avatar",
+    "groupAvatarURL",
+    "groupAvatarUrl",
+    "groupAvatar",
+  ]);
   return {
     eventId,
     conversationType,
     conversationId,
+    conversationKey,
+    ...(messageKey ? { messageKey } : {}),
+    ...(messageSequence !== undefined ? { messageSequence } : {}),
+    ...(messageVersion !== undefined ? { messageVersion } : {}),
     ...(senderId ? { senderId } : {}),
-    ...(groupId !== undefined || conversationType === "group"
-      ? { groupId: groupId ?? (Number(conversationId) || 0) }
-      : {}),
+    ...(resolvedGroupId !== undefined ? { groupId: resolvedGroupId } : {}),
+    ...(agentId ? { agentId } : {}),
+    ...(conversationType === "script" ? { scriptRoomId: conversationId } : {}),
+    ...(scriptId ? { scriptId } : {}),
+    ...optionalString(
+      "agentAvatarAssetId",
+      firstString(payload, ["agent_avatar_asset_id", "agentAvatarAssetId", "avatar_asset_id"]),
+    ),
     ...(messageId !== undefined ? { messageId } : {}),
     ...optionalNumber(
       "conversationRevision",
       firstInteger(payload, ["conversation_revision", "conversationRevision", "revision"]),
     ),
     ...optionalNumber(
+      "unreadRevision",
+      firstInteger(payload, ["unread_revision", "unreadRevision"]),
+    ),
+    ...optionalNumber(
       "unreadCount",
-      firstInteger(payload, ["unread_count", "unreadCount", "unread"]),
+      firstInteger(payload, [
+        "conversation_unread",
+        "conversationUnread",
+        "unread_count",
+        "unreadCount",
+        "unread",
+      ]),
     ),
     ...optionalNumber("totalUnreadCount", totalUnreadCount),
     ...optionalString(
@@ -264,9 +422,10 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
     ),
     ...optionalString(
       "groupName",
-      notificationDisplayText(
-        firstString(payload, ["group_name", "groupName", "conversation_name"]),
-      ),
+      notificationDisplayText(firstString(payload, ["group_name", "groupName"])) ??
+        (conversationType === "group" || conversationType === "script"
+          ? conversationName
+          : undefined),
     ),
     ...optionalString(
       "groupAvatar",
@@ -276,8 +435,13 @@ export function parseNotificationRoute(input: unknown): NotificationRoute | null
         "groupAvatarURL",
         "groupAvatarUrl",
         "groupAvatar",
-      ]),
+      ]) ??
+        (conversationType === "group" || conversationType === "script"
+          ? conversationAvatar
+          : undefined),
     ),
+    ...optionalString("conversationName", conversationName),
+    ...optionalString("conversationAvatar", conversationAvatar),
     ...optionalString(
       "messageType",
       firstString(payload, ["msg_type", "message_type", "last_message_type"]),
@@ -301,7 +465,8 @@ export function presentationPolicyForPush(
   input: unknown,
   context: {
     isConversationActive: (type: NotificationConversationType, id: string) => boolean;
-    hasActiveConversation?: (() => boolean) | undefined;
+    now?: (() => number) | undefined;
+    coalesce?: boolean | undefined;
   },
 ): PushPresentationPolicy {
   const payload = flattenNotificationPayload(input);
@@ -313,19 +478,12 @@ export function presentationPolicyForPush(
   ])?.toLocaleLowerCase();
   if (type && callPushTypes.has(type)) return behavior(false, true);
   if (type === "moments_update") return behavior(true, true);
+  if (type && securityPushTypes.has(type)) return behavior(true, true);
   const route = parseNotificationRoute(payload);
   if (route?.notificationMode === "badge_only") return behavior(false, false);
   if (
-    !route &&
-    type &&
-    (directPushTypes.has(type) || groupPushTypes.has(type)) &&
-    context.hasActiveConversation?.()
-  ) {
-    return behavior(false, false);
-  }
-  if (
     route &&
-    conversationNotificationRouteIdentities(route).some((identity) => {
+    notificationRouteIdentities(route).some((identity) => {
       const separator = identity.indexOf(":");
       return context.isConversationActive(
         identity.slice(0, separator) as NotificationConversationType,
@@ -334,7 +492,10 @@ export function presentationPolicyForPush(
     })
   )
     return behavior(false, false);
-  return behavior(true, true);
+  const policy = behavior(true, true);
+  return context.coalesce === false
+    ? policy
+    : coalesceForegroundPresentation(payload, policy, context.now?.() ?? Date.now());
 }
 
 export function pushOpenTarget(input: unknown, fallbackEventId: string): PushOpenTarget | null {
@@ -346,13 +507,14 @@ export function pushOpenTarget(input: unknown, fallbackEventId: string): PushOpe
     "type",
   ])?.toLocaleLowerCase();
   if (type && callPushTypes.has(type)) return null;
+  if (type && securityPushTypes.has(type)) return null;
   if (type === "moments_update") {
     return {
       kind: "moments",
       eventId: firstString(payload, ["event_id", "eventId"]) ?? `moments:${fallbackEventId}`,
     };
   }
-  if (type && !directPushTypes.has(type) && !groupPushTypes.has(type)) return null;
+  if (type && !isMessagePushType(type)) return null;
   const route = parseNotificationRoute(payload);
   return route ? { kind: "conversation", eventId: route.eventId, route } : null;
 }
@@ -415,48 +577,70 @@ export function beginNativePushUploadSession(ownerId: string): number {
   return generation;
 }
 
-export async function applyPushSideEffects(input: unknown, ownerId = ""): Promise<void> {
-  if (pushOpenTarget(input, "received")?.kind === "moments") {
-    incrementMomentsUnread(ownerId);
+/**
+ * Applies notification receive side effects at most once for a logical event. Both the
+ * foreground listener and the background task call this entry point. An in-memory lease prevents
+ * concurrent work; the event is persisted only after all effects complete so a process death or
+ * failed badge write remains retryable on the next delivery.
+ * Returns false when this delivery was already handled.
+ */
+export async function applyPushSideEffects(input: unknown, ownerId = ""): Promise<boolean> {
+  const receiptIdentity = pushReceiveIdentity(input);
+  const receiptKey = receiptIdentity
+    ? `${ownerId.trim() || "device"}:${receiptIdentity}`
+    : undefined;
+  if (receiptKey && !(await claimReceivedSideEffect(receiptKey))) return false;
+  try {
+    if (pushOpenTarget(input, "received")?.kind === "moments") {
+      incrementMomentsUnread(ownerId);
+    }
+    const route = parseNotificationRoute(input);
+    const alreadyRead = route
+      ? await hydrateAndCheckConversationNotificationRead(ownerId, readRoute(route))
+      : false;
+    const readPosition = route ? conversationNotificationReadPosition(readRoute(route)) : undefined;
+    if (alreadyRead && route) {
+      if (readPosition !== undefined) {
+        await dismissReadConversationNotifications(
+          route.conversationType,
+          route.conversationId,
+          readPosition,
+        );
+      }
+      await commitUnreadRevisionIfFresh(ownerId, route.unreadRevision);
+    } else if (route?.totalUnreadCount !== undefined) {
+      await applyBadgeForUnreadRevision(
+        ownerId,
+        route.unreadRevision,
+        Math.max(0, route.totalUnreadCount),
+      );
+    }
+    const normalizedOwner = ownerId.trim();
+    if (normalizedOwner) {
+      await conversationSyncCoordinator.request(
+        normalizedOwner,
+        "push_notification",
+        route
+          ? {
+              conversation_type: route.conversationType,
+              conversation_id: route.conversationId,
+              message_id: route.messageSequence ?? route.messageId,
+              message_version: route.messageVersion,
+            }
+          : undefined,
+      );
+    }
+    if (receiptKey) await completeReceivedSideEffect(receiptKey);
+    return true;
+  } catch (error) {
+    if (receiptKey) await releaseReceivedSideEffect(receiptKey);
+    throw error;
   }
-  const route = parseNotificationRoute(input);
-  const alreadyRead = route
-    ? await hydrateAndCheckConversationNotificationRead(ownerId, route)
-    : false;
-  if (alreadyRead && route?.messageId !== undefined) {
-    await dismissReadConversationNotifications(
-      route.conversationType,
-      route.conversationId,
-      route.messageId,
-    );
-  } else if (route?.totalUnreadCount !== undefined) {
-    await Notifications.setBadgeCountAsync(Math.max(0, route.totalUnreadCount)).catch(() => false);
-  }
-  chatRealtimeService.requestConversationRefresh("push_notification");
 }
 
 export function foregroundChatPushWasRead(input: unknown, ownerId: string): boolean {
-  const payload = flattenNotificationPayload(input);
-  const route = parseNotificationRoute(payload);
-  const messageId =
-    route?.messageId ?? firstInteger(payload, ["message_id", "messageId", "msg_id", "msgId"]);
-  if (route) {
-    return conversationNotificationMessageIsRead(ownerId, route.conversationType, messageId);
-  }
-  const type = firstString(payload, [
-    "conversation_type",
-    "conversationType",
-    "push_type",
-    "pushType",
-    "type",
-  ])?.toLocaleLowerCase();
-  if (!type || !messageId) return false;
-  if (groupPushTypes.has(type)) {
-    return conversationNotificationMessageIsRead(ownerId, "group", messageId);
-  }
-  return directPushTypes.has(type)
-    ? conversationNotificationMessageIsRead(ownerId, "dm", messageId)
-    : false;
+  const route = parseNotificationRoute(input);
+  return route ? conversationNotificationRouteIsRead(ownerId, readRoute(route)) : false;
 }
 
 /** Removes delivered notifications covered by a locally visible or server-confirmed read. */
@@ -479,12 +663,10 @@ export async function dismissActiveConversationNotifications(
 ): Promise<number> {
   const normalizedId = conversationId.trim();
   if (!normalizedId) return 0;
-  const activeIdentity = conversationReadIdentity(conversationType, normalizedId);
+  const activeIdentity = `${conversationType}:${normalizedId}`;
   return dismissPresentedNotifications("active_chat_notification_cleanup", (notification) => {
     const route = parseNotificationRoute(notification.request.content.data);
-    return Boolean(
-      route && conversationNotificationRouteIdentities(route).includes(activeIdentity),
-    );
+    return Boolean(route && notificationRouteIdentities(route).includes(activeIdentity));
   });
 }
 
@@ -581,12 +763,18 @@ export async function markPushEventProcessed(eventId: string): Promise<void> {
 export function resetPushServiceForTests(): void {
   initialized = false;
   processedEventIdsPromise = null;
+  receivedSideEffectIdsPromise = null;
+  unreadRevisionsPromise = null;
   uploadedSessions.clear();
   uploadFlights.clear();
   uploadSessionGenerations.clear();
   activePushOwnerId = "";
   pendingOpenMutationChain = Promise.resolve();
+  receivedSideEffectMutationChain = Promise.resolve();
+  unreadRevisionMutationChain = Promise.resolve();
   claimedPushEventIds.clear();
+  claimedReceivedSideEffectIds.clear();
+  lastForegroundPresentationByConversation.clear();
   resetConversationNotificationReadStateForTests();
 }
 
@@ -678,11 +866,16 @@ async function dismissNotificationsCoveredByConversationReads(
   if (maximumReadThrough.size === 0) return 0;
   return dismissPresentedNotifications("chat_read_notification_cleanup", (notification) => {
     const route = parseNotificationRoute(notification.request.content.data);
-    if (!route || route.messageId === undefined) return false;
-    const throughMessageId = maximumReadThrough.get(
-      `${route.conversationType}:${route.conversationId}`,
+    const routePosition = route
+      ? conversationNotificationReadPosition(readRoute(route))
+      : undefined;
+    if (!route || routePosition === undefined) return false;
+    const throughMessageId = Math.max(
+      ...notificationRouteIdentities(route).map(
+        (identity) => maximumReadThrough.get(identity) ?? Number.NEGATIVE_INFINITY,
+      ),
     );
-    return throughMessageId !== undefined && route.messageId <= throughMessageId;
+    return throughMessageId !== undefined && routePosition <= throughMessageId;
   });
 }
 
@@ -721,6 +914,162 @@ async function processedEventIds(): Promise<Set<string>> {
     }
   });
   return processedEventIdsPromise;
+}
+
+function pushReceiveIdentity(input: unknown): string | null {
+  const payload = flattenNotificationPayload(input);
+  const suppliedEventId = firstString(payload, ["event_id", "eventId"]);
+  if (suppliedEventId) return `event:${suppliedEventId}`;
+  const route = parseNotificationRoute(payload);
+  if (route?.messageKey) return `message:${route.conversationKey}:${route.messageKey}`;
+  if (route?.messageSequence !== undefined) {
+    return `sequence:${route.conversationKey}:${route.messageSequence}`;
+  }
+  return null;
+}
+
+async function claimReceivedSideEffect(key: string): Promise<boolean> {
+  const task = receivedSideEffectMutationChain.then(async () => {
+    if (claimedReceivedSideEffectIds.has(key)) return false;
+    const ids = await receivedSideEffectIds();
+    if (ids.has(key)) return false;
+    claimedReceivedSideEffectIds.add(key);
+    return true;
+  });
+  receivedSideEffectMutationChain = task.catch(() => undefined);
+  return task;
+}
+
+async function completeReceivedSideEffect(key: string): Promise<void> {
+  const task = receivedSideEffectMutationChain.then(async () => {
+    const ids = await receivedSideEffectIds();
+    const next = new Set(ids);
+    next.delete(key);
+    next.add(key);
+    while (next.size > 512) next.delete(next.values().next().value as string);
+    await AsyncStorage.setItem(receivedSideEffectIdsKey, JSON.stringify([...next]));
+    ids.clear();
+    for (const id of next) ids.add(id);
+    claimedReceivedSideEffectIds.delete(key);
+  });
+  receivedSideEffectMutationChain = task.catch(() => undefined);
+  return task;
+}
+
+async function releaseReceivedSideEffect(key: string): Promise<void> {
+  const task = receivedSideEffectMutationChain.then(async () => {
+    claimedReceivedSideEffectIds.delete(key);
+  });
+  receivedSideEffectMutationChain = task.catch(() => undefined);
+  return task;
+}
+
+async function receivedSideEffectIds(): Promise<Set<string>> {
+  receivedSideEffectIdsPromise ??= AsyncStorage.getItem(receivedSideEffectIdsKey).then(
+    (encoded) => {
+      if (!encoded) return new Set<string>();
+      try {
+        const parsed = JSON.parse(encoded) as unknown;
+        return new Set(
+          Array.isArray(parsed)
+            ? parsed.filter((value): value is string => typeof value === "string").slice(-512)
+            : [],
+        );
+      } catch {
+        return new Set<string>();
+      }
+    },
+  );
+  return receivedSideEffectIdsPromise;
+}
+
+async function commitUnreadRevisionIfFresh(
+  ownerId: string,
+  revision: number | undefined,
+): Promise<boolean> {
+  return mutateUnreadRevision(ownerId, revision);
+}
+
+async function applyBadgeForUnreadRevision(
+  ownerId: string,
+  revision: number | undefined,
+  totalUnread: number,
+): Promise<boolean> {
+  return mutateUnreadRevision(ownerId, revision, async () =>
+    Notifications.setBadgeCountAsync(totalUnread),
+  );
+}
+
+async function mutateUnreadRevision(
+  ownerId: string,
+  revision: number | undefined,
+  effect?: (() => Promise<boolean>) | undefined,
+): Promise<boolean> {
+  const owner = ownerId.trim() || "device";
+  const task = unreadRevisionMutationChain.then(async () => {
+    const revisions = await unreadRevisions();
+    const previous = revisions.get(owner);
+    // Unversioned deliveries can never safely mutate the absolute badge because their ordering
+    // is unknowable. The requested conversation refresh supplies the authoritative local total.
+    if (revision === undefined) return false;
+    if (previous !== undefined && revision <= previous) return false;
+    if (effect && !(await effect().catch(() => false))) return false;
+    const next = new Map(revisions);
+    next.set(owner, revision);
+    await AsyncStorage.setItem(unreadRevisionsKey, JSON.stringify(Object.fromEntries(next)));
+    revisions.clear();
+    for (const [key, value] of next) revisions.set(key, value);
+    return true;
+  });
+  unreadRevisionMutationChain = task.catch(() => undefined);
+  return task;
+}
+
+async function unreadRevisions(): Promise<Map<string, number>> {
+  unreadRevisionsPromise ??= AsyncStorage.getItem(unreadRevisionsKey).then((encoded) => {
+    if (!encoded) return new Map<string, number>();
+    try {
+      const parsed = recordValue(JSON.parse(encoded) as unknown);
+      return new Map(
+        Object.entries(parsed ?? {}).flatMap(([owner, value]) => {
+          const revision = integerValue(value);
+          return revision !== undefined && revision >= 0 ? [[owner, revision] as const] : [];
+        }),
+      );
+    } catch {
+      return new Map<string, number>();
+    }
+  });
+  return unreadRevisionsPromise;
+}
+
+export function notificationRouteIdentities(route: NotificationRoute): string[] {
+  const identities = [
+    route.conversationKey,
+    `${route.conversationType}:${route.conversationId}`,
+    ...conversationNotificationRouteIdentities(readRoute(route)),
+  ];
+  if (route.conversationType === "script" && route.groupId !== undefined) {
+    identities.push(`group:${route.groupId}`);
+  }
+  return identities.filter(
+    (identity, index, values) =>
+      Boolean(identity.split(":").slice(1).join(":")) && values.indexOf(identity) === index,
+  );
+}
+
+function readRoute(route: NotificationRoute) {
+  return {
+    conversationType: route.conversationType,
+    conversationId: route.conversationId,
+    ...(route.senderId ? { senderId: route.senderId } : {}),
+    ...(route.groupId !== undefined ? { groupId: route.groupId } : {}),
+    ...(route.conversationType === "agent" ? { agentConversationId: route.conversationId } : {}),
+    ...(route.scriptRoomId ? { scriptRoomId: route.scriptRoomId } : {}),
+    ...(route.messageId !== undefined ? { messageId: route.messageId } : {}),
+    ...(route.messageSequence !== undefined ? { messageSequence: route.messageSequence } : {}),
+    ...(route.unreadCount !== undefined ? { unreadCount: route.unreadCount } : {}),
+  };
 }
 
 function behavior(show: boolean, sound: boolean): PushPresentationPolicy {
@@ -820,6 +1169,96 @@ function booleanValue(value: unknown): boolean | undefined {
   if (["true", "1", "yes"].includes(token)) return true;
   if (["false", "0", "no"].includes(token)) return false;
   return undefined;
+}
+
+function normalizeNotificationConversationType(
+  value: string | undefined,
+): NotificationConversationType | undefined {
+  const token = value?.trim().toLocaleLowerCase().replaceAll("-", "_");
+  if (!token) return undefined;
+  if (agentPushTypes.has(token) || ["ai", "assistant"].includes(token)) return "agent";
+  if (scriptPushTypes.has(token) || ["roleplay", "script_room_chat"].includes(token)) {
+    return "script";
+  }
+  if (groupPushTypes.has(token) || ["group_dm", "group_conversation"].includes(token)) {
+    return "group";
+  }
+  if (directPushTypes.has(token) || ["direct", "private", "private_chat"].includes(token)) {
+    return "dm";
+  }
+  return undefined;
+}
+
+function parseConversationKey(
+  value: string | undefined,
+): { type: NotificationConversationType; id: string } | null {
+  if (!value) return null;
+  const separator = value.indexOf(":");
+  if (separator <= 0) return null;
+  const type = normalizeNotificationConversationType(value.slice(0, separator));
+  const id = value.slice(separator + 1).trim();
+  return type && id ? { type, id } : null;
+}
+
+function firstDefinedString(values: readonly (string | undefined)[]): string | undefined {
+  return values.find((value): value is string => Boolean(value?.trim()))?.trim();
+}
+
+function isMessagePushType(type: string): boolean {
+  return (
+    directPushTypes.has(type) ||
+    groupPushTypes.has(type) ||
+    agentPushTypes.has(type) ||
+    scriptPushTypes.has(type)
+  );
+}
+
+function coalesceForegroundPresentation(
+  input: unknown,
+  policy: PushPresentationPolicy,
+  now = Date.now(),
+): PushPresentationPolicy {
+  if (!policy.shouldShowBanner) return policy;
+  const payload = flattenNotificationPayload(input);
+  const type = firstString(payload, ["push_type", "pushType", "event_type", "type"])
+    ?.trim()
+    .toLocaleLowerCase();
+  if (
+    type === "moments_update" ||
+    (type && (callPushTypes.has(type) || securityPushTypes.has(type)))
+  ) {
+    return policy;
+  }
+  const route = parseNotificationRoute(payload);
+  if (!route) return policy;
+  if (
+    (route.conversationType === "group" || route.conversationType === "script") &&
+    (route.isDirectMention || route.isMentionAll)
+  ) {
+    return policy;
+  }
+  return shouldThrottleForegroundPresentation(route.conversationKey, now)
+    ? behavior(false, false)
+    : policy;
+}
+
+function shouldThrottleForegroundPresentation(conversationKey: string, now: number): boolean {
+  const previous = lastForegroundPresentationByConversation.get(conversationKey);
+  if (
+    previous !== undefined &&
+    now >= previous &&
+    now - previous < foregroundPresentationWindowMilliseconds
+  ) {
+    return true;
+  }
+  lastForegroundPresentationByConversation.delete(conversationKey);
+  lastForegroundPresentationByConversation.set(conversationKey, now);
+  while (lastForegroundPresentationByConversation.size > 256) {
+    lastForegroundPresentationByConversation.delete(
+      lastForegroundPresentationByConversation.keys().next().value as string,
+    );
+  }
+  return false;
 }
 
 function optionalString<Key extends string>(

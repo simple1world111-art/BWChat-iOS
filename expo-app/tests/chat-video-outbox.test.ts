@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getNetworkStateAsync } from "expo-network";
 
 import { sendDirectVideoMessage, sendGroupVideoMessage } from "@/api/bwchat";
 import { APIError } from "@/api/client";
@@ -24,6 +25,10 @@ jest.mock("@/api/bwchat", () => ({
   sendGroupImageMessage: jest.fn(),
   sendDirectVideoMessage: jest.fn(),
   sendGroupVideoMessage: jest.fn(),
+}));
+
+jest.mock("expo-network", () => ({
+  getNetworkStateAsync: jest.fn(),
 }));
 
 jest.mock("@/services/messages/ChatVideoService", () => ({
@@ -88,11 +93,14 @@ jest.mock("expo-file-system", () => {
 const directSend = jest.mocked(sendDirectVideoMessage);
 const groupSend = jest.mocked(sendGroupVideoMessage);
 const adoptThumbnail = jest.mocked(adoptLocalImageFile);
+const getNetworkState = jest.mocked(getNetworkStateAsync);
 
 describe("durable chat video outbox", () => {
   beforeEach(async () => {
     directSend.mockReset();
     groupSend.mockReset();
+    getNetworkState.mockReset();
+    getNetworkState.mockResolvedValue({ isConnected: true, isInternetReachable: true });
     adoptThumbnail.mockClear();
     mockExistingDirectories.clear();
     await AsyncStorage.clear();
@@ -235,6 +243,75 @@ describe("durable chat video outbox", () => {
     await expect(retryChatVideoUpload("owner-a", "cancel-video")).resolves.toBe(false);
     expect(directSend).toHaveBeenCalledTimes(1);
   });
+
+  it("persists an explicitly offline video without failures and resumes with the same ID once", async () => {
+    jest.useFakeTimers();
+    try {
+      getNetworkState
+        .mockResolvedValueOnce({ isConnected: false, isInternetReachable: false })
+        .mockResolvedValueOnce({ isConnected: false, isInternetReachable: false })
+        .mockResolvedValue({ isConnected: true, isInternetReachable: true });
+      directSend.mockResolvedValue({
+        id: 103,
+        sender_id: "owner-a",
+        receiver_id: "friend-a",
+        msg_type: "video",
+        content: "/videos/offline-recovered.mp4",
+        timestamp: "2026-08-06T11:00:03Z",
+        client_message_id: "offline-video-client",
+        version: 1,
+      });
+
+      await enqueueDirectChatVideo({
+        owner: owner("owner-a"),
+        targetId: "friend-a",
+        clientMessageId: "offline-video-client",
+        asset: videoSource("file:///picker/offline.mp4"),
+      });
+      await flushMicrotasks();
+
+      const [waiting] = await readChatVideoJobs("owner-a");
+      expect(waiting).toMatchObject({
+        id: "offline-video-client",
+        state: "retry_waiting",
+        retry_reason: "network_offline",
+        attempt_count: 0,
+      });
+      expect(waiting?.last_error).toBeUndefined();
+      expect(directSend).not.toHaveBeenCalled();
+      expect(getNetworkState).toHaveBeenCalledTimes(1);
+
+      await resumeChatVideoUploads("owner-a", "direct", "friend-a");
+      await resumeChatVideoUploads("owner-a", "direct", "friend-a");
+      expect(directSend).not.toHaveBeenCalled();
+      expect(getNetworkState).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      await flushMicrotasks();
+
+      expect(directSend).not.toHaveBeenCalled();
+      expect(getNetworkState).toHaveBeenCalledTimes(2);
+      expect((await readChatVideoJobs("owner-a"))[0]).toMatchObject({
+        state: "retry_waiting",
+        retry_reason: "network_offline",
+        attempt_count: 0,
+      });
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      await flushMicrotasks();
+
+      expect(directSend).toHaveBeenCalledTimes(1);
+      expect(directSend).toHaveBeenCalledWith(
+        "friend-a",
+        expect.any(Object),
+        "offline-video-client",
+      );
+      expect(getNetworkState).toHaveBeenCalledTimes(4);
+      await expect(readChatVideoJobs("owner-a")).resolves.toEqual([]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 function owner(userId: string) {
@@ -257,4 +334,8 @@ async function waitUntil(predicate: () => boolean | Promise<boolean>): Promise<v
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   throw new Error("Timed out waiting for video outbox state");
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 30; index += 1) await Promise.resolve();
 }

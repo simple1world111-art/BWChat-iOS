@@ -7,11 +7,13 @@ import { env } from "@/config/env";
 import { getActiveLanguageCode } from "@/providers/LocalizationProvider";
 import { bundledDynamicScreens } from "@/services/dynamic-screen/DynamicScreenFixtures";
 import {
+  canonicalLegalDocumentScreenId,
   isLegalDynamicScreenComplete,
   normalizeDynamicToken,
   parseDynamicScreen,
   parseDynamicScreenWire,
   parseLegalDocumentWire,
+  type LegalDocumentKind,
   type DynamicScreen,
 } from "@/services/dynamic-screen/DynamicScreenModels";
 import { readAccessToken } from "@/storage/tokenStorage";
@@ -86,7 +88,11 @@ export function dynamicScreenErrorMessage(
     : translate("api.networkUnavailable");
 }
 
-export function embeddedDynamicScreen(screenId: string, configured: unknown): DynamicScreen | null {
+export function embeddedDynamicScreen(
+  screenId: string,
+  configured: unknown,
+  legalKind?: LegalDocumentKind | null,
+): DynamicScreen | null {
   const normalized = normalizeDynamicToken(screenId);
   const remoteConfigured: DynamicScreen[] = [];
   if (Array.isArray(configured)) {
@@ -104,23 +110,26 @@ export function embeddedDynamicScreen(screenId: string, configured: unknown): Dy
   );
   if (
     configuredMatch &&
-    isLegalDynamicScreenComplete(screenId, configuredMatch, getActiveLanguageCode())
+    isLegalDynamicScreenComplete(screenId, configuredMatch, getActiveLanguageCode(), legalKind)
   ) {
     return configuredMatch;
   }
+  const fallbackId = legalKind ? canonicalLegalDocumentScreenId(legalKind) : normalized;
   return (
-    bundledDynamicScreens.find((screen) => normalizeDynamicToken(screen.screenId) === normalized) ??
-    null
+    bundledDynamicScreens.find(
+      (screen) => normalizeDynamicToken(screen.screenId) === normalizeDynamicToken(fallbackId),
+    ) ?? null
   );
 }
 
 export async function readCachedDynamicScreen(
   ownerId: string | undefined,
   screenId: string,
+  language: string,
 ): Promise<{ screen: DynamicScreen | null; etag: string | null }> {
   const [screenJSON, etag] = await Promise.all([
-    AsyncStorage.getItem(cacheKey(ownerId, screenId)),
-    AsyncStorage.getItem(etagKey(ownerId, screenId)),
+    AsyncStorage.getItem(cacheKey(ownerId, screenId, language)),
+    AsyncStorage.getItem(etagKey(ownerId, screenId, language)),
   ]);
   if (!screenJSON) return { screen: null, etag };
   try {
@@ -244,21 +253,25 @@ async function requestDynamicScreen(
 export async function persistDynamicScreen(
   ownerId: string | undefined,
   screenId: string,
+  language: string,
   screen: DynamicScreen,
   etag: string | null,
 ): Promise<void> {
   await Promise.all([
-    AsyncStorage.setItem(cacheKey(ownerId, screenId), JSON.stringify(screen)),
-    etag !== null ? AsyncStorage.setItem(etagKey(ownerId, screenId), etag) : Promise.resolve(),
+    AsyncStorage.setItem(cacheKey(ownerId, screenId, language), JSON.stringify(screen)),
+    etag !== null
+      ? AsyncStorage.setItem(etagKey(ownerId, screenId, language), etag)
+      : Promise.resolve(),
   ]);
 }
 
 export async function persistDynamicScreenETag(
   ownerId: string | undefined,
   screenId: string,
+  language: string,
   etag: string,
 ): Promise<void> {
-  await AsyncStorage.setItem(etagKey(ownerId, screenId), etag);
+  await AsyncStorage.setItem(etagKey(ownerId, screenId, language), etag);
 }
 
 function parseResponseBody(value: string): unknown {
@@ -370,17 +383,21 @@ function flexibleInteger(value: unknown): number | undefined {
   return undefined;
 }
 
-function cacheKey(ownerId: string | undefined, screenId: string): string {
-  return `bbchat.app.dynamicScreen.v1.${scopeId(ownerId)}.${normalizeDynamicToken(screenId)}`;
+function cacheKey(ownerId: string | undefined, screenId: string, language: string): string {
+  return `bbchat.app.dynamicScreen.v2.${scopeId(ownerId)}.${localeScope(language)}.${normalizeDynamicToken(screenId)}`;
 }
 
-function etagKey(ownerId: string | undefined, screenId: string): string {
-  return `bbchat.app.dynamicScreen.etag.v1.${scopeId(ownerId)}.${normalizeDynamicToken(screenId)}`;
+function etagKey(ownerId: string | undefined, screenId: string, language: string): string {
+  return `bbchat.app.dynamicScreen.etag.v2.${scopeId(ownerId)}.${localeScope(language)}.${normalizeDynamicToken(screenId)}`;
 }
 
 function scopeId(ownerId: string | undefined): string {
   const normalized = ownerId?.trim();
   return normalized ? `user.${normalized}` : "guest";
+}
+
+function localeScope(language: string): string {
+  return normalizeDynamicToken(language.replaceAll("_", "-"));
 }
 
 function record(value: unknown): Record<string, unknown> | null {

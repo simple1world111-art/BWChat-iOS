@@ -17,32 +17,45 @@ describe("agent paid-media prop parity", () => {
   beforeEach(() => request.mockReset());
 
   it("uses the exact native endpoint, payment bodies, idempotency, and no POST retry", async () => {
-    request.mockResolvedValue({ already_unlocked: true, content_url: "/content", download_url: "/download" });
+    request.mockResolvedValue({
+      already_unlocked: true,
+      content_url: "/content",
+      download_url: "/download",
+    });
     await unlockAgentMedia("media/a", { type: "automatic", mediaType: "video" }, "key-auto");
     await unlockAgentMedia("media/b", { type: "prop_card", mediaType: "image" }, "key-card");
     await unlockAgentMedia("media/c", { type: "spendable_balance" }, "key-balance");
     expect(request.mock.calls).toEqual([
-      ["/agent-media/media%2Fa/unlock", {
-        method: "POST",
-        headers: { "Idempotency-Key": "key-auto" },
-        body: { payment_method: "auto", prop_definition_id: "media_unlock_card_video" },
-        requiredData: true,
-        transientRetries: false,
-      }],
-      ["/agent-media/media%2Fb/unlock", {
-        method: "POST",
-        headers: { "Idempotency-Key": "key-card" },
-        body: { payment_method: "prop_card", prop_definition_id: "media_unlock_card_image" },
-        requiredData: true,
-        transientRetries: false,
-      }],
-      ["/agent-media/media%2Fc/unlock", {
-        method: "POST",
-        headers: { "Idempotency-Key": "key-balance" },
-        body: {},
-        requiredData: true,
-        transientRetries: false,
-      }],
+      [
+        "/agent-media/media%2Fa/unlock",
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": "key-auto" },
+          body: { payment_method: "auto", prop_definition_id: "media_unlock_card_video" },
+          requiredData: true,
+          transientRetries: false,
+        },
+      ],
+      [
+        "/agent-media/media%2Fb/unlock",
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": "key-card" },
+          body: { payment_method: "prop_card", prop_definition_id: "media_unlock_card_image" },
+          requiredData: true,
+          transientRetries: false,
+        },
+      ],
+      [
+        "/agent-media/media%2Fc/unlock",
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": "key-balance" },
+          body: {},
+          requiredData: true,
+          transientRetries: false,
+        },
+      ],
     ]);
     expect(agentMediaUnlockDefinition("image")).toBe("media_unlock_card_image");
   });
@@ -62,43 +75,45 @@ describe("agent paid-media prop parity", () => {
   });
 
   it("normalizes the complete mixed-charge and prop receipt response envelope", () => {
-    expect(normalizeAgentMediaUnlock({
-      charged_activity_cat_food: 2,
-      charged_gold_coins: 3,
-      total_charged: 5,
-      wallet_balance: {
-        currency: "gold_coin",
-        gold_coin_balance: 3,
-        activity_cat_food_balance: 2,
-        spendable_balance: 5,
-        recharge_gold_coin_balance: 3,
-        gift_income_gold_coin_balance: 0,
-        withdraw_frozen_gold_coin_balance: 0,
-        withdrawable_gold_coin_balance: 0,
-        chat_money_frozen_gold_coin_balance: 0,
-      },
-      already_unlocked: false,
-      content_url: "/content",
-      download_url: "/download",
-      consumed_prop: {
-        inventory_id: "inventory-1",
-        definition_id: "media_unlock_card_image",
-        remaining_quantity: 1,
-      },
-    })).toEqual(unlockResult());
+    expect(
+      normalizeAgentMediaUnlock({
+        charged_activity_cat_food: 2,
+        charged_gold_coins: 3,
+        total_charged: 5,
+        wallet_balance: {
+          currency: "gold_coin",
+          gold_coin_balance: 3,
+          activity_cat_food_balance: 2,
+          spendable_balance: 5,
+          chat_money_frozen_gold_coin_balance: 0,
+        },
+        already_unlocked: false,
+        content_url: "/content",
+        download_url: "/download",
+        consumed_prop: {
+          inventory_id: "inventory-1",
+          definition_id: "media_unlock_card_image",
+          remaining_quantity: 1,
+        },
+      }),
+    ).toEqual(unlockResult());
   });
 
   it("force-refreshes both stores when a changed unlock omits receipts", () => {
-    expect(settleAgentMediaUnlock({
-      already_unlocked: false,
-      content_url: "/content",
-      download_url: "/download",
-    })).toEqual({ refreshBalance: true, refreshInventory: true });
-    expect(settleAgentMediaUnlock({
-      already_unlocked: true,
-      content_url: "/content",
-      download_url: "/download",
-    })).toEqual({ refreshBalance: false, refreshInventory: false });
+    expect(
+      settleAgentMediaUnlock({
+        already_unlocked: false,
+        content_url: "/content",
+        download_url: "/download",
+      }),
+    ).toEqual({ refreshBalance: true, refreshInventory: true });
+    expect(
+      settleAgentMediaUnlock({
+        already_unlocked: true,
+        content_url: "/content",
+        download_url: "/download",
+      }),
+    ).toEqual({ refreshBalance: false, refreshInventory: false });
   });
 
   it("updates only matching message parts and recognizes the authoritative unlocked state", () => {
@@ -112,10 +127,17 @@ describe("agent paid-media prop parity", () => {
     expect(updated[1]?.parts[0]?.metadata.access).toBe("locked");
     expect(isAgentMediaUnlocked(updated, "media-1")).toBe(true);
     expect(isAgentMediaUnlocked(updated, "missing")).toBe(false);
-    expect(isAgentMediaUnlocked([{
-      ...updated[0]!,
-      parts: [{ ...updated[0]!.parts[0]!, type: "input_image" }],
-    }], "media-1")).toBe(false);
+    expect(
+      isAgentMediaUnlocked(
+        [
+          {
+            ...updated[0]!,
+            parts: [{ ...updated[0]!.parts[0]!, type: "input_image" }],
+          },
+        ],
+        "media-1",
+      ),
+    ).toBe(false);
     expect(agentPaidMediaDisplayStatus("completed", "locked")).toBe("ready_locked");
     expect(agentPaidMediaDisplayStatus("processing", "locked")).toBe("generating");
     expect(agentPaidMediaDisplayStatus(undefined, undefined)).toBe("queued");
@@ -147,10 +169,6 @@ function balance(): WalletBalanceSnapshot {
     gold_coin_balance: 3,
     activity_cat_food_balance: 2,
     spendable_balance: 5,
-    recharge_gold_coin_balance: 3,
-    gift_income_gold_coin_balance: 0,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 0,
     chat_money_frozen_gold_coin_balance: 0,
   };
 }
@@ -165,13 +183,15 @@ function message(mediaId: string): AgentMessage {
     status: "completed",
     created_at: "",
     updated_at: "",
-    parts: [{
-      id: `part-${mediaId}`,
-      ordinal: 0,
-      type: "paid_media",
-      text: "",
-      reference_id: mediaId,
-      metadata: { media_type: "image", access: "locked", generation_status: "ready" },
-    }],
+    parts: [
+      {
+        id: `part-${mediaId}`,
+        ordinal: 0,
+        type: "paid_media",
+        text: "",
+        reference_id: mediaId,
+        metadata: { media_type: "image", access: "locked", generation_status: "ready" },
+      },
+    ],
   };
 }

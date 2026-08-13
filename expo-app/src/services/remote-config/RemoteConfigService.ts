@@ -143,6 +143,7 @@ const normalizedConfigSchema = z.object({
       accountDeletionUrl: z.string().url().max(2_000),
     })
     .optional(),
+  capabilities: z.object({ messagingSyncV2: z.boolean() }).default({ messagingSyncV2: false }),
   reviewMode: z.unknown().optional(),
   screens: z.array(z.unknown()).optional(),
   features: z.record(z.string(), z.boolean()),
@@ -196,6 +197,7 @@ export function parseRemoteConfig(value: unknown): RemoteConfig {
     ...optional("stickerPacks", arrayValueOptional(raw.sticker_packs, raw.stickerPacks)),
     ...optional("wallet", raw.wallet),
     ...optional("account", normalizeAccountConfig(raw.account)),
+    capabilities: normalizeCapabilities(raw.capabilities),
     ...optional("reviewMode", raw.review_mode ?? raw.reviewMode),
     ...optional("screens", normalizeDynamicScreens(raw.screens)),
     features: projectFeatures(featureFlags, legacyFeatures),
@@ -216,6 +218,15 @@ function normalizeAccountConfig(value: unknown): RemoteConfig["account"] {
     privacyScreenId,
     dataPrivacyScreenId,
     accountDeletionUrl,
+  };
+}
+
+function normalizeCapabilities(value: unknown): RemoteConfig["capabilities"] {
+  return {
+    // Capabilities are an API compatibility handshake, not a UI flag. Only
+    // the canonical snake_case opt-in enables requests to a potentially absent
+    // endpoint; missing and legacy backend payloads stay on the v1 path.
+    messagingSyncV2: isRecord(value) && value.messaging_sync_v2 === true,
   };
 }
 
@@ -355,6 +366,10 @@ export function featureFlagEnabled(
   if (rollout <= 0) return false;
   if (rollout >= 100) return true;
   return stableBucket(`${flag.key}|${flag.salt ?? ""}|${subjectId}`) < rollout;
+}
+
+export function messagingSyncV2Enabled(config: RemoteConfig): boolean {
+  return config.capabilities?.messagingSyncV2 === true;
 }
 
 /**

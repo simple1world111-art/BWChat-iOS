@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const copiedNativeRoot = resolve(expoRoot, "..");
-const originalNativeRoot = "/Users/wegpt.com/Desktop/BWChat-iOS";
+const originalNativeRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate";
 
 describe("CreateMoment source parity", () => {
   it("locks every copied native source used by the page and durable upload state machine", () => {
@@ -16,7 +16,7 @@ describe("CreateMoment source parity", () => {
       "BWChat/Models/Moment.swift":
         "75814fd44cd59b1519dd2d6b3162f676008ac7f754eb3ea7957c85817b965b98",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/BackgroundUploadCoordinator.swift":
         "eb08d47e191c583fb6315d266406da84a52dba73f8be2e47b66898a0b1b49fd9",
       "BWChat/Components/MediaPickerPreview.swift":

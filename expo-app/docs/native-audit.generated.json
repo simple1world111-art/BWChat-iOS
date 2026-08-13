@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-08-06T08:39:21.477Z",
+  "generatedAt": "2026-08-12T12:55:02.146Z",
   "repository": "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate",
   "totals": {
     "swiftFiles": 129,
-    "swiftLines": 101685,
+    "swiftLines": 99819,
     "views": 47,
     "components": 15,
     "viewModels": 17,
     "models": 21,
     "services": 17,
-    "apiFunctions": 274,
-    "apiEndpoints": 185,
-    "behaviorTests": 398,
+    "apiFunctions": 271,
+    "apiEndpoints": 183,
+    "behaviorTests": 397,
     "assets": 34
   },
   "sourceFiles": [
@@ -4166,7 +4166,7 @@
     },
     {
       "file": "BWChat/Models/DynamicConfigModels.swift",
-      "lines": 1765,
+      "lines": 1593,
       "declarations": [
         "AppBuildInfo",
         "AppKillSwitch",
@@ -4188,8 +4188,6 @@
         "WalletAdRewardRemoteConfig",
         "WalletRemoteConfig",
         "WalletRemoteProduct",
-        "WalletWithdrawalNetworkRemoteConfig",
-        "WalletWithdrawalPolicy",
         "WebViewPolicy"
       ],
       "state": [],
@@ -4257,7 +4255,7 @@
     },
     {
       "file": "BWChat/Models/Gift.swift",
-      "lines": 1543,
+      "lines": 1293,
       "declarations": [
         "ActivityCatFoodAmount",
         "ActivityCatFoodTransaction",
@@ -4278,10 +4276,7 @@
         "WalletCurrency",
         "WalletIAPConfirmationResponseData",
         "WalletTransaction",
-        "WalletTransactionsResponseData",
-        "WalletWithdrawal",
-        "WalletWithdrawalResponseData",
-        "WalletWithdrawalsResponseData"
+        "WalletTransactionsResponseData"
       ],
       "state": [],
       "visualModifiers": [],
@@ -4484,7 +4479,7 @@
     },
     {
       "file": "BWChat/Services/APIService.swift",
-      "lines": 5503,
+      "lines": 5459,
       "declarations": [
         "APIError",
         "APIResponseWrapper",
@@ -4948,13 +4943,12 @@
     },
     {
       "file": "BWChat/Services/WalletStore.swift",
-      "lines": 833,
+      "lines": 572,
       "declarations": [
         "WalletPurchaseError",
         "WalletPurchaseOutcome",
         "WalletStore",
-        "WalletTelemetry",
-        "WalletUSDTPayoutAccount"
+        "WalletTelemetry"
       ],
       "state": [
         "activityCatFoodBalance",
@@ -4967,19 +4961,14 @@
         "isLoadingBalance",
         "isLoadingProducts",
         "isLoadingTransactions",
-        "isLoadingWithdrawals",
         "isPurchasing",
-        "isSubmittingWithdrawal",
         "productLoadError",
         "products",
         "spendableBalance",
         "transactionLoadError",
         "transactionNextCursor",
         "transactions",
-        "usdtPayoutAccount",
-        "walletBalance",
-        "withdrawalLoadError",
-        "withdrawals"
+        "walletBalance"
       ],
       "visualModifiers": [],
       "interactionModifiers": []
@@ -5477,7 +5466,7 @@
     },
     {
       "file": "BWChat/ViewModels/AgentChatViewModel.swift",
-      "lines": 816,
+      "lines": 806,
       "declarations": [
         "AgentChatViewModel",
         "AgentComposerImage",
@@ -26645,7 +26634,7 @@
     },
     {
       "file": "BWChat/Views/WalletView.swift",
-      "lines": 2054,
+      "lines": 925,
       "declarations": [
         "WalletAdRewardBanner",
         "WalletEmptyCatIllustration",
@@ -26657,11 +26646,7 @@
         "WalletTransactionPaginationFooter",
         "WalletTransactionRow",
         "WalletTransactionsSheet",
-        "WalletView",
-        "WalletWithdrawalDetailView",
-        "WalletWithdrawalRow",
-        "WalletWithdrawalsSheet",
-        "WithdrawalField"
+        "WalletView"
       ],
       "state": [
         "adRewardService",
@@ -26670,1644 +26655,662 @@
         "appConfig",
         "centerToastMessage",
         "isPreparing",
-        "isUSDTInfoBubbleVisible",
-        "isWithdrawalNetworkPickerExpanded",
-        "isWithdrawalNetworkPickerLayerRaised",
         "navigator",
         "selectedAmountIndex",
         "selectedTab",
         "toastMessage",
-        "walletStore",
-        "withdrawalAddressText",
-        "withdrawalAmountText",
-        "withdrawalNetwork"
+        "walletStore"
       ],
       "visualModifiers": [
         {
-          "line": 96,
+          "line": 55,
           "code": "Color.white"
         },
         {
-          "line": 97,
+          "line": 56,
           "code": ".frame(height: 60)"
         },
         {
-          "line": 98,
+          "line": 57,
           "code": ".frame(maxHeight: .infinity, alignment: .bottom)"
         },
         {
-          "line": 99,
+          "line": 58,
           "code": ".ignoresSafeArea(.container, edges: .bottom)"
         },
         {
-          "line": 107,
+          "line": 62,
           "code": ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"
         },
         {
-          "line": 124,
-          "code": ".toolbarBackground(isWithdrawalFormFocused ? Color.white.opacity(0.96) : Color.clear, for: .navigationBar)"
+          "line": 75,
+          "code": ".font(.system(size: 18, weight: .semibold))"
         },
         {
-          "line": 160,
-          "code": ".background("
+          "line": 78,
+          "code": ".toolbarBackground(Color.clear, for: .navigationBar)"
         },
         {
-          "line": 179,
+          "line": 121,
           "code": "Spacer().frame(height: topPadding)"
         },
         {
-          "line": 183,
+          "line": 125,
           "code": ".padding(.top, compact ? 0 : 2)"
         },
         {
-          "line": 193,
+          "line": 135,
           "code": ".padding(.horizontal, 20)"
         },
         {
-          "line": 194,
+          "line": 136,
           "code": ".padding(.bottom, compact ? 10 : 14)"
         },
         {
-          "line": 202,
+          "line": 144,
           "code": ".frame(width: geo.size.width)"
         },
         {
-          "line": 203,
+          "line": 145,
           "code": ".frame(minHeight: geo.size.height, alignment: .top)"
         },
         {
-          "line": 222,
-          "code": "Spacer().frame(height: topGap)"
-        },
-        {
-          "line": 226,
-          "code": ".frame(height: cardHeight)"
-        },
-        {
-          "line": 227,
-          "code": ".padding(.horizontal, 20)"
-        },
-        {
-          "line": 228,
-          "code": ".transition(.opacity)"
-        },
-        {
-          "line": 230,
-          "code": "Spacer().frame(height: normalPanelGap)"
-        },
-        {
-          "line": 240,
-          "code": ".frame(width: geo.size.width)"
-        },
-        {
-          "line": 241,
-          "code": ".frame(minHeight: geo.size.height, alignment: .top)"
-        },
-        {
-          "line": 242,
-          "code": ".animation(walletKeyboardTransitionAnimation, value: isWithdrawalFormFocused)"
-        },
-        {
-          "line": 254,
-          "code": ".frame(width: 246)"
-        },
-        {
-          "line": 255,
-          "code": ".layoutPriority(10)"
-        },
-        {
-          "line": 269,
-          "code": ".font(.system(size: 18, weight: selectedTab == index ? .semibold : .medium))"
-        },
-        {
-          "line": 270,
-          "code": ".foregroundColor(selectedTab == index ? .black : .black.opacity(0.58))"
-        },
-        {
-          "line": 275,
-          "code": ".fill(selectedTab == index ? Color.black : Color.clear)"
-        },
-        {
-          "line": 276,
-          "code": ".frame(width: 32, height: 4)"
-        },
-        {
-          "line": 278,
-          "code": ".frame(width: 114)"
-        },
-        {
-          "line": 291,
+          "line": 160,
           "code": ".frame(maxWidth: 240)"
         },
         {
-          "line": 297,
+          "line": 166,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 298,
+          "line": 167,
           "code": ".padding(.horizontal, compact ? 16 : 24)"
         },
         {
-          "line": 309,
+          "line": 178,
           "code": ".font(.system(size: compact ? 11 : 13, weight: .semibold))"
         },
         {
-          "line": 310,
+          "line": 179,
           "code": ".foregroundColor(.black.opacity(0.66))"
         },
         {
-          "line": 314,
+          "line": 183,
           "code": ".font(.system(size: isLoading ? (compact ? 13 : 15) : (compact ? 23 : 28), weight: .bold))"
         },
         {
-          "line": 315,
+          "line": 184,
           "code": ".foregroundColor(.black)"
         },
         {
-          "line": 320,
+          "line": 189,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 329,
+          "line": 198,
           "code": ".font(.system(size: compact ? 10 : 11, weight: .bold))"
         },
         {
-          "line": 331,
+          "line": 200,
           "code": ".font(.system(size: compact ? 12 : 13, weight: .medium))"
         },
         {
-          "line": 332,
+          "line": 201,
           "code": ".foregroundColor(.black.opacity(0.48))"
         },
         {
-          "line": 338,
-          "code": ".font(.system(size: 15))"
-        },
-        {
-          "line": 339,
-          "code": ".foregroundColor(.black.opacity(0.7))"
-        },
-        {
-          "line": 342,
-          "code": ".font(.system(size: isEarningsBalanceLoading ? 24 : 42, weight: .bold))"
-        },
-        {
-          "line": 343,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 357,
+          "line": 212,
           "code": ".frame(width: size, height: size)"
         },
         {
-          "line": 359,
+          "line": 214,
           "code": ".frame(height: containerHeight)"
         },
         {
-          "line": 365,
-          "code": ".font(.system(size: 13))"
-        },
-        {
-          "line": 366,
-          "code": ".foregroundColor(.white)"
-        },
-        {
-          "line": 367,
-          "code": ".offset(x: -48, y: -30)"
-        },
-        {
-          "line": 370,
-          "code": ".font(.system(size: 10))"
-        },
-        {
-          "line": 371,
-          "code": ".foregroundColor(.white)"
-        },
-        {
-          "line": 372,
-          "code": ".offset(x: 46, y: -34)"
-        },
-        {
-          "line": 375,
-          "code": ".font(.system(size: 68))"
-        },
-        {
-          "line": 376,
-          "code": ".foregroundStyle("
-        },
-        {
-          "line": 378,
-          "code": "colors: [Color(hex: \"FFD54A\"), Color(hex: \"F0A020\")],"
-        },
-        {
-          "line": 383,
-          "code": ".shadow(color: Color(hex: \"F0A020\").opacity(0.35), radius: 6, y: 3)"
-        },
-        {
-          "line": 385,
-          "code": ".frame(height: 100)"
-        },
-        {
-          "line": 396,
-          "code": ".padding(.vertical, 2)"
-        },
-        {
-          "line": 397,
-          "code": ".padding(.horizontal, 16)"
-        },
-        {
-          "line": 404,
-          "code": ".fill(Color(hex: \"FFD54A\").opacity(0.2))"
-        },
-        {
-          "line": 405,
-          "code": ".frame(width: 36, height: 36)"
-        },
-        {
-          "line": 407,
-          "code": ".font(.system(size: 14, weight: .semibold))"
-        },
-        {
-          "line": 408,
-          "code": ".foregroundColor(Color(hex: \"C98300\"))"
-        },
-        {
-          "line": 412,
-          "code": ".font(.system(size: 15, weight: .medium))"
-        },
-        {
-          "line": 413,
-          "code": ".foregroundColor(.black.opacity(0.72))"
-        },
-        {
-          "line": 416,
-          "code": ".fixedSize(horizontal: false, vertical: true)"
-        },
-        {
-          "line": 421,
-          "code": ".font(.system(size: 20, weight: .bold))"
-        },
-        {
-          "line": 422,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 426,
-          "code": ".padding(.horizontal, 14)"
-        },
-        {
-          "line": 427,
-          "code": ".padding(.vertical, 12)"
-        },
-        {
-          "line": 428,
-          "code": ".frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)"
-        },
-        {
-          "line": 493,
+          "line": 234,
           "code": ".font(.system(size: 12))"
         },
         {
-          "line": 494,
+          "line": 235,
           "code": ".foregroundColor(Color(hex: \"9A6A00\"))"
         },
         {
-          "line": 495,
+          "line": 236,
           "code": ".frame(maxWidth: .infinity, alignment: .leading)"
         },
         {
-          "line": 496,
+          "line": 237,
           "code": ".padding(.horizontal, 18)"
         },
         {
-          "line": 506,
+          "line": 247,
           "code": ".frame(width: contentWidth)"
         },
         {
-          "line": 514,
+          "line": 255,
           "code": ".tint(.black)"
         },
         {
-          "line": 517,
+          "line": 258,
           "code": ".font(.system(size: compact ? 16 : 19, weight: .bold))"
         },
         {
-          "line": 522,
+          "line": 263,
           "code": ".foregroundColor(.black)"
         },
         {
-          "line": 523,
+          "line": 264,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 524,
+          "line": 265,
           "code": ".frame(height: compact ? 42 : 52)"
         },
         {
-          "line": 525,
+          "line": 266,
           "code": ".background("
         },
         {
-          "line": 527,
+          "line": 268,
           "code": ".fill(Color(hex: \"FFE500\"))"
         },
         {
-          "line": 531,
+          "line": 272,
           "code": ".opacity(walletStore.isPurchasing || walletStore.isLoadingProducts ? 0.72 : 1)"
         },
         {
-          "line": 532,
+          "line": 273,
           "code": ".padding(.horizontal, 18)"
         },
         {
-          "line": 533,
+          "line": 274,
           "code": ".padding(.top, cardVerticalSpacing)"
         },
         {
-          "line": 540,
+          "line": 281,
           "code": ".foregroundColor(agreedToTerms ? Color(hex: \"F0A020\") : Color.gray.opacity(0.45))"
         },
         {
-          "line": 541,
+          "line": 282,
           "code": ".font(.system(size: compact ? 12 : 14))"
         },
         {
-          "line": 544,
+          "line": 285,
           "code": ".font(.system(size: compact ? 10 : 12))"
         },
         {
-          "line": 545,
+          "line": 286,
           "code": ".foregroundColor(.black.opacity(0.6))"
         },
         {
-          "line": 551,
+          "line": 292,
           "code": ".font(.system(size: compact ? 10 : 12))"
         },
         {
-          "line": 552,
+          "line": 293,
           "code": ".foregroundColor(.black.opacity(0.82))"
         },
         {
-          "line": 557,
+          "line": 298,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 559,
+          "line": 300,
           "code": ".padding(.top, compact ? 6 : 8)"
         },
         {
-          "line": 560,
+          "line": 301,
           "code": ".padding(.bottom, compact ? 2 : 4)"
         },
         {
-          "line": 562,
+          "line": 303,
           "code": ".padding(.top, compact ? 10 : 12)"
         },
         {
-          "line": 563,
+          "line": 304,
           "code": ".padding(.bottom, bottomPadding)"
         },
         {
-          "line": 564,
+          "line": 305,
           "code": ".frame(width: availableWidth, alignment: .top)"
         },
         {
-          "line": 565,
+          "line": 306,
           "code": ".background(Color.white)"
         },
         {
-          "line": 566,
+          "line": 307,
           "code": ".clipShape(WalletTopRoundedShape(radius: 30))"
         },
         {
-          "line": 567,
+          "line": 308,
           "code": ".ignoresSafeArea(.container, edges: .bottom)"
         },
         {
-          "line": 586,
-          "code": ".fill(Color.black.opacity(0.08))"
-        },
-        {
-          "line": 587,
-          "code": ".frame(width: 1, height: compact ? 46 : 52)"
-        },
-        {
-          "line": 588,
-          "code": ".padding(.horizontal, compact ? 6 : 8)"
-        },
-        {
-          "line": 597,
-          "code": ".font(.system(size: compact ? 15 : 17, weight: .bold))"
-        },
-        {
-          "line": 598,
-          "code": ".foregroundColor(Color(hex: \"B58A00\").opacity(0.74))"
-        },
-        {
-          "line": 599,
-          "code": ".frame(width: compact ? 22 : 26, alignment: .center)"
-        },
-        {
-          "line": 607,
-          "code": ".frame(height: compact ? 60 : 68)"
-        },
-        {
-          "line": 612,
-          "code": ".opacity(0.28)"
-        },
-        {
-          "line": 613,
-          "code": ".padding(.horizontal, compact ? 4 : 6)"
-        },
-        {
-          "line": 616,
-          "code": ".frame(height: compact ? 23 : 25)"
-        },
-        {
-          "line": 617,
-          "code": ".padding(.top, compact ? 5 : 6)"
-        },
-        {
-          "line": 619,
-          "code": ".padding(.horizontal, compact ? 26 : 34)"
-        },
-        {
-          "line": 620,
-          "code": ".padding(.top, compact ? 17 : 21)"
-        },
-        {
-          "line": 621,
-          "code": ".padding(.bottom, compact ? 9 : 11)"
-        },
-        {
-          "line": 622,
-          "code": ".frame(maxWidth: .infinity, minHeight: compact ? 130 : 148, alignment: .center)"
-        },
-        {
-          "line": 623,
-          "code": ".background("
-        },
-        {
-          "line": 625,
-          "code": ".fill(Color.white)"
-        },
-        {
-          "line": 627,
-          "code": ".shadow(color: Color.black.opacity(0.035), radius: 12, x: 0, y: 4)"
-        },
-        {
-          "line": 637,
-          "code": ".font(.system(size: compact ? 11 : 12, weight: .semibold))"
-        },
-        {
-          "line": 638,
-          "code": ".foregroundColor(.black.opacity(0.66))"
-        },
-        {
-          "line": 644,
-          "code": ".font(.system(size: compact ? 23 : 27, weight: .bold))"
-        },
-        {
-          "line": 646,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 651,
-          "code": ".frame(maxWidth: .infinity)"
-        },
-        {
-          "line": 657,
-          "code": ".font(.system(size: compact ? 11 : 12, weight: .medium))"
-        },
-        {
-          "line": 658,
-          "code": ".foregroundColor(.black.opacity(0.42))"
-        },
-        {
-          "line": 672,
-          "code": ".font(.system(size: compact ? 11 : 12, weight: .medium))"
-        },
-        {
-          "line": 674,
-          "code": ".font(.system(size: compact ? 9 : 10, weight: .semibold))"
-        },
-        {
-          "line": 676,
-          "code": ".foregroundColor(.black.opacity(0.42))"
-        },
-        {
-          "line": 683,
-          "code": ".padding(.horizontal, compact ? 8 : 10)"
-        },
-        {
-          "line": 684,
-          "code": ".frame(maxWidth: .infinity)"
-        },
-        {
-          "line": 694,
-          "code": ".font(.system(size: compact ? 14 : 16, weight: .semibold))"
-        },
-        {
-          "line": 695,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 708,
-          "code": ".font(.system(size: compact ? 11 : 13, weight: .semibold))"
-        },
-        {
-          "line": 709,
-          "code": ".foregroundColor(Color(hex: \"D19A00\").opacity(0.82))"
-        },
-        {
-          "line": 710,
-          "code": ".frame(width: compact ? 18 : 20, height: compact ? 18 : 20)"
-        },
-        {
-          "line": 714,
-          "code": ".overlay(alignment: .top) {"
-        },
-        {
-          "line": 717,
-          "code": ".font(.system(size: compact ? 10 : 11, weight: .semibold))"
-        },
-        {
-          "line": 718,
-          "code": ".foregroundColor(.black.opacity(0.82))"
-        },
-        {
-          "line": 720,
-          "code": ".padding(.horizontal, compact ? 8 : 10)"
-        },
-        {
-          "line": 721,
-          "code": ".padding(.vertical, compact ? 5 : 6)"
-        },
-        {
-          "line": 722,
-          "code": ".background("
-        },
-        {
-          "line": 724,
-          "code": ".fill(Color.white)"
-        },
-        {
-          "line": 725,
-          "code": ".shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)"
-        },
-        {
-          "line": 727,
-          "code": ".overlay("
-        },
-        {
-          "line": 729,
-          "code": ".stroke(Color(hex: \"FFD800\").opacity(0.5), lineWidth: 1)"
-        },
-        {
-          "line": 731,
-          "code": ".fixedSize()"
-        },
-        {
-          "line": 732,
-          "code": ".offset(x: compact ? -38 : -42, y: compact ? -32 : -36)"
-        },
-        {
-          "line": 733,
-          "code": ".transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))"
-        },
-        {
-          "line": 734,
-          "code": ".zIndex(4)"
-        },
-        {
-          "line": 739,
-          "code": ".frame(maxWidth: .infinity, alignment: .center)"
-        },
-        {
-          "line": 740,
-          "code": ".zIndex(isUSDTInfoBubbleVisible && showsInfo ? 4 : 0)"
-        },
-        {
-          "line": 745,
-          "code": ".font(.system(size: compact ? 29 : 34, weight: .bold))"
-        },
-        {
-          "line": 747,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 751,
-          "code": ".frame(maxWidth: .infinity, alignment: .center)"
-        },
-        {
-          "line": 782,
-          "code": ".tint(.black)"
-        },
-        {
-          "line": 786,
-          "code": ".font(.system(size: compact ? 16 : 19, weight: .bold))"
-        },
-        {
-          "line": 791,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 792,
-          "code": ".frame(maxWidth: .infinity)"
-        },
-        {
-          "line": 793,
-          "code": ".frame(height: compact ? 42 : 52)"
-        },
-        {
-          "line": 794,
-          "code": ".background("
-        },
-        {
-          "line": 796,
-          "code": ".fill(Color(hex: \"FFE500\"))"
-        },
-        {
-          "line": 800,
-          "code": ".opacity(!hasWithdrawableUSDTAmount || walletStore.isSubmittingWithdrawal ? 0.58 : 1)"
-        },
-        {
-          "line": 801,
-          "code": ".padding(.bottom, buttonBottomPadding)"
-        },
-        {
-          "line": 803,
-          "code": ".padding(.horizontal, 18)"
-        },
-        {
-          "line": 804,
-          "code": ".padding(.top, compact ? 22 : 26)"
-        },
-        {
-          "line": 805,
-          "code": ".frame(width: availableWidth, alignment: .top)"
-        },
-        {
-          "line": 806,
-          "code": ".background(Color.white)"
-        },
-        {
-          "line": 807,
-          "code": ".clipShape(WalletTopRoundedShape(radius: 30))"
-        },
-        {
-          "line": 808,
-          "code": ".ignoresSafeArea(.container, edges: .bottom)"
-        },
-        {
-          "line": 821,
-          "code": ".font(.system(size: compact ? 13 : 14, weight: .semibold))"
-        },
-        {
-          "line": 822,
-          "code": ".foregroundColor(.black.opacity(0.62))"
-        },
-        {
-          "line": 828,
-          "code": ".font(.system(size: compact ? 15 : 16, weight: .semibold))"
-        },
-        {
-          "line": 829,
-          "code": ".foregroundColor(Color(hex: \"D19A00\"))"
-        },
-        {
-          "line": 830,
-          "code": ".frame(width: 22)"
-        },
-        {
-          "line": 837,
-          "code": ".font(.system(size: compact ? 14 : 15, weight: .semibold))"
-        },
-        {
-          "line": 838,
-          "code": ".foregroundColor(.black.opacity(0.86))"
-        },
-        {
-          "line": 841,
-          "code": ".frame(maxHeight: .infinity)"
-        },
-        {
-          "line": 843,
-          "code": ".padding(.horizontal, compact ? 15 : 16)"
-        },
-        {
-          "line": 844,
-          "code": ".frame(height: compact ? 62 : 68)"
-        },
-        {
-          "line": 845,
-          "code": ".background(Color(hex: \"F7F7F7\"))"
-        },
-        {
-          "line": 846,
-          "code": ".cornerRadius(18)"
-        },
-        {
-          "line": 859,
-          "code": ".font(.system(size: compact ? 13 : 14, weight: .semibold))"
-        },
-        {
-          "line": 860,
-          "code": ".foregroundColor(.black.opacity(0.62))"
-        },
-        {
-          "line": 866,
-          "code": ".font(.system(size: compact ? 15 : 16, weight: .semibold))"
-        },
-        {
-          "line": 867,
-          "code": ".foregroundColor(Color(hex: \"D19A00\"))"
-        },
-        {
-          "line": 868,
-          "code": ".frame(width: 22)"
-        },
-        {
-          "line": 875,
-          "code": ".font(.system(size: compact ? 14 : 15, weight: .semibold))"
-        },
-        {
-          "line": 876,
-          "code": ".foregroundColor(.black.opacity(0.86))"
-        },
-        {
-          "line": 879,
-          "code": ".layoutPriority(1)"
-        },
-        {
-          "line": 880,
-          "code": ".frame(maxHeight: .infinity)"
-        },
-        {
-          "line": 886,
-          "code": ".font(.system(size: compact ? 12 : 13, weight: .semibold))"
-        },
-        {
-          "line": 887,
-          "code": ".foregroundColor(Color(hex: \"D19A00\"))"
-        },
-        {
-          "line": 891,
-          "code": ".frame(width: compact ? 66 : 78, alignment: .trailing)"
-        },
-        {
-          "line": 895,
-          "code": ".opacity(hasWithdrawableUSDTAmount ? 1 : 0.45)"
-        },
-        {
-          "line": 897,
-          "code": ".padding(.horizontal, compact ? 15 : 16)"
-        },
-        {
-          "line": 898,
-          "code": ".frame(height: compact ? 62 : 68)"
-        },
-        {
-          "line": 899,
-          "code": ".background(Color(hex: \"F7F7F7\"))"
-        },
-        {
-          "line": 900,
-          "code": ".cornerRadius(18)"
-        },
-        {
-          "line": 913,
-          "code": ".font(.system(size: compact ? 13 : 14, weight: .semibold))"
-        },
-        {
-          "line": 914,
-          "code": ".foregroundColor(.black.opacity(0.62))"
-        },
-        {
-          "line": 930,
-          "code": ".overlay(alignment: .topTrailing) {"
-        },
-        {
-          "line": 933,
-          "code": ".frame(width: compact ? 158 : 176)"
-        },
-        {
-          "line": 934,
-          "code": ".offset(y: compact ? 70 : 76)"
-        },
-        {
-          "line": 935,
-          "code": ".transition(.scale(scale: 0.96, anchor: .topTrailing).combined(with: .opacity))"
-        },
-        {
-          "line": 936,
-          "code": ".zIndex(5)"
-        },
-        {
-          "line": 939,
-          "code": ".frame(maxWidth: .infinity, alignment: .trailing)"
-        },
-        {
-          "line": 941,
-          "code": ".zIndex(isWithdrawalNetworkPickerLayerRaised ? 5 : 0)"
-        },
-        {
-          "line": 954,
-          "code": ".font(.system(size: compact ? 14 : 15, weight: .semibold))"
-        },
-        {
-          "line": 955,
-          "code": ".foregroundColor(.black.opacity(0.86))"
-        },
-        {
-          "line": 961,
-          "code": ".font(.system(size: compact ? 12 : 13, weight: .semibold))"
-        },
-        {
-          "line": 962,
-          "code": ".foregroundColor(.black.opacity(0.78))"
-        },
-        {
-          "line": 965,
-          "code": ".frame(height: compact ? 44 : 48)"
-        },
-        {
-          "line": 966,
-          "code": ".padding(.horizontal, 14)"
-        },
-        {
-          "line": 967,
-          "code": ".background(withdrawalNetwork == network ? Color.black.opacity(0.035) : Color.clear)"
-        },
-        {
-          "line": 974,
-          "code": ".padding(.leading, 14)"
-        },
-        {
-          "line": 975,
-          "code": ".opacity(0.58)"
-        },
-        {
-          "line": 979,
-          "code": ".padding(.vertical, compact ? 4 : 5)"
-        },
-        {
-          "line": 980,
-          "code": ".background(Color.white)"
-        },
-        {
-          "line": 981,
-          "code": ".clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))"
-        },
-        {
-          "line": 982,
-          "code": ".overlay("
-        },
-        {
-          "line": 984,
-          "code": ".stroke(Color.black.opacity(0.08), lineWidth: 1)"
-        },
-        {
-          "line": 986,
-          "code": ".shadow(color: Color.black.opacity(0.10), radius: 14, x: 0, y: 8)"
-        },
-        {
-          "line": 992,
-          "code": ".font(.system(size: compact ? 15 : 16, weight: .semibold))"
-        },
-        {
-          "line": 993,
-          "code": ".foregroundColor(Color(hex: \"D19A00\"))"
-        },
-        {
-          "line": 994,
-          "code": ".frame(width: 22)"
-        },
-        {
-          "line": 997,
-          "code": ".font(.system(size: compact ? 14 : 15, weight: .semibold))"
-        },
-        {
-          "line": 998,
-          "code": ".foregroundColor(withdrawalNetwork.isBlank ? .black.opacity(0.36) : .black.opacity(0.86))"
-        },
-        {
-          "line": 1005,
-          "code": ".font(.system(size: 13, weight: .bold))"
-        },
-        {
-          "line": 1006,
-          "code": ".foregroundColor(.black.opacity(0.36))"
-        },
-        {
-          "line": 1007,
-          "code": ".rotationEffect(.degrees(isWithdrawalNetworkPickerExpanded ? 180 : 0))"
-        },
-        {
-          "line": 1009,
-          "code": ".padding(.horizontal, compact ? 15 : 16)"
-        },
-        {
-          "line": 1010,
-          "code": ".frame(maxWidth: .infinity)"
-        },
-        {
-          "line": 1011,
-          "code": ".frame(height: compact ? 62 : 68)"
-        },
-        {
-          "line": 1012,
-          "code": ".background(Color(hex: \"F7F7F7\"))"
-        },
-        {
-          "line": 1013,
-          "code": ".clipShape(RoundedRectangle(cornerRadius: 18))"
-        },
-        {
-          "line": 1015,
-          "code": ".overlay("
-        },
-        {
-          "line": 1018,
-          "code": "isWithdrawalNetworkPickerExpanded ? Color.black.opacity(0.08) : Color.clear,"
-        },
-        {
-          "line": 1204,
+          "line": 338,
           "code": ".frame(width: compact ? 21 : 28, height: compact ? 21 : 28)"
         },
         {
-          "line": 1206,
+          "line": 340,
           "code": ".font(.system(size: compact ? 14 : 17, weight: .bold))"
         },
         {
-          "line": 1207,
+          "line": 341,
           "code": ".foregroundColor(.black)"
         },
         {
-          "line": 1212,
+          "line": 346,
           "code": ".font(.system(size: compact ? 12 : 14, weight: .medium))"
         },
         {
-          "line": 1213,
+          "line": 347,
           "code": ".foregroundColor(.black.opacity(0.48))"
         },
         {
-          "line": 1218,
+          "line": 352,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 1219,
+          "line": 353,
           "code": ".frame(height: compact ? 66 : 78)"
         },
         {
-          "line": 1220,
+          "line": 354,
           "code": ".background("
         },
         {
-          "line": 1222,
+          "line": 356,
           "code": ".fill(selected ? Color.white : Color(hex: \"F2F2F2\"))"
         },
         {
-          "line": 1223,
+          "line": 357,
           "code": ".overlay("
         },
         {
-          "line": 1225,
+          "line": 359,
           "code": ".stroke(selected ? Color(hex: \"FFE200\") : Color.clear, lineWidth: compact ? 2.5 : 3)"
         },
         {
-          "line": 1323,
+          "line": 451,
           "code": ".opacity(isBusy || !adRewardService.hasRemainingViews ? 0.62 : 1)"
         },
         {
-          "line": 1348,
+          "line": 476,
           "code": ".fill(Color(hex: \"FFD400\"))"
         },
         {
-          "line": 1349,
+          "line": 477,
           "code": ".frame(width: compact ? 20 : 24, height: compact ? 20 : 24)"
         },
         {
-          "line": 1354,
+          "line": 482,
           "code": ".tint(.white)"
         },
         {
-          "line": 1357,
+          "line": 485,
           "code": ".font(.system(size: 9, weight: .bold))"
         },
         {
-          "line": 1358,
+          "line": 486,
           "code": ".foregroundColor(.white)"
         },
         {
-          "line": 1359,
+          "line": 487,
           "code": ".offset(x: 1)"
         },
         {
-          "line": 1364,
+          "line": 492,
           "code": ".font(.system(size: compact ? 13 : 14, weight: .medium))"
         },
         {
-          "line": 1365,
+          "line": 493,
           "code": ".foregroundColor(.black.opacity(0.68))"
         },
         {
-          "line": 1369,
+          "line": 497,
           "code": ".frame(maxWidth: .infinity, alignment: .leading)"
         },
         {
-          "line": 1372,
+          "line": 500,
           "code": ".font(.system(size: compact ? 15 : 18, weight: .semibold))"
         },
         {
-          "line": 1373,
+          "line": 501,
           "code": ".foregroundColor(.black.opacity(0.5))"
         },
         {
-          "line": 1375,
+          "line": 503,
           "code": ".padding(.horizontal, compact ? 13 : 18)"
         },
         {
-          "line": 1376,
+          "line": 504,
           "code": ".frame(height: compact ? 46 : 54)"
         },
         {
-          "line": 1377,
+          "line": 505,
           "code": ".background("
         },
         {
-          "line": 1381,
+          "line": 509,
           "code": ".fill(Color(hex: \"FFF3B5\").opacity(0.96))"
         },
         {
-          "line": 1382,
+          "line": 510,
           "code": ".overlay("
         },
         {
-          "line": 1384,
+          "line": 512,
           "code": ".stroke(Color.white.opacity(0.74), lineWidth: 1)"
         },
         {
-          "line": 1387,
+          "line": 515,
           "code": ".shadow(color: Color(hex: \"C99A10\").opacity(0.1), radius: 8, x: 0, y: 4)"
         },
         {
-          "line": 1452,
+          "line": 580,
           "code": "Color.white.ignoresSafeArea()"
         },
         {
-          "line": 1460,
+          "line": 588,
           "code": ".tint(AppColors.accent)"
         },
         {
-          "line": 1461,
+          "line": 589,
           "code": ".frame(maxWidth: .infinity, maxHeight: .infinity)"
         },
         {
-          "line": 1466,
+          "line": 594,
           "code": ".frame(maxWidth: .infinity, maxHeight: .infinity)"
         },
         {
-          "line": 1469,
+          "line": 597,
           "code": ".frame(maxWidth: .infinity, maxHeight: .infinity)"
         },
         {
-          "line": 1478,
+          "line": 606,
           "code": ".padding(.horizontal, 16)"
         },
         {
-          "line": 1479,
+          "line": 607,
           "code": ".padding(.vertical, 12)"
         },
         {
-          "line": 1484,
+          "line": 612,
           "code": ".background(Color(hex: \"F7F7F7\"))"
         },
         {
-          "line": 1501,
+          "line": 629,
           "code": ".frame(width: 78, alignment: .leading)"
         },
         {
-          "line": 1507,
+          "line": 635,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 1509,
+          "line": 637,
           "code": "Color.clear"
         },
         {
-          "line": 1510,
+          "line": 638,
           "code": ".frame(width: 78, height: 36)"
         },
         {
-          "line": 1512,
+          "line": 640,
           "code": ".padding(.horizontal, 14)"
         },
         {
-          "line": 1513,
+          "line": 641,
           "code": ".padding(.top, 14)"
         },
         {
-          "line": 1514,
+          "line": 642,
           "code": ".padding(.bottom, 18)"
         },
         {
-          "line": 1515,
+          "line": 643,
           "code": ".background(Color.white)"
         },
         {
-          "line": 1524,
+          "line": 652,
           "code": ".font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))"
         },
         {
-          "line": 1525,
+          "line": 653,
           "code": ".foregroundColor(selectedTab == tab ? .black : .black.opacity(0.56))"
         },
         {
-          "line": 1529,
+          "line": 657,
           "code": ".fill(selectedTab == tab ? Color.black : Color.clear)"
         },
         {
-          "line": 1530,
+          "line": 658,
           "code": ".frame(width: 31, height: 3)"
         },
         {
-          "line": 1566,
-          "code": "Color.white.ignoresSafeArea()"
-        },
-        {
-          "line": 1574,
+          "line": 696,
           "code": ".tint(AppColors.accent)"
         },
         {
-          "line": 1575,
-          "code": ".frame(maxWidth: .infinity, maxHeight: .infinity)"
-        },
-        {
-          "line": 1578,
-          "code": ".frame(maxWidth: .infinity, maxHeight: .infinity)"
-        },
-        {
-          "line": 1581,
-          "code": ".frame(maxWidth: .infinity, maxHeight: .infinity)"
-        },
-        {
-          "line": 1594,
-          "code": ".padding(.horizontal, 16)"
-        },
-        {
-          "line": 1595,
-          "code": ".padding(.vertical, 12)"
-        },
-        {
-          "line": 1597,
-          "code": ".background(Color(hex: \"F7F7F7\"))"
-        },
-        {
-          "line": 1622,
-          "code": ".frame(width: 78, alignment: .leading)"
-        },
-        {
-          "line": 1625,
-          "code": ".font(.system(size: 20, weight: .semibold))"
-        },
-        {
-          "line": 1626,
-          "code": ".foregroundColor(.black)"
-        },
-        {
-          "line": 1627,
-          "code": ".frame(maxWidth: .infinity)"
-        },
-        {
-          "line": 1629,
-          "code": "Color.clear"
-        },
-        {
-          "line": 1630,
-          "code": ".frame(width: 78, height: 36)"
-        },
-        {
-          "line": 1632,
-          "code": ".padding(.horizontal, 14)"
-        },
-        {
-          "line": 1633,
-          "code": ".padding(.top, 14)"
-        },
-        {
-          "line": 1634,
-          "code": ".padding(.bottom, 18)"
-        },
-        {
-          "line": 1635,
-          "code": ".background(Color.white)"
-        },
-        {
-          "line": 1658,
-          "code": ".tint(AppColors.accent)"
-        },
-        {
-          "line": 1664,
+          "line": 702,
           "code": ".font(.system(size: 34))"
         },
         {
-          "line": 1665,
+          "line": 703,
           "code": ".foregroundColor(AppColors.tertiaryText)"
         },
         {
-          "line": 1667,
+          "line": 705,
           "code": ".font(.system(size: 14))"
         },
         {
-          "line": 1668,
+          "line": 706,
           "code": ".foregroundColor(AppColors.secondaryText)"
         },
         {
-          "line": 1673,
+          "line": 711,
           "code": ".font(.system(size: 34))"
         },
         {
-          "line": 1674,
+          "line": 712,
           "code": ".foregroundColor(AppColors.tertiaryText)"
         },
         {
-          "line": 1676,
+          "line": 714,
           "code": ".font(.system(size: 15, weight: .medium))"
         },
         {
-          "line": 1677,
+          "line": 715,
           "code": ".foregroundColor(AppColors.secondaryText)"
         },
         {
-          "line": 1687,
+          "line": 725,
           "code": ".padding(.horizontal, 16)"
         },
         {
-          "line": 1688,
+          "line": 726,
           "code": ".padding(.vertical, 12)"
         },
         {
-          "line": 1690,
+          "line": 728,
           "code": ".background(AppColors.secondaryBackground)"
         },
         {
-          "line": 1726,
+          "line": 764,
           "code": ".font(.system(size: 13))"
         },
         {
-          "line": 1727,
+          "line": 765,
           "code": ".foregroundColor(AppColors.secondaryText)"
         },
         {
-          "line": 1732,
+          "line": 770,
           "code": ".font(.system(size: 14, weight: .semibold))"
         },
         {
-          "line": 1734,
+          "line": 772,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 1735,
+          "line": 773,
           "code": ".padding(.vertical, 12)"
         },
         {
-          "line": 1738,
+          "line": 776,
           "code": ".tint(AppColors.accent)"
         },
         {
-          "line": 1739,
+          "line": 777,
           "code": ".frame(maxWidth: .infinity)"
         },
         {
-          "line": 1740,
+          "line": 778,
           "code": ".padding(.vertical, 12)"
         },
         {
-          "line": 1759,
-          "code": ".tint(AppColors.accent)"
-        },
-        {
-          "line": 1763,
-          "code": ".font(.system(size: 34))"
-        },
-        {
-          "line": 1764,
-          "code": ".foregroundColor(AppColors.tertiaryText)"
-        },
-        {
-          "line": 1766,
-          "code": ".font(.system(size: 14))"
-        },
-        {
-          "line": 1767,
-          "code": ".foregroundColor(AppColors.secondaryText)"
-        },
-        {
-          "line": 1769,
-          "code": ".padding(.horizontal, 24)"
-        },
-        {
-          "line": 1774,
-          "code": ".font(.system(size: 34))"
-        },
-        {
-          "line": 1775,
-          "code": ".foregroundColor(AppColors.tertiaryText)"
-        },
-        {
-          "line": 1777,
-          "code": ".font(.system(size: 15, weight: .medium))"
-        },
-        {
-          "line": 1778,
-          "code": ".foregroundColor(AppColors.secondaryText)"
-        },
-        {
-          "line": 1792,
-          "code": ".padding(.horizontal, 16)"
-        },
-        {
-          "line": 1793,
-          "code": ".padding(.vertical, 12)"
-        },
-        {
-          "line": 1795,
-          "code": ".background(AppColors.secondaryBackground)"
-        },
-        {
-          "line": 1845,
+          "line": 792,
           "code": "return (transaction.signedAmountValue ?? 0) < 0 ? AppColors.errorColor : Color(hex: \"2FAE88\")"
         },
         {
-          "line": 1866,
+          "line": 813,
           "code": ".fill(amountColor.opacity(0.12))"
         },
         {
-          "line": 1867,
+          "line": 814,
           "code": ".frame(width: 36, height: 36)"
         },
         {
-          "line": 1869,
+          "line": 816,
           "code": ".font(.system(size: 15, weight: .semibold))"
         },
         {
-          "line": 1870,
+          "line": 817,
           "code": ".foregroundColor(amountColor)"
         },
         {
-          "line": 1875,
+          "line": 822,
           "code": ".font(.system(size: 15, weight: .semibold))"
         },
         {
-          "line": 1876,
+          "line": 823,
           "code": ".foregroundColor(AppColors.primaryText)"
         },
         {
-          "line": 1878,
+          "line": 825,
           "code": ".font(.system(size: 12))"
         },
         {
-          "line": 1879,
+          "line": 826,
           "code": ".foregroundColor(AppColors.secondaryText)"
         },
         {
-          "line": 1883,
+          "line": 830,
           "code": ".font(.system(size: 11))"
         },
         {
-          "line": 1884,
+          "line": 831,
           "code": ".foregroundColor(AppColors.tertiaryText)"
         },
         {
-          "line": 1891,
+          "line": 838,
           "code": ".font(.system(size: 15, weight: .bold))"
         },
         {
-          "line": 1892,
+          "line": 839,
           "code": ".foregroundColor(amountColor)"
         },
         {
-          "line": 1896,
+          "line": 843,
           "code": ".padding(.horizontal, 12)"
         },
         {
-          "line": 1897,
+          "line": 844,
           "code": ".padding(.vertical, 10)"
         },
         {
-          "line": 1898,
+          "line": 845,
           "code": ".background(AppColors.cardBackground)"
         },
         {
-          "line": 1899,
+          "line": 846,
           "code": ".cornerRadius(12)"
         },
         {
-          "line": 1912,
-          "code": ".fill(Color(hex: \"FFD54A\").opacity(0.18))"
-        },
-        {
-          "line": 1913,
-          "code": ".frame(width: 36, height: 36)"
-        },
-        {
-          "line": 1917,
-          "code": ".frame(width: 24, height: 24)"
-        },
-        {
-          "line": 1922,
-          "code": ".font(.system(size: 15, weight: .semibold))"
-        },
-        {
-          "line": 1923,
-          "code": ".foregroundColor(AppColors.primaryText)"
-        },
-        {
-          "line": 1927,
-          "code": ".font(.system(size: 12, weight: .medium))"
-        },
-        {
-          "line": 1928,
-          "code": ".foregroundColor(Color(hex: \"A76500\"))"
-        },
-        {
-          "line": 1933,
-          "code": ".font(.system(size: 11, weight: .medium))"
-        },
-        {
-          "line": 1934,
-          "code": ".foregroundColor(AppColors.secondaryText)"
-        },
-        {
-          "line": 1940,
-          "code": ".font(.system(size: 12))"
-        },
-        {
-          "line": 1941,
-          "code": ".foregroundColor(AppColors.secondaryText)"
-        },
-        {
-          "line": 1944,
-          "code": ".font(.system(size: 11))"
-        },
-        {
-          "line": 1945,
-          "code": ".foregroundColor(AppColors.tertiaryText)"
-        },
-        {
-          "line": 1950,
-          "code": ".font(.system(size: 11))"
-        },
-        {
-          "line": 1951,
-          "code": ".foregroundColor(AppColors.tertiaryText)"
-        },
-        {
-          "line": 1961,
-          "code": ".font(.system(size: 12, weight: .semibold))"
-        },
-        {
-          "line": 1962,
-          "code": ".foregroundColor(Color(hex: \"C98300\"))"
-        },
-        {
-          "line": 1963,
-          "code": ".padding(.horizontal, 10)"
-        },
-        {
-          "line": 1964,
-          "code": ".padding(.vertical, 6)"
-        },
-        {
-          "line": 1965,
-          "code": ".background(Color(hex: \"FFF4C9\"))"
-        },
-        {
-          "line": 1966,
-          "code": ".cornerRadius(12)"
-        },
-        {
-          "line": 1971,
-          "code": ".padding(.horizontal, 12)"
-        },
-        {
-          "line": 1972,
-          "code": ".padding(.vertical, 10)"
-        },
-        {
-          "line": 1973,
-          "code": ".background(Color(hex: \"FFF8DE\"))"
-        },
-        {
-          "line": 1974,
-          "code": ".cornerRadius(12)"
-        },
-        {
-          "line": 1985,
+          "line": 856,
           "code": ".frame(width: geo.size.width, height: geo.size.height)"
         },
         {
-          "line": 1988,
+          "line": 859,
           "code": ".ignoresSafeArea()"
         },
         {
-          "line": 2026,
+          "line": 897,
           "code": ".font(.system(size: 20, weight: .semibold))"
         },
         {
-          "line": 2027,
+          "line": 898,
           "code": ".foregroundColor(.black)"
         },
         {
-          "line": 2034,
+          "line": 905,
           "code": ".font(.system(size: 16, weight: .regular))"
         },
         {
-          "line": 2035,
+          "line": 906,
           "code": ".foregroundColor(.black.opacity(0.42))"
         },
         {
-          "line": 2042,
+          "line": 913,
           "code": ".padding(.horizontal, 24)"
         },
         {
-          "line": 2051,
+          "line": 922,
           "code": ".frame(width: 154, height: 142)"
         }
       ],
       "interactionModifiers": [
         {
-          "line": 126,
+          "line": 80,
           "code": ".task {"
         },
         {
-          "line": 136,
+          "line": 89,
           "code": ".onChange(of: packages.map(\\.productID)) { _ in"
         },
         {
-          "line": 140,
+          "line": 93,
           "code": ".onChange(of: scenePhase) { phase in"
         },
         {
-          "line": 146,
-          "code": ".onDisappear {"
-        },
-        {
-          "line": 150,
+          "line": 99,
           "code": ".alert(L10n.tr(\"common.notice\"), isPresented: Binding("
         },
         {
-          "line": 848,
-          "code": ".onTapGesture {"
-        },
-        {
-          "line": 902,
-          "code": ".onTapGesture {"
-        },
-        {
-          "line": 1324,
+          "line": 452,
           "code": ".task(id: isConfigured) {"
         },
         {
-          "line": 1327,
+          "line": 455,
           "code": ".onChange(of: scenePhase) { phase in"
         },
         {
-          "line": 1332,
+          "line": 460,
           "code": ".alert(L10n.tr(\"common.notice\"), isPresented: Binding("
         },
         {
-          "line": 1481,
+          "line": 609,
           "code": ".refreshable {"
         },
         {
-          "line": 1491,
+          "line": 619,
           "code": ".task {"
         },
         {
-          "line": 1604,
+          "line": 746,
           "code": ".task {"
         },
         {
-          "line": 1607,
-          "code": ".alert(L10n.tr(\"common.notice\"), isPresented: Binding("
-        },
-        {
-          "line": 1708,
-          "code": ".task {"
-        },
-        {
-          "line": 1741,
+          "line": 779,
           "code": ".task(id: cursor) {"
-        },
-        {
-          "line": 1813,
-          "code": ".task {"
-        },
-        {
-          "line": 1816,
-          "code": ".alert(L10n.tr(\"common.notice\"), isPresented: Binding("
         }
       ]
     },
@@ -28479,7 +27482,6 @@
     "blockMapUser",
     "cancelAgentOneToOneLiveMatch",
     "cancelOneToOneLiveCall",
-    "cancelWalletWithdrawal",
     "changePassword",
     "chatThumbnailFilename",
     "claimActivityCheckIn",
@@ -28508,7 +27510,6 @@
     "createShortDramaSeries",
     "createTransfer",
     "createWalletAdRewardSession",
-    "createWalletWithdrawal",
     "delayNanoseconds",
     "deleteChatBackground",
     "deleteMoment",
@@ -28593,7 +27594,6 @@
     "getWalletAdRewardStatus",
     "getWalletBalance",
     "getWalletTransactionPage",
-    "getWalletWithdrawals",
     "heartbeatOneToOneLiveSlot",
     "hideConversation",
     "httpError",
@@ -28920,9 +27920,7 @@
     "/wallet/transactions",
     "/wallet/transfers",
     "/wallet/transfers/\\(Self.pathComponent(assetID))/accept",
-    "/wallet/transfers/\\(Self.pathComponent(assetID))/return",
-    "/wallet/withdrawals",
-    "/wallet/withdrawals/\\(Self.pathComponent(id))/cancel"
+    "/wallet/transfers/\\(Self.pathComponent(assetID))/return"
   ],
   "dynamicRoutes": [
     "activity_center",
@@ -29241,7 +28239,7 @@
         "testActivityBalanceFundsMixedBusinessesButNotCoinOnlyBusinesses",
         "testLiveBillingConsumesActivityFirstWhileHostEarnsOnlyGoldCoins",
         "testLiveBillingRejectsInconsistentAssetBreakdown",
-        "testRechargeWithdrawalEarningsAndAdRewardStayGoldCoinOnly",
+        "testRechargeAndAdRewardStayGoldCoinOnly",
         "testCatalogDecodesSnakeCaseAndNullLastPlayedAt",
         "testCatalogDecodesPreviousCoinEntryPriceFieldDuringRollout",
         "testDeduplicationKeepsFirstServerOrderedItem",
@@ -29283,7 +28281,6 @@
         "testRewardedAdUnitAllowlistUsesRemoteReplacementAndBundledFallback",
         "testWalletRewardedAdUnitUsesRemoteConfigurationBeforeBundledFallback",
         "testWalletConfigKeepsRewardedAdFieldsWhenOtherFieldsUseStructuredPayloads",
-        "testWithdrawalPolicyKeepsTotalAndWithdrawableBalancesSemanticallySeparate",
         "testRewardedAdBridgeRejectsHTTPWhenSecureTransportIsRequired",
         "testRewardedAdBridgeRejectsNonMainFrame",
         "testGameBridgeRejectsLegacyHTTPEvenWhenBackendConfigurationIsHTTP",
@@ -29449,43 +28446,43 @@
   "localizations": [
     {
       "locale": "de",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "en",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "es",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "fr",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "ja",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "ko",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "pt-BR",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "ru",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "zh-Hans",
-      "keys": 1138
+      "keys": 1167
     },
     {
       "locale": "zh-Hant",
-      "keys": 1138
+      "keys": 1167
     }
   ],
   "dependencies": [

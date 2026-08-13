@@ -8,12 +8,14 @@ import {
   normalizeAgentSummaryPage,
   normalizeAgentRuntimeConfig,
   normalizeAgentConversation,
+  normalizeAgentConversationReadReceipt,
   normalizeAgentMediaUnlock,
   normalizeAgentMessagePage,
   normalizeAgentSummary,
   normalizeAgentTurnAccepted,
   normalizeAgentTurnResult,
   normalizeChatGroup,
+  normalizeChatSyncPage,
   normalizeCallConnectionCredentials,
   normalizeAuthSession,
   normalizeContact,
@@ -65,8 +67,6 @@ import {
   normalizeWalletBalanceSnapshot,
   normalizeWalletIapConfirmation,
   normalizeWalletTransactionPage,
-  normalizeWalletWithdrawal,
-  normalizeWalletWithdrawals,
   trimFoundationWhitespacesAndNewlines,
 } from "@/api/normalizers";
 import type {
@@ -76,6 +76,7 @@ import type {
   AgentRuntimeConfig,
   AgentReferenceUpload,
   AgentConversation,
+  AgentConversationReadReceipt,
   AgentMessagePage,
   AgentMediaUnlock,
   AgentSummary,
@@ -83,6 +84,7 @@ import type {
   AgentTurnResult,
   AgentVersion,
   ChatGroup,
+  ChatSyncPage,
   CallConnectionCredentials,
   CallQualityReport,
   CallQualityStreamReport,
@@ -154,7 +156,6 @@ import type {
   WalletBalanceSnapshot,
   WalletIapConfirmation,
   WalletTransactionPage,
-  WalletWithdrawal,
 } from "@/models";
 import { formatChatVoiceUploadDuration } from "@/services/messages/chatVoicePolicy";
 import {
@@ -242,13 +243,42 @@ function normalizedAuthError(error: unknown): unknown {
     : new APIError("api.decodingError", 200, undefined, "decoding_error");
 }
 
-export async function getConversationSyncSnapshot(): Promise<ConversationSyncSnapshot> {
+export async function getConversationSyncSnapshot(
+  signal?: AbortSignal,
+): Promise<ConversationSyncSnapshot> {
   return normalizeConversationSnapshot(
     await apiRequest<unknown>("/chat/conversations", {
       cache: "no-store",
       requiredData: true,
       requiredEnvelope: true,
       timeoutMs: 60_000,
+      ...(signal ? { signal } : {}),
+    }),
+  );
+}
+
+export async function getChatSync(
+  afterEventSeq: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<ChatSyncPage> {
+  if (!Number.isSafeInteger(afterEventSeq) || afterEventSeq < 0) {
+    throw new RangeError("afterEventSeq 必须是非负安全整数");
+  }
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 100) {
+    throw new RangeError("limit 必须是 1...100 的安全整数");
+  }
+  const query = new URLSearchParams({
+    after_event_seq: String(afterEventSeq),
+    limit: String(limit),
+  });
+  return normalizeChatSyncPage(
+    await apiRequest<unknown>(`/chat/sync?${query.toString()}`, {
+      cache: "no-store",
+      requiredData: true,
+      requiredEnvelope: true,
+      timeoutMs: 60_000,
+      ...(signal ? { signal } : {}),
     }),
   );
 }
@@ -1308,6 +1338,7 @@ export async function sendGroupTextMessage(
 ): Promise<GroupMessage> {
   const value = await apiRequest<unknown>(`/groups/${groupId}/messages/text`, {
     method: "POST",
+    ...(options.clientMessageId ? { headers: { "Idempotency-Key": options.clientMessageId } } : {}),
     body: {
       content,
       ...(options.replyToId !== undefined ? { reply_to_id: options.replyToId } : {}),
@@ -1329,6 +1360,7 @@ export async function sendGroupStickerMessage(
 ): Promise<GroupMessage> {
   const value = await apiRequest<unknown>(`/groups/${groupId}/messages/sticker`, {
     method: "POST",
+    ...(options.clientMessageId ? { headers: { "Idempotency-Key": options.clientMessageId } } : {}),
     body: {
       pack_id: packId,
       sticker_id: stickerId,
@@ -1442,6 +1474,7 @@ export async function sendTextMessage(
 ): Promise<Message> {
   const value = await apiRequest<unknown>("/chat/messages/text", {
     method: "POST",
+    ...(options.clientMessageId ? { headers: { "Idempotency-Key": options.clientMessageId } } : {}),
     requiredData: true,
     requiredEnvelope: true,
     body: {
@@ -1462,6 +1495,7 @@ export async function sendDirectStickerMessage(
 ): Promise<Message> {
   const value = await apiRequest<unknown>("/chat/messages/sticker", {
     method: "POST",
+    ...(options.clientMessageId ? { headers: { "Idempotency-Key": options.clientMessageId } } : {}),
     requiredData: true,
     requiredEnvelope: true,
     body: {
@@ -1671,14 +1705,17 @@ export async function sendGroupVideoMessage(
 
 export async function sendDirectVoiceMessage(
   contactId: string,
-  voice: { uri: string; filename: string; duration: number },
+  voice: { uri: string; filename: string; mimeType?: string | undefined; duration: number },
+  clientMessageId?: string,
 ): Promise<Message> {
   const form = new FormData();
   form.append("receiver_id", contactId);
+  if (clientMessageId) form.append("client_message_id", clientMessageId);
   appendChatVoiceFile(form, voice);
   return normalizeMessage(
     await apiRequest<unknown>("/chat/messages/voice", {
       method: "POST",
+      ...(clientMessageId ? { headers: { "Idempotency-Key": clientMessageId } } : {}),
       body: form,
       requiredData: true,
       requiredEnvelope: true,
@@ -1689,13 +1726,16 @@ export async function sendDirectVoiceMessage(
 
 export async function sendGroupVoiceMessage(
   groupId: number,
-  voice: { uri: string; filename: string; duration: number },
+  voice: { uri: string; filename: string; mimeType?: string | undefined; duration: number },
+  clientMessageId?: string,
 ): Promise<GroupMessage> {
   const form = new FormData();
+  if (clientMessageId) form.append("client_message_id", clientMessageId);
   appendChatVoiceFile(form, voice);
   return normalizeGroupMessage(
     await apiRequest<unknown>(`/groups/${groupId}/messages/voice`, {
       method: "POST",
+      ...(clientMessageId ? { headers: { "Idempotency-Key": clientMessageId } } : {}),
       body: form,
       requiredData: true,
       requiredEnvelope: true,
@@ -1772,13 +1812,13 @@ function appendChatVideoFiles(
 
 function appendChatVoiceFile(
   form: FormData,
-  voice: { uri: string; filename: string; duration: number },
+  voice: { uri: string; filename: string; mimeType?: string | undefined; duration: number },
 ) {
   form.append("duration", formatChatVoiceUploadDuration(voice.duration));
   form.append("voice", {
     uri: voice.uri,
     name: voice.filename,
-    type: "audio/m4a",
+    type: voice.mimeType?.trim() || "audio/m4a",
   } as unknown as Blob);
 }
 
@@ -2341,6 +2381,39 @@ export async function getAgentMessages(
   );
 }
 
+export async function markAgentMessagesRead(
+  conversationId: string,
+  options: {
+    throughSequence?: number;
+    throughMessageId?: string;
+    idempotencyKey?: string;
+  } = {},
+): Promise<AgentConversationReadReceipt | null> {
+  const idempotencyKey = options.idempotencyKey ?? createIdempotencyKey();
+  const value = await apiRequest<unknown>(
+    `/agent-conversations/${encodeURIComponent(conversationId)}/read`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      requiredEnvelope: true,
+      body: {
+        // Keep the body alias while older backends migrate to the standard
+        // header. Both values must identify the exact same read mutation.
+        idempotency_key: idempotencyKey,
+        ...(options.throughSequence !== undefined
+          ? { through_sequence: options.throughSequence }
+          : {}),
+        ...(options.throughMessageId?.trim()
+          ? { through_message_id: options.throughMessageId.trim() }
+          : {}),
+      },
+    },
+  );
+  return value === null || value === undefined
+    ? null
+    : normalizeAgentConversationReadReceipt(value);
+}
+
 export type AgentTurnInputPart =
   { type: "text"; text: string } | { type: "input_image"; asset_id: string };
 
@@ -2821,49 +2894,6 @@ export async function getActivityCatFoodTransactionPage(
   );
 }
 
-export async function getWalletWithdrawals(): Promise<WalletWithdrawal[]> {
-  return normalizeWalletWithdrawals(
-    await apiRequest<unknown>("/wallet/withdrawals", {
-      requiredData: true,
-      requiredEnvelope: true,
-    }),
-  );
-}
-
-export async function createWalletWithdrawal(input: {
-  goldCoinAmount: number;
-  usdtAmount: string;
-  network: string;
-  walletAddress: string;
-}): Promise<WalletWithdrawal | undefined> {
-  const value = await apiRequest<unknown>("/wallet/withdrawals", {
-    method: "POST",
-    requiredEnvelope: true,
-    body: {
-      gold_coin_amount: input.goldCoinAmount,
-      usdt_amount: input.usdtAmount,
-      payout_method: "usdt",
-      payout_account: `${input.network}:${input.walletAddress}`,
-      network: input.network,
-      wallet_address: input.walletAddress,
-    },
-  });
-  if (!isRecord(value)) return undefined;
-  const withdrawal = value.withdrawal ?? value.item ?? value.record ?? value.data ?? value;
-  return isRecord(withdrawal) ? normalizeWalletWithdrawal(withdrawal) : undefined;
-}
-
-export async function cancelWalletWithdrawal(id: string): Promise<WalletWithdrawal | undefined> {
-  const value = await apiRequest<unknown>(`/wallet/withdrawals/${encodeURIComponent(id)}/cancel`, {
-    method: "POST",
-    body: {},
-    requiredEnvelope: true,
-  });
-  if (!isRecord(value)) return undefined;
-  const withdrawal = value.withdrawal ?? value.item ?? value.record ?? value.data ?? value;
-  return isRecord(withdrawal) ? normalizeWalletWithdrawal(withdrawal) : undefined;
-}
-
 export async function getWalletAdRewardStatus(): Promise<WalletAdRewardStatus> {
   return normalizeWalletAdRewardStatus(
     await apiRequest<unknown>("/wallet/ad-rewards/status", {
@@ -2948,6 +2978,7 @@ export async function createRedPacketMessage(request: {
 }): Promise<ChatMoneyCreationResult> {
   const value = await apiRequest<unknown>("/wallet/red-packets", {
     method: "POST",
+    headers: { "Idempotency-Key": request.clientMessageId },
     body: {
       client_message_id: request.clientMessageId,
       scope: request.scope,
@@ -2979,6 +3010,7 @@ export async function createTransferMessage(request: {
 }): Promise<ChatMoneyCreationResult> {
   const value = await apiRequest<unknown>("/wallet/transfers", {
     method: "POST",
+    headers: { "Idempotency-Key": request.clientMessageId },
     body: {
       client_message_id: request.clientMessageId,
       scope: request.scope,

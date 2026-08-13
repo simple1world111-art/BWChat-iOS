@@ -5,6 +5,7 @@ import type {
   AgentActor,
   AgentCapabilities,
   AgentConversation,
+  AgentConversationReadReceipt,
   AgentDefinition,
   AgentGreeting,
   AgentMessage,
@@ -19,6 +20,8 @@ import type {
   AgentTurn,
   AgentTurnAccepted,
   AgentTurnResult,
+  ChatSyncEvent,
+  ChatSyncPage,
   ChatGroup,
   CallConnectionCredentials,
   CallType,
@@ -89,7 +92,6 @@ import type {
   WalletIapConfirmation,
   WalletTransaction,
   WalletTransactionPage,
-  WalletWithdrawal,
 } from "@/models";
 import { getActiveLanguageCode, localizedString } from "@/providers/LocalizationProvider";
 import { parseGiftMessagePayload } from "@/services/messages/chatGiftPolicy";
@@ -896,22 +898,6 @@ export function normalizeWalletBalanceSnapshot(value: unknown): WalletBalanceSna
       value.activityCatFoodBalance,
     ),
     spendable_balance: requiredNonnegativeInt(value.spendable_balance, value.spendableBalance),
-    recharge_gold_coin_balance: requiredNonnegativeInt(
-      value.recharge_gold_coin_balance,
-      value.rechargeGoldCoinBalance,
-    ),
-    gift_income_gold_coin_balance: requiredNonnegativeInt(
-      value.gift_income_gold_coin_balance,
-      value.giftIncomeGoldCoinBalance,
-    ),
-    withdraw_frozen_gold_coin_balance: requiredNonnegativeInt(
-      value.withdraw_frozen_gold_coin_balance,
-      value.withdrawFrozenGoldCoinBalance,
-    ),
-    withdrawable_gold_coin_balance: requiredNonnegativeInt(
-      value.withdrawable_gold_coin_balance,
-      value.withdrawableGoldCoinBalance,
-    ),
     chat_money_frozen_gold_coin_balance: requiredNonnegativeInt(
       value.chat_money_frozen_gold_coin_balance,
       value.chatMoneyFrozenGoldCoinBalance,
@@ -1031,58 +1017,6 @@ export function normalizeActivityCatFoodTransactionPage(
     items,
     ...(nextCursor ? { next_cursor: nextCursor } : {}),
   };
-}
-
-export function normalizeWalletWithdrawal(value: unknown): WalletWithdrawal {
-  if (!isRecord(value)) throw new Error("提现数据格式无效");
-  if (flexString(value.currency) !== "gold_coin") throw new Error("提现币种必须是 gold_coin");
-  const payoutUsd = flexDouble(value.payout_usd, value.payoutUSD);
-  const payoutCents = flexInt(value.payout_cents, value.payoutCents);
-  const canCancel = flexBool(value.can_cancel, value.canCancel);
-  const optional = (key: keyof WalletWithdrawal, ...candidates: unknown[]) => {
-    const decoded = flexString(...candidates);
-    return decoded === undefined ? {} : { [key]: decoded };
-  };
-  return {
-    id:
-      flexString(value.id, value.withdrawal_id, value.withdrawalId) ??
-      createLocalIdentifier("wallet-withdrawal"),
-    currency: "gold_coin",
-    gold_coin_amount: flexInt(value.gold_coin_amount, value.goldCoinAmount) ?? 0,
-    ...(payoutUsd !== undefined ? { payout_usd: payoutUsd } : {}),
-    ...(payoutCents !== undefined ? { payout_cents: payoutCents } : {}),
-    ...optional("provider", value.provider),
-    ...optional("payout_method", value.payout_method, value.payoutMethod),
-    ...optional("payout_account", value.payout_account, value.payoutAccount),
-    ...optional("network", value.network, value.chain),
-    ...optional(
-      "wallet_address",
-      value.wallet_address,
-      value.walletAddress,
-      value.usdt_address,
-      value.usdtAddress,
-    ),
-    status: flexString(value.status) ?? "pending",
-    ...(canCancel !== undefined ? { can_cancel: canCancel } : {}),
-    ...optional("note", value.note, value.remark, value.reason),
-    ...optional("created_at", value.created_at, value.createdAt),
-    ...optional("updated_at", value.updated_at, value.updatedAt),
-  };
-}
-
-export function normalizeWalletWithdrawals(value: unknown): WalletWithdrawal[] {
-  const source = Array.isArray(value)
-    ? value
-    : isRecord(value)
-      ? firstArray(value.withdrawals, value.items, value.records, value.list, value.rows)
-      : [];
-  return source.flatMap((item) => {
-    try {
-      return [normalizeWalletWithdrawal(item)];
-    } catch {
-      return [];
-    }
-  });
 }
 
 export function normalizeWalletAdRewardStatus(value: unknown): WalletAdRewardStatus {
@@ -1501,8 +1435,19 @@ export function normalizeAgentMessage(value: unknown): AgentMessage {
   const clientMessageId = flexString(value.client_message_id, value.clientMessageID);
   return {
     id: flexString(value.id, value.message_id, value.messageID) ?? "",
-    conversation_id: flexString(value.conversation_id, value.conversationID) ?? "",
-    sequence_no: flexInt(value.sequence_no, value.sequenceNo) ?? 0,
+    conversation_id:
+      flexString(
+        value.conversation_id,
+        value.conversationID,
+        value.agent_conversation_id,
+        value.agentConversationId,
+        value.agentConversationID,
+        value.surface_id,
+        value.surfaceId,
+      ) ?? "",
+    sequence_no:
+      flexInt(value.sequence_no, value.sequenceNo, value.message_sequence, value.messageSequence) ??
+      0,
     sender: normalizeAgentActor(value.sender),
     ...(turnId !== undefined ? { turn_id: turnId } : {}),
     source: flexString(value.source) ?? "",
@@ -1529,6 +1474,25 @@ export function normalizeAgentConversation(value: unknown): AgentConversation {
   const latest = isRecord(value.latest_message ?? value.latestMessage)
     ? normalizeAgentMessage(value.latest_message ?? value.latestMessage)
     : undefined;
+  const unreadCount = flexInt(
+    value.unread_count,
+    value.unreadCount,
+    value.conversation_unread,
+    value.conversationUnread,
+  );
+  const readThroughSequence = flexInt(
+    value.read_through_sequence,
+    value.readThroughSequence,
+    value.read_sequence,
+    value.readSequence,
+  );
+  const totalUnreadCount = flexInt(
+    value.total_unread_count,
+    value.totalUnreadCount,
+    value.total_unread,
+    value.totalUnread,
+  );
+  const revision = flexInt(value.revision, value.unread_revision, value.unreadRevision);
   return {
     id: flexString(value.id, value.conversation_id, value.conversationID) ?? "",
     title: flexString(value.title) ?? profile.name,
@@ -1540,8 +1504,70 @@ export function normalizeAgentConversation(value: unknown): AgentConversation {
       value.agent_capabilities ?? value.agentCapabilities,
     ),
     ...(latest ? { latest_message: latest } : {}),
+    ...(unreadCount !== undefined ? { unread_count: Math.max(0, unreadCount) } : {}),
+    ...(readThroughSequence !== undefined
+      ? { read_through_sequence: Math.max(0, readThroughSequence) }
+      : {}),
+    ...(totalUnreadCount !== undefined
+      ? { total_unread_count: Math.max(0, totalUnreadCount) }
+      : {}),
+    ...(revision !== undefined ? { revision: Math.max(0, revision) } : {}),
     created_at: flexString(value.created_at, value.createdAt) ?? "",
     updated_at: flexString(value.updated_at, value.updatedAt) ?? "",
+  };
+}
+
+export function normalizeAgentConversationReadReceipt(
+  value: unknown,
+): AgentConversationReadReceipt {
+  if (!isRecord(value)) throw new Error("智能体已读响应格式无效");
+  const nested = value.receipt ?? value.read_state ?? value.readState;
+  if (isRecord(nested)) return normalizeAgentConversationReadReceipt(nested);
+  const readThroughMessageId = flexString(
+    value.read_through_message_id,
+    value.readThroughMessageId,
+    value.readThroughMessageID,
+    value.through_message_id,
+    value.throughMessageId,
+    value.throughMessageID,
+  );
+  const totalUnreadCount = flexInt(
+    value.total_unread_count,
+    value.totalUnreadCount,
+    value.total_unread,
+    value.totalUnread,
+  );
+  const revision = flexInt(value.revision, value.unread_revision, value.unreadRevision);
+  const serverTime = flexString(value.server_time, value.serverTime);
+  return {
+    conversation_id:
+      flexString(value.conversation_id, value.conversationId, value.conversationID) ?? "",
+    read_through_sequence: Math.max(
+      0,
+      flexInt(
+        value.read_through_sequence,
+        value.readThroughSequence,
+        value.through_sequence,
+        value.throughSequence,
+      ) ?? 0,
+    ),
+    ...(readThroughMessageId !== undefined
+      ? { read_through_message_id: readThroughMessageId }
+      : {}),
+    unread_count: Math.max(
+      0,
+      flexInt(
+        value.unread_count,
+        value.unreadCount,
+        value.conversation_unread,
+        value.conversationUnread,
+      ) ?? 0,
+    ),
+    ...(totalUnreadCount !== undefined
+      ? { total_unread_count: Math.max(0, totalUnreadCount) }
+      : {}),
+    ...(revision !== undefined ? { revision: Math.max(0, revision) } : {}),
+    ...(serverTime !== undefined ? { server_time: serverTime } : {}),
   };
 }
 
@@ -2470,8 +2496,16 @@ export function normalizeGroupMessage(value: unknown): GroupMessage {
     msg_type: msgType,
     content,
     timestamp:
-      groupFlexString(value.timestamp, value.created_at, value.createdAt, value.time) ??
-      new Date().toISOString(),
+      groupFlexString(
+        value.timestamp,
+        value.created_at,
+        value.createdAt,
+        value.time,
+        value.server_time,
+        value.serverTime,
+        value.updated_at,
+        value.updatedAt,
+      ) ?? "",
     sender_nickname:
       groupFlexString(value.sender_nickname, value.senderNickname, value.nickname) ?? senderId,
     sender_avatar: groupFlexString(value.sender_avatar, value.senderAvatar, value.avatar_url) ?? "",
@@ -2864,6 +2898,9 @@ export function normalizeConversation(value: unknown): Conversation {
   const rawType = flexString(value.type);
   const type = normalizeConversationType(rawType, groupId, id);
   const lastMessage = flexContent(value.last_message, value.lastMessage);
+  const conversationRevision = flexInt(value.conversation_revision, value.conversationRevision);
+  const unreadRevision = flexInt(value.unread_revision, value.unreadRevision);
+  const legacyRevision = flexInt(value.revision, unreadRevision, conversationRevision);
   return {
     type,
     id,
@@ -2904,6 +2941,26 @@ export function normalizeConversation(value: unknown): Conversation {
           last_message_id: flexInt(value.last_message_id, value.lastMessageId, value.lastMessageID),
         }
       : {}),
+    ...(flexInt(value.last_message_version, value.lastMessageVersion) !== undefined
+      ? {
+          last_message_version: flexInt(value.last_message_version, value.lastMessageVersion),
+        }
+      : {}),
+    ...(flexInt(
+      value.last_message_sequence,
+      value.lastMessageSequence,
+      value.last_message_seq,
+      value.lastMessageSeq,
+    ) !== undefined
+      ? {
+          last_message_sequence: flexInt(
+            value.last_message_sequence,
+            value.lastMessageSequence,
+            value.last_message_seq,
+            value.lastMessageSeq,
+          ),
+        }
+      : {}),
     ...(flexInt(
       value.read_through_message_id,
       value.readThroughMessageId,
@@ -2917,7 +2974,9 @@ export function normalizeConversation(value: unknown): Conversation {
           ),
         }
       : {}),
-    ...(flexInt(value.revision) !== undefined ? { revision: flexInt(value.revision) } : {}),
+    ...(conversationRevision !== undefined ? { conversation_revision: conversationRevision } : {}),
+    ...(unreadRevision !== undefined ? { unread_revision: unreadRevision } : {}),
+    ...(legacyRevision !== undefined ? { revision: legacyRevision } : {}),
     is_muted: flexBool(value.is_muted, value.isMuted) ?? false,
     ...(flexBool(value.is_pinned, value.isPinned) !== undefined
       ? { is_pinned: flexBool(value.is_pinned, value.isPinned) }
@@ -2930,9 +2989,17 @@ export function normalizeConversationSnapshot(value: unknown): ConversationSyncS
   const conversations = Array.isArray(value.conversations)
     ? value.conversations.map(normalizeConversation).filter((item) => item.id.length > 0)
     : [];
+  const conversationRevision = flexInt(value.conversation_revision, value.conversationRevision);
+  const unreadRevision = flexInt(value.unread_revision, value.unreadRevision);
+  const legacyRevision = flexInt(value.revision, unreadRevision, conversationRevision);
   return {
     conversations,
-    ...(flexInt(value.revision) !== undefined ? { revision: flexInt(value.revision) } : {}),
+    ...(legacyRevision !== undefined ? { revision: legacyRevision } : {}),
+    ...(conversationRevision !== undefined ? { conversation_revision: conversationRevision } : {}),
+    ...(unreadRevision !== undefined ? { unread_revision: unreadRevision } : {}),
+    ...(flexInt(value.event_sequence, value.eventSequence, value.event_seq) !== undefined
+      ? { event_sequence: flexInt(value.event_sequence, value.eventSequence, value.event_seq) }
+      : {}),
     ...(flexString(value.server_time, value.serverTime) !== undefined
       ? { server_time: flexString(value.server_time, value.serverTime) }
       : {}),
@@ -2945,8 +3012,68 @@ export function normalizeConversationSnapshot(value: unknown): ConversationSyncS
   };
 }
 
+export function normalizeChatSyncEvent(value: unknown): ChatSyncEvent {
+  if (!isRecord(value)) throw new Error("消息同步事件格式无效");
+  const type = flexString(value.type, value.event_type, value.eventType);
+  const eventSequence = flexInt(value.event_sequence, value.eventSequence, value.event_seq);
+  if (!type || eventSequence === undefined || eventSequence <= 0) {
+    throw new Error("消息同步事件缺少有效的 type 或 event_sequence");
+  }
+  if (!isRecord(value.data)) throw new Error("消息同步事件缺少有效的 data 对象");
+  const eventId = flexString(value.event_id, value.eventId);
+  const serverTime = flexString(value.server_time, value.serverTime);
+  return {
+    type,
+    event_sequence: eventSequence,
+    data: value.data,
+    ...(eventId !== undefined ? { event_id: eventId } : {}),
+    ...(serverTime !== undefined ? { server_time: serverTime } : {}),
+  };
+}
+
+export function normalizeChatSyncPage(value: unknown): ChatSyncPage {
+  if (!isRecord(value) || !Array.isArray(value.events)) {
+    throw new Error("消息同步响应格式无效");
+  }
+  const nextEventSequence = flexInt(value.next_event_seq, value.nextEventSeq);
+  const hasMore = flexBool(value.has_more, value.hasMore);
+  const snapshotRevision = flexInt(value.snapshot_revision, value.snapshotRevision);
+  const serverTime = flexString(value.server_time, value.serverTime);
+  const fullSyncRequired = flexBool(value.full_sync_required, value.fullSyncRequired);
+  if (
+    nextEventSequence === undefined ||
+    nextEventSequence < 0 ||
+    hasMore === undefined ||
+    snapshotRevision === undefined ||
+    snapshotRevision < 0 ||
+    !serverTime ||
+    fullSyncRequired === undefined
+  ) {
+    throw new Error("消息同步响应缺少必需字段");
+  }
+  const events = value.events.map(normalizeChatSyncEvent);
+  for (let index = 1; index < events.length; index += 1) {
+    if ((events[index]?.event_sequence ?? 0) <= (events[index - 1]?.event_sequence ?? 0)) {
+      throw new Error("消息同步事件必须按 event_sequence 严格递增");
+    }
+  }
+  if (events.some((event) => event.event_sequence > nextEventSequence)) {
+    throw new Error("消息同步水位不能早于已返回事件");
+  }
+  return {
+    events,
+    next_event_seq: nextEventSequence,
+    has_more: hasMore,
+    snapshot_revision: snapshotRevision,
+    server_time: serverTime,
+    full_sync_required: fullSyncRequired,
+  };
+}
+
 export function normalizeConversationReadReceipt(value: unknown): ConversationReadReceipt {
   if (!isRecord(value)) throw new Error("会话已读回执格式无效");
+  const namedUnreadRevision = flexInt(value.unread_revision, value.unreadRevision);
+  const legacyRevision = flexInt(value.revision, namedUnreadRevision);
   return {
     conversation_type: flexString(value.conversation_type, value.conversationType) ?? "",
     conversation_id:
@@ -2966,7 +3093,8 @@ export function normalizeConversationReadReceipt(value: unknown): ConversationRe
           ),
         }
       : {}),
-    ...(flexInt(value.revision) !== undefined ? { revision: flexInt(value.revision) } : {}),
+    ...(namedUnreadRevision !== undefined ? { unread_revision: namedUnreadRevision } : {}),
+    ...(legacyRevision !== undefined ? { revision: legacyRevision } : {}),
     ...(flexString(value.server_time, value.serverTime) !== undefined
       ? { server_time: flexString(value.server_time, value.serverTime) }
       : {}),
@@ -3012,8 +3140,16 @@ export function normalizeMessage(value: unknown): Message {
     msg_type: msgType,
     content,
     timestamp:
-      flexString(value.timestamp, value.created_at, value.createdAt, value.time) ??
-      new Date().toISOString(),
+      flexString(
+        value.timestamp,
+        value.created_at,
+        value.createdAt,
+        value.time,
+        value.server_time,
+        value.serverTime,
+        value.updated_at,
+        value.updatedAt,
+      ) ?? "",
     ...(flexInt(value.reply_to_id, value.replyToId) !== undefined
       ? { reply_to_id: flexInt(value.reply_to_id, value.replyToId) }
       : {}),
@@ -3095,6 +3231,7 @@ function normalizeConversationType(
   ) {
     return "group";
   }
+  if (["script", "script_room", "scriptroom"].includes(normalized ?? "")) return "script";
   if (["agent", "agent_conversation", "agent_profile"].includes(normalized ?? "")) return "agent";
   return "dm";
 }

@@ -4,6 +4,7 @@ import { APIError } from "@/api/client";
 import {
   createDirectChatOutboxJob,
   directChatOutboxFailure,
+  directChatOutboxOfflineWait,
   directChatOutboxPolicy,
   directOptimisticOutboxMessage,
   isTransientDirectChatOutboxError,
@@ -15,8 +16,22 @@ import {
   sendingDirectChatOutboxJob,
   temporaryDirectChatOutboxId,
 } from "@/services/messages/DirectChatOutboxRepository";
+import {
+  ChatVoiceOutboxFileUnavailableError,
+  requireAvailableChatVoiceUpload,
+} from "@/services/messages/ChatVoiceOutboxPayload";
 
-describe("native direct text/sticker outbox", () => {
+jest.mock("expo-file-system", () => ({
+  File: class MockFile {
+    readonly exists: boolean;
+
+    constructor(uri: string) {
+      this.exists = !uri.includes("missing");
+    }
+  },
+}));
+
+describe("native direct text/sticker/voice outbox", () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
   });
@@ -87,11 +102,96 @@ describe("native direct text/sticker outbox", () => {
     await removeDirectChatOutboxJob("owner-a", "client-text");
     await expect(readDirectChatOutboxJob("owner-a", "client-text")).resolves.toBeNull();
   });
+
+  it("persists a resumable voice payload and restores the same idempotency identity", async () => {
+    const voice = await createDirectChatOutboxJob(voiceJob());
+    await expect(readDirectChatOutboxJob("owner-a", "client-voice")).resolves.toEqual(voice);
+    expect(voice).toMatchObject({
+      id: "client-voice",
+      client_message_id: "client-voice",
+      msg_type: "voice",
+      content: "file:///voice.m4a|4.25",
+      voice: {
+        uri: "file:///voice.m4a",
+        filename: "voice_123.m4a",
+        mime_type: "audio/m4a",
+        duration: 4.25,
+      },
+    });
+    expect(requireAvailableChatVoiceUpload(voice.voice)).toEqual({
+      uri: "file:///voice.m4a",
+      filename: "voice_123.m4a",
+      mimeType: "audio/m4a",
+      duration: 4.25,
+    });
+    expect(directOptimisticOutboxMessage(voice)).toMatchObject({
+      client_message_id: "client-voice",
+      msg_type: "voice",
+      delivery_status: "sending",
+    });
+  });
+
+  it("keeps legacy text cache rows readable by deriving their client identity from id", async () => {
+    await AsyncStorage.setItem(
+      "bwchat.direct-message-outbox.v1:account:owner-a:job:legacy-text",
+      JSON.stringify({
+        ...baseJob(),
+        id: "legacy-text",
+        client_message_id: undefined,
+      }),
+    );
+    await expect(readDirectChatOutboxJob("owner-a", "legacy-text")).resolves.toMatchObject({
+      id: "legacy-text",
+      client_message_id: "legacy-text",
+      msg_type: "text",
+    });
+  });
+
+  it("fails a missing voice file permanently without an automatic retry loop", () => {
+    const job = {
+      ...voiceJob(),
+      content: "file:///missing.m4a|4.25",
+      voice: { ...voiceJob().voice, uri: "file:///missing.m4a" },
+      state: "sending" as const,
+      attempt_count: 2,
+    };
+    let error: unknown;
+    try {
+      requireAvailableChatVoiceUpload(job.voice);
+    } catch (nextError) {
+      error = nextError;
+    }
+    expect(error).toBeInstanceOf(ChatVoiceOutboxFileUnavailableError);
+    expect(directChatOutboxFailure(job, error)).toMatchObject({
+      state: "failed",
+      attempt_count: 2,
+      next_attempt_at: undefined,
+    });
+  });
+
+  it("waits locally while definitely offline without consuming an attempt", () => {
+    const job = { ...voiceJob(), state: "sending" as const, attempt_count: 4 };
+    expect(directChatOutboxOfflineWait(job, 1_000)).toMatchObject({
+      id: "client-voice",
+      client_message_id: "client-voice",
+      state: "retry_waiting",
+      attempt_count: 4,
+      next_attempt_at: new Date(6_000).toISOString(),
+      retry_reason: "network_offline",
+      last_error: undefined,
+    });
+    expect(directChatOutboxFailure(job, new APIError("offline", 0), 1_000)).toMatchObject({
+      state: "retry_waiting",
+      attempt_count: 5,
+      client_message_id: "client-voice",
+    });
+  });
 });
 
 function baseJob() {
   return {
     id: "client-text",
+    client_message_id: "client-text",
     owner_id: "owner-a",
     target_id: "friend-a",
     msg_type: "text" as const,
@@ -99,5 +199,23 @@ function baseJob() {
     created_at: "2026-08-08T00:00:00Z",
     state: "queued" as const,
     attempt_count: 0,
+  };
+}
+
+function voiceJob() {
+  return {
+    id: "client-voice",
+    client_message_id: "client-voice",
+    owner_id: "owner-a",
+    target_id: "friend-a",
+    msg_type: "voice" as const,
+    content: "file:///voice.m4a|4.25",
+    voice: {
+      uri: "file:///voice.m4a",
+      filename: "voice_123.m4a",
+      mime_type: "audio/m4a",
+      duration: 4.25,
+    },
+    created_at: "2026-08-08T00:00:02Z",
   };
 }

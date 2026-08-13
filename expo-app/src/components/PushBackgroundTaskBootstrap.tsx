@@ -19,8 +19,8 @@ if (!TaskManager.isTaskDefined(pushBackgroundTaskName)) {
         const user = await readCachedUser();
         const ownerId = user?.user_id ?? "";
         const payload = backgroundNotificationData(data);
-        await applyPushSideEffects(payload, ownerId);
-        if (ownerId) {
+        const applied = await applyPushSideEffects(payload, ownerId);
+        if (ownerId && applied) {
           const snapshot = await getConversationSyncSnapshot();
           await reconcileConversationSnapshot(ownerId, snapshot);
         }

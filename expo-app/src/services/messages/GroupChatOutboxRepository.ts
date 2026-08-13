@@ -2,15 +2,26 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { APIError } from "@/api/client";
 import type { GroupMessage, GroupReplyPreview } from "@/models";
+import {
+  chatVoiceOutboxContent,
+  isValidChatVoiceOutboxPayload,
+  type ChatVoiceOutboxPayload,
+} from "@/services/messages/ChatVoiceOutboxPayload";
+import {
+  chatOutboxNetworkRetryDelayMilliseconds,
+  type ChatOutboxRetryReason,
+} from "@/services/messages/ChatOutboxNetwork";
 
 export type GroupChatOutboxState = "queued" | "sending" | "retry_waiting" | "failed";
 
 export interface GroupChatOutboxJob {
   id: string;
+  client_message_id: string;
   owner_id: string;
   group_id: number;
-  msg_type: "text" | "sticker";
+  msg_type: "text" | "sticker" | "voice";
   content: string;
+  voice?: ChatVoiceOutboxPayload | undefined;
   sticker_pack_id?: string | undefined;
   sticker_id?: string | undefined;
   reply_to_id?: number | undefined;
@@ -23,8 +34,16 @@ export interface GroupChatOutboxJob {
   state: GroupChatOutboxState;
   attempt_count: number;
   next_attempt_at?: string | undefined;
+  retry_reason?: ChatOutboxRetryReason | undefined;
   last_error?: string | undefined;
 }
+
+type GroupChatOutboxJobInput = Omit<
+  GroupChatOutboxJob,
+  "state" | "attempt_count" | "client_message_id"
+> & {
+  client_message_id?: string | undefined;
+};
 
 export const groupChatOutboxPolicy = Object.freeze({
   maximumAutomaticAttempts: 5,
@@ -34,9 +53,18 @@ export const groupChatOutboxPolicy = Object.freeze({
 const storagePrefix = "bwchat.group-message-outbox.v1";
 
 export async function createGroupChatOutboxJob(
-  input: Omit<GroupChatOutboxJob, "state" | "attempt_count">,
+  input: GroupChatOutboxJobInput,
 ): Promise<GroupChatOutboxJob> {
-  const job: GroupChatOutboxJob = { ...input, state: "queued", attempt_count: 0 };
+  const clientMessageId = input.client_message_id ?? input.id;
+  const job: GroupChatOutboxJob = {
+    ...input,
+    client_message_id: clientMessageId,
+    ...(input.msg_type === "voice" && input.voice
+      ? { content: chatVoiceOutboxContent(input.voice) }
+      : {}),
+    state: "queued",
+    attempt_count: 0,
+  };
   await saveGroupChatOutboxJob(job);
   return job;
 }
@@ -83,13 +111,24 @@ export function groupChatOutboxFailure(
   now = Date.now(),
 ): GroupChatOutboxJob {
   const message = error instanceof Error ? error.message : String(error);
+  const keepsWaitingForNetwork =
+    job.msg_type === "voice" && error instanceof APIError && error.status === 0;
   if (
     !isTransientGroupChatOutboxError(error) ||
-    job.attempt_count >= groupChatOutboxPolicy.maximumAutomaticAttempts
+    (!keepsWaitingForNetwork && job.attempt_count >= groupChatOutboxPolicy.maximumAutomaticAttempts)
   ) {
-    return { ...job, state: "failed", last_error: message, next_attempt_at: undefined };
+    return {
+      ...job,
+      state: "failed",
+      last_error: message,
+      next_attempt_at: undefined,
+      retry_reason: undefined,
+    };
   }
-  const attemptCount = job.attempt_count + 1;
+  const attemptCount = Math.min(
+    job.attempt_count + 1,
+    groupChatOutboxPolicy.maximumAutomaticAttempts,
+  );
   const seconds = Math.min(
     2 ** Math.max(0, job.attempt_count),
     groupChatOutboxPolicy.maximumRetryDelaySeconds,
@@ -99,16 +138,42 @@ export function groupChatOutboxFailure(
     state: "retry_waiting",
     attempt_count: attemptCount,
     next_attempt_at: new Date(now + seconds * 1_000).toISOString(),
+    retry_reason: "transient_error",
     last_error: message,
   };
 }
 
+export function groupChatOutboxOfflineWait(
+  job: GroupChatOutboxJob,
+  now = Date.now(),
+): GroupChatOutboxJob {
+  return {
+    ...job,
+    state: "retry_waiting",
+    next_attempt_at: new Date(now + chatOutboxNetworkRetryDelayMilliseconds).toISOString(),
+    retry_reason: "network_offline",
+    last_error: undefined,
+  };
+}
+
 export function queuedGroupChatOutboxJob(job: GroupChatOutboxJob): GroupChatOutboxJob {
-  return { ...job, state: "queued", next_attempt_at: undefined, last_error: undefined };
+  return {
+    ...job,
+    state: "queued",
+    next_attempt_at: undefined,
+    retry_reason: undefined,
+    last_error: undefined,
+  };
 }
 
 export function sendingGroupChatOutboxJob(job: GroupChatOutboxJob): GroupChatOutboxJob {
-  return { ...job, state: "sending", next_attempt_at: undefined, last_error: undefined };
+  return {
+    ...job,
+    state: "sending",
+    next_attempt_at: undefined,
+    retry_reason: undefined,
+    last_error: undefined,
+  };
 }
 
 export function isTransientGroupChatOutboxError(error: unknown): boolean {
@@ -136,7 +201,7 @@ export function groupOptimisticOutboxMessage(job: GroupChatOutboxJob): GroupMess
     timestamp: job.created_at,
     sender_nickname: job.sender_nickname,
     sender_avatar: job.sender_avatar,
-    client_message_id: job.id,
+    client_message_id: job.client_message_id,
     version: 1,
     delivery_status: job.state === "failed" ? "failed" : "sending",
   };
@@ -158,7 +223,11 @@ function jobKey(ownerId: string, clientMessageId: string): string {
 function decodeJob(encoded: string | null, ownerId: string): GroupChatOutboxJob | null {
   if (!encoded) return null;
   try {
-    const value = JSON.parse(encoded) as GroupChatOutboxJob;
+    const parsed = JSON.parse(encoded) as GroupChatOutboxJob;
+    const value = {
+      ...parsed,
+      client_message_id: parsed.client_message_id ?? parsed.id,
+    };
     return validJob(value, ownerId) ? value : null;
   } catch {
     return null;
@@ -171,11 +240,12 @@ function validJob(job: GroupChatOutboxJob, ownerId: string): boolean {
     job !== null &&
     typeof job.id === "string" &&
     job.id.trim().length > 0 &&
+    job.client_message_id === job.id &&
     ownerId.trim().length > 0 &&
     job.owner_id === ownerId &&
     Number.isSafeInteger(job.group_id) &&
     job.group_id > 0 &&
-    (job.msg_type === "text" || job.msg_type === "sticker") &&
+    (job.msg_type === "text" || job.msg_type === "sticker" || job.msg_type === "voice") &&
     typeof job.content === "string" &&
     job.content.trim().length > 0 &&
     (job.reply_to_id === undefined ||
@@ -193,6 +263,9 @@ function validJob(job: GroupChatOutboxJob, ownerId: string): boolean {
     Number.isSafeInteger(job.attempt_count) &&
     job.attempt_count >= 0 &&
     job.attempt_count <= groupChatOutboxPolicy.maximumAutomaticAttempts &&
+    (job.retry_reason === undefined ||
+      job.retry_reason === "network_offline" ||
+      job.retry_reason === "transient_error") &&
     (job.next_attempt_at === undefined ||
       (typeof job.next_attempt_at === "string" &&
         Number.isFinite(Date.parse(job.next_attempt_at)))) &&
@@ -201,7 +274,8 @@ function validJob(job: GroupChatOutboxJob, ownerId: string): boolean {
       (typeof job.sticker_pack_id === "string" &&
         job.sticker_pack_id.trim().length > 0 &&
         typeof job.sticker_id === "string" &&
-        job.sticker_id.trim().length > 0))
+        job.sticker_id.trim().length > 0)) &&
+    (job.msg_type !== "voice" || isValidChatVoiceOutboxPayload(job.voice))
   );
 }
 

@@ -13,6 +13,16 @@ describe("Android EAS build compatibility", () => {
     expect(easIgnore).not.toMatch(/^android\/$/m);
   });
 
+  test("excludes dependency directories and dependency symlinks from EAS archives", () => {
+    const easIgnore = readFileSync(path.join(projectRoot, ".easignore"), "utf8");
+    const gitIgnore = readFileSync(path.join(projectRoot, ".gitignore"), "utf8");
+
+    for (const ignore of [easIgnore, gitIgnore]) {
+      expect(ignore).toMatch(/^node_modules\/$/m);
+      expect(ignore).toMatch(/^node_modules$/m);
+    }
+  });
+
   test("pins the compatible bridge and Android Mobile Ads SDK pair", () => {
     const packageJsonPath = require.resolve("react-native-google-mobile-ads/package.json");
     const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {

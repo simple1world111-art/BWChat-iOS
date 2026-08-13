@@ -1,6 +1,7 @@
 import type {
   ConversationPreference,
   ConversationReadReceipt,
+  AgentMessage,
   GroupAnnouncement,
   GroupHistoryClearReceipt,
   GroupMemberUpdateEvent,
@@ -10,12 +11,14 @@ import type {
   Message,
   ScriptTurnState,
 } from "@/models";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   flexInt,
   flexString,
   isRecord,
   normalizeConversationPreference,
   normalizeConversationReadReceipt,
+  normalizeAgentMessage,
   normalizeGroupHistoryClearReceipt,
   normalizeGroupMessage,
   normalizeGroupViewerSettings,
@@ -41,11 +44,23 @@ import { saveDirectChatMessages } from "@/services/messages/DirectChatHistoryRep
 import { saveGroupChatMessages } from "@/services/messages/GroupChatHistoryRepository";
 import { readAccessToken } from "@/storage/tokenStorage";
 
-export type ChatRealtimeEvent =
-  | { type: "direct_message"; message: Message }
-  | { type: "direct_message_hint"; sender_id: string; receiver_id: string; message_id: number }
-  | { type: "group_message"; message: GroupMessage }
-  | { type: "group_message_hint"; group_id: number; message_id: number }
+export type ChatRealtimeEvent = (
+  | { type: "direct_message"; message: Message; is_update?: boolean | undefined }
+  | {
+      type: "direct_message_hint";
+      sender_id: string;
+      receiver_id: string;
+      message_id: number;
+      message_version?: number | undefined;
+    }
+  | { type: "group_message"; message: GroupMessage; is_update?: boolean | undefined }
+  | {
+      type: "group_message_hint";
+      group_id: number;
+      message_id: number;
+      message_version?: number | undefined;
+    }
+  | { type: "agent_message"; message: AgentMessage; is_update?: boolean | undefined }
   | { type: "conversation_read"; receipt: ConversationReadReceipt }
   | { type: "group_history_cleared"; receipt: GroupHistoryClearReceipt }
   | { type: "conversation_preference"; preference: ConversationPreference }
@@ -58,9 +73,16 @@ export type ChatRealtimeEvent =
   | { type: "refresh_conversations"; reason: string }
   | { type: "script_turn_state"; state: ScriptTurnState }
   | { type: "call_signal"; signal_type: string; data: Record<string, unknown> }
-  | { type: "live_signal"; signal_type: string; data: Record<string, unknown> };
+  | { type: "live_signal"; signal_type: string; data: Record<string, unknown> }
+) & { delivery_source?: "catch_up" | undefined };
 
 export type ChatRealtimeStatus = "disconnected" | "connecting" | "connected";
+export type ChatConversationSurface = "dm" | "group" | "agent" | "script";
+
+export interface ChatConversationAlias {
+  type: ChatConversationSurface;
+  id: string;
+}
 
 type EventListener = (event: ChatRealtimeEvent) => void;
 type StatusListener = (status: ChatRealtimeStatus) => void;
@@ -102,15 +124,91 @@ const liveSignalTypes = new Set([
   "one_to_one_live.slot.ended",
 ]);
 
-export function makeChatWebSocketURL(baseUrl: string, token: string): string {
+export function makeChatWebSocketURL(
+  baseUrl: string,
+  token: string,
+  afterEventSequence?: number,
+): string {
   const url = new URL(baseUrl);
   url.searchParams.delete("token");
+  url.searchParams.delete("after_event_seq");
   url.searchParams.append("token", token.trim());
+  if (
+    afterEventSequence !== undefined &&
+    Number.isSafeInteger(afterEventSequence) &&
+    afterEventSequence > 0
+  ) {
+    url.searchParams.append("after_event_seq", String(afterEventSequence));
+  }
   return url.toString();
 }
 
 export function chatRealtimeReconnectDelay(attempt: number): number {
   return Math.min(2 ** Math.max(0, Math.floor(attempt)), 30) * 1_000;
+}
+
+export function jitteredChatRealtimeReconnectDelay(attempt: number, random = Math.random): number {
+  const base = chatRealtimeReconnectDelay(attempt);
+  return Math.round(base * Math.min(1, Math.max(0, random())));
+}
+
+export interface ChatRealtimeEnvelopeMetadata {
+  event_id?: string | undefined;
+  event_sequence?: number | undefined;
+  server_time?: string | undefined;
+}
+
+export interface ChatRealtimeCatchUpEvent extends ChatRealtimeEnvelopeMetadata {
+  event_sequence: number;
+  type: string;
+  data: unknown;
+}
+
+export function nextPersistedRealtimeEventSequence(
+  previous: number,
+  incoming: number | undefined,
+  options: { hasGap: boolean; persistenceSucceeded: boolean },
+): number {
+  if (
+    incoming === undefined ||
+    incoming <= previous ||
+    options.hasGap ||
+    !options.persistenceSucceeded
+  ) {
+    return previous;
+  }
+  return incoming;
+}
+
+export function parseChatRealtimeEnvelopeMetadata(value: unknown): ChatRealtimeEnvelopeMetadata {
+  const envelope = parseEnvelope(value);
+  if (!envelope) return {};
+  const payload = isRecord(envelope.data) ? envelope.data : envelope;
+  const eventId = flexString(
+    envelope.event_id,
+    envelope.eventId,
+    payload.event_id,
+    payload.eventId,
+  );
+  const eventSequence = flexInt(
+    envelope.event_seq,
+    envelope.event_sequence,
+    envelope.eventSequence,
+    payload.event_seq,
+    payload.event_sequence,
+    payload.eventSequence,
+  );
+  const serverTime = flexString(
+    envelope.server_time,
+    envelope.serverTime,
+    payload.server_time,
+    payload.serverTime,
+  );
+  return {
+    ...(eventId ? { event_id: eventId } : {}),
+    ...(eventSequence !== undefined && eventSequence > 0 ? { event_sequence: eventSequence } : {}),
+    ...(serverTime ? { server_time: serverTime } : {}),
+  };
 }
 
 export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
@@ -123,11 +221,36 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
   try {
     switch (type) {
       case "new_message":
-      case "message_updated":
         return [{ type: "direct_message", message: normalizeMessage(messagePayload(payload)) }];
+      case "message_updated":
+        return [
+          {
+            type: "direct_message",
+            message: normalizeMessage(messagePayload(payload)),
+            is_update: true,
+          },
+        ];
       case "new_group_message":
-      case "group_message_updated":
         return [{ type: "group_message", message: normalizeGroupMessage(messagePayload(payload)) }];
+      case "group_message_updated":
+        return [
+          {
+            type: "group_message",
+            message: normalizeGroupMessage(messagePayload(payload)),
+            is_update: true,
+          },
+        ];
+      case "agent_message":
+      case "new_agent_message": {
+        const message = normalizeAgentMessage(agentMessagePayload(payload));
+        return message.id && message.conversation_id ? [{ type: "agent_message", message }] : [];
+      }
+      case "agent_message_updated": {
+        const message = normalizeAgentMessage(agentMessagePayload(payload));
+        return message.id && message.conversation_id
+          ? [{ type: "agent_message", message, is_update: true }]
+          : [];
+      }
       case "conversation_read_state": {
         const receipt = normalizeConversationReadReceipt(payload);
         return receipt.conversation_id ? [{ type: "conversation_read", receipt }] : [];
@@ -182,7 +305,6 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
       case "chat_money_updated":
         return chatMoneyMessageEvents(payload);
       case "contact_update": {
-        const events: ChatRealtimeEvent[] = [{ type: "refresh_conversations", reason: type }];
         const senderId =
           flexString(
             payload.sender_id,
@@ -207,15 +329,23 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
             payload.lastMessageId,
             payload.lastMessageID,
           ) ?? 0;
+        const messageVersion = flexInt(
+          payload.message_version,
+          payload.messageVersion,
+          payload.version,
+        );
         if (senderId && receiverId && messageId > 0) {
-          events.push({
-            type: "direct_message_hint",
-            sender_id: senderId,
-            receiver_id: receiverId,
-            message_id: messageId,
-          });
+          return [
+            {
+              type: "direct_message_hint",
+              sender_id: senderId,
+              receiver_id: receiverId,
+              message_id: messageId,
+              ...(messageVersion !== undefined ? { message_version: messageVersion } : {}),
+            },
+          ];
         }
-        return events;
+        return [{ type: "refresh_conversations", reason: type }];
       }
       case "script_turn_state": {
         if (envelope.type !== "script_turn_state") return [];
@@ -224,7 +354,6 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
         return state.room_id ? [{ type: "script_turn_state", state }] : [];
       }
       case "group_contact_update": {
-        const events: ChatRealtimeEvent[] = [{ type: "refresh_conversations", reason: type }];
         const groupId = flexInt(payload.group_id, payload.groupId, payload.groupID) ?? 0;
         const messageId =
           flexInt(
@@ -234,16 +363,32 @@ export function parseChatRealtimeEnvelope(value: unknown): ChatRealtimeEvent[] {
             payload.lastMessageId,
             payload.lastMessageID,
           ) ?? 0;
+        const messageVersion = flexInt(
+          payload.message_version,
+          payload.messageVersion,
+          payload.version,
+        );
         if (groupId > 0 && messageId > 0) {
-          events.push({ type: "group_message_hint", group_id: groupId, message_id: messageId });
+          return [
+            {
+              type: "group_message_hint",
+              group_id: groupId,
+              message_id: messageId,
+              ...(messageVersion !== undefined ? { message_version: messageVersion } : {}),
+            },
+          ];
         }
-        return events;
+        return [{ type: "refresh_conversations", reason: type }];
       }
       case "group_created":
       case "friend_request":
       case "friend_accepted":
       case "chat_reset":
         return [{ type: "refresh_conversations", reason: type }];
+      case "resync_required":
+      case "sync_required":
+      case "replay_unavailable":
+        return [{ type: "refresh_conversations", reason: "realtime_resync_required" }];
       case "ping":
       case "pong":
         return [];
@@ -268,13 +413,23 @@ class ChatRealtimeService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private healthTimer: ReturnType<typeof setInterval> | null = null;
+  private connectionTimer: ReturnType<typeof setTimeout> | null = null;
   private lastMessageAt = 0;
   private refreshAttempted = false;
   private status: ChatRealtimeStatus = "disconnected";
-  private activeDirectId: string | null = null;
-  private activeGroupId: number | null = null;
+  private activeConversation: {
+    lease: number;
+    canonical: string;
+    identities: Set<string>;
+  } | null = null;
+  private applicationActive = true;
+  private networkAvailable = true;
   private activeConversationLease = 0;
   private incomingEventDispatch: Promise<void> = Promise.resolve();
+  private realtimePersistenceDispatch: Promise<void> = Promise.resolve();
+  private readonly ingestedMessageVersions = new Map<string, number>();
+  private readonly observedEventSequences = new Map<string, number>();
+  private readonly persistenceFailureSequences = new Map<string, number>();
   private readonly listeners = new Set<EventListener>();
   private readonly statusListeners = new Set<StatusListener>();
 
@@ -287,6 +442,9 @@ class ChatRealtimeService {
     this.manuallyStopped = false;
     this.reconnectAttempt = 0;
     this.refreshAttempted = false;
+    this.ingestedMessageVersions.clear();
+    this.observedEventSequences.clear();
+    this.persistenceFailureSequences.clear();
     void this.connect();
   }
 
@@ -294,14 +452,20 @@ class ChatRealtimeService {
     this.manuallyStopped = true;
     this.ownerId = null;
     this.activeConversationLease += 1;
-    this.activeDirectId = null;
-    this.activeGroupId = null;
+    this.activeConversation = null;
+    this.applicationActive = true;
+    this.ingestedMessageVersions.clear();
+    this.observedEventSequences.clear();
+    this.persistenceFailureSequences.clear();
     this.teardownSocket(1000, "logout");
     this.setStatus("disconnected");
   }
 
   reconnectNow(): void {
     if (this.manuallyStopped || !this.ownerId) return;
+    if (this.socket?.readyState === WebSocket.OPEN && Date.now() - this.lastMessageAt <= 45_000) {
+      return;
+    }
     this.reconnectAttempt = 0;
     this.teardownSocket(1001, "foreground");
     void this.connect();
@@ -318,45 +482,189 @@ class ChatRealtimeService {
     return () => this.statusListeners.delete(listener);
   }
 
-  setActiveConversation(type: "dm" | "group", id: string | null): void {
-    if (type === "dm") {
-      this.activeDirectId = id?.trim() || null;
-      if (this.activeDirectId) this.activeGroupId = null;
-    } else {
-      this.activeGroupId = id ? Number(id) || null : null;
-      if (this.activeGroupId) this.activeDirectId = null;
+  setActiveConversation(type: ChatConversationSurface, id: string | null): void {
+    const identity = id ? activeConversationIdentity(type, id) : null;
+    if (!identity) {
+      if (
+        this.activeConversation &&
+        [...this.activeConversation.identities].some((candidate) =>
+          candidate.startsWith(`${type}:`),
+        )
+      ) {
+        this.activeConversationLease += 1;
+        this.activeConversation = null;
+      }
+      return;
     }
+    const lease = ++this.activeConversationLease;
+    this.activeConversation = { lease, canonical: identity, identities: new Set([identity]) };
   }
 
-  activateConversation(type: "dm" | "group", id: string): () => void {
-    const normalizedId = id.trim();
-    if (!normalizedId || (type === "group" && !(Number(normalizedId) > 0))) {
+  activateConversation(
+    type: ChatConversationSurface,
+    id: string,
+    aliases: readonly ChatConversationAlias[] = [],
+  ): () => void {
+    const canonical = activeConversationIdentity(type, id);
+    if (!canonical) {
       return () => undefined;
     }
     const lease = ++this.activeConversationLease;
-    this.setActiveConversation(type, normalizedId);
+    const identities = new Set<string>([canonical]);
+    for (const alias of aliases) {
+      const identity = activeConversationIdentity(alias.type, alias.id);
+      if (identity) identities.add(identity);
+    }
+    this.activeConversation = { lease, canonical, identities };
     return () => {
-      if (lease !== this.activeConversationLease) return;
+      if (lease !== this.activeConversation?.lease) return;
       this.activeConversationLease += 1;
-      if (type === "dm" && this.activeDirectId === normalizedId) this.activeDirectId = null;
-      if (type === "group" && this.activeGroupId === Number(normalizedId)) {
-        this.activeGroupId = null;
-      }
+      this.activeConversation = null;
+    };
+  }
+
+  addActiveConversationAlias(
+    type: ChatConversationSurface,
+    id: string,
+    aliasType: ChatConversationSurface,
+    aliasId: string,
+  ): () => void {
+    const canonical = activeConversationIdentity(type, id);
+    const alias = activeConversationIdentity(aliasType, aliasId);
+    const active = this.activeConversation;
+    if (!canonical || !alias || !active || active.canonical !== canonical) {
+      return () => undefined;
+    }
+    const lease = active.lease;
+    active.identities.add(alias);
+    return () => {
+      const current = this.activeConversation;
+      if (!current || current.lease !== lease || current.canonical !== canonical) return;
+      if (alias !== canonical) current.identities.delete(alias);
     };
   }
 
   hasActiveConversation(): boolean {
-    return this.activeDirectId !== null || this.activeGroupId !== null;
+    return this.applicationActive && this.activeConversation !== null;
   }
 
-  isConversationActive(type: "dm" | "group", id: string): boolean {
-    return type === "dm" ? this.activeDirectId === id : this.activeGroupId === Number(id);
+  isConversationActive(type: ChatConversationSurface, id: string): boolean {
+    const identity = activeConversationIdentity(type, id);
+    return Boolean(
+      this.applicationActive && identity && this.activeConversation?.identities.has(identity),
+    );
+  }
+
+  setApplicationActive(active: boolean): void {
+    this.applicationActive = active;
+  }
+
+  setNetworkAvailable(available: boolean): void {
+    if (this.networkAvailable === available) return;
+    this.networkAvailable = available;
+    if (!available) {
+      this.teardownSocket(1001, "network_offline");
+      this.setStatus("disconnected");
+      return;
+    }
+    if (!this.manuallyStopped && this.ownerId) {
+      this.reconnectAttempt = 0;
+      void this.connect();
+    }
   }
 
   requestConversationRefresh(reason: string): void {
     const normalized = reason.trim() || "external";
     for (const listener of this.listeners)
       listener({ type: "refresh_conversations", reason: normalized });
+  }
+
+  async acknowledgeCatchUp(ownerId: string, eventSequence: number): Promise<void> {
+    const owner = ownerId.trim();
+    if (
+      !owner ||
+      owner !== this.ownerId ||
+      !Number.isSafeInteger(eventSequence) ||
+      eventSequence <= 0
+    ) {
+      return;
+    }
+    await this.realtimePersistenceDispatch.catch(() => undefined);
+    await saveRealtimeEventSequence(owner, eventSequence);
+    this.observedEventSequences.set(
+      owner,
+      Math.max(this.observedEventSequences.get(owner) ?? 0, eventSequence),
+    );
+    const blockedSequence = this.persistenceFailureSequences.get(owner);
+    if (blockedSequence !== undefined && blockedSequence <= eventSequence) {
+      this.persistenceFailureSequences.delete(owner);
+    }
+  }
+
+  persistedEventSequence(ownerId: string): Promise<number> {
+    return readRealtimeEventSequence(ownerId.trim());
+  }
+
+  /**
+   * Applies one ordered `/chat/sync` page through the same parser, UI listeners,
+   * version gate and serialized persistence lane as WebSocket events. The page
+   * cursor is committed only after every accepted side effect is durable.
+   */
+  ingestCatchUpPage(
+    ownerId: string,
+    envelopes: readonly ChatRealtimeCatchUpEvent[],
+  ): Promise<number> {
+    const owner = ownerId.trim();
+    const operation = this.incomingEventDispatch
+      .catch(() => undefined)
+      .then(async () => {
+        if (!owner || owner !== this.ownerId) throw new Error("realtime_owner_changed");
+        // A WebSocket event may already be visible while its disk write is queued.
+        // Flush that lane before validating the delta start cursor.
+        await this.realtimePersistenceDispatch.catch(() => undefined);
+        const durableSequence = await readRealtimeEventSequence(owner);
+        const pending = envelopes.filter((event) => event.event_sequence > durableSequence);
+        if (pending.length === 0) return durableSequence;
+
+        let expectedSequence = durableSequence + 1;
+        const acceptedEvents: ChatRealtimeEvent[] = [];
+        for (const envelope of pending) {
+          if (
+            !Number.isSafeInteger(envelope.event_sequence) ||
+            envelope.event_sequence !== expectedSequence
+          ) {
+            throw new Error("chat_sync_sequence_gap");
+          }
+          const parsed = parseChatRealtimeEnvelope(envelope);
+          if (parsed.length === 0) throw new Error("chat_sync_event_unsupported");
+          for (const event of parsed) {
+            if (!this.shouldIngestEvent(owner, event)) continue;
+            const deliveredEvent: ChatRealtimeEvent = { ...event, delivery_source: "catch_up" };
+            acceptedEvents.push(deliveredEvent);
+            for (const listener of this.listeners) listener(deliveredEvent);
+          }
+          expectedSequence += 1;
+        }
+
+        const firstSequence = pending[0]!.event_sequence;
+        const lastSequence = pending.at(-1)!.event_sequence;
+        const persisted = await this.enqueueAcceptedEventPersistence({
+          ownerId: owner,
+          acceptedEvents,
+          previousSequence: durableSequence,
+          firstSequence,
+          eventSequence: lastSequence,
+          hasGap: false,
+          requireCursorAdvance: true,
+        });
+        if (!persisted) throw new Error("chat_sync_persistence_failed");
+        return lastSequence;
+      });
+    this.incomingEventDispatch = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
   }
 
   publishLocalGroupMessage(ownerId: string, message: GroupMessage): boolean {
@@ -383,32 +691,56 @@ class ChatRealtimeService {
   }
 
   private async connect(): Promise<void> {
-    if (this.manuallyStopped || !this.ownerId || this.socket) return;
+    if (this.manuallyStopped || !this.ownerId || this.socket || !this.networkAvailable) return;
+    const expectedOwnerId = this.ownerId;
     const token = await readAccessToken();
-    if (!token || this.manuallyStopped || !this.ownerId) return;
+    const afterEventSequence = await readRealtimeEventSequence(expectedOwnerId);
+    if (
+      !token ||
+      this.manuallyStopped ||
+      this.ownerId !== expectedOwnerId ||
+      !this.networkAvailable
+    ) {
+      return;
+    }
     this.setStatus("connecting");
     let socket: WebSocket;
     try {
-      socket = new WebSocket(makeChatWebSocketURL(env.webSocketUrl, token));
+      socket = new WebSocket(
+        makeChatWebSocketURL(env.webSocketUrl, token, afterEventSequence || undefined),
+      );
     } catch (error) {
       reportRealtimeError(error, "websocket_construct");
       this.scheduleReconnect();
       return;
     }
     this.socket = socket;
+    this.connectionTimer = setTimeout(() => {
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      this.teardownSocket(1001, "connect_timeout");
+      this.setStatus("disconnected");
+      this.scheduleReconnect();
+    }, 10_000);
     socket.onopen = () => {
       if (this.socket !== socket) return;
+      if (this.connectionTimer) clearTimeout(this.connectionTimer);
+      this.connectionTimer = null;
       this.lastMessageAt = Date.now();
+      this.reconnectAttempt = 0;
+      this.refreshAttempted = false;
+      this.setStatus("connected");
       this.startHeartbeat();
     };
     socket.onmessage = (event) => {
       if (this.socket !== socket || !this.ownerId) return;
       const ownerId = this.ownerId;
       this.lastMessageAt = Date.now();
-      this.reconnectAttempt = 0;
-      this.refreshAttempted = false;
-      this.setStatus("connected");
-      this.enqueueIncomingEvents(socket, ownerId, parseChatRealtimeEnvelope(event.data));
+      this.enqueueIncomingEvents(
+        socket,
+        ownerId,
+        parseChatRealtimeEnvelope(event.data),
+        parseChatRealtimeEnvelopeMetadata(event.data),
+      );
     };
     socket.onerror = () => {
       // The close callback owns reconnect scheduling on React Native.
@@ -442,8 +774,10 @@ class ChatRealtimeService {
   }
 
   private scheduleReconnect(): void {
-    if (this.manuallyStopped || !this.ownerId || this.reconnectTimer) return;
-    const delay = chatRealtimeReconnectDelay(this.reconnectAttempt++);
+    if (this.manuallyStopped || !this.ownerId || !this.networkAvailable || this.reconnectTimer) {
+      return;
+    }
+    const delay = jitteredChatRealtimeReconnectDelay(this.reconnectAttempt++);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.connect();
@@ -488,25 +822,167 @@ class ChatRealtimeService {
     socket: WebSocket,
     ownerId: string,
     events: readonly ChatRealtimeEvent[],
+    metadata: ChatRealtimeEnvelopeMetadata = {},
   ): void {
-    if (events.length === 0) return;
+    if (events.length === 0 && metadata.event_sequence === undefined) return;
     this.incomingEventDispatch = this.incomingEventDispatch
       .catch(() => undefined)
       .then(async () => {
+        const eventSequence = metadata.event_sequence;
+        const previousSequence = await readRealtimeEventSequence(ownerId);
+        if (eventSequence !== undefined && eventSequence <= previousSequence) return;
+        const observedSequence = this.observedEventSequences.get(ownerId) ?? previousSequence;
+        if (eventSequence !== undefined && eventSequence <= observedSequence) return;
+        const hasGap =
+          eventSequence !== undefined &&
+          observedSequence > 0 &&
+          eventSequence > observedSequence + 1;
+        if (hasGap) {
+          for (const listener of this.listeners) {
+            listener({ type: "refresh_conversations", reason: "realtime_sequence_gap" });
+          }
+        } else if (eventSequence !== undefined) {
+          this.observedEventSequences.set(ownerId, eventSequence);
+        }
+        const acceptedEvents: ChatRealtimeEvent[] = [];
         for (const event of events) {
           if (this.socket !== socket || this.ownerId !== ownerId) return;
-          try {
-            // Keep the list preview and the timeline on one ordered source of
-            // truth: a user can only tap a newly broadcast preview after its
-            // corresponding message is durable in the account-scoped cache.
-            await this.applySideEffects(ownerId, event);
-          } catch (error) {
-            reportRealtimeError(error, "realtime_event_side_effect");
-          }
-          if (this.socket !== socket || this.ownerId !== ownerId) return;
+          if (!this.shouldIngestEvent(ownerId, event)) continue;
+          acceptedEvents.push(event);
           for (const listener of this.listeners) listener(event);
         }
+        // UI observes the canonical, version-gated ingest immediately. Disk writes remain ordered
+        // on their own lane, so slow AsyncStorage cannot stall later WebSocket events.
+        void this.enqueueAcceptedEventPersistence({
+          ownerId,
+          acceptedEvents,
+          previousSequence,
+          ...(eventSequence !== undefined ? { firstSequence: eventSequence, eventSequence } : {}),
+          hasGap,
+          requireCursorAdvance: false,
+        });
       });
+  }
+
+  private enqueueAcceptedEventPersistence(input: {
+    ownerId: string;
+    acceptedEvents: readonly ChatRealtimeEvent[];
+    previousSequence: number;
+    firstSequence?: number | undefined;
+    eventSequence?: number | undefined;
+    hasGap: boolean;
+    requireCursorAdvance: boolean;
+  }): Promise<boolean> {
+    const operation = this.realtimePersistenceDispatch
+      .catch(() => undefined)
+      .then(async () => {
+        let persistenceSucceeded = false;
+        try {
+          for (const event of input.acceptedEvents) {
+            await this.applySideEffects(input.ownerId, event);
+          }
+          persistenceSucceeded = true;
+        } catch (error) {
+          reportRealtimeError(error, "realtime_event_side_effect");
+          if (input.eventSequence !== undefined) {
+            this.recordPersistenceFailure(input.ownerId, input.eventSequence);
+          }
+          this.rollbackMessageIngestGates(input.ownerId, input.acceptedEvents);
+          this.observedEventSequences.set(input.ownerId, input.previousSequence);
+          this.publishPersistenceFailure(input.ownerId);
+        }
+
+        const durableSequence = await readRealtimeEventSequence(input.ownerId);
+        let blockedSequence = this.persistenceFailureSequences.get(input.ownerId);
+        if (
+          persistenceSucceeded &&
+          blockedSequence !== undefined &&
+          input.firstSequence !== undefined &&
+          input.eventSequence !== undefined &&
+          blockedSequence >= input.firstSequence &&
+          blockedSequence <= input.eventSequence
+        ) {
+          this.persistenceFailureSequences.delete(input.ownerId);
+          blockedSequence = undefined;
+        }
+        const remainsBlocked =
+          blockedSequence !== undefined &&
+          input.eventSequence !== undefined &&
+          blockedSequence < input.eventSequence;
+        const durableGap =
+          input.firstSequence !== undefined &&
+          durableSequence > 0 &&
+          input.firstSequence > durableSequence + 1;
+        const nextSequence = nextPersistedRealtimeEventSequence(
+          durableSequence,
+          input.eventSequence,
+          {
+            hasGap: input.hasGap || durableGap || remainsBlocked,
+            persistenceSucceeded,
+          },
+        );
+        if (nextSequence > durableSequence) {
+          try {
+            await saveRealtimeEventSequence(input.ownerId, nextSequence);
+            this.observedEventSequences.set(
+              input.ownerId,
+              Math.max(this.observedEventSequences.get(input.ownerId) ?? 0, nextSequence),
+            );
+          } catch (error) {
+            reportRealtimeError(error, "realtime_cursor_persist");
+            this.recordPersistenceFailure(input.ownerId, nextSequence);
+            this.rollbackMessageIngestGates(input.ownerId, input.acceptedEvents);
+            this.observedEventSequences.set(input.ownerId, input.previousSequence);
+            this.publishPersistenceFailure(input.ownerId);
+            return false;
+          }
+        }
+        if (!persistenceSucceeded) return false;
+        return !input.requireCursorAdvance || input.eventSequence === undefined
+          ? true
+          : Math.max(durableSequence, nextSequence) >= input.eventSequence;
+      });
+    this.realtimePersistenceDispatch = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  private publishPersistenceFailure(ownerId: string): void {
+    if (this.ownerId !== ownerId) return;
+    for (const listener of this.listeners) {
+      listener({ type: "refresh_conversations", reason: "realtime_persistence_failed" });
+    }
+  }
+
+  private shouldIngestEvent(ownerId: string, event: ChatRealtimeEvent): boolean {
+    const gate = realtimeMessageIngestGate(ownerId, event);
+    if (!gate) return true;
+    const previousVersion = this.ingestedMessageVersions.get(gate.key);
+    if (previousVersion !== undefined && gate.version <= previousVersion) return false;
+    this.ingestedMessageVersions.set(gate.key, gate.version);
+    if (this.ingestedMessageVersions.size > 4_096) {
+      const oldestKey = this.ingestedMessageVersions.keys().next().value;
+      if (oldestKey !== undefined) this.ingestedMessageVersions.delete(oldestKey);
+    }
+    return true;
+  }
+
+  private rollbackMessageIngestGates(ownerId: string, events: readonly ChatRealtimeEvent[]): void {
+    for (const event of events) {
+      const gate = realtimeMessageIngestGate(ownerId, event);
+      if (!gate || this.ingestedMessageVersions.get(gate.key) !== gate.version) continue;
+      this.ingestedMessageVersions.delete(gate.key);
+    }
+  }
+
+  private recordPersistenceFailure(ownerId: string, eventSequence: number): void {
+    const previous = this.persistenceFailureSequences.get(ownerId);
+    this.persistenceFailureSequences.set(
+      ownerId,
+      previous === undefined ? eventSequence : Math.min(previous, eventSequence),
+    );
   }
 
   private teardownSocket(code?: number, reason?: string): void {
@@ -527,8 +1003,10 @@ class ChatRealtimeService {
   private stopTimers(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.healthTimer) clearInterval(this.healthTimer);
+    if (this.connectionTimer) clearTimeout(this.connectionTimer);
     this.heartbeatTimer = null;
     this.healthTimer = null;
+    this.connectionTimer = null;
   }
 
   private setStatus(status: ChatRealtimeStatus): void {
@@ -548,6 +1026,20 @@ export function directMessageContactId(ownerId: string, message: Message): strin
   return null;
 }
 
+function realtimeMessageIngestGate(
+  ownerId: string,
+  event: ChatRealtimeEvent,
+): { key: string; version: number } | null {
+  if (event.type !== "direct_message" && event.type !== "group_message") return null;
+  return {
+    key:
+      event.type === "direct_message"
+        ? `dm:${directMessageContactId(ownerId, event.message) ?? "unknown"}:${event.message.id}`
+        : `group:${event.message.group_id}:${event.message.id}`,
+    version: Math.max(0, event.message.version),
+  };
+}
+
 export async function persistChatRealtimeMessage(
   ownerId: string,
   event: Extract<ChatRealtimeEvent, { type: "direct_message" | "group_message" }>,
@@ -560,6 +1052,39 @@ export async function persistChatRealtimeMessage(
     return;
   }
   await saveGroupChatMessages(owner, event.message.group_id, [event.message]);
+}
+
+const realtimeEventSequenceKeyPrefix = "bwchat.realtime.event-sequence.v1";
+const realtimeEventSequences = new Map<string, number>();
+const realtimeEventSequenceLoads = new Map<string, Promise<number>>();
+
+async function readRealtimeEventSequence(ownerId: string): Promise<number> {
+  const cached = realtimeEventSequences.get(ownerId);
+  if (cached !== undefined) return cached;
+  const existing = realtimeEventSequenceLoads.get(ownerId);
+  if (existing) return existing;
+  const load = AsyncStorage.getItem(realtimeEventSequenceKey(ownerId))
+    .then((encoded) => {
+      const value = Number(encoded);
+      const sequence = Number.isSafeInteger(value) && value > 0 ? value : 0;
+      realtimeEventSequences.set(ownerId, sequence);
+      return sequence;
+    })
+    .catch(() => 0)
+    .finally(() => realtimeEventSequenceLoads.delete(ownerId));
+  realtimeEventSequenceLoads.set(ownerId, load);
+  return load;
+}
+
+async function saveRealtimeEventSequence(ownerId: string, eventSequence: number): Promise<void> {
+  const previous = await readRealtimeEventSequence(ownerId);
+  if (!Number.isSafeInteger(eventSequence) || eventSequence <= previous) return;
+  await AsyncStorage.setItem(realtimeEventSequenceKey(ownerId), String(eventSequence));
+  realtimeEventSequences.set(ownerId, eventSequence);
+}
+
+function realtimeEventSequenceKey(ownerId: string): string {
+  return `${realtimeEventSequenceKeyPrefix}:${encodeURIComponent(ownerId)}`;
 }
 
 function parseEnvelope(value: unknown): Record<string, unknown> | null {
@@ -577,8 +1102,22 @@ function messagePayload(payload: Record<string, unknown>): Record<string, unknow
   return isRecord(payload.message) ? payload.message : payload;
 }
 
+function agentMessagePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return isRecord(payload.message) ? { ...payload, ...payload.message } : payload;
+}
+
 function normalizeEventType(value: string): string {
   return value.trim().toLocaleLowerCase().replaceAll("-", "_");
+}
+
+function activeConversationIdentity(type: ChatConversationSurface, id: string): string | null {
+  const target = id.trim();
+  if (!target) return null;
+  if (type === "group") {
+    const groupId = Number(target);
+    return Number.isInteger(groupId) && groupId > 0 ? `group:${groupId}` : null;
+  }
+  return `${type}:${target}`;
 }
 
 function isLegacyLiveInvite(payload: Record<string, unknown>): boolean {

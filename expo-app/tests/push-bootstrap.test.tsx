@@ -50,6 +50,10 @@ jest.mock("expo-notifications", () => ({
 
 jest.mock("@/services/monitoring/MonitoringService", () => ({ captureException: jest.fn() }));
 
+jest.mock("@/services/conversations/ConversationSyncCoordinator", () => ({
+  conversationSyncCoordinator: { request: jest.fn().mockResolvedValue(undefined) },
+}));
+
 jest.mock("@/services/calls/CallNotificationBridge", () => ({
   publishCallNotification: jest.fn(),
 }));
@@ -125,7 +129,7 @@ describe("authenticated push bootstrap", () => {
     uploadToken.mockResolvedValue();
     cacheToken.mockResolvedValue("cached-token");
     dismissCachedRead.mockResolvedValue(0);
-    applySideEffects.mockResolvedValue();
+    applySideEffects.mockResolvedValue(true);
     publishCall.mockReturnValue({ kind: "not_call" });
     claimOpenTarget.mockResolvedValue(null);
     acknowledgeOpenTarget.mockResolvedValue();
@@ -250,6 +254,7 @@ describe("authenticated push bootstrap", () => {
         eventId: "dm:friend:message:7",
         conversationType: "dm",
         conversationId: "friend",
+        conversationKey: "dm:friend",
         messageId: 7,
         senderName: "Friend",
         isDirectMention: false,
@@ -288,6 +293,65 @@ describe("authenticated push bootstrap", () => {
     expect(releaseOpenTarget).not.toHaveBeenCalled();
     expect(setPushOwner).toHaveBeenCalledWith("owner");
 
+    await view.unmount();
+  });
+
+  it("routes pending agent and script notification opens to their dedicated surfaces", async () => {
+    const agentTarget: PushOpenTarget = {
+      kind: "conversation",
+      eventId: "agent-event",
+      route: {
+        eventId: "agent-event",
+        conversationType: "agent",
+        conversationId: "agent-conversation-1",
+        conversationKey: "agent:agent-conversation-1",
+        agentId: "agent-1",
+        agentAvatarAssetId: "avatar-1",
+        conversationName: "小助手",
+        isDirectMention: false,
+        isMentionAll: false,
+      },
+    };
+    const scriptTarget: PushOpenTarget = {
+      kind: "conversation",
+      eventId: "script-event",
+      route: {
+        eventId: "script-event",
+        conversationType: "script",
+        conversationId: "room-1",
+        conversationKey: "script:room-1",
+        scriptRoomId: "room-1",
+        isDirectMention: false,
+        isMentionAll: false,
+      },
+    };
+    currentUserId = "owner";
+    claimOpenTarget
+      .mockResolvedValueOnce(agentTarget)
+      .mockResolvedValueOnce(scriptTarget)
+      .mockResolvedValue(null);
+
+    const view = await render(<PushNotificationBootstrap />);
+
+    await waitFor(() =>
+      expect(pushRoute).toHaveBeenCalledWith({
+        pathname: "/agent-chat",
+        params: {
+          conversationId: "agent-conversation-1",
+          agentId: "agent-1",
+          name: "小助手",
+          avatarId: "avatar-1",
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(pushRoute).toHaveBeenCalledWith({
+        pathname: "/script-room-chat",
+        params: { roomId: "room-1" },
+      }),
+    );
+    expect(markProcessed).toHaveBeenCalledWith("agent-event");
+    expect(markProcessed).toHaveBeenCalledWith("script-event");
     await view.unmount();
   });
 

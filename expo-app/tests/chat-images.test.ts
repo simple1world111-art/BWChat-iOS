@@ -14,12 +14,13 @@ import {
   chatVideoThumbnailSize,
 } from "@/components/messages/chatMediaLayout";
 import {
-  predictedVideoTranslation,
-  resolveChatVideoPlaybackUrl,
-  shouldDismissVideo,
-  videoBackgroundOpacity,
-  videoDismissScale,
-} from "@/components/media/videoPlayerMath";
+  mediaPullBackdropOpacity,
+  mediaPullContentOpacity,
+  mediaPullDismissDecision,
+  mediaPullDismissScale,
+  mediaPullVisualTranslation,
+} from "@/components/media/mediaPullDismissMath";
+import { resolveChatVideoPlaybackUrl } from "@/components/media/videoPlayerMath";
 import { chatImagePreparationPolicy } from "@/services/messages/ChatImageService";
 import {
   chatVideoMimeType,
@@ -210,14 +211,14 @@ describe("native chat image contracts", () => {
     });
   });
 
-  it("derives the public thumbnail/playback URL and exact video preparation policy", () => {
+  it("derives protected thumbnail/playback URLs and the exact preparation policy", () => {
     expect(chatVideoThumbnailPath("/api/v1/images/u1/movie.mp4")).toBe(
-      "/api/v1/public/images/u1/movie_thumb.jpg",
+      "/api/v1/images/u1/movie_thumb.jpg",
     );
     expect(chatVideoThumbnailPath("/media/movie.mov?version=2")).toBe("/media/movie_thumb.jpg");
     expect(
       resolveChatVideoPlaybackUrl("/api/v1/images/u1/movie.mp4", "https://example.com/api/v1"),
-    ).toBe("https://example.com/api/v1/public/images/u1/movie.mp4");
+    ).toBe("https://example.com/api/v1/images/u1/movie.mp4");
     expect(chatVideoPreparationPolicy).toMatchObject({
       thumbnailMaximumSize: 480,
       thumbnailQuality: 0.62,
@@ -229,25 +230,21 @@ describe("native chat image contracts", () => {
     expect(chatVideoMimeType("movie.mp4")).toBe("video/mp4");
   });
 
-  it("matches the original video pull-dismiss and scaling math", () => {
-    expect(videoBackgroundOpacity(0)).toBe(1);
-    expect(videoBackgroundOpacity(320)).toBeCloseTo(0.1);
-    expect(videoBackgroundOpacity(3_200)).toBeCloseTo(0.1);
-    expect(videoDismissScale(7.99)).toBe(1);
-    expect(videoDismissScale(900)).toBe(0.55);
-    expect(predictedVideoTranslation(30, 2_100)).toBe(450);
-    expect(
-      shouldDismissVideo({ translationX: 0, translationY: 110, predictedTranslationY: 450 }),
-    ).toBe(false);
-    expect(
-      shouldDismissVideo({ translationX: 0, translationY: 110.1, predictedTranslationY: 0 }),
-    ).toBe(true);
-    expect(
-      shouldDismissVideo({ translationX: 20, translationY: 30, predictedTranslationY: 450.1 }),
-    ).toBe(true);
-    expect(
-      shouldDismissVideo({ translationX: 40, translationY: 30, predictedTranslationY: 900 }),
-    ).toBe(false);
+  it("shares image and video pull-dismiss dead-zone, thresholds and scaling math", () => {
+    expect(mediaPullVisualTranslation(18)).toBe(0);
+    expect(mediaPullVisualTranslation(19)).toBe(1);
+    expect(mediaPullDismissDecision(71, 899)).toBe(0);
+    expect(mediaPullDismissDecision(72, 0)).toBe(1);
+    expect(mediaPullDismissDecision(-72, 0)).toBe(-1);
+    expect(mediaPullDismissDecision(28, 900)).toBe(1);
+    expect(mediaPullDismissDecision(27, 2_000)).toBe(0);
+    expect(mediaPullBackdropOpacity(0)).toBe(1);
+    expect(mediaPullBackdropOpacity(320)).toBe(0.25);
+    expect(mediaPullBackdropOpacity(3_200)).toBe(0.25);
+    expect(mediaPullDismissScale(32, 800)).toBe(1);
+    expect(mediaPullDismissScale(800, 800)).toBe(0.78);
+    expect(mediaPullContentOpacity(40, 800)).toBe(1);
+    expect(mediaPullContentOpacity(576, 800)).toBe(0);
   });
 
   it("uploads direct video and thumbnail with the native 600-second contract", async () => {

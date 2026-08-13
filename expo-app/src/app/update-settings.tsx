@@ -188,7 +188,7 @@ export default function UpdateSettingsScreen() {
             }
           />
           <InfoRow
-            label={copy.paymentFeature}
+            label={copy.walletPurchasesFeature}
             value={remote.config.features.paymentEnabled ? copy.enabled : copy.disabled}
           />
           <ActionRow

@@ -64,16 +64,30 @@ describe("dynamic screen repository", () => {
     ]) {
       expect(embeddedDynamicScreen(id, undefined)?.screenId).toBe(id);
     }
+    expect(
+      embeddedDynamicScreen("privacy_policy", undefined)?.components.map(
+        (component) => component.props.title_key,
+      ),
+    ).toEqual(["account.privacyPolicy.fallback", "account.privacyPolicy.supplement"]);
+    expect(
+      embeddedDynamicScreen("data_privacy", undefined)?.components.map(
+        (component) => component.props.title_key,
+      ),
+    ).toEqual(["account.dataPrivacy.fallback", "account.dataPrivacy.supplement"]);
   });
 
-  it("isolates cached pages and etags by account", async () => {
+  it("isolates cached pages and etags by account and locale", async () => {
     const screen = embeddedDynamicScreen("wallet_terms", undefined)!;
-    await persistDynamicScreen("user-a", "wallet_terms", screen, '"etag-a"');
-    expect(await readCachedDynamicScreen("user-a", "wallet_terms")).toEqual({
+    await persistDynamicScreen("user-a", "wallet_terms", "zh-Hans", screen, '"etag-a"');
+    expect(await readCachedDynamicScreen("user-a", "wallet_terms", "zh-Hans")).toEqual({
       screen,
       etag: '"etag-a"',
     });
-    expect(await readCachedDynamicScreen("user-b", "wallet_terms")).toEqual({
+    expect(await readCachedDynamicScreen("user-a", "wallet_terms", "en")).toEqual({
+      screen: null,
+      etag: null,
+    });
+    expect(await readCachedDynamicScreen("user-b", "wallet_terms", "zh-Hans")).toEqual({
       screen: null,
       etag: null,
     });
@@ -81,14 +95,35 @@ describe("dynamic screen repository", () => {
 
   it("persists an explicitly empty response ETag exactly like UserDefaults", async () => {
     const write = jest.spyOn(AsyncStorage, "setItem");
-    await persistDynamicScreenETag(undefined, "wallet_terms", "");
-    expect(write).toHaveBeenCalledWith("bbchat.app.dynamicScreen.etag.v1.guest.wallet_terms", "");
+    await persistDynamicScreenETag(undefined, "wallet_terms", "pt-BR", "");
+    expect(write).toHaveBeenCalledWith(
+      "bbchat.app.dynamicScreen.etag.v2.guest.pt_br.wallet_terms",
+      "",
+    );
   });
 
   it("restores a decodable cached page before gating later remote schemas like Swift", async () => {
     const screen = { ...embeddedDynamicScreen("wallet_terms", undefined)!, schemaVersion: 2 };
-    await persistDynamicScreen(undefined, "wallet_terms", screen, null);
-    expect((await readCachedDynamicScreen(undefined, "wallet_terms")).screen).toEqual(screen);
+    await persistDynamicScreen(undefined, "wallet_terms", "en", screen, null);
+    expect((await readCachedDynamicScreen(undefined, "wallet_terms", "en")).screen).toEqual(screen);
+  });
+
+  it("uses the canonical complete fallback for a versioned legal document ID", () => {
+    const fallback = embeddedDynamicScreen(
+      "legal_wallet_terms_v2",
+      [
+        {
+          screen_id: "legal_wallet_terms_v2",
+          document_version: "2026-08-13.1",
+          effective_at: "2026-08-13T00:00:00Z",
+          locale: "en",
+          components: [{ id: "short", type: "text", props: { text: "Short" } }],
+        },
+      ],
+      "wallet_terms",
+    );
+    expect(fallback?.screenId).toBe("wallet_terms");
+    expect(fallback?.titleKey).toBe("wallet.terms.title");
   });
 
   it("sends the native conditional headers and decodes an enveloped page", async () => {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const nativeRoot = path.resolve(root, "../../BWChat-iOS/BWChat");
+const nativeRoot = path.resolve(root, "../BWChat");
 
 const nativeSourceHashes = {
   "Views/LoginView.swift": "3b43f2fad8563d300d803e97751c49ef4f3082b034826040c33b01dd5a26432c",
@@ -11,7 +11,7 @@ const nativeSourceHashes = {
   "ViewModels/AuthViewModel.swift":
     "996514298b74b8bcae9f6d28589d91c008d3ba3aef74586da8bb6d23254dc0ec",
   "Managers/AuthManager.swift": "be19db71600446ecbdf7d41fcf1c83df153228520b5436619ae4229ffda6882f",
-  "Services/APIService.swift": "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+  "Services/APIService.swift": "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
   "Services/PushService.swift": "e84e820a5ec176a9ab1b4f08601037bd50d1a7a78ea37b3d5bfbfa6437b9d161",
   "Utils/KeychainHelper.swift": "c1923e178b262805cf7cdda2f440b85aa1bb2d3415f700944f1d026e1825de26",
   "Models/User.swift": "20ea81372c06150c5a7e348432c91f2f00c5879eb1fadf073436a3ab415f2e5d",

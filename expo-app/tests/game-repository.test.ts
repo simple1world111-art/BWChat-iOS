@@ -27,10 +27,6 @@ const wallet = {
   gold_coin_balance: 90,
   activity_cat_food_balance: 10,
   spendable_balance: 100,
-  recharge_gold_coin_balance: 80,
-  gift_income_gold_coin_balance: 10,
-  withdraw_frozen_gold_coin_balance: 0,
-  withdrawable_gold_coin_balance: 10,
   chat_money_frozen_gold_coin_balance: 0,
 };
 const game = { id: "g/1", name: "Game", poster_url: "https://id7.com/g.png", order: 10 };

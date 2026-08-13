@@ -1,6 +1,6 @@
 # BWChat 原生工程自动审计清单
 
-> 生成时间：2026-08-06T08:39:21.477Z  
+> 生成时间：2026-08-12T12:55:02.146Z  
 > 生成脚本：`expo-app/scripts/generate-native-audit.mjs`  
 > 本文只做事实枚举；完成状态见 `migration-status.md`。
 
@@ -9,15 +9,15 @@
 | 项目 | 数量 |
 |---|---:|
 | Swift 文件 | 129 |
-| Swift 行数（含空行） | 101685 |
+| Swift 行数（含空行） | 99819 |
 | View 文件 | 47 |
 | Component 文件 | 15 |
 | ViewModel 文件 | 17 |
 | Model 文件 | 21 |
 | Service 文件 | 17 |
-| API 函数 | 274 |
-| API 路径模板 | 185 |
-| 行为测试 | 398 |
+| API 函数 | 271 |
+| API 路径模板 | 183 |
+| 行为测试 | 397 |
 | Asset catalog 条目 | 34 |
 
 ## Views
@@ -69,7 +69,7 @@
 | `BWChat/Views/SplashScreen.swift` | 257 | GameReentryReviewView, Launch, SplashScreen | authManager, errorMessage, isCheckingToken, launch, logoOpacity, logoScale, navigator |
 | `BWChat/Views/UserProfileView.swift` | 1473 | ProfileContentTab, ProfileGridImage, ProfileHighlightBubble, ProfileHighlightCover, ProfileMoreAction, ProfileMoreActionSection, ProfileMoreActionsOverlay, ProfileSquareGrid, ProfileSquareGridLayout, ProfileTopRoundedShape, SuggestedProfileCard, UserProfileAgentCard, UserProfileGridItem, UserProfileMomentTile, UserProfileView | image, isLoading, isSheetVisible, navigator, selectedTab, showMoreActions, toastMessage, videoPreviewItem, viewModel |
 | `BWChat/Views/VideoPlayerView.swift` | 273 | VideoPlayerView | errorOccurred, isLoading, isPinching, lastMediaOffset, mediaOffset, mediaScale, pinchContentPoint, pinchStartScale, player, resolvedRemoteURL, verticalDrag |
-| `BWChat/Views/WalletView.swift` | 2054 | WalletAdRewardBanner, WalletEmptyCatIllustration, WalletEmptyState, WalletMainBackground, WalletRecordTab, WalletTopRoundedShape, WalletTransactionDetailView, WalletTransactionPaginationFooter, WalletTransactionRow, WalletTransactionsSheet, WalletView, WalletWithdrawalDetailView, WalletWithdrawalRow, WalletWithdrawalsSheet, WithdrawalField | adRewardService, agreedToTerms, alertMessage, appConfig, centerToastMessage, isPreparing, isUSDTInfoBubbleVisible, isWithdrawalNetworkPickerExpanded, isWithdrawalNetworkPickerLayerRaised, navigator, selectedAmountIndex, selectedTab, toastMessage, walletStore, withdrawalAddressText, withdrawalAmountText, withdrawalNetwork |
+| `BWChat/Views/WalletView.swift` | 925 | WalletAdRewardBanner, WalletEmptyCatIllustration, WalletEmptyState, WalletMainBackground, WalletRecordTab, WalletTopRoundedShape, WalletTransactionDetailView, WalletTransactionPaginationFooter, WalletTransactionRow, WalletTransactionsSheet, WalletView | adRewardService, agreedToTerms, alertMessage, appConfig, centerToastMessage, isPreparing, navigator, selectedAmountIndex, selectedTab, toastMessage, walletStore |
 | `BWChat/Views/Web/InAppWebView.swift` | 1671 | Address, BridgeHandlerName, CodingKeys, Coordinator, GameBridgeAction, GameBridgeMessage, GameBridgeMessageValidator, GameBridgeRouter, GameBridgeRoutingError, GameBridgeValidationError, GameEntryContext, GameNavigationFailurePolicy, GameProfileOpenGate, GameProfileRoute, GameRewardedAdErrorCode, GameRewardedAdJavaScript, GameRewardedAdRequest, GameRewardedAdRequestLedger, GameRewardedAdRequestValidator, GameRewardedAdResult, GameRewardedAdUnitAllowlist, GameRewardedAdValidationError, GameRoundStartBridgeResult, GameRoundStartErrorCode, GameRoundStartFailureClassifier, GameRoundStartJavaScript, GameRoundStartRequest, GameRoundStartRequestLedger, GameRoundStartRequestValidator, GameRoundStartValidationError, GameWebNavigationResolution, GameWebSecurity, GameWebViewPool, HardenedWebViewRepresentable, InAppWebView, PendingGameRoundStart, Status, WeakScriptMessageHandler | blockedMessage, bridgeToastMessage, isLoading, isStartingGameRound, navigator, pageTitle, paymentBlockedSessionID, pendingGameRoundStart, reloadID, remoteConfig, routeAlert |
 
 ## Components
@@ -97,7 +97,7 @@
 | 文件 | 行数 | 类型声明 | 状态字段 |
 |---|---:|---|---|
 | `BWChat/ViewModels/AgentCatalogViewModel.swift` | 222 | AgentCatalogViewModel, JoinedScriptRoomResolver | conversations, errorMessage, hasLoadedContent, installedAgents, isLoading, joinedScriptRooms, openingAgentIDs, removingAgentIDs, runtimeConfig, spendableBalance |
-| `BWChat/ViewModels/AgentChatViewModel.swift` | 816 | AgentChatViewModel, AgentComposerImage, AgentGeneratedMediaPollingDecision, AgentGeneratedMediaPollingPolicy, AgentImageGenerationPolicy, AgentImageRequestMode, AgentTerminalResponsePollingPolicy, AgentTurnNotice, AgentTurnProgressPresentationPolicy, LastPayload, SendOperation | agentAvatarAssetID, agentDisplayName, currentTurn, errorMessage, hasMore, isAwaitingGeneratedMedia, isAwaitingTerminalResponse, isCreatingLatestVersionConversation, isLoading, isLoadingMore, isSending, messages, needsWalletTopUp, requiresLatestVersionConversation, runtimeConfig, spendableBalance, turnNotice, unlockingMediaIDs |
+| `BWChat/ViewModels/AgentChatViewModel.swift` | 806 | AgentChatViewModel, AgentComposerImage, AgentGeneratedMediaPollingDecision, AgentGeneratedMediaPollingPolicy, AgentImageGenerationPolicy, AgentImageRequestMode, AgentTerminalResponsePollingPolicy, AgentTurnNotice, AgentTurnProgressPresentationPolicy, LastPayload, SendOperation | agentAvatarAssetID, agentDisplayName, currentTurn, errorMessage, hasMore, isAwaitingGeneratedMedia, isAwaitingTerminalResponse, isCreatingLatestVersionConversation, isLoading, isLoadingMore, isSending, messages, needsWalletTopUp, requiresLatestVersionConversation, runtimeConfig, spendableBalance, turnNotice, unlockingMediaIDs |
 | `BWChat/ViewModels/AgentCreatorViewModel.swift` | 202 | AgentCreatorViewModel, Mode | addressStyle, adultEnabled, descriptionText, errorMessage, greeting, identity, initiative, intimacyStyle, isSaving, language, name, paidImages, personalityText, relationshipType, replyLength, savedAgent, selectedReferenceData, tagline, tagsText, toneStyle, visibility |
 | `BWChat/ViewModels/AuthViewModel.swift` | 118 | AuthViewModel | confirmPassword, errorMessage, isLoading, nickname, password, username |
 | `BWChat/ViewModels/ChatViewModel.swift` | 1813 | ChatViewModel, MessageSource, StickerSendSignature | errorMessage, hasMore, inputText, isLoading, isSending, messages, pendingMessages, replyingTo, selectedImageData |
@@ -126,11 +126,11 @@
 | `BWChat/Models/Contact.swift` | 29 | CodingKeys, Contact | — |
 | `BWChat/Models/Conversation.swift` | 942 | CodingKeys, Conversation, ConversationPreference, ConversationPreferenceStore, ConversationReadReceipt, ConversationReadTarget, ConversationSnapshotReplacementPolicy, ConversationSyncSnapshot, DirectHistoryClearCoordinator, DirectHistoryClearReceipt | pinnedKeys, updatingKeys |
 | `BWChat/Models/DiscoverConfig.swift` | 460 | CodingKeys, DiscoverConfigData, DiscoverConfigMeta, DiscoverItem, DiscoverRoute, DiscoverSection | — |
-| `BWChat/Models/DynamicConfigModels.swift` | 1765 | AppBuildInfo, AppKillSwitch, AppRemoteConfig, CodingKeys, DynamicComponent, DynamicRoute, DynamicScreen, DynamicSection, DynamicSectionItem, DynamicTabDescriptor, DynamicTheme, FeatureFlag, JSONValue, RemoteAsset, RemoteAssetManifest, ReviewModeConfig, WalletActivityCatFoodRemoteConfig, WalletAdRewardRemoteConfig, WalletRemoteConfig, WalletRemoteProduct, WalletWithdrawalNetworkRemoteConfig, WalletWithdrawalPolicy, WebViewPolicy | — |
+| `BWChat/Models/DynamicConfigModels.swift` | 1593 | AppBuildInfo, AppKillSwitch, AppRemoteConfig, CodingKeys, DynamicComponent, DynamicRoute, DynamicScreen, DynamicSection, DynamicSectionItem, DynamicTabDescriptor, DynamicTheme, FeatureFlag, JSONValue, RemoteAsset, RemoteAssetManifest, ReviewModeConfig, WalletActivityCatFoodRemoteConfig, WalletAdRewardRemoteConfig, WalletRemoteConfig, WalletRemoteProduct, WebViewPolicy | — |
 | `BWChat/Models/Follow.swift` | 512 | CodingKeys, FollowRelationship, FollowUser, FollowUsersPage, ProfileHighlight, PublicProfile | — |
 | `BWChat/Models/FriendRequest.swift` | 113 | CodingKeys, FriendCacheKeys, FriendInfo, FriendRequest, SearchUser | — |
 | `BWChat/Models/GameCenter.swift` | 213 | CodingKeys, GameCatalogItem, GameCatalogPage, GameLobbySessionRequest, GameLobbySessionResponseValidationError, GameLobbySessionResponseValidator, GameRoundStart, GameRoundStartRequestPayload, GameRoundStartResponseValidationError, GameRoundStartResponseValidator, GameSession, LegacyCodingKeys | — |
-| `BWChat/Models/Gift.swift` | 1543 | ActivityCatFoodAmount, ActivityCatFoodTransaction, ActivityCatFoodTransactionPage, CodingKeys, FlexibleJSONValue, GiftCatalogItem, GiftCatalogResponseData, GiftMessagePayload, GiftMessagePayloadEnvelope, GiftRecipient, GiftRecipientSource, GoldCoinAmount, LocalizedRecordKind, LossyWalletTransaction, MixedAssetCharge, WalletBalanceResponseData, WalletCurrency, WalletIAPConfirmationResponseData, WalletTransaction, WalletTransactionsResponseData, WalletWithdrawal, WalletWithdrawalResponseData, WalletWithdrawalsResponseData | — |
+| `BWChat/Models/Gift.swift` | 1293 | ActivityCatFoodAmount, ActivityCatFoodTransaction, ActivityCatFoodTransactionPage, CodingKeys, FlexibleJSONValue, GiftCatalogItem, GiftCatalogResponseData, GiftMessagePayload, GiftMessagePayloadEnvelope, GiftRecipient, GiftRecipientSource, GoldCoinAmount, LocalizedRecordKind, LossyWalletTransaction, MixedAssetCharge, WalletBalanceResponseData, WalletCurrency, WalletIAPConfirmationResponseData, WalletTransaction, WalletTransactionsResponseData | — |
 | `BWChat/Models/Group.swift` | 1682 | AlternateCodingKeys, ChatGroup, CodingKeys, GroupAnnouncement, GroupCapabilities, GroupDetail, GroupHistoryClearReceipt, GroupInfoPreferencesStore, GroupInvite, GroupInviteAcceptResult, GroupInvitePreview, GroupInviteRouteStore, GroupMember, GroupMemberUpdateEvent, GroupMessage, GroupMessageLocator, GroupMessageScriptContext, GroupMessageSearchPage, GroupMessageSearchResult, GroupNotificationSettings, GroupNotificationSettingsStore, GroupReplyPreview, GroupViewerSettings | pendingToken, settingsByGroupID, updatingGroupIDs |
 | `BWChat/Models/InteractiveScript.swift` | 871 | CodingKeys, InteractiveScript, ScriptActorType, ScriptAsset, ScriptAssetBusiness, ScriptCategoriesData, ScriptCategory, ScriptCreator, ScriptDraft, ScriptPage, ScriptRole, ScriptRoleAssignment, ScriptRoleDraft, ScriptRoom, ScriptRoomCreationData, ScriptRoomEnvelope, ScriptRoomSnapshot, ScriptRoomStatus, ScriptScope, ScriptSingleData, ScriptStatus, ScriptTurnResponse, ScriptTurnState, ScriptTurnStatus, ScriptVisibility | — |
 | `BWChat/Models/MapDating.swift` | 1105 | CodingKeys, MapDatingMode, MapFlightAircraft, MapFlightCoordinate, MapFlightLayerResponseData, MapFlightRoute, MapOnlineStatus, MapPresence, MapPresenceResponseData, MapRadiusConstraints, MapReportReason, MapUser, MapUserCollectionPolicy, MapUserCoordinate, MapUserResponseData, MapUsersResponseData, MapVisibilityScope | — |
@@ -144,7 +144,7 @@
 
 | 文件 | 行数 | 类型声明 | 状态字段 |
 |---|---:|---|---|
-| `BWChat/Services/APIService.swift` | 5503 | APIError, APIResponseWrapper, APIService, AgentConversationRemoteResponse, AgentListData, AgentSummaryRemoteResponse, AppRemoteConfigFetchResult, AppRemoteConfigRemoteResponse, AuthRequestAuthorizer, AvatarData, BackgroundUploadData, BackgroundsData, CodingKeys, ConditionalHTTPResult, ContactsData, Container, ContextData, ConversationListData, Detail, DetailErrorResponse, DiscoverConfigRemoteResponse, DynamicScreenFetchResult, DynamicScreenRemoteResponse, EmptyData, ErrorData, FollowRelationshipChange, FollowRelationshipStore, FriendListData, GiftDirectMessageResponseData, GiftGroupMessageResponseData, GroupMessagesData, GroupsData, LikeData, LoginData, MapFlightLayerRemoteResponse, MessagesData, NotifData, ProfileData, RefreshData, RegisterData, RequestsData, SearchData, SensitiveHTTPResponsePolicy, SensitiveLogRedactor, ShortDramaMultipartFile, StructuredErrorResponse, SymbolicBusinessErrorResponse, TransientHTTPRetryPolicy, UnreadData, UsernameData, VerifyData, WalletBalanceErrorContext, WalletBusinessError, Wrapped | — |
+| `BWChat/Services/APIService.swift` | 5459 | APIError, APIResponseWrapper, APIService, AgentConversationRemoteResponse, AgentListData, AgentSummaryRemoteResponse, AppRemoteConfigFetchResult, AppRemoteConfigRemoteResponse, AuthRequestAuthorizer, AvatarData, BackgroundUploadData, BackgroundsData, CodingKeys, ConditionalHTTPResult, ContactsData, Container, ContextData, ConversationListData, Detail, DetailErrorResponse, DiscoverConfigRemoteResponse, DynamicScreenFetchResult, DynamicScreenRemoteResponse, EmptyData, ErrorData, FollowRelationshipChange, FollowRelationshipStore, FriendListData, GiftDirectMessageResponseData, GiftGroupMessageResponseData, GroupMessagesData, GroupsData, LikeData, LoginData, MapFlightLayerRemoteResponse, MessagesData, NotifData, ProfileData, RefreshData, RegisterData, RequestsData, SearchData, SensitiveHTTPResponsePolicy, SensitiveLogRedactor, ShortDramaMultipartFile, StructuredErrorResponse, SymbolicBusinessErrorResponse, TransientHTTPRetryPolicy, UnreadData, UsernameData, VerifyData, WalletBalanceErrorContext, WalletBusinessError, Wrapped | — |
 | `BWChat/Services/ActivityCenterStore.swift` | 728 | ActivityCenterClient, ActivityCenterLocalError, ActivityCenterOperation, ActivityCenterOperationStatus, ActivityCenterOperations, ActivityCenterSnapshotAuthority, ActivityCenterStore, ActivityCenterUserDefaultsBox, ActivityContactDiscoveryService, ActivityInviteRouteStore, ActivityPhoneNormalizer, ActivityRewardCelebration | errorMessage, isLoading, isRunning, isShowingCachedData, matchedUsers, pendingToken, phoneVerificationSession, rewardCelebration, snapshot |
 | `BWChat/Services/AdRewardService.swift` | 1359 | AdMobConfiguration, AdMobConsentManager, AdMobGameErrorMapper, AdMobRuntime, AdRewardDailyCounter, AdRewardPendingCredit, AdRewardPendingCreditStore, AdRewardService, CodingKeys, GameRewardedAdPresentationOutcome, GameRewardedAdPresenting, GameRewardedAdSDKSession, GameRewardedAdTerminalState, RewardedAdCoordinator, RewardedAdPresentationGate, RewardedAdPresenterResolver, RewardedAdUnitResolver, State, TimedRewardedAdLoadAttempt, WalletAdRewardSessionResponseData, WalletAdRewardStatusResponseData | lastErrorCode, lastErrorMessage, remainingViewCount, serverDeliveryEnabled, state |
 | `BWChat/Services/AppRemoteConfigStore.swift` | 418 | AppRemoteConfigSource, AppRemoteConfigStore, AppRemoteConfigUpdatePolicy, FeatureFlagService | config, isLoading, lastETag, lastError, lastFetchDate, source |
@@ -159,7 +159,7 @@
 | `BWChat/Services/MessageStore.swift` | 1435 | MessageStore | — |
 | `BWChat/Services/PushService.swift` | 1034 | AppMessageSyncCoordinator, CodingKeys, ConversationUnreadState, MessageSyncReason, NotificationConversationType, NotificationPayloadNormalizer, NotificationRoute, PushService, UnreadBadgeStore | chatUnreadCount, conversationUnreadCounts, isAuthorized, lastReason, momentsUnreadCount, needsSync, pendingRoute, syncGeneration |
 | `BWChat/Services/RemoteAssetManager.swift` | 231 | RemoteAssetError, RemoteAssetImage, RemoteAssetManager | assetManager, cachedURL, manifest |
-| `BWChat/Services/WalletStore.swift` | 833 | WalletPurchaseError, WalletPurchaseOutcome, WalletStore, WalletTelemetry, WalletUSDTPayoutAccount | activityCatFoodBalance, activityCatFoodNextCursor, activityCatFoodTransactionLoadError, activityCatFoodTransactions, balanceLoadError, goldCoinBalance, isLoadingActivityCatFoodTransactions, isLoadingBalance, isLoadingProducts, isLoadingTransactions, isLoadingWithdrawals, isPurchasing, isSubmittingWithdrawal, productLoadError, products, spendableBalance, transactionLoadError, transactionNextCursor, transactions, usdtPayoutAccount, walletBalance, withdrawalLoadError, withdrawals |
+| `BWChat/Services/WalletStore.swift` | 572 | WalletPurchaseError, WalletPurchaseOutcome, WalletStore, WalletTelemetry | activityCatFoodBalance, activityCatFoodNextCursor, activityCatFoodTransactionLoadError, activityCatFoodTransactions, balanceLoadError, goldCoinBalance, isLoadingActivityCatFoodTransactions, isLoadingBalance, isLoadingProducts, isLoadingTransactions, isPurchasing, productLoadError, products, spendableBalance, transactionLoadError, transactionNextCursor, transactions, walletBalance |
 | `BWChat/Services/WebSocketService.swift` | 931 | LiveCallWebSocketCompatibility, WSMessageType, WebSocketService | isConnected |
 
 ## Managers
@@ -202,7 +202,6 @@
 - `blockMapUser`
 - `cancelAgentOneToOneLiveMatch`
 - `cancelOneToOneLiveCall`
-- `cancelWalletWithdrawal`
 - `changePassword`
 - `chatThumbnailFilename`
 - `claimActivityCheckIn`
@@ -231,7 +230,6 @@
 - `createShortDramaSeries`
 - `createTransfer`
 - `createWalletAdRewardSession`
-- `createWalletWithdrawal`
 - `delayNanoseconds`
 - `deleteChatBackground`
 - `deleteMoment`
@@ -316,7 +314,6 @@
 - `getWalletAdRewardStatus`
 - `getWalletBalance`
 - `getWalletTransactionPage`
-- `getWalletWithdrawals`
 - `heartbeatOneToOneLiveSlot`
 - `hideConversation`
 - `httpError`
@@ -645,8 +642,6 @@
 - `/wallet/transfers`
 - `/wallet/transfers/\(Self.pathComponent(assetID))/accept`
 - `/wallet/transfers/\(Self.pathComponent(assetID))/return`
-- `/wallet/withdrawals`
-- `/wallet/withdrawals/\(Self.pathComponent(id))/cancel`
 
 ## 动态路由 token（全量）
 
@@ -707,16 +702,16 @@
 
 | 语言 | Localizable key 数量 |
 |---|---:|
-| de | 1138 |
-| en | 1138 |
-| es | 1138 |
-| fr | 1138 |
-| ja | 1138 |
-| ko | 1138 |
-| pt-BR | 1138 |
-| ru | 1138 |
-| zh-Hans | 1138 |
-| zh-Hant | 1138 |
+| de | 1167 |
+| en | 1167 |
+| es | 1167 |
+| fr | 1167 |
+| ja | 1167 |
+| ko | 1167 |
+| pt-BR | 1167 |
+| ru | 1167 |
+| zh-Hans | 1167 |
+| zh-Hant | 1167 |
 
 ## Assets（全量）
 
@@ -1028,7 +1023,7 @@
 - `testActivityBalanceFundsMixedBusinessesButNotCoinOnlyBusinesses`
 - `testLiveBillingConsumesActivityFirstWhileHostEarnsOnlyGoldCoins`
 - `testLiveBillingRejectsInconsistentAssetBreakdown`
-- `testRechargeWithdrawalEarningsAndAdRewardStayGoldCoinOnly`
+- `testRechargeAndAdRewardStayGoldCoinOnly`
 - `testCatalogDecodesSnakeCaseAndNullLastPlayedAt`
 - `testCatalogDecodesPreviousCoinEntryPriceFieldDuringRollout`
 - `testDeduplicationKeepsFirstServerOrderedItem`
@@ -1070,7 +1065,6 @@
 - `testRewardedAdUnitAllowlistUsesRemoteReplacementAndBundledFallback`
 - `testWalletRewardedAdUnitUsesRemoteConfigurationBeforeBundledFallback`
 - `testWalletConfigKeepsRewardedAdFieldsWhenOtherFieldsUseStructuredPayloads`
-- `testWithdrawalPolicyKeepsTotalAndWithdrawableBalancesSemanticallySeparate`
 - `testRewardedAdBridgeRejectsHTTPWhenSecureTransportIsRequired`
 - `testRewardedAdBridgeRejectsNonMainFrame`
 - `testGameBridgeRejectsLegacyHTTPEvenWhenBackendConfigurationIsHTTP`
@@ -6359,415 +6353,171 @@
 
 视觉 modifier：
 
-- L96: `Color.white`
-- L97: `.frame(height: 60)`
-- L98: `.frame(maxHeight: .infinity, alignment: .bottom)`
-- L99: `.ignoresSafeArea(.container, edges: .bottom)`
-- L107: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`
-- L124: `.toolbarBackground(isWithdrawalFormFocused ? Color.white.opacity(0.96) : Color.clear, for: .navigationBar)`
-- L160: `.background(`
-- L179: `Spacer().frame(height: topPadding)`
-- L183: `.padding(.top, compact ? 0 : 2)`
-- L193: `.padding(.horizontal, 20)`
-- L194: `.padding(.bottom, compact ? 10 : 14)`
-- L202: `.frame(width: geo.size.width)`
-- L203: `.frame(minHeight: geo.size.height, alignment: .top)`
-- L222: `Spacer().frame(height: topGap)`
-- L226: `.frame(height: cardHeight)`
-- L227: `.padding(.horizontal, 20)`
-- L228: `.transition(.opacity)`
-- L230: `Spacer().frame(height: normalPanelGap)`
-- L240: `.frame(width: geo.size.width)`
-- L241: `.frame(minHeight: geo.size.height, alignment: .top)`
-- L242: `.animation(walletKeyboardTransitionAnimation, value: isWithdrawalFormFocused)`
-- L254: `.frame(width: 246)`
-- L255: `.layoutPriority(10)`
-- L269: `.font(.system(size: 18, weight: selectedTab == index ? .semibold : .medium))`
-- L270: `.foregroundColor(selectedTab == index ? .black : .black.opacity(0.58))`
-- L275: `.fill(selectedTab == index ? Color.black : Color.clear)`
-- L276: `.frame(width: 32, height: 4)`
-- L278: `.frame(width: 114)`
-- L291: `.frame(maxWidth: 240)`
-- L297: `.frame(maxWidth: .infinity)`
-- L298: `.padding(.horizontal, compact ? 16 : 24)`
-- L309: `.font(.system(size: compact ? 11 : 13, weight: .semibold))`
-- L310: `.foregroundColor(.black.opacity(0.66))`
-- L314: `.font(.system(size: isLoading ? (compact ? 13 : 15) : (compact ? 23 : 28), weight: .bold))`
-- L315: `.foregroundColor(.black)`
-- L320: `.frame(maxWidth: .infinity)`
-- L329: `.font(.system(size: compact ? 10 : 11, weight: .bold))`
-- L331: `.font(.system(size: compact ? 12 : 13, weight: .medium))`
-- L332: `.foregroundColor(.black.opacity(0.48))`
-- L338: `.font(.system(size: 15))`
-- L339: `.foregroundColor(.black.opacity(0.7))`
-- L342: `.font(.system(size: isEarningsBalanceLoading ? 24 : 42, weight: .bold))`
-- L343: `.foregroundColor(.black)`
-- L357: `.frame(width: size, height: size)`
-- L359: `.frame(height: containerHeight)`
-- L365: `.font(.system(size: 13))`
-- L366: `.foregroundColor(.white)`
-- L367: `.offset(x: -48, y: -30)`
-- L370: `.font(.system(size: 10))`
-- L371: `.foregroundColor(.white)`
-- L372: `.offset(x: 46, y: -34)`
-- L375: `.font(.system(size: 68))`
-- L376: `.foregroundStyle(`
-- L378: `colors: [Color(hex: "FFD54A"), Color(hex: "F0A020")],`
-- L383: `.shadow(color: Color(hex: "F0A020").opacity(0.35), radius: 6, y: 3)`
-- L385: `.frame(height: 100)`
-- L396: `.padding(.vertical, 2)`
-- L397: `.padding(.horizontal, 16)`
-- L404: `.fill(Color(hex: "FFD54A").opacity(0.2))`
-- L405: `.frame(width: 36, height: 36)`
-- L407: `.font(.system(size: 14, weight: .semibold))`
-- L408: `.foregroundColor(Color(hex: "C98300"))`
-- L412: `.font(.system(size: 15, weight: .medium))`
-- L413: `.foregroundColor(.black.opacity(0.72))`
-- L416: `.fixedSize(horizontal: false, vertical: true)`
-- L421: `.font(.system(size: 20, weight: .bold))`
-- L422: `.foregroundColor(.black)`
-- L426: `.padding(.horizontal, 14)`
-- L427: `.padding(.vertical, 12)`
-- L428: `.frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)`
-- L493: `.font(.system(size: 12))`
-- L494: `.foregroundColor(Color(hex: "9A6A00"))`
-- L495: `.frame(maxWidth: .infinity, alignment: .leading)`
-- L496: `.padding(.horizontal, 18)`
-- L506: `.frame(width: contentWidth)`
-- L514: `.tint(.black)`
-- L517: `.font(.system(size: compact ? 16 : 19, weight: .bold))`
-- L522: `.foregroundColor(.black)`
-- L523: `.frame(maxWidth: .infinity)`
-- L524: `.frame(height: compact ? 42 : 52)`
-- L525: `.background(`
-- L527: `.fill(Color(hex: "FFE500"))`
-- L531: `.opacity(walletStore.isPurchasing || walletStore.isLoadingProducts ? 0.72 : 1)`
-- L532: `.padding(.horizontal, 18)`
-- L533: `.padding(.top, cardVerticalSpacing)`
-- L540: `.foregroundColor(agreedToTerms ? Color(hex: "F0A020") : Color.gray.opacity(0.45))`
-- L541: `.font(.system(size: compact ? 12 : 14))`
-- L544: `.font(.system(size: compact ? 10 : 12))`
-- L545: `.foregroundColor(.black.opacity(0.6))`
-- L551: `.font(.system(size: compact ? 10 : 12))`
-- L552: `.foregroundColor(.black.opacity(0.82))`
-- L557: `.frame(maxWidth: .infinity)`
-- L559: `.padding(.top, compact ? 6 : 8)`
-- L560: `.padding(.bottom, compact ? 2 : 4)`
-- L562: `.padding(.top, compact ? 10 : 12)`
-- L563: `.padding(.bottom, bottomPadding)`
-- L564: `.frame(width: availableWidth, alignment: .top)`
-- L565: `.background(Color.white)`
-- L566: `.clipShape(WalletTopRoundedShape(radius: 30))`
-- L567: `.ignoresSafeArea(.container, edges: .bottom)`
-- L586: `.fill(Color.black.opacity(0.08))`
-- L587: `.frame(width: 1, height: compact ? 46 : 52)`
-- L588: `.padding(.horizontal, compact ? 6 : 8)`
-- L597: `.font(.system(size: compact ? 15 : 17, weight: .bold))`
-- L598: `.foregroundColor(Color(hex: "B58A00").opacity(0.74))`
-- L599: `.frame(width: compact ? 22 : 26, alignment: .center)`
-- L607: `.frame(height: compact ? 60 : 68)`
-- L612: `.opacity(0.28)`
-- L613: `.padding(.horizontal, compact ? 4 : 6)`
-- L616: `.frame(height: compact ? 23 : 25)`
-- L617: `.padding(.top, compact ? 5 : 6)`
-- L619: `.padding(.horizontal, compact ? 26 : 34)`
-- L620: `.padding(.top, compact ? 17 : 21)`
-- L621: `.padding(.bottom, compact ? 9 : 11)`
-- L622: `.frame(maxWidth: .infinity, minHeight: compact ? 130 : 148, alignment: .center)`
-- L623: `.background(`
-- L625: `.fill(Color.white)`
-- L627: `.shadow(color: Color.black.opacity(0.035), radius: 12, x: 0, y: 4)`
-- L637: `.font(.system(size: compact ? 11 : 12, weight: .semibold))`
-- L638: `.foregroundColor(.black.opacity(0.66))`
-- L644: `.font(.system(size: compact ? 23 : 27, weight: .bold))`
-- L646: `.foregroundColor(.black)`
-- L651: `.frame(maxWidth: .infinity)`
-- L657: `.font(.system(size: compact ? 11 : 12, weight: .medium))`
-- L658: `.foregroundColor(.black.opacity(0.42))`
-- L672: `.font(.system(size: compact ? 11 : 12, weight: .medium))`
-- L674: `.font(.system(size: compact ? 9 : 10, weight: .semibold))`
-- L676: `.foregroundColor(.black.opacity(0.42))`
-- L683: `.padding(.horizontal, compact ? 8 : 10)`
-- L684: `.frame(maxWidth: .infinity)`
-- L694: `.font(.system(size: compact ? 14 : 16, weight: .semibold))`
-- L695: `.foregroundColor(.black)`
-- L708: `.font(.system(size: compact ? 11 : 13, weight: .semibold))`
-- L709: `.foregroundColor(Color(hex: "D19A00").opacity(0.82))`
-- L710: `.frame(width: compact ? 18 : 20, height: compact ? 18 : 20)`
-- L714: `.overlay(alignment: .top) {`
-- L717: `.font(.system(size: compact ? 10 : 11, weight: .semibold))`
-- L718: `.foregroundColor(.black.opacity(0.82))`
-- L720: `.padding(.horizontal, compact ? 8 : 10)`
-- L721: `.padding(.vertical, compact ? 5 : 6)`
-- L722: `.background(`
-- L724: `.fill(Color.white)`
-- L725: `.shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 4)`
-- L727: `.overlay(`
-- L729: `.stroke(Color(hex: "FFD800").opacity(0.5), lineWidth: 1)`
-- L731: `.fixedSize()`
-- L732: `.offset(x: compact ? -38 : -42, y: compact ? -32 : -36)`
-- L733: `.transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))`
-- L734: `.zIndex(4)`
-- L739: `.frame(maxWidth: .infinity, alignment: .center)`
-- L740: `.zIndex(isUSDTInfoBubbleVisible && showsInfo ? 4 : 0)`
-- L745: `.font(.system(size: compact ? 29 : 34, weight: .bold))`
-- L747: `.foregroundColor(.black)`
-- L751: `.frame(maxWidth: .infinity, alignment: .center)`
-- L782: `.tint(.black)`
-- L786: `.font(.system(size: compact ? 16 : 19, weight: .bold))`
-- L791: `.foregroundColor(.black)`
-- L792: `.frame(maxWidth: .infinity)`
-- L793: `.frame(height: compact ? 42 : 52)`
-- L794: `.background(`
-- L796: `.fill(Color(hex: "FFE500"))`
-- L800: `.opacity(!hasWithdrawableUSDTAmount || walletStore.isSubmittingWithdrawal ? 0.58 : 1)`
-- L801: `.padding(.bottom, buttonBottomPadding)`
-- L803: `.padding(.horizontal, 18)`
-- L804: `.padding(.top, compact ? 22 : 26)`
-- L805: `.frame(width: availableWidth, alignment: .top)`
-- L806: `.background(Color.white)`
-- L807: `.clipShape(WalletTopRoundedShape(radius: 30))`
-- L808: `.ignoresSafeArea(.container, edges: .bottom)`
-- L821: `.font(.system(size: compact ? 13 : 14, weight: .semibold))`
-- L822: `.foregroundColor(.black.opacity(0.62))`
-- L828: `.font(.system(size: compact ? 15 : 16, weight: .semibold))`
-- L829: `.foregroundColor(Color(hex: "D19A00"))`
-- L830: `.frame(width: 22)`
-- L837: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
-- L838: `.foregroundColor(.black.opacity(0.86))`
-- L841: `.frame(maxHeight: .infinity)`
-- L843: `.padding(.horizontal, compact ? 15 : 16)`
-- L844: `.frame(height: compact ? 62 : 68)`
-- L845: `.background(Color(hex: "F7F7F7"))`
-- L846: `.cornerRadius(18)`
-- L859: `.font(.system(size: compact ? 13 : 14, weight: .semibold))`
-- L860: `.foregroundColor(.black.opacity(0.62))`
-- L866: `.font(.system(size: compact ? 15 : 16, weight: .semibold))`
-- L867: `.foregroundColor(Color(hex: "D19A00"))`
-- L868: `.frame(width: 22)`
-- L875: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
-- L876: `.foregroundColor(.black.opacity(0.86))`
-- L879: `.layoutPriority(1)`
-- L880: `.frame(maxHeight: .infinity)`
-- L886: `.font(.system(size: compact ? 12 : 13, weight: .semibold))`
-- L887: `.foregroundColor(Color(hex: "D19A00"))`
-- L891: `.frame(width: compact ? 66 : 78, alignment: .trailing)`
-- L895: `.opacity(hasWithdrawableUSDTAmount ? 1 : 0.45)`
-- L897: `.padding(.horizontal, compact ? 15 : 16)`
-- L898: `.frame(height: compact ? 62 : 68)`
-- L899: `.background(Color(hex: "F7F7F7"))`
-- L900: `.cornerRadius(18)`
-- L913: `.font(.system(size: compact ? 13 : 14, weight: .semibold))`
-- L914: `.foregroundColor(.black.opacity(0.62))`
-- L930: `.overlay(alignment: .topTrailing) {`
-- L933: `.frame(width: compact ? 158 : 176)`
-- L934: `.offset(y: compact ? 70 : 76)`
-- L935: `.transition(.scale(scale: 0.96, anchor: .topTrailing).combined(with: .opacity))`
-- L936: `.zIndex(5)`
-- L939: `.frame(maxWidth: .infinity, alignment: .trailing)`
-- L941: `.zIndex(isWithdrawalNetworkPickerLayerRaised ? 5 : 0)`
-- L954: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
-- L955: `.foregroundColor(.black.opacity(0.86))`
-- L961: `.font(.system(size: compact ? 12 : 13, weight: .semibold))`
-- L962: `.foregroundColor(.black.opacity(0.78))`
-- L965: `.frame(height: compact ? 44 : 48)`
-- L966: `.padding(.horizontal, 14)`
-- L967: `.background(withdrawalNetwork == network ? Color.black.opacity(0.035) : Color.clear)`
-- L974: `.padding(.leading, 14)`
-- L975: `.opacity(0.58)`
-- L979: `.padding(.vertical, compact ? 4 : 5)`
-- L980: `.background(Color.white)`
-- L981: `.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))`
-- L982: `.overlay(`
-- L984: `.stroke(Color.black.opacity(0.08), lineWidth: 1)`
-- L986: `.shadow(color: Color.black.opacity(0.10), radius: 14, x: 0, y: 8)`
-- L992: `.font(.system(size: compact ? 15 : 16, weight: .semibold))`
-- L993: `.foregroundColor(Color(hex: "D19A00"))`
-- L994: `.frame(width: 22)`
-- L997: `.font(.system(size: compact ? 14 : 15, weight: .semibold))`
-- L998: `.foregroundColor(withdrawalNetwork.isBlank ? .black.opacity(0.36) : .black.opacity(0.86))`
-- L1005: `.font(.system(size: 13, weight: .bold))`
-- L1006: `.foregroundColor(.black.opacity(0.36))`
-- L1007: `.rotationEffect(.degrees(isWithdrawalNetworkPickerExpanded ? 180 : 0))`
-- L1009: `.padding(.horizontal, compact ? 15 : 16)`
-- L1010: `.frame(maxWidth: .infinity)`
-- L1011: `.frame(height: compact ? 62 : 68)`
-- L1012: `.background(Color(hex: "F7F7F7"))`
-- L1013: `.clipShape(RoundedRectangle(cornerRadius: 18))`
-- L1015: `.overlay(`
-- L1018: `isWithdrawalNetworkPickerExpanded ? Color.black.opacity(0.08) : Color.clear,`
-- L1204: `.frame(width: compact ? 21 : 28, height: compact ? 21 : 28)`
-- L1206: `.font(.system(size: compact ? 14 : 17, weight: .bold))`
-- L1207: `.foregroundColor(.black)`
-- L1212: `.font(.system(size: compact ? 12 : 14, weight: .medium))`
-- L1213: `.foregroundColor(.black.opacity(0.48))`
-- L1218: `.frame(maxWidth: .infinity)`
-- L1219: `.frame(height: compact ? 66 : 78)`
-- L1220: `.background(`
-- L1222: `.fill(selected ? Color.white : Color(hex: "F2F2F2"))`
-- L1223: `.overlay(`
-- L1225: `.stroke(selected ? Color(hex: "FFE200") : Color.clear, lineWidth: compact ? 2.5 : 3)`
-- L1323: `.opacity(isBusy || !adRewardService.hasRemainingViews ? 0.62 : 1)`
-- L1348: `.fill(Color(hex: "FFD400"))`
-- L1349: `.frame(width: compact ? 20 : 24, height: compact ? 20 : 24)`
-- L1354: `.tint(.white)`
-- L1357: `.font(.system(size: 9, weight: .bold))`
-- L1358: `.foregroundColor(.white)`
-- L1359: `.offset(x: 1)`
-- L1364: `.font(.system(size: compact ? 13 : 14, weight: .medium))`
-- L1365: `.foregroundColor(.black.opacity(0.68))`
-- L1369: `.frame(maxWidth: .infinity, alignment: .leading)`
-- L1372: `.font(.system(size: compact ? 15 : 18, weight: .semibold))`
-- L1373: `.foregroundColor(.black.opacity(0.5))`
-- L1375: `.padding(.horizontal, compact ? 13 : 18)`
-- L1376: `.frame(height: compact ? 46 : 54)`
-- L1377: `.background(`
-- L1381: `.fill(Color(hex: "FFF3B5").opacity(0.96))`
-- L1382: `.overlay(`
-- L1384: `.stroke(Color.white.opacity(0.74), lineWidth: 1)`
-- L1387: `.shadow(color: Color(hex: "C99A10").opacity(0.1), radius: 8, x: 0, y: 4)`
-- L1452: `Color.white.ignoresSafeArea()`
-- L1460: `.tint(AppColors.accent)`
-- L1461: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-- L1466: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-- L1469: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-- L1478: `.padding(.horizontal, 16)`
-- L1479: `.padding(.vertical, 12)`
-- L1484: `.background(Color(hex: "F7F7F7"))`
-- L1501: `.frame(width: 78, alignment: .leading)`
-- L1507: `.frame(maxWidth: .infinity)`
-- L1509: `Color.clear`
-- L1510: `.frame(width: 78, height: 36)`
-- L1512: `.padding(.horizontal, 14)`
-- L1513: `.padding(.top, 14)`
-- L1514: `.padding(.bottom, 18)`
-- L1515: `.background(Color.white)`
-- L1524: `.font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))`
-- L1525: `.foregroundColor(selectedTab == tab ? .black : .black.opacity(0.56))`
-- L1529: `.fill(selectedTab == tab ? Color.black : Color.clear)`
-- L1530: `.frame(width: 31, height: 3)`
-- L1566: `Color.white.ignoresSafeArea()`
-- L1574: `.tint(AppColors.accent)`
-- L1575: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-- L1578: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-- L1581: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-- L1594: `.padding(.horizontal, 16)`
-- L1595: `.padding(.vertical, 12)`
-- L1597: `.background(Color(hex: "F7F7F7"))`
-- L1622: `.frame(width: 78, alignment: .leading)`
-- L1625: `.font(.system(size: 20, weight: .semibold))`
-- L1626: `.foregroundColor(.black)`
-- L1627: `.frame(maxWidth: .infinity)`
-- L1629: `Color.clear`
-- L1630: `.frame(width: 78, height: 36)`
-- L1632: `.padding(.horizontal, 14)`
-- L1633: `.padding(.top, 14)`
-- L1634: `.padding(.bottom, 18)`
-- L1635: `.background(Color.white)`
-- L1658: `.tint(AppColors.accent)`
-- L1664: `.font(.system(size: 34))`
-- L1665: `.foregroundColor(AppColors.tertiaryText)`
-- L1667: `.font(.system(size: 14))`
-- L1668: `.foregroundColor(AppColors.secondaryText)`
-- L1673: `.font(.system(size: 34))`
-- L1674: `.foregroundColor(AppColors.tertiaryText)`
-- L1676: `.font(.system(size: 15, weight: .medium))`
-- L1677: `.foregroundColor(AppColors.secondaryText)`
-- L1687: `.padding(.horizontal, 16)`
-- L1688: `.padding(.vertical, 12)`
-- L1690: `.background(AppColors.secondaryBackground)`
-- L1726: `.font(.system(size: 13))`
-- L1727: `.foregroundColor(AppColors.secondaryText)`
-- L1732: `.font(.system(size: 14, weight: .semibold))`
-- L1734: `.frame(maxWidth: .infinity)`
-- L1735: `.padding(.vertical, 12)`
-- L1738: `.tint(AppColors.accent)`
-- L1739: `.frame(maxWidth: .infinity)`
-- L1740: `.padding(.vertical, 12)`
-- L1759: `.tint(AppColors.accent)`
-- L1763: `.font(.system(size: 34))`
-- L1764: `.foregroundColor(AppColors.tertiaryText)`
-- L1766: `.font(.system(size: 14))`
-- L1767: `.foregroundColor(AppColors.secondaryText)`
-- L1769: `.padding(.horizontal, 24)`
-- L1774: `.font(.system(size: 34))`
-- L1775: `.foregroundColor(AppColors.tertiaryText)`
-- L1777: `.font(.system(size: 15, weight: .medium))`
-- L1778: `.foregroundColor(AppColors.secondaryText)`
-- L1792: `.padding(.horizontal, 16)`
-- L1793: `.padding(.vertical, 12)`
-- L1795: `.background(AppColors.secondaryBackground)`
-- L1845: `return (transaction.signedAmountValue ?? 0) < 0 ? AppColors.errorColor : Color(hex: "2FAE88")`
-- L1866: `.fill(amountColor.opacity(0.12))`
-- L1867: `.frame(width: 36, height: 36)`
-- L1869: `.font(.system(size: 15, weight: .semibold))`
-- L1870: `.foregroundColor(amountColor)`
-- L1875: `.font(.system(size: 15, weight: .semibold))`
-- L1876: `.foregroundColor(AppColors.primaryText)`
-- L1878: `.font(.system(size: 12))`
-- L1879: `.foregroundColor(AppColors.secondaryText)`
-- L1883: `.font(.system(size: 11))`
-- L1884: `.foregroundColor(AppColors.tertiaryText)`
-- L1891: `.font(.system(size: 15, weight: .bold))`
-- L1892: `.foregroundColor(amountColor)`
-- L1896: `.padding(.horizontal, 12)`
-- L1897: `.padding(.vertical, 10)`
-- L1898: `.background(AppColors.cardBackground)`
-- L1899: `.cornerRadius(12)`
-- L1912: `.fill(Color(hex: "FFD54A").opacity(0.18))`
-- L1913: `.frame(width: 36, height: 36)`
-- L1917: `.frame(width: 24, height: 24)`
-- L1922: `.font(.system(size: 15, weight: .semibold))`
-- L1923: `.foregroundColor(AppColors.primaryText)`
-- L1927: `.font(.system(size: 12, weight: .medium))`
-- L1928: `.foregroundColor(Color(hex: "A76500"))`
-- L1933: `.font(.system(size: 11, weight: .medium))`
-- L1934: `.foregroundColor(AppColors.secondaryText)`
-- L1940: `.font(.system(size: 12))`
-- L1941: `.foregroundColor(AppColors.secondaryText)`
-- L1944: `.font(.system(size: 11))`
-- L1945: `.foregroundColor(AppColors.tertiaryText)`
-- L1950: `.font(.system(size: 11))`
-- L1951: `.foregroundColor(AppColors.tertiaryText)`
-- L1961: `.font(.system(size: 12, weight: .semibold))`
-- L1962: `.foregroundColor(Color(hex: "C98300"))`
-- L1963: `.padding(.horizontal, 10)`
-- L1964: `.padding(.vertical, 6)`
-- L1965: `.background(Color(hex: "FFF4C9"))`
-- L1966: `.cornerRadius(12)`
-- L1971: `.padding(.horizontal, 12)`
-- L1972: `.padding(.vertical, 10)`
-- L1973: `.background(Color(hex: "FFF8DE"))`
-- L1974: `.cornerRadius(12)`
-- L1985: `.frame(width: geo.size.width, height: geo.size.height)`
-- L1988: `.ignoresSafeArea()`
-- L2026: `.font(.system(size: 20, weight: .semibold))`
-- L2027: `.foregroundColor(.black)`
-- L2034: `.font(.system(size: 16, weight: .regular))`
-- L2035: `.foregroundColor(.black.opacity(0.42))`
-- L2042: `.padding(.horizontal, 24)`
-- L2051: `.frame(width: 154, height: 142)`
+- L55: `Color.white`
+- L56: `.frame(height: 60)`
+- L57: `.frame(maxHeight: .infinity, alignment: .bottom)`
+- L58: `.ignoresSafeArea(.container, edges: .bottom)`
+- L62: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)`
+- L75: `.font(.system(size: 18, weight: .semibold))`
+- L78: `.toolbarBackground(Color.clear, for: .navigationBar)`
+- L121: `Spacer().frame(height: topPadding)`
+- L125: `.padding(.top, compact ? 0 : 2)`
+- L135: `.padding(.horizontal, 20)`
+- L136: `.padding(.bottom, compact ? 10 : 14)`
+- L144: `.frame(width: geo.size.width)`
+- L145: `.frame(minHeight: geo.size.height, alignment: .top)`
+- L160: `.frame(maxWidth: 240)`
+- L166: `.frame(maxWidth: .infinity)`
+- L167: `.padding(.horizontal, compact ? 16 : 24)`
+- L178: `.font(.system(size: compact ? 11 : 13, weight: .semibold))`
+- L179: `.foregroundColor(.black.opacity(0.66))`
+- L183: `.font(.system(size: isLoading ? (compact ? 13 : 15) : (compact ? 23 : 28), weight: .bold))`
+- L184: `.foregroundColor(.black)`
+- L189: `.frame(maxWidth: .infinity)`
+- L198: `.font(.system(size: compact ? 10 : 11, weight: .bold))`
+- L200: `.font(.system(size: compact ? 12 : 13, weight: .medium))`
+- L201: `.foregroundColor(.black.opacity(0.48))`
+- L212: `.frame(width: size, height: size)`
+- L214: `.frame(height: containerHeight)`
+- L234: `.font(.system(size: 12))`
+- L235: `.foregroundColor(Color(hex: "9A6A00"))`
+- L236: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L237: `.padding(.horizontal, 18)`
+- L247: `.frame(width: contentWidth)`
+- L255: `.tint(.black)`
+- L258: `.font(.system(size: compact ? 16 : 19, weight: .bold))`
+- L263: `.foregroundColor(.black)`
+- L264: `.frame(maxWidth: .infinity)`
+- L265: `.frame(height: compact ? 42 : 52)`
+- L266: `.background(`
+- L268: `.fill(Color(hex: "FFE500"))`
+- L272: `.opacity(walletStore.isPurchasing || walletStore.isLoadingProducts ? 0.72 : 1)`
+- L273: `.padding(.horizontal, 18)`
+- L274: `.padding(.top, cardVerticalSpacing)`
+- L281: `.foregroundColor(agreedToTerms ? Color(hex: "F0A020") : Color.gray.opacity(0.45))`
+- L282: `.font(.system(size: compact ? 12 : 14))`
+- L285: `.font(.system(size: compact ? 10 : 12))`
+- L286: `.foregroundColor(.black.opacity(0.6))`
+- L292: `.font(.system(size: compact ? 10 : 12))`
+- L293: `.foregroundColor(.black.opacity(0.82))`
+- L298: `.frame(maxWidth: .infinity)`
+- L300: `.padding(.top, compact ? 6 : 8)`
+- L301: `.padding(.bottom, compact ? 2 : 4)`
+- L303: `.padding(.top, compact ? 10 : 12)`
+- L304: `.padding(.bottom, bottomPadding)`
+- L305: `.frame(width: availableWidth, alignment: .top)`
+- L306: `.background(Color.white)`
+- L307: `.clipShape(WalletTopRoundedShape(radius: 30))`
+- L308: `.ignoresSafeArea(.container, edges: .bottom)`
+- L338: `.frame(width: compact ? 21 : 28, height: compact ? 21 : 28)`
+- L340: `.font(.system(size: compact ? 14 : 17, weight: .bold))`
+- L341: `.foregroundColor(.black)`
+- L346: `.font(.system(size: compact ? 12 : 14, weight: .medium))`
+- L347: `.foregroundColor(.black.opacity(0.48))`
+- L352: `.frame(maxWidth: .infinity)`
+- L353: `.frame(height: compact ? 66 : 78)`
+- L354: `.background(`
+- L356: `.fill(selected ? Color.white : Color(hex: "F2F2F2"))`
+- L357: `.overlay(`
+- L359: `.stroke(selected ? Color(hex: "FFE200") : Color.clear, lineWidth: compact ? 2.5 : 3)`
+- L451: `.opacity(isBusy || !adRewardService.hasRemainingViews ? 0.62 : 1)`
+- L476: `.fill(Color(hex: "FFD400"))`
+- L477: `.frame(width: compact ? 20 : 24, height: compact ? 20 : 24)`
+- L482: `.tint(.white)`
+- L485: `.font(.system(size: 9, weight: .bold))`
+- L486: `.foregroundColor(.white)`
+- L487: `.offset(x: 1)`
+- L492: `.font(.system(size: compact ? 13 : 14, weight: .medium))`
+- L493: `.foregroundColor(.black.opacity(0.68))`
+- L497: `.frame(maxWidth: .infinity, alignment: .leading)`
+- L500: `.font(.system(size: compact ? 15 : 18, weight: .semibold))`
+- L501: `.foregroundColor(.black.opacity(0.5))`
+- L503: `.padding(.horizontal, compact ? 13 : 18)`
+- L504: `.frame(height: compact ? 46 : 54)`
+- L505: `.background(`
+- L509: `.fill(Color(hex: "FFF3B5").opacity(0.96))`
+- L510: `.overlay(`
+- L512: `.stroke(Color.white.opacity(0.74), lineWidth: 1)`
+- L515: `.shadow(color: Color(hex: "C99A10").opacity(0.1), radius: 8, x: 0, y: 4)`
+- L580: `Color.white.ignoresSafeArea()`
+- L588: `.tint(AppColors.accent)`
+- L589: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L594: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L597: `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+- L606: `.padding(.horizontal, 16)`
+- L607: `.padding(.vertical, 12)`
+- L612: `.background(Color(hex: "F7F7F7"))`
+- L629: `.frame(width: 78, alignment: .leading)`
+- L635: `.frame(maxWidth: .infinity)`
+- L637: `Color.clear`
+- L638: `.frame(width: 78, height: 36)`
+- L640: `.padding(.horizontal, 14)`
+- L641: `.padding(.top, 14)`
+- L642: `.padding(.bottom, 18)`
+- L643: `.background(Color.white)`
+- L652: `.font(.system(size: 20, weight: selectedTab == tab ? .semibold : .regular))`
+- L653: `.foregroundColor(selectedTab == tab ? .black : .black.opacity(0.56))`
+- L657: `.fill(selectedTab == tab ? Color.black : Color.clear)`
+- L658: `.frame(width: 31, height: 3)`
+- L696: `.tint(AppColors.accent)`
+- L702: `.font(.system(size: 34))`
+- L703: `.foregroundColor(AppColors.tertiaryText)`
+- L705: `.font(.system(size: 14))`
+- L706: `.foregroundColor(AppColors.secondaryText)`
+- L711: `.font(.system(size: 34))`
+- L712: `.foregroundColor(AppColors.tertiaryText)`
+- L714: `.font(.system(size: 15, weight: .medium))`
+- L715: `.foregroundColor(AppColors.secondaryText)`
+- L725: `.padding(.horizontal, 16)`
+- L726: `.padding(.vertical, 12)`
+- L728: `.background(AppColors.secondaryBackground)`
+- L764: `.font(.system(size: 13))`
+- L765: `.foregroundColor(AppColors.secondaryText)`
+- L770: `.font(.system(size: 14, weight: .semibold))`
+- L772: `.frame(maxWidth: .infinity)`
+- L773: `.padding(.vertical, 12)`
+- L776: `.tint(AppColors.accent)`
+- L777: `.frame(maxWidth: .infinity)`
+- L778: `.padding(.vertical, 12)`
+- L792: `return (transaction.signedAmountValue ?? 0) < 0 ? AppColors.errorColor : Color(hex: "2FAE88")`
+- L813: `.fill(amountColor.opacity(0.12))`
+- L814: `.frame(width: 36, height: 36)`
+- L816: `.font(.system(size: 15, weight: .semibold))`
+- L817: `.foregroundColor(amountColor)`
+- L822: `.font(.system(size: 15, weight: .semibold))`
+- L823: `.foregroundColor(AppColors.primaryText)`
+- L825: `.font(.system(size: 12))`
+- L826: `.foregroundColor(AppColors.secondaryText)`
+- L830: `.font(.system(size: 11))`
+- L831: `.foregroundColor(AppColors.tertiaryText)`
+- L838: `.font(.system(size: 15, weight: .bold))`
+- L839: `.foregroundColor(amountColor)`
+- L843: `.padding(.horizontal, 12)`
+- L844: `.padding(.vertical, 10)`
+- L845: `.background(AppColors.cardBackground)`
+- L846: `.cornerRadius(12)`
+- L856: `.frame(width: geo.size.width, height: geo.size.height)`
+- L859: `.ignoresSafeArea()`
+- L897: `.font(.system(size: 20, weight: .semibold))`
+- L898: `.foregroundColor(.black)`
+- L905: `.font(.system(size: 16, weight: .regular))`
+- L906: `.foregroundColor(.black.opacity(0.42))`
+- L913: `.padding(.horizontal, 24)`
+- L922: `.frame(width: 154, height: 142)`
 
 交互 modifier：
 
-- L126: `.task {`
-- L136: `.onChange(of: packages.map(\.productID)) { _ in`
-- L140: `.onChange(of: scenePhase) { phase in`
-- L146: `.onDisappear {`
-- L150: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
-- L848: `.onTapGesture {`
-- L902: `.onTapGesture {`
-- L1324: `.task(id: isConfigured) {`
-- L1327: `.onChange(of: scenePhase) { phase in`
-- L1332: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
-- L1481: `.refreshable {`
-- L1491: `.task {`
-- L1604: `.task {`
-- L1607: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
-- L1708: `.task {`
-- L1741: `.task(id: cursor) {`
-- L1813: `.task {`
-- L1816: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+- L80: `.task {`
+- L89: `.onChange(of: packages.map(\.productID)) { _ in`
+- L93: `.onChange(of: scenePhase) { phase in`
+- L99: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+- L452: `.task(id: isConfigured) {`
+- L455: `.onChange(of: scenePhase) { phase in`
+- L460: `.alert(L10n.tr("common.notice"), isPresented: Binding(`
+- L609: `.refreshable {`
+- L619: `.task {`
+- L746: `.task {`
+- L779: `.task(id: cursor) {`
 
 ### BWChat/Views/Web/InAppWebView.swift
 

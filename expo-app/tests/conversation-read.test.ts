@@ -4,6 +4,7 @@ import { markDirectMessagesRead, markGroupMessagesRead } from "@/api/bwchat";
 import { apiRequest } from "@/api/client";
 import { normalizeConversationReadReceipt } from "@/api/normalizers";
 import type { Conversation, ConversationReadReceipt, ConversationSyncSnapshot } from "@/models";
+import { loadCachedAgentCatalog, saveAgentCatalog } from "@/services/agents/AgentCatalogRepository";
 import {
   applyConversationReadReceipt,
   applyConversationReadReceiptToSnapshot,
@@ -15,6 +16,7 @@ import {
 } from "@/services/conversations/ConversationRepository";
 import {
   markConversationRead,
+  markAgentConversationRead,
   resetConversationReadSubmissionForAccount,
   resetConversationReadSubmissionForTests,
 } from "@/services/conversations/ConversationReadService";
@@ -42,7 +44,7 @@ describe("native conversation read-state contracts", () => {
         readThroughMessageID: "41",
         unreadCount: -2,
         totalUnreadCount: "5",
-        revision: "9",
+        unreadRevision: "9",
         serverTime: "2026-08-06T10:00:00Z",
       }),
     ).toEqual({
@@ -51,6 +53,7 @@ describe("native conversation read-state contracts", () => {
       read_through_message_id: 41,
       unread_count: 0,
       total_unread_count: 5,
+      unread_revision: 9,
       revision: 9,
       server_time: "2026-08-06T10:00:00Z",
     });
@@ -123,6 +126,62 @@ describe("native conversation read-state contracts", () => {
       9,
     );
     expect(received).toHaveLength(1);
+  });
+
+  it("keeps persisted read state monotonic across late receipts and stale snapshots", async () => {
+    await reconcileConversationSnapshot("owner-a", {
+      ...makeSnapshot([
+        conversation({
+          unread_count: 5,
+          read_through_message_id: 10,
+          last_message_id: 50,
+          revision: 1,
+        }),
+      ]),
+      revision: 1,
+    });
+    await applyConversationReadReceipt(
+      "owner-a",
+      receipt({
+        read_through_message_id: 50,
+        unread_count: 0,
+        total_unread_count: 2,
+        revision: 3,
+      }),
+    );
+    await applyConversationReadReceipt(
+      "owner-a",
+      receipt({
+        read_through_message_id: 40,
+        unread_count: 1,
+        total_unread_count: 3,
+        revision: 2,
+      }),
+    );
+    await reconcileConversationSnapshot("owner-a", {
+      ...makeSnapshot([
+        conversation({
+          unread_count: 2,
+          read_through_message_id: 30,
+          last_message_id: 50,
+          revision: 2,
+        }),
+      ]),
+      revision: 2,
+      total_unread_count: 4,
+    });
+
+    expect(await loadCachedConversationSnapshot("owner-a")).toMatchObject({
+      revision: 3,
+      total_unread_count: 2,
+      conversations: [
+        {
+          unread_count: 0,
+          read_through_message_id: 50,
+          revision: 3,
+        },
+      ],
+    });
   });
 
   it("clears a visible script room locally before the best-effort server receipt", async () => {
@@ -200,6 +259,69 @@ describe("native conversation read-state contracts", () => {
       body: { idempotency_key: expect.any(String) },
     });
     expect(dismissReadNotifications).toHaveBeenCalledWith("group", "7", 41);
+  });
+
+  it("rejects an older agent read response that arrives after a newer revision", async () => {
+    await saveAgentCatalog("owner", {
+      installedAgents: [],
+      conversations: [
+        {
+          id: "thread-1",
+          title: "Agent",
+          status: "active",
+          agent_id: "agent-1",
+          agent_version_id: "version-1",
+          agent_profile: { name: "Agent" },
+          agent_capabilities: { paid_images: false, paid_videos: false },
+          unread_count: 5,
+          read_through_sequence: 5,
+          revision: 10,
+          created_at: "2026-08-08T00:00:00Z",
+          updated_at: "2026-08-08T00:00:00Z",
+        },
+      ],
+      joinedScriptRooms: [],
+    });
+    let resolveOlder: ((value: unknown) => void) | undefined;
+    const olderResponse = new Promise<unknown>((resolve) => {
+      resolveOlder = resolve;
+    });
+    request.mockReturnValueOnce(olderResponse).mockResolvedValueOnce({
+      conversation_id: "thread-1",
+      through_sequence: 20,
+      conversation_unread: 0,
+      total_unread: 2,
+      unread_revision: 12,
+    });
+
+    const older = markAgentConversationRead("owner", "thread-1", 10, "message-10");
+    const newer = markAgentConversationRead("owner", "thread-1", 20, "message-20");
+    await expect(newer).resolves.toMatchObject({
+      read_through_sequence: 20,
+      unread_count: 0,
+      revision: 12,
+    });
+    resolveOlder?.({
+      conversation_id: "thread-1",
+      through_sequence: 10,
+      conversation_unread: 4,
+      total_unread: 6,
+      unread_revision: 11,
+    });
+    await expect(older).resolves.toBeNull();
+    await expect(loadCachedAgentCatalog("owner")).resolves.toMatchObject({
+      value: {
+        conversations: [
+          {
+            id: "thread-1",
+            unread_count: 0,
+            read_through_sequence: 20,
+            total_unread_count: 2,
+            revision: 12,
+          },
+        ],
+      },
+    });
   });
 
   it("clears submitted read watermarks for only the selected account", async () => {

@@ -87,6 +87,7 @@ describe("direct ChatView API wrapper contract", () => {
     expect(request).toHaveBeenLastCalledWith(
       "/chat/messages/text",
       expect.objectContaining({
+        headers: { "Idempotency-Key": "client-text" },
         body: expect.objectContaining({ client_message_id: "client-text" }),
       }),
     );

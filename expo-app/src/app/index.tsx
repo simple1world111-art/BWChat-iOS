@@ -16,9 +16,7 @@ export default function IndexScreen() {
   if (mapVisualAcceptanceEnabled) return <Redirect href="/(tabs)/map" />;
   if (
     walletVisualAcceptanceVariant === "wallet-coins" ||
-    walletVisualAcceptanceVariant === "wallet-coins-compact" ||
-    walletVisualAcceptanceVariant === "wallet-earnings" ||
-    walletVisualAcceptanceVariant === "wallet-earnings-compact"
+    walletVisualAcceptanceVariant === "wallet-coins-compact"
   )
     return <Redirect href="/wallet" />;
   if (
@@ -29,12 +27,5 @@ export default function IndexScreen() {
     walletVisualAcceptanceVariant === "wallet-transactions-loading"
   )
     return <Redirect href="/wallet-transactions" />;
-  if (
-    walletVisualAcceptanceVariant === "wallet-withdrawals" ||
-    walletVisualAcceptanceVariant === "wallet-withdrawals-rows" ||
-    walletVisualAcceptanceVariant === "wallet-withdrawals-error" ||
-    walletVisualAcceptanceVariant === "wallet-withdrawals-loading"
-  )
-    return <Redirect href="/wallet-withdrawals" />;
   return <Redirect href={user ? "/(tabs)/conversations" : "/(auth)/login"} />;
 }

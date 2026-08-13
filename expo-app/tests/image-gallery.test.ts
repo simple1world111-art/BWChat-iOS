@@ -21,6 +21,20 @@ import {
   rubberBandGalleryOffset,
   shouldLoadGalleryPage,
 } from "@/components/media/imageGalleryMath";
+import {
+  mediaPullBackdropOpacity,
+  mediaPullContentOpacity,
+  mediaPullDismissScale,
+  mediaPullHasVerticalIntent,
+  mediaPullVisualTranslation,
+  MEDIA_PULL_DISMISS_DISTANCE,
+  MEDIA_PULL_DISMISS_DURATION_MS,
+  MEDIA_PULL_FLICK_VELOCITY,
+  MEDIA_PULL_MINIMUM_FLICK_DISTANCE,
+  MEDIA_PULL_RESTORE_DURATION_MS,
+  MEDIA_PULL_VERTICAL_DIRECTION_RATIO,
+  MEDIA_PULL_VISUAL_DEAD_ZONE,
+} from "@/components/media/mediaPullDismissMath";
 
 describe("native image gallery contracts", () => {
   it("keeps the native zoom and direction-lock constants", () => {
@@ -28,8 +42,8 @@ describe("native image gallery contracts", () => {
     expect(GALLERY_MAXIMUM_SCALE).toBe(5);
     expect(GALLERY_REST_SCALE_LIMIT).toBe(1.05);
     expect(GALLERY_DOUBLE_TAP_SCALE).toBe(2.5);
-    expect(GALLERY_VERTICAL_DIRECTION_RATIO).toBe(1.12);
-    expect(GALLERY_VISUAL_DEAD_ZONE).toBe(18);
+    expect(GALLERY_VERTICAL_DIRECTION_RATIO).toBe(MEDIA_PULL_VERTICAL_DIRECTION_RATIO);
+    expect(GALLERY_VISUAL_DEAD_ZONE).toBe(MEDIA_PULL_VISUAL_DEAD_ZONE);
   });
 
   it("deduplicates stably and remaps the selected URL", () => {
@@ -44,15 +58,38 @@ describe("native image gallery contracts", () => {
   });
 
   it("uses the native distance and flick dismiss thresholds", () => {
-    expect(GALLERY_DISMISS_DISTANCE).toBe(72);
-    expect(GALLERY_MINIMUM_FLICK_DISTANCE).toBe(28);
-    expect(GALLERY_FLICK_VELOCITY).toBe(900);
+    expect(GALLERY_DISMISS_DISTANCE).toBe(MEDIA_PULL_DISMISS_DISTANCE);
+    expect(GALLERY_MINIMUM_FLICK_DISTANCE).toBe(MEDIA_PULL_MINIMUM_FLICK_DISTANCE);
+    expect(GALLERY_FLICK_VELOCITY).toBe(MEDIA_PULL_FLICK_VELOCITY);
     expect(galleryDismissDecision(71, 899)).toBe(0);
     expect(galleryDismissDecision(72, 0)).toBe(1);
     expect(galleryDismissDecision(-72, 0)).toBe(-1);
     expect(galleryDismissDecision(28, 900)).toBe(1);
     expect(galleryDismissDecision(-28, -900)).toBe(-1);
     expect(galleryDismissDecision(27, 2_000)).toBe(0);
+  });
+
+  it("shares one pull-to-dismiss visual contract with full-screen video", () => {
+    expect(MEDIA_PULL_RESTORE_DURATION_MS).toBe(160);
+    expect(MEDIA_PULL_DISMISS_DURATION_MS).toBe(240);
+    expect(mediaPullHasVerticalIntent(10, 11.2)).toBe(false);
+    expect(mediaPullHasVerticalIntent(10, 11.21)).toBe(true);
+    expect(mediaPullVisualTranslation(17)).toBe(0);
+    expect(mediaPullVisualTranslation(18)).toBe(0);
+    expect(mediaPullVisualTranslation(19)).toBe(1);
+    expect(mediaPullVisualTranslation(-19)).toBe(-1);
+    expect(mediaPullBackdropOpacity(320)).toBe(0.25);
+    expect(mediaPullDismissScale(800, 800)).toBe(0.78);
+    expect(mediaPullContentOpacity(576, 800)).toBe(0);
+
+    const gallerySource = fs.readFileSync(
+      path.join(process.cwd(), "src/components/media/ImageGallery.tsx"),
+      "utf8",
+    );
+    expect(gallerySource).toContain("mediaPullVisualTranslation(event.translationY)");
+    expect(gallerySource).toContain("mediaPullBackdropOpacity(verticalDrag.value)");
+    expect(gallerySource).toContain("duration: MEDIA_PULL_RESTORE_DURATION_MS");
+    expect(gallerySource).toContain("duration: MEDIA_PULL_DISMISS_DURATION_MS");
   });
 
   it("keeps the dismiss decision executable on the gesture UI thread", () => {
@@ -63,6 +100,21 @@ describe("native image gallery contracts", () => {
     expect(mathSource).toMatch(
       /function galleryDismissDecision\([^)]*\)[^{]*\{\s*["']worklet["'];/u,
     );
+    const sharedMathSource = fs.readFileSync(
+      path.join(process.cwd(), "src/components/media/mediaPullDismissMath.ts"),
+      "utf8",
+    );
+    for (const functionName of [
+      "mediaPullDismissDecision",
+      "mediaPullVisualTranslation",
+      "mediaPullBackdropOpacity",
+      "mediaPullDismissScale",
+      "mediaPullContentOpacity",
+    ]) {
+      expect(sharedMathSource).toMatch(
+        new RegExp(`function ${functionName}\\([^)]*\\)[^{]*\\{\\s*["']worklet["'];`, "u"),
+      );
+    }
   });
 
   it("computes centered aspect-fit Hero frames", () => {

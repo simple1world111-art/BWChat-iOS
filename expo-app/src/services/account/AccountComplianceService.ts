@@ -58,8 +58,6 @@ export interface AccountDeletionPreview {
   impact: {
     goldCoinsToForfeit: number;
     propsToForfeit: number;
-    cancellableWithdrawals: number;
-    settlingWithdrawals: number;
     ownedGroupsToDissolve: number;
   };
   deleteCategories: string[];
@@ -259,8 +257,6 @@ export async function getAccountDeletionPreview(): Promise<AccountDeletionPrevie
     impact: {
       goldCoinsToForfeit: requireNonnegativeInteger(impact, "gold_coins_to_forfeit"),
       propsToForfeit: requireNonnegativeInteger(impact, "props_to_forfeit"),
-      cancellableWithdrawals: requireNonnegativeInteger(impact, "cancellable_withdrawals"),
-      settlingWithdrawals: requireNonnegativeInteger(impact, "settling_withdrawals"),
       ownedGroupsToDissolve: requireNonnegativeInteger(impact, "owned_groups_to_dissolve"),
     },
     deleteCategories: value.delete_categories.map((item) => requireRawString(item)),

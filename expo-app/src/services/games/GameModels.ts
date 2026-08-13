@@ -120,7 +120,7 @@ export function normalizeGameRoundStart(value: unknown): GameRoundStart {
     roundID: requiredString(value.round_id, value.roundID, "游戏回合 ID"),
     roundToken: requiredString(value.round_token, value.roundToken, "游戏回合令牌"),
     expiresAt: requiredString(value.expires_at, value.expiresAt, "游戏回合有效期"),
-    paymentMethod: requiredString(value.payment_method, value.paymentMethod, "游戏支付方式"),
+    paymentMethod: requiredString(value.payment_method, value.paymentMethod, "游戏使用方式"),
     entryPriceGoldCoins,
     walletBalance: normalizeWalletBalanceSnapshot(value.wallet_balance ?? value.walletBalance),
     ...(consumedValue !== undefined && consumedValue !== null

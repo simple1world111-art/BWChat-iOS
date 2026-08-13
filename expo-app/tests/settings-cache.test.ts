@@ -19,6 +19,7 @@ import { resetAgentConversationMemoryForAccount } from "@/services/agents/AgentC
 import { clearImageCache } from "@/services/cache/ImageCacheService";
 import { clearUserInfoCache } from "@/services/cache/UserInfoCache";
 import { resetConversationReadSubmissionForAccount } from "@/services/conversations/ConversationReadService";
+import { resetConversationRepositoryMemoryForAccount } from "@/services/conversations/ConversationRepository";
 import {
   resetFriendRepositoryMemoryForAccount,
   waitForAllFriendRepositoryPersistence,
@@ -54,6 +55,9 @@ jest.mock("@/services/agents/AgentConversationResolver", () => ({
 }));
 jest.mock("@/services/conversations/ConversationReadService", () => ({
   resetConversationReadSubmissionForAccount: jest.fn(),
+}));
+jest.mock("@/services/conversations/ConversationRepository", () => ({
+  resetConversationRepositoryMemoryForAccount: jest.fn(),
 }));
 jest.mock("@/services/friends/FriendRepository", () => ({
   resetFriendRepositoryMemoryForAccount: jest.fn(),
@@ -112,10 +116,21 @@ describe("native ProfileSettings cache controls", () => {
       "bwchat.agent-catalog-v1:account:user/1:overview",
       "bwchat.agent-messages-v1:account:user%2F1:conversation:c1",
       "bwchat.chat-hidden-messages.v1:user%2F1:dm:peer",
+      "bwchat.conversations.hidden.v1:user%2F1",
+      "bwchat.conversations.initiated-dms.v1:user%2F1",
+      "bwchat.conversations.live-pairs.v1:user%2F1",
+      "bwchat.conversations.pinned.v1:user%2F1",
+      "bwchat.conversations.snapshot-metadata.v1:user%2F1",
+      "bwchat.direct-message-backfilled.v1:account:user%2F1:contact:peer",
+      "bwchat.direct-message-history.v1:account:user%2F1:contact:peer",
+      "bwchat.direct-message-outbox.v1:account:user%2F1:job:message-1",
       "bwchat.discover-refresh.v1:user%2F1",
       "bwchat.friend-requests-metadata.v1:user%2F1",
       "bwchat.games.recommended.v1:user%2F1",
       "bwchat.gift.catalog.v1:user%2F1",
+      "bwchat.group-message-backfilled.v1:account:user%2F1:group:7",
+      "bwchat.group-message-history.v1:account:user%2F1:group:7",
+      "bwchat.group-message-outbox.v1:account:user%2F1:job:message-2",
       "bwchat.profile-agents.v1:user%2F1:target",
       "bwchat.remote-config.v2:user.user/1:zh-Hans",
       "bwchat.short-drama-feed-v1:account:user%2F1:recommended",
@@ -132,12 +147,26 @@ describe("native ProfileSettings cache controls", () => {
     const ownKeys = [
       "bwchat.wallet.balance.v2:user/1",
       "bwchat.agent-messages-v1:account:user%2F1:conversation:c1",
+      "bwchat.conversations.hidden.v1:user%2F1",
+      "bwchat.conversations.initiated-dms.v1:user%2F1",
+      "bwchat.conversations.live-pairs.v1:user%2F1",
+      "bwchat.conversations.pinned.v1:user%2F1",
+      "bwchat.conversations.snapshot-metadata.v1:user%2F1",
+      "bwchat.direct-message-backfilled.v1:account:user%2F1:contact:peer",
+      "bwchat.direct-message-history.v1:account:user%2F1:contact:peer",
+      "bwchat.direct-message-outbox.v1:account:user%2F1:job:message-1",
+      "bwchat.group-message-backfilled.v1:account:user%2F1:group:7",
+      "bwchat.group-message-history.v1:account:user%2F1:group:7",
+      "bwchat.group-message-outbox.v1:account:user%2F1:job:message-2",
       "bwchat.profile-agents.v1:user%2F1:target",
       "bwchat.short-drama-feed-v1:account:user%2F1:recommended",
       "bbchat.activity-center.snapshot.user%2F1",
     ];
     const retained = [
       "bwchat.wallet.balance.v2:other",
+      "bwchat.conversations.pinned.v1:user%2F10",
+      "bwchat.direct-message-history.v1:account:user%2F10:contact:peer",
+      "bwchat.group-message-outbox.v1:account:user%2F10:job:message-2",
       "bwchat.auth.access-token.v1",
       "bwchat.update-state.v1",
     ];
@@ -149,6 +178,7 @@ describe("native ProfileSettings cache controls", () => {
     expect(remove).toHaveBeenCalledWith(ownKeys);
     expect(clearAccountMedia).toHaveBeenCalledWith(owner);
     expect(resetAgentConversationMemoryForAccount).toHaveBeenCalledWith(owner);
+    expect(resetConversationRepositoryMemoryForAccount).toHaveBeenCalledWith(owner);
     expect(resetConversationReadSubmissionForAccount).toHaveBeenCalledWith(owner);
     expect(resetFriendRepositoryMemoryForAccount).toHaveBeenCalledWith(owner);
     expect(waitForFriendRepositoryPersistenceForAccount).toHaveBeenCalledWith(owner);
@@ -178,6 +208,28 @@ describe("native ProfileSettings cache controls", () => {
     expect(resetShortDramaFeedRepositoryMemoryForAccount).toHaveBeenCalledWith("owner");
     expect(resetShortDramaHistoryRepositoryMemoryForAccount).toHaveBeenCalledWith("owner");
     expect(resetShortDramaSeriesRepositoryMemoryForAccount).toHaveBeenCalledWith("owner");
+  });
+
+  it("clears every account's conversation history and outbox families", async () => {
+    const businessKeys = [
+      "bwchat.conversations.snapshot-metadata.v1:owner-a",
+      "bwchat.conversations.pinned.v1:owner-b",
+      "bwchat.direct-message-history.v1:account:owner-a:contact:peer",
+      "bwchat.direct-message-backfilled.v1:account:owner-b:contact:peer",
+      "bwchat.direct-message-outbox.v1:account:owner-a:job:message-1",
+      "bwchat.group-message-history.v1:account:owner-b:group:7",
+      "bwchat.group-message-backfilled.v1:account:owner-a:group:8",
+      "bwchat.group-message-outbox.v1:account:owner-b:job:message-2",
+    ];
+    const retained = ["bwchat.auth.access-token.v1", "bwchat.update-state.v1"];
+    await Promise.all(
+      [...businessKeys, ...retained].map((key) => AsyncStorage.setItem(key, "value")),
+    );
+
+    await clearAllAccountData();
+
+    for (const key of businessKeys) await expect(AsyncStorage.getItem(key)).resolves.toBeNull();
+    for (const key of retained) await expect(AsyncStorage.getItem(key)).resolves.toBe("value");
   });
 
   it("uses native ByteCountFormatter when available and a decimal file-style fallback", async () => {

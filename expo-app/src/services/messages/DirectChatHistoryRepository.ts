@@ -185,6 +185,7 @@ function isStoredMessage(value: unknown): value is Message {
 }
 
 function compareMessages(left: Message, right: Message): number {
+  if (left.id > 0 && right.id > 0 && left.id !== right.id) return left.id - right.id;
   const timeDifference = timestampValue(left.timestamp) - timestampValue(right.timestamp);
   return timeDifference !== 0 ? timeDifference : left.id - right.id;
 }

@@ -11,6 +11,7 @@ import {
 } from "@/services/cache/MediaCacheService";
 import { clearUserInfoCache } from "@/services/cache/UserInfoCache";
 import { resetConversationReadSubmissionForAccount } from "@/services/conversations/ConversationReadService";
+import { resetConversationRepositoryMemoryForAccount } from "@/services/conversations/ConversationRepository";
 import {
   resetFriendRepositoryMemoryForAccount,
   waitForAllFriendRepositoryPersistence,
@@ -51,8 +52,16 @@ const accountCachePrefixes = [
   "bwchat.chat-image-outbox.v1:",
   "bwchat.chat-video-outbox.v1:",
   "bwchat.chat-backgrounds.v1:",
+  "bwchat.conversations.hidden.v1:",
+  "bwchat.conversations.initiated-dms.v1:",
+  "bwchat.conversations.live-pairs.v1:",
+  "bwchat.conversations.pinned.v1:",
+  "bwchat.conversations.snapshot-metadata.v1:",
   "bwchat.conversations.snapshot.v1:",
   "bwchat.direct-history-clear.v1:",
+  "bwchat.direct-message-backfilled.v1:",
+  "bwchat.direct-message-history.v1:",
+  "bwchat.direct-message-outbox.v1:",
   "bwchat.discover-refresh.v1:",
   "bwchat.friend-requests.v1:",
   "bwchat.friend-requests-metadata.v1:",
@@ -65,6 +74,9 @@ const accountCachePrefixes = [
   "bwchat.groups.v1:",
   "bwchat.group-detail.v1:",
   "bwchat.group-history-clear.v1:",
+  "bwchat.group-message-backfilled.v1:",
+  "bwchat.group-message-history.v1:",
+  "bwchat.group-message-outbox.v1:",
   "bwchat.group-pinned.v1:",
   "bwchat.moment-detail.v1:",
   "bwchat.moments-feed.v1:",
@@ -88,8 +100,6 @@ const accountCachePrefixes = [
   "bwchat.wallet.balance.v1:",
   "bwchat.wallet.balance.v2:",
   "bwchat.wallet.transactions.v2:",
-  "bwchat.wallet.usdt.payout.v1:",
-  "bwchat.wallet.withdrawals.v1:",
 ] as const;
 
 export async function formattedVideoCacheSize(ownerId: string): Promise<string> {
@@ -147,6 +157,7 @@ export async function clearAllAccountData(currentOwnerId?: string): Promise<void
 function resetAccountMemory(ownerId: string): void {
   clearNavigationSnapshotsForOwner(ownerId);
   resetAgentConversationMemoryForAccount(ownerId);
+  resetConversationRepositoryMemoryForAccount(ownerId);
   resetConversationReadSubmissionForAccount(ownerId);
   resetFriendRepositoryMemoryForAccount(ownerId);
   resetFollowListRepositoryMemoryForAccount(ownerId);

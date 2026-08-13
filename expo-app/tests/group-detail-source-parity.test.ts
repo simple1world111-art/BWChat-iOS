@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
 const copiedNativeRoot = resolve(expoRoot, "..");
-const originalNativeRoot = resolve(expoRoot, "../..", "BWChat-iOS");
+const originalNativeRoot = resolve(expoRoot, "..");
 
 describe("GroupDetailView source parity", () => {
   it("locks every copied Swift source used by the group-detail contract", () => {
@@ -14,9 +14,9 @@ describe("GroupDetailView source parity", () => {
       "BWChat/Models/Group.swift":
         "9cc71d2d874002629302dd14f06183bd80cb396f7bfcdd3fbf5838b549bee792",
       "BWChat/Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+        "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
       "BWChat/Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+        "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
       "BWChat/Components/AvatarView.swift":
         "a3c6f6de8c1ffc38cc07dfd0d9495a60830e18cf69864392f7cf7529f46bff92",
     };

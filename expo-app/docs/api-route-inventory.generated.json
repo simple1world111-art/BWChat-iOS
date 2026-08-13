@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-08-08T02:26:36.009Z",
+  "generatedAt": "2026-08-12T12:55:45.953Z",
   "nativeSource": "../BWChat/Services/APIService.swift",
   "totals": {
-    "nativeRouteTemplates": 189,
+    "nativeRouteTemplates": 187,
     "intentionalExclusions": 3,
-    "inScopeNativeRouteTemplates": 186,
-    "expoNetworkRouteReferences": 193,
-    "sourceReferenceCandidatesCovered": 186,
-    "sourceReferenceCandidatesMissing": 0
+    "inScopeNativeRouteTemplates": 184,
+    "expoNetworkRouteReferences": 205,
+    "sourceReferenceCandidatesCovered": 183,
+    "sourceReferenceCandidatesMissing": 1
   },
   "warning": "字符串/路由形状匹配只用于发现候选缺口，不证明 method、auth、body、envelope、错误、缓存或生命周期已经完成。",
   "intentionalExclusions": [
@@ -59,7 +59,6 @@
     "/auth/login",
     "/auth/logout",
     "/auth/refresh",
-    "/auth/register",
     "/auth/verify",
     "/call/:param/busy",
     "/call/:param/end",
@@ -208,14 +207,23 @@
     "/wallet/transactions",
     "/wallet/transfers",
     "/wallet/transfers/:param/accept",
-    "/wallet/transfers/:param/return",
-    "/wallet/withdrawals",
-    "/wallet/withdrawals/:param/cancel"
+    "/wallet/transfers/:param/return"
   ],
-  "candidateMissing": [],
+  "candidateMissing": ["/auth/register"],
   "expoReferences": {
+    "/account/deletion/authorizations": ["src/services/account/AccountComplianceService.ts"],
+    "/account/deletion/preview": ["src/services/account/AccountComplianceService.ts"],
+    "/account/deletion/requests": ["src/services/account/AccountComplianceService.ts"],
+    "/account/email-verification-sessions": ["src/services/account/AccountComplianceService.ts"],
+    "/account/email-verification-sessions/:param/resend": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
+    "/account/email-verification-sessions/:param/verify": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
     "/account/phone/verification-sessions": ["src/services/activity/ActivityCenterRepository.ts"],
     "/account/phone/verify": ["src/services/activity/ActivityCenterRepository.ts"],
+    "/account/security": ["src/services/account/AccountComplianceService.ts"],
     "/activity-center": ["src/services/activity/ActivityCenterRepository.ts"],
     "/activity-center/check-in/claim": ["src/services/activity/ActivityCenterRepository.ts"],
     "/activity-center/contact-discovery/sessions": [
@@ -251,6 +259,7 @@
     "/api/v1": ["src/services/short-drama/ShortDramaPlaybackSource.ts"],
     "/api/v1/:param": ["src/services/chat-appearance/ChatAppearanceService.ts"],
     "/api/v1/images": ["src/components/media/videoPlayerMath.ts"],
+    "/api/v1/moments/image": ["src/services/media/VideoPlaybackSource.ts"],
     "/api/v1/public": ["src/services/media/VideoPlaybackSource.ts"],
     "/api/v1/public/images": ["src/components/media/videoPlayerMath.ts"],
     "/app/config": ["src/services/remote-config/RemoteConfigService.ts"],
@@ -259,8 +268,24 @@
     "/auth/change-password": ["src/api/bwchat.ts"],
     "/auth/login": ["src/api/bwchat.ts"],
     "/auth/logout": ["src/api/bwchat.ts"],
+    "/auth/password-reset/sessions": ["src/services/account/AccountComplianceService.ts"],
+    "/auth/password-reset/sessions/:param/confirm": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
+    "/auth/password-reset/sessions/:param/resend": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
     "/auth/refresh": ["src/api/bwchat.ts", "src/api/client.ts"],
-    "/auth/register": ["src/api/bwchat.ts"],
+    "/auth/register-v2": ["src/services/account/AccountComplianceService.ts"],
+    "/auth/registration/email-verification-sessions": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
+    "/auth/registration/email-verification-sessions/:param/resend": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
+    "/auth/registration/email-verification-sessions/:param/verify": [
+      "src/services/account/AccountComplianceService.ts"
+    ],
     "/auth/verify": ["src/api/bwchat.ts"],
     "/call/:param/busy": ["src/api/bwchat.ts"],
     "/call/:param/end": ["src/api/bwchat.ts"],
@@ -388,7 +413,10 @@
     "/short-drama/mine": ["src/api/bwchat.ts"],
     "/short-drama/series": ["src/api/bwchat.ts"],
     "/short-drama/series/:param": ["src/api/bwchat.ts"],
-    "/short-drama/series/:param/episodes": ["src/api/bwchat.ts"],
+    "/short-drama/series/:param/episodes": [
+      "src/api/bwchat.ts",
+      "src/services/short-drama/ShortDramaBackgroundUpload.ts"
+    ],
     "/short-drama/series/:param/submit": ["src/api/bwchat.ts"],
     "/short-drama/videos/:param": ["src/api/bwchat.ts"],
     "/short-drama/videos/:param/comments": ["src/api/bwchat.ts"],
@@ -413,8 +441,6 @@
     "/wallet/transactions": ["src/api/bwchat.ts"],
     "/wallet/transfers": ["src/api/bwchat.ts"],
     "/wallet/transfers/:param/accept": ["src/api/bwchat.ts"],
-    "/wallet/transfers/:param/return": ["src/api/bwchat.ts"],
-    "/wallet/withdrawals": ["src/api/bwchat.ts"],
-    "/wallet/withdrawals/:param/cancel": ["src/api/bwchat.ts"]
+    "/wallet/transfers/:param/return": ["src/api/bwchat.ts"]
   }
 }

@@ -161,6 +161,7 @@ export const defaultRemoteConfig: RemoteConfig = {
     dataPrivacyScreenId: "data_privacy",
     accountDeletionUrl: "https://id7.com/account-deletion",
   },
+  capabilities: { messagingSyncV2: false },
   screens: [...bundledDynamicScreens],
   features: defaultFeatures,
 };

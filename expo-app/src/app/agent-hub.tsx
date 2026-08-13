@@ -37,6 +37,7 @@ import {
   loadCachedAgentCatalog,
   saveAgentCatalog,
 } from "@/services/agents/AgentCatalogRepository";
+import { mergeAgentConversationSnapshots } from "@/services/agents/AgentConversationState";
 import {
   rememberAgentForEditing,
   subscribeAgentUpdates,
@@ -163,7 +164,9 @@ function AgentHubAccountScreen({
         }
         if (results[1].status === "fulfilled") next.installedAgents = results[1].value;
         if (results[2].status === "fulfilled") {
-          next.conversations = sortAgentConversations(results[2].value);
+          next.conversations = sortAgentConversations(
+            mergeAgentConversationSnapshots(snapshotRef.current.conversations, results[2].value),
+          );
         }
         if (results[3].status === "fulfilled") {
           next.joinedScriptRooms = resolveJoinedScriptRooms(results[3].value.conversations);

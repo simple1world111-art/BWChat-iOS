@@ -188,10 +188,6 @@ function walletBalance(value: number) {
     gold_coin_balance: value,
     activity_cat_food_balance: 0,
     spendable_balance: value,
-    recharge_gold_coin_balance: value,
-    gift_income_gold_coin_balance: 0,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 0,
     chat_money_frozen_gold_coin_balance: 0,
   };
 }

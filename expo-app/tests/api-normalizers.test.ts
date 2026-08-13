@@ -1,7 +1,13 @@
 import {
+  normalizeAgentConversation,
+  normalizeAgentConversationReadReceipt,
+  normalizeAgentMessage,
   normalizeAuthSession,
+  normalizeChatSyncEvent,
+  normalizeChatSyncPage,
   normalizeConversation,
   normalizeConversationSnapshot,
+  normalizeGroupMessage,
   normalizeMessage,
   normalizeMessagesPage,
   normalizeToken,
@@ -9,6 +15,159 @@ import {
 import { shouldAcceptConversationSnapshot } from "@/services/conversations/ConversationRepository";
 
 describe("native-compatible API normalizers", () => {
+  it("strictly normalizes ordered messaging sync-v2 pages while retaining opaque event data", () => {
+    const opaqueData = {
+      message: { id: 91, content: "hello" },
+      extension: ["kept", { future: true }],
+    };
+    expect(
+      normalizeChatSyncPage({
+        events: [
+          {
+            event_id: "event-90",
+            event_sequence: "90",
+            type: "new_message",
+            server_time: "2026-08-13T01:00:00Z",
+            data: opaqueData,
+          },
+          {
+            event_id: "event-91",
+            event_sequence: 91,
+            type: "conversation_read_state",
+            data: {},
+          },
+        ],
+        next_event_seq: "91",
+        has_more: "false",
+        snapshot_revision: "12",
+        server_time: "2026-08-13T01:00:01Z",
+        full_sync_required: 0,
+      }),
+    ).toEqual({
+      events: [
+        {
+          event_id: "event-90",
+          event_sequence: 90,
+          type: "new_message",
+          server_time: "2026-08-13T01:00:00Z",
+          data: opaqueData,
+        },
+        {
+          event_id: "event-91",
+          event_sequence: 91,
+          type: "conversation_read_state",
+          data: {},
+        },
+      ],
+      next_event_seq: 91,
+      has_more: false,
+      snapshot_revision: 12,
+      server_time: "2026-08-13T01:00:01Z",
+      full_sync_required: false,
+    });
+  });
+
+  it("rejects incomplete, unordered or impossible messaging sync-v2 events", () => {
+    expect(() => normalizeChatSyncEvent({ type: "new_message", data: {} })).toThrow(
+      "event_sequence",
+    );
+    expect(() => normalizeChatSyncEvent({ event_sequence: 1, data: {} })).toThrow("type");
+    expect(() => normalizeChatSyncEvent({ type: "new_message", event_sequence: 1 })).toThrow(
+      "data",
+    );
+    expect(() =>
+      normalizeChatSyncEvent({ type: "new_message", event_sequence: 1, data: null }),
+    ).toThrow("data");
+    expect(() =>
+      normalizeChatSyncPage({
+        events: [
+          { type: "new_message", event_sequence: 2, data: {} },
+          { type: "new_message", event_sequence: 1, data: {} },
+        ],
+        next_event_seq: 2,
+        has_more: false,
+        snapshot_revision: 1,
+        server_time: "2026-08-13T01:00:00Z",
+        full_sync_required: false,
+      }),
+    ).toThrow("严格递增");
+    expect(() =>
+      normalizeChatSyncPage({
+        events: [{ type: "new_message", event_sequence: 3, data: {} }],
+        next_event_seq: 2,
+        has_more: false,
+        snapshot_revision: 1,
+        server_time: "2026-08-13T01:00:00Z",
+        full_sync_required: false,
+      }),
+    ).toThrow("水位");
+  });
+
+  it("decodes notification-v2 agent message identity aliases", () => {
+    expect(
+      normalizeAgentMessage({
+        message_id: "message-9",
+        agent_conversation_id: "thread-agent",
+        message_sequence: "9",
+        sender: { type: "agent", id: "agent-1" },
+        parts: [],
+      }),
+    ).toMatchObject({
+      id: "message-9",
+      conversation_id: "thread-agent",
+      sequence_no: 9,
+    });
+    expect(
+      normalizeAgentMessage({
+        message_id: "message-10",
+        surface_id: "thread-surface",
+        messageSequence: 10,
+        sender: { type: "agent", id: "agent-1" },
+        parts: [],
+      }),
+    ).toMatchObject({
+      id: "message-10",
+      conversation_id: "thread-surface",
+      sequence_no: 10,
+    });
+  });
+
+  it("decodes notification-v2 unread aliases for agent conversations and receipts", () => {
+    expect(
+      normalizeAgentConversation({
+        id: "thread-1",
+        title: "Agent",
+        conversation_unread: "3",
+        total_unread: "7",
+        read_through_sequence: "8",
+        unread_revision: "11",
+      }),
+    ).toMatchObject({
+      id: "thread-1",
+      unread_count: 3,
+      total_unread_count: 7,
+      read_through_sequence: 8,
+      revision: 11,
+    });
+    expect(
+      normalizeAgentConversationReadReceipt({
+        conversation_id: "thread-1",
+        through_sequence: "9",
+        through_message_id: "message-9",
+        conversation_unread: "2",
+        total_unread: "6",
+        unread_revision: "12",
+      }),
+    ).toEqual({
+      conversation_id: "thread-1",
+      read_through_sequence: 9,
+      read_through_message_id: "message-9",
+      unread_count: 2,
+      total_unread_count: 6,
+      revision: 12,
+    });
+  });
+
   it("requires the native token fields and removes a stale Bearer prefix", () => {
     const session = normalizeAuthSession({
       token: " Bearer access-token ",
@@ -119,5 +278,35 @@ describe("native-compatible API normalizers", () => {
     });
     expect(page.hasMore).toBe(true);
     expect(page.messages.map((message) => message.id)).toEqual([1, 2]);
+  });
+
+  it("normalizes missing message clocks deterministically without inventing device time", () => {
+    const directPayload = {
+      id: 71,
+      sender_id: "friend",
+      receiver_id: "owner",
+      msg_type: "text",
+      content: "direct",
+    };
+    const groupPayload = {
+      id: 72,
+      group_id: 9,
+      sender_id: "member",
+      msg_type: "text",
+      content: "group",
+    };
+
+    const direct = normalizeMessage(directPayload);
+    const group = normalizeGroupMessage(groupPayload);
+    expect(direct.timestamp).toBe("");
+    expect(group.timestamp).toBe("");
+    expect(normalizeMessage(directPayload)).toEqual(direct);
+    expect(normalizeGroupMessage(groupPayload)).toEqual(group);
+    expect(
+      normalizeMessage({ ...directPayload, server_time: "2026-08-13T01:02:03Z" }).timestamp,
+    ).toBe("2026-08-13T01:02:03Z");
+    expect(
+      normalizeGroupMessage({ ...groupPayload, updated_at: "2026-08-13T04:05:06Z" }).timestamp,
+    ).toBe("2026-08-13T04:05:06Z");
   });
 });

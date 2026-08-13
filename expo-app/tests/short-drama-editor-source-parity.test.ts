@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const expoRoot = resolve(__dirname, "..");
-const originalRoot = "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat";
+const originalRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const copiedRoot = resolve(expoRoot, "..", "BWChat");
 
 describe("ShortDramaUnifiedEditor native/Expo source parity", () => {

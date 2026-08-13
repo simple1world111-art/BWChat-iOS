@@ -1,6 +1,6 @@
 # BWChat Expo 像素级迁移状态总表
 
-> 状态日期：2026-08-09  
+> 状态日期：2026-08-12  
 > 原版事实来源：`native-audit.generated.md`、`native-audit.generated.json`、原 Swift 源码及 398 个原生行为测试。  
 > 规则：前端样式/组件按固定双模拟器 **95–98% 视觉还原**验收；功能和后端只要求从代码层确认接口路径、method、auth、query/body、wrapper/data、解码与消费状态接线和原版 **100% 一一对应**，不再要求逐页真实后端点测。两门都通过后才允许标记为完成。
 > 汇报规则：每当一个功能正式达到完成标准，必须立即向用户汇报该功能的验收证据，并同时汇报整体目标进度；不得只报告局部完成而省略全局状态。
@@ -13,6 +13,8 @@
 - `⚙️ 基础设施完成`：非页面能力已完成，不代表业务页面完成。
 
 当前 `✅ 代码/API 一一对应 + 视觉达标` 页面数：**47 / 47（100%）**，剩余 **0** 页。47 个页面/组件均已完成代码/API 一一对应与固定双模拟器 95–98% 视觉验收；没有用入口页、占位页或仅视觉通过冒充完成页面。
+
+> **Wallet 当前状态（2026-08-12，优先于下方钱包历史验收记录）**：金币兑换 USDT 的收益页、提现记录页、创建/查询/取消接口、状态与缓存、动态配置、模型、账号删除影响、本地化及验收夹具均已永久移除。钱包仅保留金币余额、充值、消费流水、活动猫粮、奖励广告和 IAP；下方出现的提现内容只用于记录已经废止的历史迁移过程，不代表现有功能或后端合同。
 
 > **EAS iOS Production Store/TestFlight 最新检查点（2026-08-09，优先于下方所有历史 EAS 描述）**：Apple credentials 已由用户完成交互配置。iOS Production Store Build `2236972b-d74c-417f-9f52-18e48cd8e8e3` 为 `FINISHED`，`1.0.0 (11)`、`STORE`、`production` channel、runtime `610f9a3e005a9939903c424963e89631d7be538f` 与稳定 Production OTA 完全一致。49,697,034-byte IPA 的 SHA-256 为 `92c5d2eca5826555cd88fc145e91bfe04461339180a81c670e7a64e5b5ed8016`；ZIP、arm64、Distribution 深度签名、App Store Profile、Production APNs/communication entitlement、`get-task-allow=false` 和无 Dev Launcher/Menu 全部通过。ASC App ID `6760574012` 已识别；Submission `705eafd8-8d74-4531-9926-ae90e21b9e63` 已成功上传 App Store Connect。Apple 已处理完成，TestFlight 显示 Build 11 `Ready to Submit`、有效期 90 天；内部组和单独测试人员均为 0，现有外部公开链接组也是 `0 Builds / 0 Testers`。选择 Build 11 进入外部 Beta Review 后，最后门槛是用户明确授权将测试账号交给 Apple，并指定 Feedback Email；未授权前没有保存/提交表单。实测把 `ascAppId` 写入当前 `eas.json` 会无意义改变 Production fingerprint，因此该尝试已撤回，保持当前安装包继续命中 `610f9a3e...` OTA。临时 IPA/解包目录已精确删除，未启动模拟器。页面复刻仍 **47/47（100%）**；实现、双端云构建、OTA 演练和 iOS 商店上传五阶段为 **5/5**，但“朋友可通过公开链接安装”仍等待这两项用户授权和 Apple Beta Review。
 

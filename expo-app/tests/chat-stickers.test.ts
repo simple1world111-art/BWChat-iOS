@@ -260,6 +260,7 @@ describe("native chat sticker contracts", () => {
     });
     expect(request).toHaveBeenCalledWith("/chat/messages/sticker", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-direct" },
       requiredData: true,
       requiredEnvelope: true,
       body: {
@@ -283,6 +284,7 @@ describe("native chat sticker contracts", () => {
     await sendGroupStickerMessage(31, "animals", "cat", { clientMessageId: "client-group" });
     expect(request).toHaveBeenCalledWith("/groups/31/messages/sticker", {
       method: "POST",
+      headers: { "Idempotency-Key": "client-group" },
       requiredData: true,
       requiredEnvelope: true,
       body: {

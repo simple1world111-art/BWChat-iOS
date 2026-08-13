@@ -9,7 +9,7 @@ function source(relativePath: string): string {
 describe("native ImagePreviewView entry parity", () => {
   it("locks the complete read-only native ImagePreviewView fact source", () => {
     const native = fs.readFileSync(
-      "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat/Views/ImagePreviewView.swift",
+      "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat/Views/ImagePreviewView.swift",
     );
     expect(createHash("sha256").update(native).digest("hex")).toBe(
       "9b0a8f707861dbf4f7b0af0243341812ad4ebeda8992050154603803c18364be",

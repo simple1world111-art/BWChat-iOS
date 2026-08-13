@@ -60,6 +60,7 @@ import {
 } from "@/services/agents/AgentComposerImageService";
 import { loadAgentChatPage, saveAgentChatPage } from "@/services/agents/AgentChatCache";
 import { upsertCachedAgentConversation } from "@/services/agents/AgentCatalogRepository";
+import { mergeAgentConversationState } from "@/services/agents/AgentConversationState";
 import {
   agentGeneratedMediaPollingDecision,
   agentMessageIdentity,
@@ -81,6 +82,7 @@ import {
   type AgentTurnNotice,
 } from "@/services/agents/AgentChatTurnPolicy";
 import { getAgentConversation } from "@/services/agents/AgentConversationRepository";
+import { markAgentConversationRead } from "@/services/conversations/ConversationReadService";
 import {
   agentGalleryImagePaths,
   agentImageGenerationBlockReason,
@@ -105,6 +107,8 @@ import type { MediaUnlockKind } from "@/services/props/PropInventoryModels";
 import { agentVideoDefaultRole } from "@/services/live/AgentLiveMatchPresentation";
 import { getCurrentLiveSlot } from "@/services/live/LiveLobbyRepository";
 import { useAgentLiveVideoMatch } from "@/services/live/useAgentLiveVideoMatch";
+import { dismissActiveConversationNotifications } from "@/services/push/PushService";
+import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import { colors } from "@/theme";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
@@ -199,6 +203,10 @@ export default function AgentChatScreen() {
   const [isLoadingVideoRoleDialog, setLoadingVideoRoleDialog] = useState(false);
   const [unlockingMediaIds, setUnlockingMediaIds] = useState<Set<string>>(() => new Set());
   const pollGenerationRef = useRef(0);
+  const screenFocusedRef = useRef(false);
+  const visibleRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const lastAgentRealtimeAtRef = useRef(0);
   const expectedMediaTurnIdsRef = useRef(new Set<string>());
   const hasResumedTurnsRef = useRef(false);
   const unlockLifecycleRef = useRef(0);
@@ -259,6 +267,57 @@ export default function AgentChatScreen() {
     [agentId, initialAvatarId, initialName],
   );
 
+  const markLatestMessageRead = useCallback(
+    (message: AgentMessage | undefined) => {
+      if (
+        !visibleRef.current ||
+        !isNearBottomRef.current ||
+        !ownerId ||
+        !conversationId ||
+        !message ||
+        message.conversation_id !== conversationId ||
+        message.sequence_no <= 0
+      ) {
+        return;
+      }
+      const requestedScope = agentMessageScope(ownerId, conversationId);
+      const requestedGeneration = scopeGenerationRef.current;
+      void markAgentConversationRead(ownerId, conversationId, message.sequence_no, message.id).then(
+        (receipt) => {
+          if (
+            !receipt ||
+            !isCurrentAgentChatOperation(
+              timelineScopeRef.current,
+              requestedScope,
+              scopeGenerationRef.current,
+              requestedGeneration,
+            )
+          ) {
+            return;
+          }
+          const current = conversationRef.current;
+          if (!current || current.id !== receipt.conversation_id) return;
+          const next = mergeAgentConversationState(current, {
+            ...current,
+            unread_count: receipt.unread_count,
+            read_through_sequence: Math.max(
+              current.read_through_sequence ?? 0,
+              receipt.read_through_sequence,
+            ),
+            ...(receipt.total_unread_count !== undefined
+              ? { total_unread_count: receipt.total_unread_count }
+              : {}),
+            ...(receipt.revision !== undefined ? { revision: receipt.revision } : {}),
+          });
+          conversationRef.current = next;
+          setConversation(next);
+          void upsertCachedAgentConversation(ownerId, next).catch(() => false);
+        },
+      );
+    },
+    [conversationId, ownerId],
+  );
+
   const setTimeline = useCallback(
     (next: AgentMessage[]) => {
       const previous = messagesRef.current;
@@ -300,8 +359,9 @@ export default function AgentChatScreen() {
           cachedConversation,
         ).catch(() => {});
       }
+      if (nextLatest) markLatestMessageRead(nextLatest);
     },
-    [conversationId, ownerId],
+    [conversationId, markLatestMessageRead, ownerId],
   );
 
   const updateHasMore = useCallback((next: boolean) => {
@@ -349,6 +409,7 @@ export default function AgentChatScreen() {
     setLoadingReplyImage(false);
     setPreparingImage(false);
     setFocused(false);
+    isNearBottomRef.current = true;
     setImageMenuTarget(null);
     imageMenuOwnsTouchRef.current = false;
     if (imageMenuReleaseTimerRef.current) clearTimeout(imageMenuReleaseTimerRef.current);
@@ -368,6 +429,7 @@ export default function AgentChatScreen() {
     setLoading(true);
     hasResumedTurnsRef.current = false;
     pollGenerationRef.current += 1;
+    lastAgentRealtimeAtRef.current = 0;
     conversationRef.current = null;
     setConversation(null);
     runtimeConfigRef.current = null;
@@ -430,10 +492,16 @@ export default function AgentChatScreen() {
       if (!isCurrentLoad()) return;
       if (cached && messagesRef.current.length === 0) {
         if (cached.conversation) {
-          conversationRef.current = cached.conversation;
-          setConversation(cached.conversation);
-          setDisplayName(cached.conversation.agent_profile.name || initialName);
-          setDisplayAvatarId(cached.conversation.agent_profile.avatar_asset_id || initialAvatarId);
+          const nextCachedConversation = mergeAgentConversationState(
+            conversationRef.current,
+            cached.conversation,
+          );
+          conversationRef.current = nextCachedConversation;
+          setConversation(nextCachedConversation);
+          setDisplayName(nextCachedConversation.agent_profile.name || initialName);
+          setDisplayAvatarId(
+            nextCachedConversation.agent_profile.avatar_asset_id || initialAvatarId,
+          );
         }
         updateHasMore(cached.hasMore);
         messagesRef.current = cached.messages;
@@ -454,10 +522,14 @@ export default function AgentChatScreen() {
       ]);
       if (!isCurrentLoad()) return;
       if (nextConversation) {
-        conversationRef.current = nextConversation;
-        setConversation(nextConversation);
-        setDisplayName(nextConversation.agent_profile.name || initialName);
-        setDisplayAvatarId(nextConversation.agent_profile.avatar_asset_id || initialAvatarId);
+        const mergedConversation = mergeAgentConversationState(
+          conversationRef.current,
+          nextConversation,
+        );
+        conversationRef.current = mergedConversation;
+        setConversation(mergedConversation);
+        setDisplayName(mergedConversation.agent_profile.name || initialName);
+        setDisplayAvatarId(mergedConversation.agent_profile.avatar_asset_id || initialAvatarId);
       }
       if (nextRuntimeConfig) {
         runtimeConfigRef.current = nextRuntimeConfig;
@@ -513,18 +585,61 @@ export default function AgentChatScreen() {
   }, [conversationId, ownerId, setTimeline, updateHasMore]);
 
   useEffect(() => {
+    const requestedScope = agentMessageScope(ownerId, conversationId);
+    const requestedGeneration = scopeGenerationRef.current;
+    return chatRealtimeService.subscribe((event) => {
+      if (
+        event.type !== "agent_message" ||
+        event.message.conversation_id !== conversationId ||
+        !isCurrentAgentChatOperation(
+          timelineScopeRef.current,
+          requestedScope,
+          scopeGenerationRef.current,
+          requestedGeneration,
+        )
+      ) {
+        return;
+      }
+      lastAgentRealtimeAtRef.current = Date.now();
+      setTimeline(mergeAgentMessages(messagesRef.current, [event.message]));
+    });
+  }, [conversationId, ownerId, setTimeline]);
+
+  useEffect(() => {
     if (ownerId && balance === null) void refreshBalance(true);
   }, [balance, ownerId, refreshBalance]);
 
   useFocusEffect(
     useCallback(() => {
+      screenFocusedRef.current = true;
+      visibleRef.current =
+        AppState.currentState !== "background" && AppState.currentState !== "inactive";
+      const releaseActiveConversation = chatRealtimeService.activateConversation(
+        "agent",
+        conversationId,
+      );
+      void dismissActiveConversationNotifications("agent", conversationId);
       hasResumedTurnsRef.current = false;
       setUnlockingMediaIds(new Set(unlockingMediaIdsRef.current));
-      void load();
+      void load().finally(() => {
+        const latest = messagesRef.current
+          .filter((message) => !isAgentOptimisticMessage(message))
+          .at(-1);
+        markLatestMessageRead(latest);
+      });
       const syncTimer = setInterval(() => {
-        if (!sendingRef.current && !activeTurnPollRef.current) void syncLatestAgentMessages();
+        if (
+          !sendingRef.current &&
+          !activeTurnPollRef.current &&
+          Date.now() - lastAgentRealtimeAtRef.current >= 4_000
+        ) {
+          void syncLatestAgentMessages();
+        }
       }, 4_000);
       return () => {
+        screenFocusedRef.current = false;
+        visibleRef.current = false;
+        releaseActiveConversation();
         clearInterval(syncTimer);
         Keyboard.dismiss();
         pollGenerationRef.current += 1;
@@ -534,7 +649,7 @@ export default function AgentChatScreen() {
         unlockIdempotencyKeysRef.current.clear();
         unlockOperationTokensRef.current.clear();
       };
-    }, [load, syncLatestAgentMessages]),
+    }, [conversationId, load, markLatestMessageRead, syncLatestAgentMessages]),
   );
 
   useFocusEffect(
@@ -935,16 +1050,23 @@ export default function AgentChatScreen() {
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
+      visibleRef.current = screenFocusedRef.current && state === "active";
       if (state === "active") {
         hasResumedTurnsRef.current = false;
-        void load().finally(() => void resumeUnfinishedTurnIfNeeded());
+        void load().finally(() => {
+          const latest = messagesRef.current
+            .filter((message) => !isAgentOptimisticMessage(message))
+            .at(-1);
+          markLatestMessageRead(latest);
+          void resumeUnfinishedTurnIfNeeded();
+        });
       } else {
         pollGenerationRef.current += 1;
         activeTurnPollRef.current = null;
       }
     });
     return () => subscription.remove();
-  }, [load, resumeUnfinishedTurnIfNeeded]);
+  }, [load, markLatestMessageRead, resumeUnfinishedTurnIfNeeded]);
 
   const isTurnInteractionBlocked =
     isAwaitingGeneratedMedia ||
@@ -1312,6 +1434,7 @@ export default function AgentChatScreen() {
     }
     lastSubmissionRef.current = submission;
     setSending(true);
+    isNearBottomRef.current = true;
     setError(null);
     setTurnNotice(null);
     setAwaitingGeneratedMedia(false);
@@ -1455,6 +1578,7 @@ export default function AgentChatScreen() {
 
   useEffect(() => {
     if (!messages.length && !presentedTurnStatus && !error && !turnNotice) return;
+    if (!isNearBottomRef.current) return;
     requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
   }, [error, latestMessageIdentity, messages.length, presentedTurnStatus, turnNotice, turnStatus]);
 
@@ -1503,7 +1627,19 @@ export default function AgentChatScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           keyExtractor={agentMessageIdentity}
+          onScroll={({ nativeEvent }) => {
+            const wasNearBottom = isNearBottomRef.current;
+            const isNearBottom = nativeEvent.contentOffset.y <= 24;
+            isNearBottomRef.current = isNearBottom;
+            if (!wasNearBottom && isNearBottom) {
+              const latest = messagesRef.current
+                .filter((message) => !isAgentOptimisticMessage(message))
+                .at(-1);
+              markLatestMessageRead(latest);
+            }
+          }}
           onScrollBeginDrag={() => Keyboard.dismiss()}
+          scrollEventThrottle={16}
           onTouchStart={() => {
             Keyboard.dismiss();
             setFocused(false);

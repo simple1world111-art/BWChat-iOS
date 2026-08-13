@@ -215,8 +215,6 @@ Header `Idempotency-Key` 必须等于 body `client_request_id`。
   "impact": {
     "gold_coins_to_forfeit": 0,
     "props_to_forfeit": 0,
-    "cancellable_withdrawals": 0,
-    "settling_withdrawals": 0,
     "owned_groups_to_dissolve": 0
   },
   "delete_categories": [
@@ -270,13 +268,12 @@ Header `Idempotency-Key` 必须等于 body `client_request_id`。
 ## 删除 worker 的固定业务语义
 
 1. 金币、道具立即作废。
-2. 可取消提现自动取消，返还金币随即作废；不可取消/付款中提现继续结算，收款地址结算完成后删除。
-3. 用户拥有的全部群组统一解散，不转让：立即标记 dissolved、禁止发言、通知成员、列表移除、群内容与媒体进入删除任务。
-4. 聊天及必要引用：删除正文与媒体；sender 改成不可反查 surrogate；仅留“该内容已删除” tombstone；不保留昵称、头像或原始 user_id 映射。
-5. 删除资料、邮箱、手机号、push token、设备标识、位置、联系人哈希、社交关系、Moments、Agent、剧本/角色/房间、短剧、媒体，以及 CDN、对象存储、索引、缓存、第三方副本。
-6. 普通数据在 `ACCOUNT_DATA_PURGE_DAYS` 内完成；财务、安全、删除审计按配置去标识化保留最小合法字段。
-7. worker 必须幂等重试；失败进入 dead-letter 并告警，禁止静默跳过数据域。
-8. username/email 在普通清除完成前保持占用，完成后允许复用；user_id 永不复用。
+2. 用户拥有的全部群组统一解散，不转让：立即标记 dissolved、禁止发言、通知成员、列表移除、群内容与媒体进入删除任务。
+3. 聊天及必要引用：删除正文与媒体；sender 改成不可反查 surrogate；仅留“该内容已删除” tombstone；不保留昵称、头像或原始 user_id 映射。
+4. 删除资料、邮箱、手机号、push token、设备标识、位置、联系人哈希、社交关系、Moments、Agent、剧本/角色/房间、短剧、媒体，以及 CDN、对象存储、索引、缓存、第三方副本。
+5. 普通数据在 `ACCOUNT_DATA_PURGE_DAYS` 内完成；财务、安全、删除审计按配置去标识化保留最小合法字段。
+6. worker 必须幂等重试；失败进入 dead-letter 并告警，禁止静默跳过数据域。
+7. username/email 在普通清除完成前保持占用，完成后允许复用；user_id 永不复用。
 
 ## 法律文档与 Remote Config
 
@@ -296,12 +293,36 @@ Header `Idempotency-Key` 必须等于 body `client_request_id`。
 4. 单独说明通信正文、通信周边信息和实时音视频：正文与媒体用于传输、同步、存储和依法处理举报；通话参与者、时间、时长、状态及必要质量摘要可被处理；除非另行明确告知和取得必要授权，不得默认录音或录像。
 5. 将处理目的、权限选择、服务商/委托处理、跨境处理、存储安全、用户权利、账号删除、未成年人、版本变更和联系渠道分别写清。
 6. `data_privacy` 是可操作的控制指南，不得只是隐私政策摘要；必须告诉用户到哪里管理系统权限、资料、好友/群组/内容、邮箱安全、账号删除和数据权利请求。
-7. 固定公开实际删除语义和期限：普通数据原则上 7 天内清除；去标识化财务账本最多 2555 天；安全事件最多 180 天；删除审计最多 1095 天；结算中提现地址在结算完成后删除。
+7. 固定公开实际删除语义和期限：普通数据原则上 7 天内清除；去标识化财务账本最多 2555 天；安全事件最多 180 天；删除审计最多 1095 天。
 8. 客服渠道只从 `SUPPORT_EMAIL` 注入；正文与模板不得写死邮箱，也不得自动拼接 user ID、设备标识、JWT 或其他凭据。
+
+`wallet_terms` 必须以“BBchat 充值协议”为品牌标题，十语言均不得出现旧称“猫箱”“貓箱”“Cat Box”或“Cat-Box”。“猫粮/Cat Food”是独立的活动资产名称，不得因此被替换。协议不能只有一句 StoreKit 提示，至少逐项写清：
+
+1. 金币的虚拟权益属性、可用范围，以及不得擅自交易、代充或转售；不得将其表述为存款、投资或法定货币。
+2. 商品档位、金币数量、本地币价格和税费以 App Store 购买确认页为准；客户端备用价格不是最终报价。
+3. Apple StoreKit 扣款，服务端校验 product、transaction identifier 与签名后幂等入账；同一有效交易只能入账一次。
+4. pending、网络中断、验单延迟和未完成交易恢复的处理方式；提示用户不要反复下单，并提供余额、流水和应用内客服核对路径。
+5. 服务器余额与流水的权威性、各消费场景的确认与扣减规则，并明确：正常、有效账户内的购买所得金币不设置到期日，不会仅因时间经过而失效。仅用户申请删除账号、Apple 退款或撤销交易、适用法律要求处理时例外，并分别以删除确认页、最终交易状态和适用法律为准。
+6. App Store 退款资格、渠道和结果由 Apple 规则、Apple 决定及适用法律确定；BBchat 不得声称能代 Apple 批准退款。退款或撤销后依最终交易状态依法处理对应金币与权益。
+7. 伪造凭证、重复入账、未授权代充、漏洞利用和退款欺诈的安全处理；正常客服申诉本身不得成为限制账户的理由。
+8. 未成年人应由达到当地要求的监护人阅读同意并监督购买，使用系统购买限制。
+9. 删除账号的不可撤回影响、服务重大变化的通知、版本与生效时间、充值数据处理范围及应用内客服渠道。
+
+正文不得编造运营主体、注册地址、法域、跨境区域、争议管辖或服务商事实；缺少已确认事实时保持发布状态 not-ready，交由产品与法务补齐，不能用占位符上线。
 
 前端十语言离线兜底正文位于 `BWChat/<locale>.lproj/Localizable.strings` 的 `account.privacyPolicy.fallback` 和 `account.dataPrivacy.fallback`。后端发布的对应 locale 必须逐项覆盖相同事实、权利、删除语义和期限；允许法律审核后的措辞差异，不允许删减实质内容。
 
-每份响应必须包含 `document_version`、`effective_at`、`locale`、审核正文、客服方式、删除范围和保留说明，并支持 ETag/If-None-Match 与 `de/en/es/fr/ja/ko/pt-BR/ru/zh-Hans/zh-Hant`。发布新正文时必须：
+每份响应必须包含请求对应的 `screen_id`、`document_version`、`effective_at`、`locale`、审核标题与正文、`support.email`，并按文档性质包含删除范围、保留说明或充值交易规则。`document_version` 与 `effective_at` 必须来自已审核发布记录，不能由网关临时生成；日期使用可解析的 ISO 8601。`locale` 必须与本次实际返回正文一致，并支持 `de/en/es/fr/ja/ko/pt-BR/ru/zh-Hans/zh-Hant`。
+
+法律文档读取必须遵守以下一致性契约：
+
+- `GET /app/screens/{screen_id}` 的响应 `screen_id` 必须与路径中解码后的请求 ID 逐字一致；如果 Remote Config 配置了版本化 ID，例如 `legal_wallet_terms_v2`，不得用 `wallet_terms` 冒充响应 ID。未知、未发布或尚未完成审核的 ID 返回明确 404/not-ready，不能回退成另一份 200 文档。
+- 按 `Accept-Language` 从上述十语言中选择正文并返回实际 `locale`；不允许返回中文正文却标 `en`。若产品确定采用语言回退，响应 `locale` 必须写回实际语言，客户端会因与当前语言不一致而使用本地完整兜底。
+- 响应必须设置 `Vary: Accept-Language`。ETag 至少由 `screen_id + document_version + locale + 标题/正文内容` 共同决定；缓存、CDN 和 304 判定必须同时隔离账号可见范围（如有）与 locale。绝不能把某语言的 `If-None-Match` 用于另一语言并返回 304。
+- 对法律页，缺少版本、生效时间、locale、正文不足、ID 不一致、语言不一致或 `wallet_terms` 含旧品牌时，当前客户端会拒绝缓存/展示远端内容并继续使用十语言离线完整兜底。后端验收必须覆盖这些负例，而不是只验证 HTTP 200。
+- ETag/If-None-Match 必须可重验证；304 不带正文时只能引用同一 screen ID、同一 locale 的已验证缓存。
+
+发布新正文时必须：
 
 - 同一事务或同一不可分割发布批次更新 SDUI、`/privacy` H5 与公开删除页使用的版本化数据源；
 - 提升 `document_version` 并生成与正文内容一致的新 ETag，禁止新正文沿用旧 ETag；
@@ -325,7 +346,7 @@ Header `Idempotency-Key` 必须等于 body `client_request_id`。
 
 ## 公开删除网页
 
-`https://id7.com/account-deletion` 不要求安装 App。输入用户名或邮箱，复用防枚举 OTP；成功后仅以 Secure/HttpOnly/SameSite=Strict session 识别用户；使用同一 preview/deletion service/worker；展示资产、提现、群组、保留数据和不可撤回说明；未绑定邮箱旧账号显示 `SUPPORT_EMAIL`。必须有 CSRF、限流、审计；token 不得进入 URL、Referer、日志或浏览器存储。
+`https://id7.com/account-deletion` 不要求安装 App。输入用户名或邮箱，复用防枚举 OTP；成功后仅以 Secure/HttpOnly/SameSite=Strict session 识别用户；使用同一 preview/deletion service/worker；展示资产、群组、保留数据和不可撤回说明；未绑定邮箱旧账号显示 `SUPPORT_EMAIL`。必须有 CSRF、限流、审计；token 不得进入 URL、Referer、日志或浏览器存储。
 
 ## 旧账号人工恢复
 
@@ -339,7 +360,7 @@ Header `Idempotency-Key` 必须等于 body `client_request_id`。
 - 重发、5 次错误锁定、限流。
 - 删除 preview stale、授权过期、重复提交与不确定网络结果。
 - `auth_version` 与 `delete_pending` 拒绝；WebSocket/LiveKit/push 撤销。
-- 群组统一解散；钱包作废；提现取消/继续结算。
+- 群组统一解散；钱包金币与道具作废。
 - 对象存储/CDN/索引/缓存清除；worker 重试/dead-letter/告警。
 - H5 CSRF、Cookie、OTP、无 App 删除。
 - 所有生产响应、日志与导出均不得出现内部 IP、`8001` 或 `7880`。

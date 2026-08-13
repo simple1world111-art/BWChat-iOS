@@ -19,6 +19,9 @@ export interface DynamicScreen {
   screenId: string;
   schemaVersion?: number | undefined;
   configVersion?: string | undefined;
+  documentVersion?: string | undefined;
+  effectiveAt?: string | undefined;
+  locale?: string | undefined;
   titleKey?: string | undefined;
   title?: string | undefined;
   titleI18n?: Record<string, string> | undefined;
@@ -35,26 +38,78 @@ export function isDynamicScreenSupported(screen: DynamicScreen): boolean {
   return (screen.schemaVersion ?? 1) <= 1;
 }
 
-const minimumLegalDocumentCharacters: Readonly<Record<string, number>> = {
-  privacy_policy: 800,
-  data_privacy: 500,
+export type LegalDocumentKind = "wallet_terms" | "privacy_policy" | "data_privacy";
+
+export interface LegalDocumentScreenIds {
+  walletTerms?: string | undefined;
+  privacyPolicy?: string | undefined;
+  dataPrivacy?: string | undefined;
+}
+
+const minimumLegalDocumentCharacters: Readonly<Record<LegalDocumentKind, number>> = {
+  wallet_terms: 600,
+  privacy_policy: 1_200,
+  data_privacy: 800,
 };
 
+const legalDocumentTokens: Readonly<Record<LegalDocumentKind, RegExp>> = {
+  wallet_terms: /(?:^|_)wallet_terms(?:_|$)/u,
+  privacy_policy: /(?:^|_)privacy_policy(?:_|$)/u,
+  data_privacy: /(?:^|_)data_privacy(?:_|$)/u,
+};
+
+const retiredWalletBrand = /(?:猫箱|貓箱|Cat\s*[- ]?Box)/iu;
+
+export function legalDocumentKind(
+  screenId: string,
+  configured: LegalDocumentScreenIds = {},
+): LegalDocumentKind | null {
+  const normalizedId = normalizeDynamicToken(screenId);
+  const configuredKinds: readonly [string | undefined, LegalDocumentKind][] = [
+    [configured.walletTerms, "wallet_terms"],
+    [configured.privacyPolicy, "privacy_policy"],
+    [configured.dataPrivacy, "data_privacy"],
+  ];
+  for (const [candidate, kind] of configuredKinds) {
+    if (candidate && normalizeDynamicToken(candidate) === normalizedId) return kind;
+  }
+  for (const kind of ["wallet_terms", "privacy_policy", "data_privacy"] as const) {
+    if (legalDocumentTokens[kind].test(normalizedId)) return kind;
+  }
+  return null;
+}
+
+export function canonicalLegalDocumentScreenId(kind: LegalDocumentKind): string {
+  return kind;
+}
+
+export function legalDocumentLocaleMatches(
+  documentLocale: string,
+  activeLanguage: string,
+): boolean {
+  return normalizeLegalLocale(documentLocale) === normalizeLegalLocale(activeLanguage);
+}
+
 /**
- * Do not let a successful but placeholder legal response replace the complete
- * bundled document. This gate is deliberately limited to the two compliance
- * pages; all other SDUI screens retain their existing behavior.
+ * Do not let a successful but incomplete, mismatched, or wrong-language legal
+ * response replace the complete bundled document. Ordinary SDUI screens retain
+ * their existing behavior.
  */
 export function isLegalDynamicScreenComplete(
   requestedScreenId: string,
   screen: DynamicScreen,
   language: string,
+  explicitKind?: LegalDocumentKind | null,
 ): boolean {
-  const normalizedId = normalizeDynamicToken(requestedScreenId);
-  const minimum = minimumLegalDocumentCharacters[normalizedId];
-  if (minimum === undefined) return true;
-  if (normalizeDynamicToken(screen.screenId) !== normalizedId) return false;
-  return visibleDynamicCopyLength(screen.components, language) >= minimum;
+  const kind = explicitKind === undefined ? legalDocumentKind(requestedScreenId) : explicitKind;
+  if (!kind) return true;
+  if (screen.screenId !== requestedScreenId) return false;
+  if (!nonblank(screen.documentVersion) || !validEffectiveAt(screen.effectiveAt)) return false;
+  if (!screen.locale || !legalDocumentLocaleMatches(screen.locale, language)) return false;
+  if (kind === "wallet_terms" && containsRetiredWalletBrand(screen, language)) return false;
+  return (
+    visibleDynamicCopyLength(screen.components, language) >= minimumLegalDocumentCharacters[kind]
+  );
 }
 
 export function displayDynamicScreenTitle(
@@ -132,6 +187,26 @@ function visibleDynamicCopyLength(components: DynamicComponent[], language: stri
   return length;
 }
 
+function containsRetiredWalletBrand(screen: DynamicScreen, language: string): boolean {
+  const title = localizedDynamicValue(screen.titleI18n, language) ?? nonblank(screen.title);
+  return (
+    Boolean(title && retiredWalletBrand.test(title)) ||
+    componentsUseRetiredBrand(screen.components, language)
+  );
+}
+
+function componentsUseRetiredBrand(components: DynamicComponent[], language: string): boolean {
+  for (const component of components) {
+    if (!(component.visible ?? true)) continue;
+    for (const key of ["title", "text", "subtitle"] as const) {
+      const copy = localizedDynamicProp(component.props, key, language);
+      if (copy && retiredWalletBrand.test(copy)) return true;
+    }
+    if (component.children && componentsUseRetiredBrand(component.children, language)) return true;
+  }
+  return false;
+}
+
 export function parseDynamicScreen(value: unknown): DynamicScreen | null {
   return parseDynamicScreenValue(value, true);
 }
@@ -158,10 +233,19 @@ export function parseLegalDocumentWire(value: unknown): DynamicScreen | null {
   }
   if (title.length > 500 || body.length > 200_000) return null;
 
-  const documentVersion = optionalString(raw.document_version);
-  const effectiveAt = optionalString(raw.effective_at);
-  const locale = optionalString(raw.locale);
-  if (!documentVersion.ok || !effectiveAt.ok || !locale.ok) return null;
+  const documentVersion = requiredStringField(raw, "document_version");
+  const effectiveAt = requiredStringField(raw, "effective_at");
+  const locale = requiredStringField(raw, "locale");
+  if (
+    !documentVersion ||
+    documentVersion.length > 200 ||
+    effectiveAt === null ||
+    !validEffectiveAt(effectiveAt) ||
+    !locale ||
+    locale.length > 35
+  ) {
+    return null;
+  }
   const support = record(raw.support);
   const supportEmail = normalizedSupportEmail(
     support && typeof support.email === "string" ? support.email : undefined,
@@ -170,7 +254,10 @@ export function parseLegalDocumentWire(value: unknown): DynamicScreen | null {
   return {
     screenId,
     title,
-    ...(documentVersion.value ? { configVersion: documentVersion.value } : {}),
+    configVersion: documentVersion,
+    documentVersion,
+    effectiveAt,
+    locale,
     ...(supportEmail ? { supportEmail } : {}),
     components: [
       {
@@ -223,6 +310,29 @@ function parseDynamicScreenValue(
     )
   )
     return null;
+  if (
+    !assignOptionalField(
+      screen,
+      "documentVersion",
+      raw,
+      optionalString,
+      "document_version",
+      ...(allowStoredAliases ? ["documentVersion"] : []),
+    )
+  )
+    return null;
+  if (
+    !assignOptionalField(
+      screen,
+      "effectiveAt",
+      raw,
+      optionalString,
+      "effective_at",
+      ...(allowStoredAliases ? ["effectiveAt"] : []),
+    )
+  )
+    return null;
+  if (!assignOptionalField(screen, "locale", raw, optionalString, "locale")) return null;
   if (
     !assignOptionalField(
       screen,
@@ -438,6 +548,15 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function nonblank(value: string | undefined): string | undefined {
   return value?.trim() ? value : undefined;
+}
+
+function normalizeLegalLocale(value: string): string {
+  return value.trim().replaceAll("_", "-").toLowerCase();
+}
+
+function validEffectiveAt(value: string | null | undefined): boolean {
+  if (!value || value.length > 100) return false;
+  return Number.isFinite(Date.parse(value));
 }
 
 function translatedValue(

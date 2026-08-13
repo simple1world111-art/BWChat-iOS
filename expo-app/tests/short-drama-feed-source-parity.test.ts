@@ -21,14 +21,14 @@ const nativeSources = [
     "8fa2a398c06c2297fa215185653cccca8afcacc9a20d540d956e83100f0b70cc",
   ],
   ["Models/ShortDrama.swift", "13abb0d63f53893bd48eff56fcf6d40f3bb7d570267280bcae276100344d6a11"],
-  ["Services/APIService.swift", "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274"],
+  ["Services/APIService.swift", "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2"],
   [
     "Services/CacheRepository.swift",
-    "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+    "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
   ],
   [
     "Services/WalletStore.swift",
-    "cbc20644b9619fd707cf3372265af42e13528f5dcc2d3924455351af66b3cbe6",
+    "ca08308c3e2f95fdd8382f4c0221e936f8a880a068b215ae3d93fcec91f710d8",
   ],
   [
     "Views/ShortDramaSeriesListView.swift",
@@ -41,7 +41,7 @@ describe("ShortDramaFeedView read-only native source lock", () => {
     "keeps %s identical in the original and desktop Swift copy",
     (path, hash) => {
       const copied = resolve(root, "../BWChat", path);
-      const original = resolve(root, "../../BWChat-iOS/BWChat", path);
+      const original = resolve(root, "../BWChat", path);
       expect(sha256(copied)).toBe(hash);
       if (existsSync(original)) expect(sha256(original)).toBe(hash);
     },

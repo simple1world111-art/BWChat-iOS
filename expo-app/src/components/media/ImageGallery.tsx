@@ -45,8 +45,6 @@ import {
   GALLERY_MAXIMUM_SCALE,
   GALLERY_MINIMUM_SCALE,
   GALLERY_REST_SCALE_LIMIT,
-  GALLERY_VERTICAL_DIRECTION_RATIO,
-  GALLERY_VISUAL_DEAD_ZONE,
   galleryOwnerCacheKey,
   galleryOwnerSourceId,
   initialGalleryIndex,
@@ -57,6 +55,16 @@ import {
   type GalleryFrame,
   type GallerySize,
 } from "@/components/media/imageGalleryMath";
+import {
+  mediaPullBackdropOpacity,
+  mediaPullContentOpacity,
+  mediaPullDismissScale,
+  mediaPullHasVerticalIntent,
+  mediaPullVisualTranslation,
+  MEDIA_PULL_DIRECTION_LOCK_DISTANCE,
+  MEDIA_PULL_DISMISS_DURATION_MS,
+  MEDIA_PULL_RESTORE_DURATION_MS,
+} from "@/components/media/mediaPullDismissMath";
 import { useLocalization } from "@/providers/LocalizationProvider";
 import { useAuth } from "@/providers/AuthProvider";
 import { getAuthenticatedImageUri, prefetchImage } from "@/services/cache/ImageCacheService";
@@ -71,7 +79,6 @@ export type { GalleryFrame, GallerySize } from "@/components/media/imageGalleryM
 const SOURCE_FRAME_MEASURE_FALLBACK_MS = 34;
 const HERO_OPEN_DURATION_MS = 280;
 const BACKDROP_OPEN_DURATION_MS = 120;
-const SWIPE_DISMISS_DURATION_MS = 240;
 const galleryImageWarmups = new Map<string, Promise<void>>();
 
 /** Warms the exact owner-scoped cache identity consumed by the gallery. */
@@ -940,14 +947,14 @@ function ImageGalleryContent({
           if (panMode.value === 0) {
             const horizontalDistance = Math.abs(event.translationX);
             const verticalDistance = Math.abs(event.translationY);
-            if (Math.max(horizontalDistance, verticalDistance) < 4) return;
-            panMode.value =
-              verticalDistance > horizontalDistance * GALLERY_VERTICAL_DIRECTION_RATIO ? 2 : 1;
+            if (Math.max(horizontalDistance, verticalDistance) < MEDIA_PULL_DIRECTION_LOCK_DISTANCE)
+              return;
+            panMode.value = mediaPullHasVerticalIntent(event.translationX, event.translationY)
+              ? 2
+              : 1;
           }
           if (panMode.value === 2) {
-            const distance = Math.abs(event.translationY);
-            verticalDrag.value =
-              Math.sign(event.translationY) * Math.max(distance - GALLERY_VISUAL_DEAD_ZONE, 0);
+            verticalDrag.value = mediaPullVisualTranslation(event.translationY);
           } else {
             const atFirst = pageIndex.value <= 0 && event.translationX > 0;
             const atLast = pageIndex.value >= images.length - 1 && event.translationX < 0;
@@ -997,17 +1004,17 @@ function ImageGalleryContent({
               // Modal. The easing keeps the velocity impression without an
               // open-ended completion tail.
               verticalDrag.value = withTiming(targetY, {
-                duration: SWIPE_DISMISS_DURATION_MS,
+                duration: MEDIA_PULL_DISMISS_DURATION_MS,
                 easing: Easing.out(Easing.cubic),
               });
               openProgress.value = withTiming(0, {
-                duration: SWIPE_DISMISS_DURATION_MS,
+                duration: MEDIA_PULL_DISMISS_DURATION_MS,
                 easing: Easing.out(Easing.cubic),
               });
               backdropOpacity.value = withTiming(
                 0,
                 {
-                  duration: SWIPE_DISMISS_DURATION_MS,
+                  duration: MEDIA_PULL_DISMISS_DURATION_MS,
                   easing: Easing.out(Easing.cubic),
                 },
                 (finished) => {
@@ -1016,7 +1023,7 @@ function ImageGalleryContent({
               );
             } else
               verticalDrag.value = withTiming(0, {
-                duration: 160,
+                duration: MEDIA_PULL_RESTORE_DURATION_MS,
                 easing: Easing.out(Easing.cubic),
               });
             return;
@@ -1048,7 +1055,7 @@ function ImageGalleryContent({
           }
           if (panMode.value === 2) {
             verticalDrag.value = withTiming(0, {
-              duration: 160,
+              duration: MEDIA_PULL_RESTORE_DURATION_MS,
               easing: Easing.out(Easing.cubic),
             });
           } else if (panMode.value === 1) {
@@ -1157,27 +1164,14 @@ function ImageGalleryContent({
   );
 
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity:
-      backdropOpacity.value *
-      Math.max(0.25, 1 - Math.min(Math.abs(verticalDrag.value) / 320, 0.75)),
+    opacity: backdropOpacity.value * mediaPullBackdropOpacity(verticalDrag.value),
   }));
   const stripStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: pageOffset.value }],
   }));
   const currentImageStyle = useAnimatedStyle(() => {
-    const dragDistance = Math.abs(verticalDrag.value);
-    const dragScale = interpolate(
-      dragDistance,
-      [0, 32, Math.max(height, 33)],
-      [1, 1, 0.78],
-      Extrapolation.CLAMP,
-    );
-    const dragOpacity = interpolate(
-      dragDistance,
-      [0, 40, Math.max(height * 0.72, 41)],
-      [1, 1, 0],
-      Extrapolation.CLAMP,
-    );
+    const dragScale = mediaPullDismissScale(verticalDrag.value, height);
+    const dragOpacity = mediaPullContentOpacity(verticalDrag.value, height);
     return {
       opacity: contentOpacity.value * dragOpacity,
       transform: [

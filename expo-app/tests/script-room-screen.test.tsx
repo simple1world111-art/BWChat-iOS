@@ -15,7 +15,7 @@ import type { GroupMessage, ScriptRoom, User } from "@/models";
 let mockUser: User | null = { user_id: "owner-a" } as User;
 let mockRoomId = "room-1";
 let mockRealtimeListener: ((event: RealtimeEvent) => void) | null = null;
-let mockActiveGroupId: string | null = null;
+let mockActiveConversation: { type: string; id: string } | null = null;
 let mockUuidCounter = 0;
 
 const mockLoadMessages = jest.fn();
@@ -25,9 +25,21 @@ const mockSaveRoom = jest.fn();
 const mockMarkConversationRead = jest.fn();
 const mockApplyReadReceipt = jest.fn();
 const mockClearConversationUnread = jest.fn();
-const mockSetActiveConversation = jest.fn((type: "dm" | "group", id: string | null) => {
-  if (type === "group") mockActiveGroupId = id;
+const mockActivateConversation = jest.fn((type: string, id: string) => {
+  mockActiveConversation = { type, id };
+  return () => {
+    if (mockActiveConversation?.type === type && mockActiveConversation.id === id) {
+      mockActiveConversation = null;
+    }
+  };
 });
+const mockAddActiveConversationAlias = jest.fn(
+  (_type: string, _id: string, _aliasType: string, _aliasId: string) => () => undefined,
+);
+const mockDismissActiveNotifications = jest.fn(async (_type: string, _id: string) => 0);
+const mockDismissReadNotifications = jest.fn(
+  async (_type: string, _id: string, _through: number) => 0,
+);
 const mockPublishLocalGroupMessage = jest.fn((ownerId: string, message: GroupMessage) => {
   if (ownerId !== mockUser?.user_id) return false;
   mockRealtimeListener?.({ type: "group_message", message });
@@ -161,13 +173,20 @@ jest.mock("@/services/conversations/ConversationRepository", () => ({
   clearConversationUnreadLocally: (...args: unknown[]) => mockClearConversationUnread(...args),
 }));
 
+jest.mock("@/services/push/PushService", () => ({
+  dismissActiveConversationNotifications: (...args: [string, string]) =>
+    mockDismissActiveNotifications(...args),
+  dismissReadConversationNotifications: (...args: [string, string, number]) =>
+    mockDismissReadNotifications(...args),
+}));
+
 jest.mock("@/services/realtime/ChatRealtimeService", () => ({
   chatRealtimeService: {
-    isConversationActive: (_type: "dm" | "group", id: string) => mockActiveGroupId === id,
+    activateConversation: (...args: [string, string]) => mockActivateConversation(...args),
+    addActiveConversationAlias: (...args: [string, string, string, string]) =>
+      mockAddActiveConversationAlias(...args),
     publishLocalGroupMessage: (...args: [string, GroupMessage]) =>
       mockPublishLocalGroupMessage(...args),
-    setActiveConversation: (...args: ["dm" | "group", string | null]) =>
-      mockSetActiveConversation(...args),
     subscribe: (listener: (event: RealtimeEvent) => void) => {
       mockRealtimeListener = listener;
       return () => {
@@ -202,7 +221,7 @@ describe("Script Room screen lifecycle, read and transaction parity", () => {
     mockUser = { user_id: "owner-a" } as User;
     mockRoomId = "room-1";
     mockRealtimeListener = null;
-    mockActiveGroupId = null;
+    mockActiveConversation = null;
     mockUuidCounter = 0;
     mockLoadRoom.mockResolvedValue(null);
     mockLoadMessages.mockResolvedValue([]);
@@ -219,7 +238,7 @@ describe("Script Room screen lifecycle, read and transaction parity", () => {
 
   afterEach(() => cleanup());
 
-  it("loads an authoritative room, exposes native control semantics and uses a plain initial read", async () => {
+  it("loads an authoritative room without clearing unread before a message is visible", async () => {
     const view = await render(<ScriptRoomChatScreen />);
 
     await waitFor(() => expect(view.getByText("剧情 owner-a")).toBeTruthy());
@@ -228,10 +247,9 @@ describe("Script Room screen lifecycle, read and transaction parity", () => {
     expect(view.getByLabelText("主角")).toBeTruthy();
     expect(view.getByLabelText("以角色身份推进剧情…")).toBeTruthy();
     expect(view.getByLabelText("发送回合").props.accessibilityState).toEqual({ disabled: true });
-    await waitFor(() => expect(mockMarkGroupRead).toHaveBeenCalledTimes(1));
-    expect(mockMarkGroupRead).toHaveBeenCalledWith(42);
+    expect(mockMarkGroupRead).not.toHaveBeenCalled();
     expect(mockMarkConversationRead).not.toHaveBeenCalled();
-    expect(mockClearConversationUnread).toHaveBeenCalledWith("owner-a", "group", "42");
+    expect(mockClearConversationUnread).not.toHaveBeenCalled();
 
     await fireEvent.changeText(view.getByTestId("script-room-input"), "继续剧情");
     await waitFor(() =>
@@ -239,20 +257,28 @@ describe("Script Room screen lifecycle, read and transaction parity", () => {
     );
   });
 
-  it("marks the native-visible room before history synchronization completes", async () => {
+  it("registers active identities without marking unread history before sync completes", async () => {
     const history = deferred<Awaited<ReturnType<typeof getGroupMessages>>>();
     mockGetMessages.mockReturnValueOnce(history.promise);
     const view = await render(<ScriptRoomChatScreen />);
 
     await waitFor(() => expect(view.getByText("剧情 owner-a")).toBeTruthy());
-    await waitFor(() => expect(mockMarkGroupRead).toHaveBeenCalledWith(42));
-    expect(mockSetActiveConversation).toHaveBeenCalledWith("group", "42");
+    expect(mockActivateConversation).toHaveBeenCalledWith("script", "room-1");
+    await waitFor(() =>
+      expect(mockAddActiveConversationAlias).toHaveBeenCalledWith(
+        "script",
+        "room-1",
+        "group",
+        "42",
+      ),
+    );
+    expect(mockMarkConversationRead).not.toHaveBeenCalled();
 
     await act(async () => {
       history.resolve({ messages: [], hasMore: false });
       await history.promise;
     });
-    expect(mockMarkGroupRead).toHaveBeenCalledTimes(1);
+    expect(mockMarkGroupRead).not.toHaveBeenCalled();
   });
 
   it("single-flights rapid submit and retry while preserving response order", async () => {
@@ -282,7 +308,7 @@ describe("Script Room screen lifecycle, read and transaction parity", () => {
     expect(mockSubmitTurn).toHaveBeenCalledWith("room-1", "继续剧情", "UUID-1");
     await waitFor(() => expect(view.getByText("玩家推进")).toBeTruthy());
     expect(mockPublishLocalGroupMessage).toHaveBeenCalledTimes(1);
-    expect(mockMarkConversationRead).not.toHaveBeenCalled();
+    expect(mockMarkConversationRead).toHaveBeenCalledWith("owner-a", "group", "42", 10);
     const retryButton = view.getByTestId("script-room-retry-turn");
     expect(retryButton.props.accessibilityRole).toBe("button");
 
@@ -327,7 +353,12 @@ describe("Script Room screen lifecycle, read and transaction parity", () => {
 
     await waitFor(() => expect(view.getByText("剧情 owner-a")).toBeTruthy());
     expect(mockGetRoom).toHaveBeenCalledWith(" room/1 ");
-    expect(mockSetActiveConversation).not.toHaveBeenCalledWith("group", "-42");
+    expect(mockAddActiveConversationAlias).not.toHaveBeenCalledWith(
+      "script",
+      " room/1 ",
+      "group",
+      "-42",
+    );
     expect(mockMarkGroupRead).not.toHaveBeenCalledWith(-42);
   });
 

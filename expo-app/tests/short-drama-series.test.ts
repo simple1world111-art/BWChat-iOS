@@ -48,32 +48,32 @@ const root = resolve(__dirname, "..");
 const nativeSources = [
   [
     "../BWChat/Views/ShortDramaSeriesListView.swift",
-    "../../BWChat-iOS/BWChat/Views/ShortDramaSeriesListView.swift",
+    "../BWChat/Views/ShortDramaSeriesListView.swift",
     "0290d386ab02d3cfdf41d2ea0c91c6d9943d7e6edba77301e6c2ea751405e8c6",
   ],
   [
     "../BWChat/Models/ShortDrama.swift",
-    "../../BWChat-iOS/BWChat/Models/ShortDrama.swift",
+    "../BWChat/Models/ShortDrama.swift",
     "13abb0d63f53893bd48eff56fcf6d40f3bb7d570267280bcae276100344d6a11",
   ],
   [
     "../BWChat/Services/APIService.swift",
-    "../../BWChat-iOS/BWChat/Services/APIService.swift",
-    "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+    "../BWChat/Services/APIService.swift",
+    "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
   ],
   [
     "../BWChat/Services/CacheRepository.swift",
-    "../../BWChat-iOS/BWChat/Services/CacheRepository.swift",
-    "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
+    "../BWChat/Services/CacheRepository.swift",
+    "570ed9486b10b8b55ddd6136c04c11a1390a287a14563492c640a6a2f144e117",
   ],
   [
     "../BWChat/Utils/Constants.swift",
-    "../../BWChat-iOS/BWChat/Utils/Constants.swift",
+    "../BWChat/Utils/Constants.swift",
     "efb8861fbf1461deb01d917c44433516aa2ec7373c11b3dc90e1fede170b16cd",
   ],
   [
     "../BWChat/Utils/Extensions.swift",
-    "../../BWChat-iOS/BWChat/Utils/Extensions.swift",
+    "../BWChat/Utils/Extensions.swift",
     "e625dab1ea95cbd63d74c1e8bf33d4bf3f4a85adbd2001c1b0ca27a99bcc5ce5",
   ],
 ] as const;

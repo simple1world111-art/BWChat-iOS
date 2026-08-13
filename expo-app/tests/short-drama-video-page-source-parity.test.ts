@@ -29,17 +29,17 @@ const root = resolve(__dirname, "..");
 const nativeSources = [
   {
     copied: "../BWChat/Views/ShortDramaVideoPage.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaVideoPage.swift",
+    original: "../BWChat/Views/ShortDramaVideoPage.swift",
     hash: "48b5a6c5dc9962d6118652bd8994998eeba6bcf4ba9108a5bfe6e6b1f41ce662",
   },
   {
     copied: "../BWChat/Views/ShortDramaFeedView.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaFeedView.swift",
+    original: "../BWChat/Views/ShortDramaFeedView.swift",
     hash: "61bd4af279a5855af0d3ceadce6c94157be754ee29b142e40919b11274fc5f9d",
   },
   {
     copied: "../BWChat/ViewModels/ShortDramaFeedViewModel.swift",
-    original: "../../BWChat-iOS/BWChat/ViewModels/ShortDramaFeedViewModel.swift",
+    original: "../BWChat/ViewModels/ShortDramaFeedViewModel.swift",
     hash: "747f33afea7bc8ea2178172baf136fba0872b535677498e72d2d8a6b741624c8",
   },
 ] as const;
@@ -105,7 +105,18 @@ describe("native ShortDramaVideoPage complete code-stage parity", () => {
   });
 
   it("refreshes only API-path media auth and marks HLS before native playback", async () => {
-    resourceRequest.mockResolvedValue({ body: null } as unknown as Response);
+    resourceRequest.mockResolvedValue({
+      status: 206,
+      headers: {
+        get: (name: string) =>
+          ({
+            "content-length": "1",
+            "content-range": "bytes 0-0/4096",
+            "content-type": "application/vnd.apple.mpegurl",
+          })[name.toLowerCase()] ?? null,
+      },
+      body: null,
+    } as unknown as Response);
     accessToken.mockResolvedValue("fresh-token");
     const protectedUrl = "https://api.example.com/api/v1/media/master.m3u8?version=2";
     await expect(
@@ -123,6 +134,7 @@ describe("native ShortDramaVideoPage complete code-stage parity", () => {
       headers: { Authorization: "Bearer fresh-token" },
     });
     expect(resourceRequest).toHaveBeenCalledWith(protectedUrl, {
+      auth: true,
       headers: { Range: "bytes=0-0" },
       timeoutMs: 30_000,
       transientRetries: false,

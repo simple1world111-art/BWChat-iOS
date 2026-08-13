@@ -14,6 +14,8 @@ const environmentKeys = [
   "EXPO_PUBLIC_WEB_BASE_URL",
   "EXPO_PUBLIC_WEBSOCKET_URL",
   "EXPO_PUBLIC_REMOTE_CONFIG_URL",
+  "EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS",
+  "IOS_ASSOCIATED_DOMAINS",
   "EXPO_PUBLIC_SENTRY_DSN",
   "EXPO_PUBLIC_IOS_ADMOB_APP_ID",
   "EXPO_PUBLIC_ANDROID_ADMOB_APP_ID",
@@ -44,6 +46,11 @@ describe("local Expo/EAS configuration", () => {
     expect(config.runtimeVersion).toEqual({ policy: "fingerprint" });
     expect(config.ios?.runtimeVersion).toEqual({ policy: "appVersion" });
     expect(config.ios?.icon).toBe("./assets/images/bwchat/icon-ios-full-bleed.png");
+    expect(config.ios?.associatedDomains).toEqual(["applinks:id7.com"]);
+    expect(config.ios?.infoPlist?.NSUserActivityTypes).toEqual([
+      "INSendMessageIntent",
+      "$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route",
+    ]);
     expect(config.updates).toMatchObject({
       enabled: true,
       checkAutomatically: "NEVER",
@@ -72,6 +79,10 @@ describe("local Expo/EAS configuration", () => {
     });
     expect(config.extra).not.toHaveProperty("sentryDsn");
     expect(config.ios?.entitlements?.["aps-environment"]).toBe("production");
+    expect(config.ios?.infoPlist?.NSAppTransportSecurity).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: false,
+    });
   });
 
   test("fails closed when a packaged environment is incomplete or mismatched", () => {
@@ -86,6 +97,27 @@ describe("local Expo/EAS configuration", () => {
   test("rejects an invalid project override", () => {
     process.env.EAS_PROJECT_ID = "not-a-project-id";
     expect(() => resolveConfig()).toThrow(/EAS_PROJECT_ID must be a UUID/);
+  });
+
+  test("accepts explicit applinks domains and rejects malformed entitlements", () => {
+    process.env.IOS_ASSOCIATED_DOMAINS = "applinks:id7.com,applinks:links.id7.com";
+    expect(resolveConfig().ios?.associatedDomains).toEqual([
+      "applinks:id7.com",
+      "applinks:links.id7.com",
+    ]);
+
+    process.env.IOS_ASSOCIATED_DOMAINS = "webcredentials:id7.com";
+    expect(() => resolveConfig()).toThrow(/invalid applinks entry/);
+  });
+
+  test("uses secure development defaults and rejects insecure transports in every channel", () => {
+    expect(resolveConfig().ios?.infoPlist?.NSAppTransportSecurity).toEqual({
+      NSAllowsArbitraryLoads: false,
+      NSAllowsLocalNetworking: true,
+    });
+
+    process.env.EXPO_PUBLIC_API_BASE_URL = "http://development-api.example.invalid/v1";
+    expect(() => resolveConfig()).toThrow(/EXPO_PUBLIC_API_BASE_URL must use https/);
   });
 
   test("locks all Build and Submit profiles", () => {

@@ -49,4 +49,6 @@ pnpm exec expo export --platform ios --output-dir dist-ios
 
 ## 关键边界
 
+App Store/TestFlight 只能使用本目录的 EAS 构建命令；父目录 `BWChat.xcodeproj` 是迁移参考源，禁止作为发布 Scheme。通知扩展、ATS、Associated Domains 等正式原生配置的唯一提交源是 `app.config.ts` 与 `plugins/`，本地 CNG 生成的 `ios/` 目录不直接提交。
+
 蒲公英安装的旧 Swift 二进制不包含 `expo-updates`，不能接收 EAS Update。所有朋友必须先安装一次新的 EAS 构建；之后只要 runtime 兼容，JavaScript、TypeScript 与打包资源更新即可通过 OTA 下发。Android 原生变更会产生新的 fingerprint；iOS 新增/升级原生模块、权限、原生配置或 SDK 时必须同步提升 App Version，再重新构建并让用户安装新二进制。

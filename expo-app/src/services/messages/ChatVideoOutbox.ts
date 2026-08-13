@@ -9,6 +9,13 @@ import { adoptLocalImageFile } from "@/services/cache/ImageCacheService";
 import { temporaryChatImageId } from "@/services/messages/ChatImageOutbox";
 import { prepareChatVideo, type PreparedChatVideo } from "@/services/messages/ChatVideoService";
 import { adoptLocalMediaFile, chatVideoMediaCacheId } from "@/services/cache/MediaCacheService";
+import {
+  cancelChatOutboxNetworkRetry,
+  chatOutboxNetworkRetryDelayMilliseconds,
+  isChatOutboxDefinitelyOffline,
+  scheduleChatOutboxNetworkRetry,
+  type ChatOutboxRetryReason,
+} from "@/services/messages/ChatOutboxNetwork";
 import { chatVideoThumbnailPath } from "@/services/messages/chatVideoPolicy";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
@@ -35,6 +42,7 @@ interface ChatVideoJobBase {
   created_at: string;
   state: ChatVideoUploadState;
   attempt_count: number;
+  retry_reason?: ChatOutboxRetryReason | undefined;
   next_attempt_at?: string | undefined;
   last_error?: string | undefined;
 }
@@ -106,6 +114,7 @@ export async function retryChatVideoUpload(
   const queued = {
     ...job,
     state: "queued" as const,
+    retry_reason: undefined,
     next_attempt_at: undefined,
     last_error: undefined,
   };
@@ -233,10 +242,17 @@ async function runJob(input: ChatVideoJob): Promise<void> {
       await saveAndEmit(job);
     }
     if (cancelled.has(identity)) return;
+    if (await isChatOutboxDefinitelyOffline()) {
+      if (cancelled.has(identity)) return;
+      await waitForNetwork(job);
+      return;
+    }
+    if (cancelled.has(identity)) return;
     reachedUpload = true;
     const uploading = {
       ...job,
       state: "uploading" as const,
+      retry_reason: undefined,
       next_attempt_at: undefined,
       last_error: undefined,
     };
@@ -284,24 +300,31 @@ async function runJob(input: ChatVideoJob): Promise<void> {
   } catch (error) {
     if (cancelled.has(identity)) return;
     const message = errorMessage(error);
-    if (
-      reachedUpload &&
-      isTransientChatVideoError(error) &&
-      job.attempt_count < maximumAutomaticRetries
-    ) {
+    const transientUploadError = reachedUpload && isTransientChatVideoError(error);
+    if (transientUploadError && (await isChatOutboxDefinitelyOffline())) {
+      if (cancelled.has(identity)) return;
+      await waitForNetwork(job);
+    } else if (transientUploadError && job.attempt_count < maximumAutomaticRetries) {
       const baseSeconds = Math.min(2 ** Math.min(Math.max(job.attempt_count, 0), 8), 300);
       const jitterSeconds = Math.random() * baseSeconds * 0.2;
       const waiting = {
         ...job,
         state: "retry_waiting" as const,
         attempt_count: job.attempt_count + 1,
+        retry_reason: "transient_error" as const,
         next_attempt_at: new Date(Date.now() + (baseSeconds + jitterSeconds) * 1_000).toISOString(),
         last_error: message,
       };
       await saveAndEmit(waiting);
       scheduleRetry(waiting);
     } else {
-      await saveAndEmit({ ...job, state: "failed", last_error: message });
+      await saveAndEmit({
+        ...job,
+        state: "failed",
+        retry_reason: undefined,
+        next_attempt_at: undefined,
+        last_error: message,
+      });
     }
   } finally {
     inFlight.delete(identity);
@@ -372,6 +395,22 @@ function uploadInput(prepared: PreparedChatVideo | undefined) {
 
 function scheduleRetry(job: ChatVideoJob): void {
   const identity = jobIdentity(job);
+  if (job.retry_reason === "network_offline") {
+    scheduleChatOutboxNetworkRetry(
+      networkRetryKey(job),
+      () => {
+        void runJob({
+          ...job,
+          state: "queued",
+          retry_reason: undefined,
+          next_attempt_at: undefined,
+          last_error: undefined,
+        });
+      },
+      job.next_attempt_at,
+    );
+    return;
+  }
   if (retryTimers.has(identity) || job.attempt_count >= maximumAutomaticRetries) return;
   const scheduled = job.next_attempt_at ? Date.parse(job.next_attempt_at) : Date.now();
   const delay = Math.max(0, Number.isFinite(scheduled) ? scheduled - Date.now() : 0);
@@ -379,16 +418,35 @@ function scheduleRetry(job: ChatVideoJob): void {
     identity,
     setTimeout(() => {
       retryTimers.delete(identity);
-      void runJob({ ...job, state: "queued" });
+      void runJob({
+        ...job,
+        state: "queued",
+        retry_reason: undefined,
+        next_attempt_at: undefined,
+        last_error: undefined,
+      });
     }, delay),
   );
 }
 
 function clearRetryTimer(job: ChatVideoJob): void {
   const identity = jobIdentity(job);
+  cancelChatOutboxNetworkRetry(networkRetryKey(job));
   const timer = retryTimers.get(identity);
   if (timer) clearTimeout(timer);
   retryTimers.delete(identity);
+}
+
+async function waitForNetwork(job: ChatVideoJob): Promise<void> {
+  const waiting = {
+    ...job,
+    state: "retry_waiting" as const,
+    retry_reason: "network_offline" as const,
+    next_attempt_at: new Date(Date.now() + chatOutboxNetworkRetryDelayMilliseconds).toISOString(),
+    last_error: undefined,
+  };
+  await saveAndEmit(waiting);
+  scheduleRetry(waiting);
 }
 
 async function saveAndEmit(job: ChatVideoJob): Promise<void> {
@@ -456,6 +514,10 @@ function jobDirectory(job: Pick<ChatVideoJob, "owner_id" | "id">): Directory {
 
 function jobIdentity(job: Pick<ChatVideoJob, "owner_id" | "id">): string {
   return `${job.owner_id}:${job.id}`;
+}
+
+function networkRetryKey(job: Pick<ChatVideoJob, "owner_id" | "id">): string {
+  return `chat-video:${jobIdentity(job)}`;
 }
 
 function safeFilename(value: string): string {

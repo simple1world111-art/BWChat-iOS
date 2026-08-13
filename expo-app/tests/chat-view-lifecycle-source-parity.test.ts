@@ -24,6 +24,26 @@ describe("direct ChatView lifecycle source parity", () => {
     expect(source).toContain("limit: directChatHistoryPolicy.syncPageSize");
     expect(source).toContain("void backfillDirectChatHistory(expectedSession)");
     expect(source).toContain("maximumBackfillPages");
+    expect(source).toContain("backfillInFlightRef.current.has(expectedSession)");
+    expect(source).toContain("backfillInFlightRef.current.add(expectedSession)");
+    expect(source).toContain("backfillInFlightRef.current.delete(expectedSession)");
+    expect(source).toContain("activeSessionRef.current !== expectedSession");
+  });
+
+  it("persists voice in the common outbox and gates every transport while definitely offline", () => {
+    expect(source).toContain('msg_type: "voice" as const');
+    expect(source).toContain("voice: {");
+    expect(source).toContain("createDirectChatOutboxJob(jobInput)");
+    expect(source).toContain("requireAvailableChatVoiceUpload(sendingJob.voice)");
+    expect(source).toContain("sendingJob.client_message_id");
+    const networkGate = source.indexOf("if (await isChatOutboxDefinitelyOffline())");
+    expect(networkGate).toBeGreaterThan(0);
+    expect(networkGate).toBeLessThan(source.indexOf("await sendTextMessage", networkGate));
+    expect(source).toContain("directChatOutboxOfflineWait(input)");
+    expect(source).toContain('job.retry_reason === "network_offline"');
+    expect(source).toContain("scheduleChatOutboxNetworkRetry(");
+    expect(source).toContain("cancelChatOutboxNetworkRetry(key)");
+    expect(source).toContain("queuedDirectChatOutboxJob(job)");
   });
 
   it("reconciles a conversation-list preview whose canonical message is absent from history", () => {
@@ -57,9 +77,12 @@ describe("direct ChatView lifecycle source parity", () => {
     expect(source).toContain("selection.removedUnavailable");
     expect(source).toContain("cancelChatImageUpload(user.user_id, message.client_message_id)");
     expect(source).toContain("cancelChatVideoUpload(user.user_id, message.client_message_id)");
-    expect(source).toContain("publishLocalDirectConversationPreview(filtered)");
+    expect(source).toContain("publishLocalDirectConversationPreview(");
     expect(conversationSource).toContain("subscribeDirectConversationPreviewUpdates");
     expect(conversationSource).toContain("accountScopeRef.current.isCurrent(ticket)");
+    const appStateStart = source.indexOf('AppState.addEventListener("change"');
+    const appStateEnd = source.indexOf("return () => subscription.remove();", appStateStart);
+    expect(source.slice(appStateStart, appStateEnd)).not.toContain("void load(");
   });
 
   it("contains no hard-coded Han copy in the direct page", () => {

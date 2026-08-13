@@ -4,7 +4,7 @@ import * as Notifications from "expo-notifications";
 import { apiRequest } from "@/api/client";
 import { recordConversationNotificationRead } from "@/services/conversations/ConversationNotificationReadState";
 import { reconcileConversationSnapshot } from "@/services/conversations/ConversationRepository";
-import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
+import { conversationSyncCoordinator } from "@/services/conversations/ConversationSyncCoordinator";
 import {
   activateMomentsUnreadOwner,
   momentsUnreadSnapshot,
@@ -35,10 +35,14 @@ import {
   shouldAlertForGroupSettings,
   takePendingPushOpen,
   wasPushEventProcessed,
+  type NotificationConversationType,
 } from "@/services/push/PushService";
 
 jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
 jest.mock("@/services/monitoring/MonitoringService", () => ({ captureException: jest.fn() }));
+jest.mock("@/services/conversations/ConversationSyncCoordinator", () => ({
+  conversationSyncCoordinator: { request: jest.fn().mockResolvedValue(undefined) },
+}));
 jest.mock("@/services/realtime/ChatRealtimeService", () => ({
   chatRealtimeService: {
     hasActiveConversation: jest.fn(() => false),
@@ -160,9 +164,84 @@ describe("native push service", () => {
     ).toMatchObject({ conversationId: "thread-1", senderId: "friend", messageId: 12 });
   });
 
+  it("normalizes v2 canonical identities for all four conversation surfaces", () => {
+    expect(
+      parseNotificationRoute({
+        surface_type: "dm",
+        surface_id: "friend",
+        conversation_key: "dm:friend",
+        message_id: "101",
+        message_version: "3",
+      }),
+    ).toMatchObject({
+      conversationType: "dm",
+      conversationId: "friend",
+      conversationKey: "dm:friend",
+      messageVersion: 3,
+    });
+    expect(
+      parseNotificationRoute({
+        surface_type: "group",
+        conversation_key: "group:42",
+        group_id: 42,
+        version: 99,
+        conversation_unread: 3,
+      }),
+    ).toEqual(
+      expect.not.objectContaining({
+        messageVersion: expect.anything(),
+      }),
+    );
+    expect(
+      parseNotificationRoute({
+        surface_type: "group",
+        conversation_key: "group:42",
+        group_id: 42,
+        version: 99,
+        conversation_unread: 3,
+      }),
+    ).toMatchObject({
+      conversationType: "group",
+      conversationId: "42",
+      conversationKey: "group:42",
+      groupId: 42,
+      unreadCount: 3,
+    });
+    expect(
+      parseNotificationRoute({
+        surface_type: "agent",
+        surface_id: "agent-conversation-1",
+        agent_id: "agent-1",
+        message_id: "message-uuid",
+      }),
+    ).toMatchObject({
+      conversationType: "agent",
+      conversationId: "agent-conversation-1",
+      conversationKey: "agent:agent-conversation-1",
+      agentId: "agent-1",
+      messageKey: "message-uuid",
+    });
+    expect(
+      parseNotificationRoute({
+        surface_type: "script_room",
+        conversation_key: "script:room-1",
+        group_id: 9,
+        script_id: "script-1",
+      }),
+    ).toMatchObject({
+      conversationType: "script",
+      conversationId: "room-1",
+      conversationKey: "script:room-1",
+      scriptRoomId: "room-1",
+      scriptId: "script-1",
+      groupId: 9,
+    });
+  });
+
   it("matches native foreground sound/banner suppression rules", () => {
     const active = {
-      isConversationActive: (type: "dm" | "group", id: string) => type === "dm" && id === "u1",
+      isConversationActive: (type: NotificationConversationType, id: string) =>
+        type === "dm" && id === "u1",
     };
     expect(presentationPolicyForPush({ push_type: "call_invite" }, active)).toEqual(
       policy(false, true),
@@ -181,16 +260,74 @@ describe("native push service", () => {
         active,
       ),
     ).toEqual(policy(false, false));
+    expect(presentationPolicyForPush({ push_type: "new_message", message_id: 9 }, active)).toEqual(
+      policy(true, true),
+    );
+  });
+
+  it("suppresses active agent/script surfaces and coalesces ordinary foreground banners for 1.5 seconds", () => {
+    const inactive = {
+      isConversationActive: () => false,
+      now: () => 10_000,
+    };
     expect(
       presentationPolicyForPush(
-        { push_type: "new_message", message_id: 9 },
-        { ...active, hasActiveConversation: () => true },
+        { surface_type: "agent", surface_id: "agent-chat-1", message_id: "m1" },
+        {
+          isConversationActive: (type, id) => type === "agent" && id === "agent-chat-1",
+          now: () => 10_000,
+        },
       ),
     ).toEqual(policy(false, false));
+    expect(
+      presentationPolicyForPush(
+        { surface_type: "script_room", surface_id: "room-1", message_id: 1 },
+        {
+          isConversationActive: (type, id) => type === "script" && id === "room-1",
+          now: () => 10_000,
+        },
+      ),
+    ).toEqual(policy(false, false));
+
+    expect(
+      presentationPolicyForPush(
+        { surface_type: "agent", surface_id: "other-agent", message_id: "m1" },
+        inactive,
+      ),
+    ).toEqual(policy(true, true));
+    expect(
+      presentationPolicyForPush(
+        { surface_type: "agent", surface_id: "other-agent", message_id: "m2" },
+        { ...inactive, now: () => 11_499 },
+      ),
+    ).toEqual(policy(false, false));
+    expect(
+      presentationPolicyForPush(
+        { surface_type: "agent", surface_id: "other-agent", message_id: "m3" },
+        { ...inactive, now: () => 11_500 },
+      ),
+    ).toEqual(policy(true, true));
+    expect(
+      presentationPolicyForPush(
+        {
+          surface_type: "group",
+          surface_id: "7",
+          message_id: 1,
+          is_direct_mention: true,
+        },
+        inactive,
+      ),
+    ).toEqual(policy(true, true));
+    expect(presentationPolicyForPush({ push_type: "security_alert" }, inactive)).toEqual(
+      policy(true, true),
+    );
   });
 
   it("builds conversation/moments open targets and leaves calls to CallProvider", () => {
     expect(pushOpenTarget({ push_type: "call", caller_id: "u1" }, "n1")).toBeNull();
+    expect(
+      pushOpenTarget({ push_type: "security_alert", sender_id: "u1" }, "security-1"),
+    ).toBeNull();
     expect(pushOpenTarget({ push_type: "moments_update", event_id: "moment-1" }, "n2")).toEqual({
       kind: "moments",
       eventId: "moment-1",
@@ -272,15 +409,141 @@ describe("native push service", () => {
     });
   });
 
-  it("registers one foreground handler, applies badge and triggers conversation reconciliation", async () => {
+  it("registers one foreground handler, applies a revisioned badge and triggers reconciliation", async () => {
     initializePushNotifications();
     initializePushNotifications();
     expect(Notifications.setNotificationHandler).toHaveBeenCalledTimes(1);
-    await applyPushSideEffects({ sender_id: "u1", total_unread_count: 8 });
-    expect(Notifications.setBadgeCountAsync).toHaveBeenCalledWith(8);
-    expect(chatRealtimeService.requestConversationRefresh).toHaveBeenCalledWith(
-      "push_notification",
+    await applyPushSideEffects(
+      {
+        sender_id: "u1",
+        event_id: "event-1",
+        total_unread_count: 8,
+        unread_revision: 1,
+      },
+      "owner",
     );
+    expect(Notifications.setBadgeCountAsync).toHaveBeenCalledWith(8);
+    expect(conversationSyncCoordinator.request).toHaveBeenCalledWith(
+      "owner",
+      "push_notification",
+      expect.objectContaining({ conversation_type: "dm", conversation_id: "u1" }),
+    );
+  });
+
+  it("deduplicates receive side effects and rejects stale or unversioned badge totals", async () => {
+    await expect(
+      applyPushSideEffects(
+        {
+          surface_type: "dm",
+          surface_id: "u1",
+          event_id: "event-1",
+          message_id: 1,
+          total_unread: 8,
+          unread_revision: 10,
+        },
+        "owner",
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      applyPushSideEffects(
+        {
+          surface_type: "dm",
+          surface_id: "u1",
+          event_id: "event-1",
+          message_id: 1,
+          total_unread: 8,
+          unread_revision: 10,
+        },
+        "owner",
+      ),
+    ).resolves.toBe(false);
+    await applyPushSideEffects(
+      {
+        surface_type: "dm",
+        surface_id: "u1",
+        event_id: "event-stale",
+        total_unread: 99,
+        unread_revision: 9,
+      },
+      "owner",
+    );
+    await applyPushSideEffects(
+      { sender_id: "u1", event_id: "event-legacy", total_unread_count: 100 },
+      "owner",
+    );
+    await applyPushSideEffects(
+      {
+        surface_type: "dm",
+        surface_id: "u1",
+        event_id: "event-new",
+        total_unread: 7,
+        unread_revision: 11,
+      },
+      "owner",
+    );
+
+    expect(Notifications.setBadgeCountAsync).toHaveBeenCalledTimes(2);
+    expect(Notifications.setBadgeCountAsync).toHaveBeenNthCalledWith(1, 8);
+    expect(Notifications.setBadgeCountAsync).toHaveBeenNthCalledWith(2, 7);
+    expect(conversationSyncCoordinator.request).toHaveBeenCalledTimes(4);
+  });
+
+  it("retries the same unread revision when setting the absolute badge fails", async () => {
+    const setBadge = jest.mocked(Notifications.setBadgeCountAsync);
+    setBadge.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    await applyPushSideEffects(
+      {
+        surface_type: "dm",
+        surface_id: "u1",
+        event_id: "badge-failed",
+        message_id: 1,
+        total_unread: 5,
+        unread_revision: 30,
+      },
+      "owner",
+    );
+    await applyPushSideEffects(
+      {
+        surface_type: "dm",
+        surface_id: "u1",
+        event_id: "badge-retry",
+        message_id: 1,
+        total_unread: 5,
+        unread_revision: 30,
+      },
+      "owner",
+    );
+
+    expect(setBadge).toHaveBeenCalledTimes(2);
+    expect(setBadge).toHaveBeenNthCalledWith(1, 5);
+    expect(setBadge).toHaveBeenNthCalledWith(2, 5);
+  });
+
+  it("advances unread revision even when the delivered message was already read", async () => {
+    recordConversationNotificationRead("owner", "dm", "u1", 42);
+    await applyPushSideEffects(
+      {
+        sender_id: "u1",
+        event_id: "read-event",
+        message_id: 42,
+        total_unread: 0,
+        unread_revision: 20,
+      },
+      "owner",
+    );
+    await applyPushSideEffects(
+      {
+        sender_id: "u1",
+        event_id: "stale-event",
+        message_id: 43,
+        total_unread: 99,
+        unread_revision: 19,
+      },
+      "owner",
+    );
+
+    expect(Notifications.setBadgeCountAsync).not.toHaveBeenCalled();
   });
 
   it("suppresses a delayed foreground push after its message was already read locally", async () => {
@@ -308,8 +571,10 @@ describe("native push service", () => {
       "owner",
     );
     expect(Notifications.setBadgeCountAsync).not.toHaveBeenCalled();
-    expect(chatRealtimeService.requestConversationRefresh).toHaveBeenCalledWith(
+    expect(conversationSyncCoordinator.request).toHaveBeenCalledWith(
+      "owner",
       "push_notification",
+      expect.objectContaining({ conversation_type: "dm", conversation_id: "server-thread-1" }),
     );
   });
 
@@ -349,6 +614,30 @@ describe("native push service", () => {
     expect(dismissNotification).toHaveBeenCalledWith("dm-40");
     expect(dismissNotification).toHaveBeenCalledWith("dm-legacy");
     expect(dismissNotification).not.toHaveBeenCalledWith("other-dm");
+  });
+
+  it("dismisses agent and script notifications by canonical surface and group alias", async () => {
+    getPresented.mockResolvedValue([
+      presented("agent", {
+        surface_type: "agent",
+        conversation_key: "agent:agent-chat-1",
+        message_id: "uuid",
+      }),
+      presented("script", {
+        surface_type: "script_room",
+        conversation_key: "script:room-1",
+        group_id: 9,
+        message_sequence: 12,
+      }),
+      presented("other", {
+        surface_type: "agent",
+        conversation_key: "agent:agent-chat-2",
+      }),
+    ]);
+
+    await expect(dismissActiveConversationNotifications("agent", "agent-chat-1")).resolves.toBe(1);
+    await expect(dismissReadConversationNotifications("script", "room-1", 12)).resolves.toBe(1);
+    await expect(dismissActiveConversationNotifications("group", "9")).resolves.toBe(1);
   });
 
   it("dismisses delivered Moments notifications without touching chat or call pushes", async () => {

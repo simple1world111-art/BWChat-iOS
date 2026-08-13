@@ -98,6 +98,7 @@ describe("Apple native media cache bridge", () => {
       "https://api.test/private/master.m3u8",
       undefined,
       "auto",
+      undefined,
     );
     expect(mockNativeStart).toHaveBeenCalledWith({
       ownerId: "owner",

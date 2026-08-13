@@ -413,14 +413,6 @@ function impactRows(
     { label: t("account.deletion.impact.coins"), value: preview.impact.goldCoinsToForfeit },
     { label: t("account.deletion.impact.props"), value: preview.impact.propsToForfeit },
     {
-      label: t("account.deletion.impact.cancellableWithdrawals"),
-      value: preview.impact.cancellableWithdrawals,
-    },
-    {
-      label: t("account.deletion.impact.settlingWithdrawals"),
-      value: preview.impact.settlingWithdrawals,
-    },
-    {
       label: t("account.deletion.impact.groups"),
       value: preview.impact.ownedGroupsToDissolve,
     },

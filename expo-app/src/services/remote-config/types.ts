@@ -95,6 +95,11 @@ export interface AccountRemoteConfig {
   accountDeletionUrl: string;
 }
 
+export interface RemoteConfigCapabilities {
+  /** Server explicitly supports GET /chat/sync and its strict v2 contract. */
+  messagingSyncV2: boolean;
+}
+
 export interface RemoteConfig {
   schemaVersion: number;
   configVersion: string;
@@ -114,6 +119,7 @@ export interface RemoteConfig {
   stickerPacks?: unknown[] | undefined;
   wallet?: unknown;
   account?: AccountRemoteConfig | undefined;
+  capabilities: RemoteConfigCapabilities;
   reviewMode?: unknown;
   screens?: import("@/services/dynamic-screen/DynamicScreenModels").DynamicScreen[] | undefined;
 

@@ -76,6 +76,7 @@ describe("native gift contracts", () => {
       }),
     ]);
     expect(chatGiftPickerPolicy).toMatchObject({
+      modalBackdropColor: "transparent",
       gridColumns: 3,
       gridColumnSpacing: 10,
       cardCornerRadius: 16,
@@ -290,10 +291,6 @@ describe("native gift contracts", () => {
       gold_coin_balance: "20",
       activity_cat_food_balance: 5,
       spendable_balance: 25,
-      recharge_gold_coin_balance: 20,
-      gift_income_gold_coin_balance: 0,
-      withdraw_frozen_gold_coin_balance: 0,
-      withdrawable_gold_coin_balance: 0,
       chat_money_frozen_gold_coin_balance: 0,
     });
     expect(await getGiftCatalog()).toEqual([

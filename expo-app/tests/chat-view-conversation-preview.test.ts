@@ -25,6 +25,7 @@ describe("owner-scoped direct local-delete conversation preview", () => {
         last_message: "previous",
         last_message_time: "2026-08-08T00:00:10Z",
         last_message_id: 10,
+        authoritative_fallback_from_message_id: 20,
       }),
     ).toEqual([
       expect.objectContaining({ id: "friend-a", last_message: "previous", last_message_id: 10 }),
@@ -47,6 +48,7 @@ describe("owner-scoped direct local-delete conversation preview", () => {
       applyDirectConversationPreviewUpdate(rows, {
         owner_id: "owner-a",
         contact_id: "friend-a",
+        authoritative_fallback_from_message_id: 20,
       }),
     ).toEqual([
       expect.not.objectContaining({
@@ -55,6 +57,18 @@ describe("owner-scoped direct local-delete conversation preview", () => {
         last_message_id: expect.anything(),
       }),
     ]);
+  });
+
+  it("rejects the same older preview when no authoritative delete tombstone is supplied", () => {
+    const rows = [conversation("friend-a", "latest", 20)];
+    expect(
+      applyDirectConversationPreviewUpdate(rows, {
+        owner_id: "owner-a",
+        contact_id: "friend-a",
+        last_message: "stale",
+        last_message_id: 10,
+      }),
+    ).toEqual(rows);
   });
 
   it("persists and publishes only to the matching owner, with late writes serialized", async () => {

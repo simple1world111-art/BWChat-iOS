@@ -70,7 +70,8 @@ describe("AgentCreatorView source parity", () => {
     ]) {
       expect(page).toContain(`value: "${value}"`);
     }
-    expect(page).toContain('accessibilityLabel="付费视频"');
+    expect(page).toContain('label="金币解锁图片"');
+    expect(page).toContain('accessibilityLabel="金币解锁视频"');
     expect(page).toContain("accessibilityState={{ checked: false, disabled: true }}");
     expect(page).toContain("value={false}");
     expect(page).toContain("视频 Provider 当前未启用，客户端不会开放视频生成。");

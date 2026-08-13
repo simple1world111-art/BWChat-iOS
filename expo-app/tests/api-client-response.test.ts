@@ -1,4 +1,9 @@
-import { APIError, apiRequest, decodeSuccessfulPayload } from "@/api/client";
+import {
+  APIError,
+  apiRequest,
+  decodeSuccessfulPayload,
+  parseRetryAfterMilliseconds,
+} from "@/api/client";
 
 describe("API successful envelope decoding", () => {
   it("returns ordinary envelope data without changing existing API callers", () => {
@@ -206,6 +211,22 @@ describe("API transient retry option", () => {
     ).rejects.toMatchObject({ status: 503 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("transientRetries");
+  });
+
+  it("preserves Retry-After for the coordinator and accepts seconds or HTTP-date", async () => {
+    const response = mockResponse(429, { message: "slow down" });
+    response.headers.set("Retry-After", "4");
+    jest.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    await expect(apiRequest("/rate-limited", { transientRetries: false })).rejects.toMatchObject({
+      status: 429,
+      retryAfterMilliseconds: 4_000,
+    });
+    expect(parseRetryAfterMilliseconds("5", 0)).toBe(5_000);
+    expect(parseRetryAfterMilliseconds("Thu, 13 Aug 2026 00:00:05 GMT", 1_786_579_200_000)).toBe(
+      5_000,
+    );
+    expect(parseRetryAfterMilliseconds("invalid", 0)).toBeUndefined();
   });
 
   it("enforces a success code without leaking the option into fetch", async () => {

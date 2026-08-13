@@ -29,6 +29,7 @@ import {
   displayDynamicScreenTitle,
   isDynamicScreenSupported,
   isLegalDynamicScreenComplete,
+  legalDocumentKind,
   type DynamicScreen,
 } from "@/services/dynamic-screen/DynamicScreenModels";
 import {
@@ -43,6 +44,7 @@ import {
   openSupportEmail,
 } from "@/services/account/SupportEmailService";
 import { useConfiguredSupportEmail } from "@/services/account/useConfiguredSupportEmail";
+import { resolveWalletRuntimeConfig } from "@/services/wallet/walletPolicy";
 
 export default function DynamicScreenPage() {
   const params = useLocalSearchParams<{ id: string }>();
@@ -65,9 +67,27 @@ export function DynamicScreenContent({
   const { activeLanguage, t } = useLocalization();
   const { config } = useRemoteConfig();
   const theme = dynamicScreenPalette(useColorScheme());
+  const walletTermsScreenId = useMemo(
+    () => resolveWalletRuntimeConfig(config.wallet).termsScreenId,
+    [config.wallet],
+  );
+  const legalKind = useMemo(
+    () =>
+      legalDocumentKind(screenId, {
+        walletTerms: walletTermsScreenId,
+        privacyPolicy: config.account?.privacyScreenId,
+        dataPrivacy: config.account?.dataPrivacyScreenId,
+      }),
+    [
+      config.account?.dataPrivacyScreenId,
+      config.account?.privacyScreenId,
+      screenId,
+      walletTermsScreenId,
+    ],
+  );
   const embedded = useMemo(
-    () => embeddedDynamicScreen(screenId, config.screens),
-    [config.screens, screenId],
+    () => embeddedDynamicScreen(screenId, config.screens, legalKind),
+    [config.screens, legalKind, screenId],
   );
   const [screen, setScreen] = useState<DynamicScreen | null>(embedded);
   const [isLoading, setLoading] = useState(false);
@@ -76,17 +96,23 @@ export function DynamicScreenContent({
   const screenRef = useRef<DynamicScreen | null>(embedded);
   const pendingRef = useRef<Promise<void> | null>(null);
   const etagRef = useRef<string | null>(null);
-  const identity = JSON.stringify([ownerId?.trim() ? `user.${ownerId.trim()}` : "guest", screenId]);
+  const identity = JSON.stringify([
+    ownerId?.trim() ? `user.${ownerId.trim()}` : "guest",
+    screenId,
+    activeLanguage,
+    legalKind,
+  ]);
   const identityRef = useRef(identity);
   const generationRef = useRef(0);
   const mountedRef = useRef(true);
 
-  const title = screen
-    ? displayDynamicScreenTitle(screen, activeLanguage, t)
-    : fallbackTitle || screenId;
-  const isLegalScreen = ["privacy_policy", "data_privacy"].includes(
-    screenId.trim().replaceAll("-", "_").toLowerCase(),
-  );
+  const title =
+    legalKind === "wallet_terms"
+      ? t("wallet.terms.title")
+      : screen
+        ? displayDynamicScreenTitle(screen, activeLanguage, t)
+        : fallbackTitle || screenId;
+  const isLegalScreen = legalKind !== null;
 
   useLayoutEffect(() => {
     if (!isTabRoot) navigation.setOptions({ title });
@@ -101,8 +127,8 @@ export function DynamicScreenContent({
     };
   }, []);
 
-  // A screen cache is account-scoped. Reset synchronously at commit time so a
-  // route or account change cannot paint the previous identity's cached page
+  // A screen cache is account- and locale-scoped. Reset synchronously at commit
+  // time so a route, account, or language change cannot paint stale legal copy
   // for one frame before the new request/cache lifecycle starts.
   useLayoutEffect(() => {
     if (identityRef.current === identity) return;
@@ -124,13 +150,16 @@ export function DynamicScreenContent({
     setLoading(true);
     let current = screenRef.current ?? embedded;
     try {
-      const cached = await readCachedDynamicScreen(ownerId, screenId);
+      const cached = await readCachedDynamicScreen(ownerId, screenId, activeLanguage);
       if (!isCurrent()) return;
       etagRef.current = cached.etag;
       // A persisted remote document must outrank the bundled fallback. If its
       // ETag receives 304, keeping the fallback here would silently hide the
       // last verified legal document on every subsequent visit.
-      if (cached.screen && isLegalDynamicScreenComplete(screenId, cached.screen, activeLanguage)) {
+      if (
+        cached.screen &&
+        isLegalDynamicScreenComplete(screenId, cached.screen, activeLanguage, legalKind)
+      ) {
         current = cached.screen;
         screenRef.current = cached.screen;
         setScreen(cached.screen);
@@ -143,7 +172,7 @@ export function DynamicScreenContent({
       if (result.notModified) {
         if (result.etag !== null) {
           etagRef.current = result.etag;
-          await persistDynamicScreenETag(ownerId, screenId, result.etag);
+          await persistDynamicScreenETag(ownerId, screenId, activeLanguage, result.etag);
         }
         if (!isCurrent()) return;
         setErrorMessage(null);
@@ -152,13 +181,13 @@ export function DynamicScreenContent({
       if (
         result.screen &&
         isDynamicScreenSupported(result.screen) &&
-        isLegalDynamicScreenComplete(screenId, result.screen, activeLanguage)
+        isLegalDynamicScreenComplete(screenId, result.screen, activeLanguage, legalKind)
       ) {
         current = result.screen;
         screenRef.current = result.screen;
         if (result.etag !== null) etagRef.current = result.etag;
         setScreen(result.screen);
-        await persistDynamicScreen(ownerId, screenId, result.screen, result.etag);
+        await persistDynamicScreen(ownerId, screenId, activeLanguage, result.screen, result.etag);
         if (!isCurrent()) return;
         setErrorMessage(null);
       }
@@ -169,7 +198,7 @@ export function DynamicScreenContent({
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [activeLanguage, embedded, ownerId, screenId, t]);
+  }, [activeLanguage, embedded, legalKind, ownerId, screenId, t]);
 
   const load = useCallback(async () => {
     if (pendingRef.current) return pendingRef.current;
@@ -255,10 +284,57 @@ export function DynamicScreenContent({
         .map((component) => (
           <DynamicComponentRenderer component={component} key={component.id} onRoute={openRoute} />
         ))}
+      {isLegalScreen && screen.documentVersion?.trim() && screen.effectiveAt?.trim() ? (
+        <DynamicLegalMetadata
+          documentVersion={screen.documentVersion.trim()}
+          effectiveAt={screen.effectiveAt.trim()}
+          theme={theme}
+        />
+      ) : null}
       {isLegalScreen ? (
         <DynamicLegalSupportFooter documentSupportEmail={screen.supportEmail} theme={theme} />
       ) : null}
     </ScrollView>
+  );
+}
+
+function DynamicLegalMetadata({
+  documentVersion,
+  effectiveAt,
+  theme,
+}: {
+  documentVersion: string;
+  effectiveAt: string;
+  theme: ReturnType<typeof dynamicScreenPalette>;
+}) {
+  const { t } = useLocalization();
+  const versionLabel = t("legal.document.version");
+  const effectiveAtLabel = t("legal.document.effectiveAt");
+
+  return (
+    <View
+      accessibilityLabel={`${versionLabel}: ${documentVersion}; ${effectiveAtLabel}: ${effectiveAt}`}
+      accessibilityRole="text"
+      accessible
+      style={[styles.metadataCard, { backgroundColor: theme.card }]}
+    >
+      <View style={styles.metadataRow}>
+        <Text accessible={false} style={[styles.metadataLabel, { color: theme.secondaryText }]}>
+          {versionLabel}
+        </Text>
+        <Text accessible={false} style={[styles.metadataValue, { color: theme.text }]}>
+          {documentVersion}
+        </Text>
+      </View>
+      <View style={styles.metadataRow}>
+        <Text accessible={false} style={[styles.metadataLabel, { color: theme.secondaryText }]}>
+          {effectiveAtLabel}
+        </Text>
+        <Text accessible={false} style={[styles.metadataValue, { color: theme.text }]}>
+          {effectiveAt}
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -324,6 +400,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   emptyText: { fontSize: 15, fontWeight: "500", textAlign: "center" },
+  metadataCard: { borderRadius: 14, gap: 7, paddingHorizontal: 16, paddingVertical: 12 },
+  metadataLabel: { flexShrink: 0, fontSize: 13, fontWeight: "600" },
+  metadataRow: { alignItems: "baseline", flexDirection: "row", gap: 12 },
+  metadataValue: { flex: 1, fontSize: 13, textAlign: "right" },
   rootTitle: {
     alignSelf: "stretch",
     fontSize: 30,

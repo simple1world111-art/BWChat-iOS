@@ -13,12 +13,17 @@ import { apiRequest } from "@/api/client";
 import { normalizeAgentRuntimeConfig } from "@/api/normalizers";
 import type { AgentConversation, AgentMessage, Conversation } from "@/models";
 import {
+  applyCachedAgentConversationReadReceipt,
   agentCatalogCacheKey,
   agentCatalogCachePolicy,
   loadCachedAgentCatalog,
   saveAgentCatalog,
   upsertCachedAgentConversation,
 } from "@/services/agents/AgentCatalogRepository";
+import {
+  mergeAgentConversationSnapshots,
+  mergeAgentConversationState,
+} from "@/services/agents/AgentConversationState";
 import {
   agentConversationPreview,
   agentHubErrorMessage,
@@ -222,6 +227,79 @@ describe("native AgentHubView contracts", () => {
     ).resolves.toBe(false);
   });
 
+  it("keeps agent read state and latest message monotonic across stale snapshots and upserts", async () => {
+    const current = makeAgentConversation({
+      id: "thread-1",
+      unread_count: 0,
+      read_through_sequence: 20,
+      total_unread_count: 2,
+      revision: 12,
+      latest_message: {
+        ...makeMessage([]),
+        id: "message-20",
+        conversation_id: "thread-1",
+        sequence_no: 20,
+        updated_at: "2026-08-08T00:00:20Z",
+      },
+      updated_at: "2026-08-08T00:00:20Z",
+    });
+    const stale = makeAgentConversation({
+      id: "thread-1",
+      unread_count: 4,
+      read_through_sequence: 10,
+      total_unread_count: 6,
+      revision: 11,
+      latest_message: {
+        ...makeMessage([]),
+        id: "message-10",
+        conversation_id: "thread-1",
+        sequence_no: 10,
+        updated_at: "2026-08-08T00:00:10Z",
+      },
+      updated_at: "2026-08-08T00:00:10Z",
+    });
+    expect(mergeAgentConversationState(current, stale)).toMatchObject({
+      unread_count: 0,
+      read_through_sequence: 20,
+      total_unread_count: 2,
+      revision: 12,
+      latest_message: { id: "message-20", sequence_no: 20 },
+    });
+    expect(mergeAgentConversationSnapshots([current], [stale])).toMatchObject([
+      { id: "thread-1", revision: 12, read_through_sequence: 20 },
+    ]);
+
+    await saveAgentCatalog("owner-monotonic", {
+      installedAgents: [],
+      conversations: [current],
+      joinedScriptRooms: [],
+    });
+    await expect(
+      applyCachedAgentConversationReadReceipt("owner-monotonic", {
+        conversation_id: "thread-1",
+        read_through_sequence: 10,
+        unread_count: 4,
+        total_unread_count: 6,
+        revision: 11,
+      }),
+    ).resolves.toBe(false);
+    await expect(upsertCachedAgentConversation("owner-monotonic", stale)).resolves.toBe(true);
+    await expect(loadCachedAgentCatalog("owner-monotonic")).resolves.toMatchObject({
+      value: {
+        conversations: [
+          {
+            id: "thread-1",
+            unread_count: 0,
+            read_through_sequence: 20,
+            total_unread_count: 2,
+            revision: 12,
+            latest_message: { id: "message-20", sequence_no: 20 },
+          },
+        ],
+      },
+    });
+  });
+
   it("selects the newest open thread and recognizes direct or wrapped capability codes", () => {
     const rows = [
       makeAgentConversation({ id: "older", updated_at: "2026-08-05T00:00:00Z" }),
@@ -336,10 +414,6 @@ describe("native AgentHubView contracts", () => {
         gold_coin_balance: 42,
         activity_cat_food_balance: 0,
         spendable_balance: 42,
-        recharge_gold_coin_balance: 42,
-        gift_income_gold_coin_balance: 0,
-        withdraw_frozen_gold_coin_balance: 0,
-        withdrawable_gold_coin_balance: 0,
         chat_money_frozen_gold_coin_balance: 0,
       })
       .mockResolvedValueOnce(undefined)

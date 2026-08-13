@@ -9,10 +9,27 @@ import UIKit
 import UserNotifications
 
 class NotificationService: UNNotificationServiceExtension {
+    private let maximumAssetBytes = 1_024 * 1_024
     var contentHandler: ((UNNotificationContent) -> Void)?
     var bestAttemptContent: UNMutableNotificationContent?
     private let deliveryLock = NSLock()
     private var hasDelivered = false
+    private lazy var assetPolicy = NotificationAssetPolicy(bundle: .main)
+    private lazy var assetSessionDelegate = SecureAssetSessionDelegate(
+        policy: assetPolicy,
+        maximumBytes: maximumAssetBytes
+    )
+    private lazy var assetSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        configuration.timeoutIntervalForRequest = 2
+        configuration.timeoutIntervalForResource = 2
+        return URLSession(
+            configuration: configuration,
+            delegate: assetSessionDelegate,
+            delegateQueue: nil
+        )
+    }()
 
     override func didReceive(
         _ request: UNNotificationRequest,
@@ -28,6 +45,13 @@ class NotificationService: UNNotificationServiceExtension {
 
         let userInfo = normalizedNotificationPayload(request.content.userInfo)
         bestAttemptContent.userInfo = userInfo
+        let handlesAsOrdinaryMessage = shouldNormalizeMessageInterruption(userInfo)
+        if handlesAsOrdinaryMessage {
+            // Fail closed before identity parsing: malformed ordinary message
+            // payloads must not inherit Time Sensitive/Critical from APNs.
+            // Only explicitly typed call/security events retain their level.
+            bestAttemptContent.interruptionLevel = .active
+        }
         bestAttemptContent.title = notificationDisplayTextWithoutPreviewSuffix(
             bestAttemptContent.title
         )
@@ -36,32 +60,20 @@ class NotificationService: UNNotificationServiceExtension {
         )
         let originalTitle = bestAttemptContent.title
 
-        // For group messages, prepend group name to the title if available
-        if let groupName = firstString(
-            userInfo,
-            keys: ["group_name", "conversation_name"]
-        ) {
-            bestAttemptContent.title = notificationDisplayTextWithoutPreviewSuffix(groupName)
-        }
-
         rewriteStickerPreviewIfNeeded(bestAttemptContent)
         rewriteMediaPreviewIfNeeded(bestAttemptContent)
 
-        let communication = CommunicationInfo(
-            userInfo: userInfo,
-            fallbackTitle: originalTitle,
-            body: bestAttemptContent.body
-        )
+        let communication = handlesAsOrdinaryMessage
+            ? CommunicationInfo(
+                userInfo: userInfo,
+                fallbackTitle: originalTitle,
+                body: bestAttemptContent.body
+            )
+            : nil
         if let communication {
-            if communication.isGroup {
-                bestAttemptContent.title = communication.groupName
-                    ?? communication.localizedGroupFallback
-                bestAttemptContent.subtitle = ""
-                bestAttemptContent.body = communication.intentBody
-            } else {
-                bestAttemptContent.title = communication.senderName
-                bestAttemptContent.subtitle = ""
-            }
+            bestAttemptContent.title = communication.displayTitle
+            bestAttemptContent.subtitle = ""
+            bestAttemptContent.body = communication.intentBody
         }
 
         downloadAssets(userInfo: userInfo, communication: communication) { [weak self] assets in
@@ -70,6 +82,24 @@ class NotificationService: UNNotificationServiceExtension {
                 bestAttemptContent.attachments = [attachment]
             }
             guard let communication else {
+                self.deliver(bestAttemptContent)
+                return
+            }
+            guard communication.surface.supportsCommunicationIntent else {
+                // AI agents and scripted characters are app content, not
+                // people. Keep their explicit label and optional artwork,
+                // but never donate an INPerson/INSendMessageIntent identity.
+                if bestAttemptContent.attachments.isEmpty,
+                   let artworkData = self.plainNotificationArtworkData(
+                       communication: communication,
+                       assets: assets
+                   ),
+                   let artwork = self.imageAttachment(
+                       data: artworkData,
+                       identifier: "conversation-artwork"
+                   ) {
+                    bestAttemptContent.attachments = [artwork]
+                }
                 self.deliver(bestAttemptContent)
                 return
             }
@@ -93,53 +123,80 @@ class NotificationService: UNNotificationServiceExtension {
         communication: CommunicationInfo,
         assets: NotificationAssets
     ) {
-        // For direct messages the visual identity is the sender. For group
-        // messages the product design intentionally promotes the group itself
-        // to the visual identity, so iOS renders the group avatar and name on
-        // the first line while the actual sender remains in the message body.
-        let visualIdentityID = communication.isGroup
-            ? communication.intentGroupIdentifier
-            : communication.intentSenderIdentifier
-        let visualIdentityName = communication.isGroup
-            ? (communication.intentGroupName ?? communication.localizedGroupFallback)
-            : communication.intentSenderName
-        let rawVisualIdentityImageData = communication.isGroup
-            ? (
-                assets.groupMemberAvatarData
-                    ?? assets.groupAvatarData
-                    ?? defaultGroupAvatarData()
-            )
-            : assets.senderAvatarData
-        let visualIdentityImageData = rawVisualIdentityImageData.flatMap {
+        // Keep people and conversations semantically separate. Apple derives
+        // a direct-message avatar from `sender`, while a group avatar belongs
+        // to `speakableGroupName` and must never masquerade as a person.
+        let senderIdentityID: String
+        let senderIdentityName: String
+        let rawSenderImageData: Data?
+        switch communication.surface {
+        case .dm:
+            senderIdentityID = communication.intentSenderIdentifier
+            senderIdentityName = communication.senderName
+            rawSenderImageData = assets.senderAvatarData
+                ?? defaultMemberAvatarImage().pngData()
+        case .group:
+            senderIdentityID = communication.intentSenderIdentifier
+            senderIdentityName = communication.senderName
+            rawSenderImageData = assets.senderAvatarData
+                ?? defaultMemberAvatarImage().pngData()
+        case .agent, .script:
+            // Callers gate this function to real person-to-person surfaces.
+            // Fail closed if a future call bypasses that gate.
+            deliver(content)
+            return
+        }
+        let senderImageData = rawSenderImageData.flatMap {
             squareCommunicationAvatarData(
                 from: $0,
-                cornerRadiusRatio: communication.isGroup ? 0.18 : 0.22,
+                cornerRadiusRatio: communication.surface == .script ? 0.18 : 0.22,
                 avatarScale: 1
             )
-        } ?? rawVisualIdentityImageData
-        let visualIdentityHandle = INPersonHandle(
-            value: visualIdentityID,
+        } ?? rawSenderImageData
+        let senderHandle = INPersonHandle(
+            value: senderIdentityID,
             type: .unknown
         )
-        let visualIdentityImage = visualIdentityImageData.map(INImage.init(imageData:))
-        let visualIdentity = INPerson(
-            personHandle: visualIdentityHandle,
+        let senderImage = senderImageData.map(INImage.init(imageData:))
+        let intentSender = INPerson(
+            personHandle: senderHandle,
             nameComponents: nil,
-            displayName: visualIdentityName,
-            image: visualIdentityImage,
+            displayName: senderIdentityName,
+            image: senderImage,
             contactIdentifier: nil,
-            customIdentifier: visualIdentityID
+            customIdentifier: senderIdentityID
         )
+
+        let speakableGroupName = communication.surface == .group
+            ? INSpeakableString(spokenPhrase: communication.conversationName)
+            : nil
         let intent = INSendMessageIntent(
             recipients: nil,
             outgoingMessageType: .outgoingMessageText,
             content: communication.intentBody,
-            speakableGroupName: nil,
+            speakableGroupName: speakableGroupName,
             conversationIdentifier: communication.conversationID,
             serviceName: nil,
-            sender: visualIdentity,
+            sender: intentSender,
             attachments: nil
         )
+        if communication.surface == .group {
+            // A real group icon is authoritative. The member mosaic is only
+            // a fallback when the backend has no group artwork.
+            let rawGroupImageData = assets.groupAvatarData
+                ?? assets.groupMemberAvatarData
+                ?? defaultGroupAvatarData()
+            let groupImageData = rawGroupImageData.flatMap {
+                squareCommunicationAvatarData(
+                    from: $0,
+                    cornerRadiusRatio: 0.18,
+                    avatarScale: 1
+                )
+            } ?? rawGroupImageData
+            if let groupImageData {
+                intent.setImage(INImage(imageData: groupImageData), forParameterNamed: \.speakableGroupName)
+            }
+        }
 
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
@@ -250,18 +307,104 @@ class NotificationService: UNNotificationServiceExtension {
             .pngData()
     }
 
+    private func defaultAgentAvatarData() -> Data? {
+        defaultSurfaceAvatarData(
+            colors: [
+                UIColor(red: 92 / 255, green: 74 / 255, blue: 238 / 255, alpha: 1),
+                UIColor(red: 56 / 255, green: 189 / 255, blue: 248 / 255, alpha: 1)
+            ],
+            systemName: "sparkles"
+        )
+    }
+
+    private func defaultScriptAvatarData() -> Data? {
+        defaultSurfaceAvatarData(
+            colors: [
+                UIColor(red: 236 / 255, green: 72 / 255, blue: 153 / 255, alpha: 1),
+                UIColor(red: 249 / 255, green: 115 / 255, blue: 22 / 255, alpha: 1)
+            ],
+            systemName: "theatermasks.fill"
+        )
+    }
+
+    private func defaultSurfaceAvatarData(
+        colors: [UIColor],
+        systemName: String
+    ) -> Data? {
+        let canvasSize = CGSize(width: 256, height: 256)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: canvasSize, format: format).image { context in
+            let cgColors = colors.map(\.cgColor) as CFArray
+            if let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: cgColors,
+                locations: [0, 1]
+            ) {
+                context.cgContext.drawLinearGradient(
+                    gradient,
+                    start: .zero,
+                    end: CGPoint(x: canvasSize.width, y: canvasSize.height),
+                    options: []
+                )
+            }
+            let symbol = UIImage(
+                systemName: systemName,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 132, weight: .semibold)
+            )?.withTintColor(.white, renderingMode: .alwaysOriginal)
+            symbol?.draw(in: CGRect(x: 62, y: 62, width: 132, height: 132))
+        }.pngData()
+    }
+
+    private func plainNotificationArtworkData(
+        communication: CommunicationInfo,
+        assets: NotificationAssets
+    ) -> Data? {
+        switch communication.surface {
+        case .agent:
+            return assets.senderAvatarData ?? defaultAgentAvatarData()
+        case .script:
+            return assets.groupAvatarData ?? defaultScriptAvatarData()
+        case .dm, .group:
+            return nil
+        }
+    }
+
+    private func imageAttachment(data: Data, identifier: String) -> UNNotificationAttachment? {
+        guard !data.isEmpty,
+              data.count <= maximumAssetBytes,
+              let normalizedData = UIImage(data: data)?.pngData(),
+              normalizedData.count <= maximumAssetBytes else {
+            return nil
+        }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        do {
+            try normalizedData.write(to: fileURL, options: .atomic)
+            return try UNNotificationAttachment(
+                identifier: identifier,
+                url: fileURL,
+                options: nil
+            )
+        } catch {
+            return nil
+        }
+    }
+
     private func downloadAssets(
         userInfo: [AnyHashable: Any],
         communication: CommunicationInfo?,
         completion: @escaping (NotificationAssets) -> Void
     ) {
         let senderAvatarURL = communication
-            .flatMap { $0.isGroup ? nil : $0.senderAvatarValue }
+            .flatMap { $0.surface.usesSenderArtwork ? $0.senderAvatarValue : nil }
             .flatMap(resolveRemoteURL)
         let groupAvatarURL = communication
-            .flatMap(\.groupAvatarValue)
+            .flatMap { $0.surface.usesConversationArtwork ? $0.groupAvatarValue : nil }
             .flatMap(resolveRemoteURL)
-        let groupMemberAvatarValues = communication?.isGroup == true
+        let groupMemberAvatarValues = communication?.surface == .group
             ? (communication?.groupMemberAvatarValues ?? [])
             : []
         // Only attach the server-generated lightweight preview. Downloading
@@ -540,19 +683,9 @@ class NotificationService: UNNotificationServiceExtension {
             cachePolicy: .returnCacheDataElseLoad,
             timeoutInterval: 2
         )
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            guard error == nil,
-                  let data,
-                  !data.isEmpty,
-                  data.count <= 10 * 1_024 * 1_024,
-                  let httpResponse = response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode),
-                  CGImageSourceCreateWithData(data as CFData, nil) != nil else {
-                completion(nil)
-                return
-            }
-            completion(data)
-        }.resume()
+        let task = assetSession.dataTask(with: request)
+        assetSessionDelegate.register(task: task, completion: completion)
+        task.resume()
     }
 
     private func downloadMedia(from url: URL, completion: @escaping (UNNotificationAttachment?) -> Void) {
@@ -560,17 +693,8 @@ class NotificationService: UNNotificationServiceExtension {
         let fileExtension = ["jpg", "jpeg", "png", "gif", "heic", "webp"].contains(pathExtension)
             ? pathExtension : "jpg"
 
-        downloadMedia(from: url, fileExtension: fileExtension, completion: completion)
-    }
-
-    private func downloadMedia(from url: URL, fileExtension: String, completion: @escaping (UNNotificationAttachment?) -> Void) {
-        let request = URLRequest(
-            url: url,
-            cachePolicy: .returnCacheDataElseLoad,
-            timeoutInterval: 2
-        )
-        URLSession.shared.downloadTask(with: request) { localURL, response, error in
-            guard let localURL = localURL, error == nil else {
+        downloadImageData(from: url) { data in
+            guard let data else {
                 completion(nil)
                 return
             }
@@ -579,13 +703,13 @@ class NotificationService: UNNotificationServiceExtension {
             let tmpFile = tmpDir.appendingPathComponent(UUID().uuidString + "." + fileExtension)
 
             do {
-                try FileManager.default.moveItem(at: localURL, to: tmpFile)
+                try data.write(to: tmpFile, options: .atomic)
                 let attachment = try UNNotificationAttachment(identifier: "media", url: tmpFile, options: nil)
                 completion(attachment)
             } catch {
                 completion(nil)
             }
-        }.resume()
+        }
     }
 
     private func deliver(_ content: UNNotificationContent) {
@@ -614,9 +738,8 @@ class NotificationService: UNNotificationServiceExtension {
         guard !value.isEmpty else { return nil }
 
         if let absoluteURL = URL(string: value),
-           let scheme = absoluteURL.scheme?.lowercased(),
-           (scheme == "https" || scheme == "http"),
-           absoluteURL.host != nil {
+           absoluteURL.scheme != nil,
+           assetPolicy.allows(absoluteURL) {
             return absoluteURL
         }
 
@@ -642,9 +765,7 @@ class NotificationService: UNNotificationServiceExtension {
         }
 
         guard let resolvedURL = URL(string: resolvedString),
-              let resolvedScheme = resolvedURL.scheme?.lowercased(),
-              (resolvedScheme == "https" || resolvedScheme == "http"),
-              resolvedURL.host != nil else {
+              assetPolicy.allows(resolvedURL) else {
             return nil
         }
         return resolvedURL
@@ -876,52 +997,120 @@ private struct NotificationAssets {
     var messageAttachment: UNNotificationAttachment?
 }
 
+private enum NotificationSurface: String {
+    case dm
+    case group
+    case agent
+    case script
+
+    var supportsCommunicationIntent: Bool {
+        self == .dm || self == .group
+    }
+
+    var usesSenderArtwork: Bool {
+        self == .dm || self == .group || self == .agent
+    }
+
+    var usesConversationArtwork: Bool {
+        self == .group || self == .script
+    }
+
+    static func resolve(
+        userInfo: [AnyHashable: Any],
+        hasLegacyGroupIdentity: Bool
+    ) -> NotificationSurface {
+        if let explicit = CommunicationInfo.firstString(
+            userInfo,
+            keys: ["surface_type", "surfaceType"]
+        ).flatMap(Self.from) {
+            return explicit
+        }
+
+        if let pushType = CommunicationInfo.firstString(
+            userInfo,
+            keys: ["push_type", "pushType", "type", "event_type", "eventType"]
+        )?.lowercased() {
+            if ["agent_message", "new_agent_message", "ai_message"].contains(pushType) {
+                return .agent
+            }
+            if ["script_message", "script_room_message", "new_script_message", "role_message"]
+                .contains(pushType) {
+                return .script
+            }
+            if ["group_message", "new_group_message", "group_chat_message", "group_mention"]
+                .contains(pushType) {
+                return .group
+            }
+            if ["dm_message", "private_message", "direct_message", "new_message"]
+                .contains(pushType) {
+                return .dm
+            }
+        }
+
+        if let legacy = CommunicationInfo.firstString(
+            userInfo,
+            keys: [
+                "conversation_type", "conversationType",
+                "chat_type", "chatType", "scope"
+            ]
+        ).flatMap(Self.from) {
+            return legacy
+        }
+        return hasLegacyGroupIdentity ? .group : .dm
+    }
+
+    private static func from(_ rawValue: String) -> NotificationSurface? {
+        switch rawValue.lowercased().replacingOccurrences(of: "-", with: "_") {
+        case "dm", "direct", "private", "private_chat", "single", "single_chat":
+            return .dm
+        case "group", "group_chat", "groupchat":
+            return .group
+        case "agent", "agent_chat", "ai", "ai_agent":
+            return .agent
+        case "script", "script_room", "script_chat", "roleplay":
+            return .script
+        default:
+            return nil
+        }
+    }
+}
+
 private struct CommunicationInfo {
+    let surface: NotificationSurface
     let senderID: String
     let senderName: String
-    let isGroup: Bool
-    let groupName: String?
+    let conversationName: String
     let conversationID: String
     let body: String
     let senderAvatarValue: String?
     let groupAvatarValue: String?
     let groupMemberAvatarValues: [String]
-    let groupVisualRevision: String?
+    let visualRevision: String?
 
-    var localizedGroupFallback: String {
-        Self.localizedGroupFallback()
-    }
-
-    var intentSenderName: String {
-        senderName
+    var displayTitle: String {
+        switch surface {
+        case .dm:
+            return senderName
+        case .group:
+            return conversationName
+        case .agent, .script:
+            return Self.labeledTitle(surface: surface, name: conversationName)
+        }
     }
 
     var intentSenderIdentifier: String {
-        let visualSource = [
-            "sender-full-bleed-v2",
-            senderAvatarValue ?? ""
+        let senderSource = [
+            "sender-full-bleed-v10",
+            senderID,
+            senderName,
+            senderAvatarValue ?? "",
+            visualRevision ?? ""
         ].joined(separator: "|")
-        return "\(senderID):dm-visual:\(Self.stableFingerprint(visualSource))"
-    }
-
-    var intentGroupName: String? {
-        isGroup ? (groupName ?? localizedGroupFallback) : nil
-    }
-
-    var intentGroupIdentifier: String {
-        guard isGroup else { return "" }
-        let visualSource = [
-            "group-member-full-bleed-v8",
-            groupName ?? "",
-            groupAvatarValue ?? "",
-            groupMemberAvatarValues.joined(separator: ","),
-            groupVisualRevision ?? ""
-        ].joined(separator: "|")
-        return "\(conversationID):group-visual:\(Self.stableFingerprint(visualSource))"
+        return "\(senderID):visual:\(Self.stableFingerprint(senderSource))"
     }
 
     var intentBody: String {
-        guard isGroup else { return body }
+        guard surface == .script else { return body }
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBody.isEmpty else { return senderName }
 
@@ -936,142 +1125,183 @@ private struct CommunicationInfo {
     }
 
     init?(userInfo: [AnyHashable: Any], fallbackTitle: String, body: String) {
-        guard let senderID = Self.firstString(
-            userInfo,
-            keys: ["sender_id", "senderId", "from_user_id", "fromUserId", "user_id"]
-        ) else {
-            return nil
-        }
-
         let sender = Self.firstDictionary(
             userInfo,
-            keys: [
-                "sender", "sender_info", "sender_profile",
-                "from_user", "message_sender"
-            ]
+            keys: ["sender", "sender_info", "sender_profile", "from_user", "message_sender"]
         )
-        let group = Self.firstDictionary(
+        let group = Self.firstDictionary(userInfo, keys: ["group"])
+        let agent = Self.firstDictionary(userInfo, keys: ["agent", "agent_info"])
+        let script = Self.firstDictionary(
             userInfo,
-            keys: ["group"]
+            keys: ["script", "script_room", "script_info"]
         )
-        let conversation = Self.firstDictionary(
-            userInfo,
-            keys: ["conversation"]
-        )
+        let conversation = Self.firstDictionary(userInfo, keys: ["conversation"])
+
         let groupID = Self.firstString(userInfo, keys: ["group_id", "groupId"])
-        let groupSpecificName = Self.firstString(
+        let groupName = Self.firstString(userInfo, keys: ["group_name", "groupName"])
+            ?? Self.firstString(group, keys: ["name", "group_name", "display_name", "title"])
+        let groupAvatar = Self.firstString(
             userInfo,
-            keys: ["group_name", "groupName"]
-        ) ?? Self.firstString(
-            group,
-            keys: ["name", "group_name", "display_name", "title"]
-        )
-        let displayGroupSpecificName = groupSpecificName.map(
-            notificationDisplayTextWithoutPreviewSuffix
-        )
-        let groupSpecificAvatar = Self.firstString(
-            userInfo,
-            keys: [
-                "group_avatar_url", "group_avatar", "groupAvatarURL",
-                "groupAvatarUrl", "groupAvatar"
-            ]
+            keys: ["group_avatar_url", "group_avatar", "groupAvatarURL", "groupAvatarUrl"]
         ) ?? Self.firstString(
             group,
             keys: ["avatar_url", "avatarURL", "avatarUrl", "avatar", "image_url"]
         )
-        let isGroup = Self.isGroupConversation(
+        let surface = NotificationSurface.resolve(
+            userInfo: userInfo,
+            hasLegacyGroupIdentity: groupID != nil
+                || groupName != nil
+                || groupAvatar != nil
+                || group != nil
+        )
+
+        let explicitConversationID = Self.firstString(
             userInfo,
-            groupID: groupID,
-            groupName: displayGroupSpecificName,
-            groupAvatar: groupSpecificAvatar,
-            group: group
+            keys: ["conversation_id", "conversationId", "chat_id", "chatId"]
         )
-        let explicitGroupName = displayGroupSpecificName
-            ?? Self.firstString(
-                userInfo,
-                keys: ["conversation_name", "conversationName"]
-            ).map(notificationDisplayTextWithoutPreviewSuffix)
-            ?? Self.firstString(
-                conversation,
-                keys: ["name", "display_name", "title"]
-            ).map(notificationDisplayTextWithoutPreviewSuffix)
-        let explicitGroupAvatar = groupSpecificAvatar
-            ?? Self.firstString(
-                userInfo,
-                keys: ["conversation_avatar_url", "conversation_avatar"]
-            )
-            ?? Self.firstString(
-                conversation,
-                keys: ["avatar_url", "avatarURL", "avatarUrl", "avatar", "image_url"]
-            )
-        let safeFallbackTitle = notificationDisplayTextWithoutPreviewSuffix(fallbackTitle)
-            .trimmedNonEmpty.flatMap {
-            $0 == senderID ? nil : $0
-        }
-        let explicitSenderName = Self.firstString(
+        let conversationKey = Self.firstString(
             userInfo,
-            keys: [
-                "sender_name", "sender_nickname", "sender_display_name",
-                "senderName", "senderNickname", "from_name",
-                "nickname", "nick_name", "display_name"
-            ]
-        ) ?? Self.firstString(
-            sender,
-            keys: [
-                "nickname", "nick_name", "display_name",
-                "displayName", "name", "username"
-            ]
+            keys: ["conversation_key", "conversationKey", "thread_id", "threadId"]
         )
-        let displaySenderName = explicitSenderName.map(
-            notificationDisplayTextWithoutPreviewSuffix
+        let genericSurfaceID = Self.firstString(
+            userInfo,
+            keys: ["surface_id", "surfaceId"]
         )
-        let senderName = displaySenderName
-            ?? (isGroup ? nil : safeFallbackTitle)
-            ?? Self.localizedMessageFallback(isGroup: isGroup)
-        let groupName: String?
-        if isGroup {
-            groupName = explicitGroupName
-                ?? Self.localizedGroupFallback()
-        } else {
-            groupName = nil
+        let agentID = Self.firstString(
+            userInfo,
+            keys: ["agent_conversation_id", "agentConversationId", "agent_id", "agentId"]
+        ) ?? Self.firstString(agent, keys: ["conversation_id", "id", "agent_id"])
+        let scriptID = Self.firstString(
+            userInfo,
+            keys: ["script_room_id", "scriptRoomId", "script_id", "scriptId"]
+        ) ?? Self.firstString(script, keys: ["room_id", "id", "script_id"])
+        let keySurfaceID = Self.surfaceID(from: conversationKey, surface: surface)
+        let surfaceID: String?
+        switch surface {
+        case .dm:
+            surfaceID = genericSurfaceID ?? keySurfaceID ?? explicitConversationID
+        case .group:
+            surfaceID = genericSurfaceID ?? keySurfaceID ?? groupID ?? explicitConversationID
+        case .agent:
+            surfaceID = genericSurfaceID ?? keySurfaceID ?? agentID ?? explicitConversationID
+        case .script:
+            surfaceID = genericSurfaceID ?? keySurfaceID ?? scriptID ?? explicitConversationID ?? groupID
         }
 
-        let explicitSenderAvatar = Self.firstString(
+        let explicitSenderID = Self.firstString(
+            userInfo,
+            keys: ["sender_id", "senderId", "from_user_id", "fromUserId", "user_id"]
+        )
+        let senderID = explicitSenderID
+            ?? (surface == .agent ? agentID : nil)
+            ?? surfaceID
+        guard let senderID else { return nil }
+
+        let safeFallbackTitle = notificationDisplayTextWithoutPreviewSuffix(fallbackTitle)
+            .trimmedNonEmpty.flatMap { $0 == senderID ? nil : $0 }
+        let senderName = (
+            Self.firstString(
+                userInfo,
+                keys: [
+                    "sender_name", "sender_nickname", "sender_display_name",
+                    "senderName", "senderNickname", "from_name",
+                    "nickname", "nick_name", "display_name"
+                ]
+            ) ?? Self.firstString(
+                sender,
+                keys: ["nickname", "nick_name", "display_name", "displayName", "name", "username"]
+            )
+        ).map(notificationDisplayTextWithoutPreviewSuffix)
+            ?? (surface == .dm ? safeFallbackTitle : nil)
+            ?? Self.localizedMessageFallback(isGroup: surface == .group || surface == .script)
+
+        let genericConversationName = Self.firstString(
+            userInfo,
+            keys: ["conversation_name", "conversationName"]
+        ) ?? Self.firstString(conversation, keys: ["name", "display_name", "title"])
+        let agentName = Self.firstString(
+            userInfo,
+            keys: ["agent_name", "agentName", "agent_display_name"]
+        ) ?? Self.firstString(agent, keys: ["name", "display_name", "title"])
+        let scriptName = Self.firstString(
+            userInfo,
+            keys: ["script_name", "scriptName", "script_room_name", "script_title"]
+        ) ?? Self.firstString(script, keys: ["name", "display_name", "title"])
+        let rawConversationName: String?
+        switch surface {
+        case .dm:
+            rawConversationName = senderName
+        case .group:
+            rawConversationName = groupName ?? genericConversationName
+        case .agent:
+            rawConversationName = agentName ?? genericConversationName ?? safeFallbackTitle
+        case .script:
+            rawConversationName = scriptName ?? genericConversationName ?? groupName ?? safeFallbackTitle
+        }
+        let conversationName = rawConversationName
+            .map(notificationDisplayTextWithoutPreviewSuffix)
+            ?? Self.localizedConversationFallback(surface)
+
+        let senderAvatar = Self.firstString(
             userInfo,
             keys: [
                 "sender_avatar_url", "sender_avatar", "senderAvatarURL",
-                "senderAvatarUrl", "senderAvatar",
-                "from_avatar_url", "from_avatar"
+                "senderAvatarUrl", "senderAvatar", "from_avatar_url", "from_avatar"
             ]
         ) ?? Self.firstString(
             sender,
-            keys: [
-                "avatar_url", "avatarURL", "avatarUrl",
-                "avatar", "profile_image_url"
-            ]
+            keys: ["avatar_url", "avatarURL", "avatarUrl", "avatar", "profile_image_url"]
+        )
+        let conversationAvatar = Self.firstString(
+            userInfo,
+            keys: ["conversation_avatar_url", "conversation_avatar"]
+        ) ?? Self.firstString(
+            conversation,
+            keys: ["avatar_url", "avatarURL", "avatarUrl", "avatar", "image_url"]
         )
         let genericAvatar = Self.firstString(
             userInfo,
             keys: ["avatar_url", "avatarURL", "avatarUrl", "avatar"]
         )
-        let explicitConversationID = Self.firstString(
+        let agentAvatar = Self.firstString(
             userInfo,
-            keys: ["conversation_id", "conversationId", "chat_id", "chatId"]
+            keys: ["agent_avatar_url", "agent_avatar", "agentAvatarURL", "agentAvatar"]
+        ) ?? Self.firstString(
+            agent,
+            keys: ["avatar_url", "avatarURL", "avatarUrl", "avatar", "image_url"]
         )
-        let groupVisualRevision = Self.firstString(
+        let scriptAvatar = Self.firstString(
             userInfo,
             keys: [
-                "group_revision", "groupRevision",
-                "group_updated_at", "groupUpdatedAt",
-                "conversation_revision", "conversationRevision"
+                "script_avatar_url", "script_avatar", "script_cover_url",
+                "script_icon_url", "scriptAvatarURL", "scriptCoverURL"
             ]
+        ) ?? Self.firstString(
+            script,
+            keys: ["avatar_url", "cover_url", "icon_url", "image_url"]
         )
+        let senderAvatarValue: String?
+        let conversationAvatarValue: String?
+        switch surface {
+        case .dm:
+            senderAvatarValue = senderAvatar ?? genericAvatar
+            conversationAvatarValue = nil
+        case .group:
+            senderAvatarValue = senderAvatar ?? genericAvatar
+            conversationAvatarValue = groupAvatar ?? conversationAvatar
+        case .agent:
+            senderAvatarValue = agentAvatar ?? conversationAvatar ?? senderAvatar ?? genericAvatar
+            conversationAvatarValue = nil
+        case .script:
+            senderAvatarValue = nil
+            conversationAvatarValue = scriptAvatar ?? conversationAvatar ?? groupAvatar
+        }
+
         let groupMemberAvatarValues = Self.firstAvatarArray(
             userInfo,
             keys: [
                 "group_member_avatars", "group_member_avatar_urls",
-                "groupMemberAvatars", "groupMemberAvatarURLs",
-                "group_members", "groupMembers"
+                "groupMemberAvatars", "groupMemberAvatarURLs", "group_members", "groupMembers"
             ]
         ) ?? Self.firstAvatarArray(
             group,
@@ -1080,71 +1310,41 @@ private struct CommunicationInfo {
                 "memberAvatars", "memberAvatarURLs", "members"
             ]
         ) ?? []
-
-        self.senderID = senderID
-        self.senderName = senderName
-        self.isGroup = isGroup
-        self.groupName = groupName
-        if isGroup {
-            self.conversationID = "group:\(groupID ?? explicitConversationID ?? "unknown")"
-        } else {
-            self.conversationID = "dm:\(explicitConversationID ?? senderID)"
-        }
-        self.body = body
-        self.senderAvatarValue = explicitSenderAvatar ?? (isGroup ? nil : genericAvatar)
-        self.groupAvatarValue = isGroup ? explicitGroupAvatar : nil
-        self.groupMemberAvatarValues = isGroup
-            ? Array(groupMemberAvatarValues.prefix(9))
-            : []
-        self.groupVisualRevision = isGroup ? groupVisualRevision : nil
-    }
-
-    private static func isGroupConversation(
-        _ userInfo: [AnyHashable: Any],
-        groupID: String?,
-        groupName: String?,
-        groupAvatar: String?,
-        group: [String: Any]?
-    ) -> Bool {
-        let conversationType = firstString(
+        let visualRevision = Self.firstString(
             userInfo,
             keys: [
-                "conversation_type", "conversationType",
-                "chat_type", "chatType", "scope"
+                "avatar_version", "avatarVersion", "group_revision", "groupRevision",
+                "group_updated_at", "groupUpdatedAt",
+                "conversation_revision", "conversationRevision"
             ]
-        )?.lowercased()
-        if let conversationType {
-            if ["group", "group_chat", "groupchat"].contains(conversationType) {
-                return true
-            }
-            if ["dm", "direct", "private", "private_chat", "single", "single_chat"]
-                .contains(conversationType) {
-                return false
-            }
-        }
+        )
 
-        let pushType = firstString(
-            userInfo,
-            keys: ["push_type", "pushType", "type", "event_type", "eventType"]
-        )?.lowercased()
-        if let pushType {
-            if [
-                "group_message", "new_group_message",
-                "group_chat_message", "group_mention"
-            ].contains(pushType) {
-                return true
-            }
-            if [
-                "dm_message", "private_message", "direct_message"
-            ].contains(pushType) {
-                return false
-            }
-        }
-
-        return groupID != nil || groupName != nil || groupAvatar != nil || group != nil
+        let canonicalSurfaceID = surfaceID ?? senderID
+        self.surface = surface
+        self.senderID = senderID
+        self.senderName = senderName
+        self.conversationName = conversationName
+        self.conversationID = "\(surface.rawValue):\(canonicalSurfaceID)"
+        self.body = body
+        self.senderAvatarValue = senderAvatarValue
+        self.groupAvatarValue = conversationAvatarValue
+        self.groupMemberAvatarValues = surface == .group
+            ? Array(groupMemberAvatarValues.prefix(9))
+            : []
+        self.visualRevision = visualRevision
     }
 
-    private static func firstString(
+    private static func surfaceID(
+        from conversationKey: String?,
+        surface: NotificationSurface
+    ) -> String? {
+        guard let conversationKey else { return nil }
+        let prefix = "\(surface.rawValue):"
+        guard conversationKey.lowercased().hasPrefix(prefix) else { return nil }
+        return String(conversationKey.dropFirst(prefix.count)).trimmedNonEmpty
+    }
+
+    fileprivate static func firstString(
         _ userInfo: [AnyHashable: Any],
         keys: [String]
     ) -> String? {
@@ -1262,12 +1462,190 @@ private struct CommunicationInfo {
         return isGroup ? "Group message" : "New message"
     }
 
-    private static func localizedGroupFallback() -> String {
+    private static func localizedConversationFallback(
+        _ surface: NotificationSurface
+    ) -> String {
         let language = Locale.preferredLanguages.first?.lowercased() ?? ""
-        if language.hasPrefix("zh") { return "群聊" }
-        if language.hasPrefix("ja") { return "グループ" }
-        if language.hasPrefix("ko") { return "그룹" }
-        return "Group"
+        switch surface {
+        case .dm:
+            return localizedMessageFallback(isGroup: false)
+        case .group:
+            if language.hasPrefix("zh") { return "群聊" }
+            if language.hasPrefix("ja") { return "グループ" }
+            if language.hasPrefix("ko") { return "그룹" }
+            return "Group"
+        case .agent:
+            if language.hasPrefix("zh") { return "智能体" }
+            if language.hasPrefix("ja") { return "AIエージェント" }
+            if language.hasPrefix("ko") { return "AI 에이전트" }
+            return "AI Agent"
+        case .script:
+            if language.hasPrefix("zh") { return "剧本" }
+            if language.hasPrefix("ja") { return "シナリオ" }
+            if language.hasPrefix("ko") { return "시나리오" }
+            return "Script"
+        }
+    }
+
+    private static func labeledTitle(
+        surface: NotificationSurface,
+        name: String
+    ) -> String {
+        let label = localizedConversationFallback(surface)
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedName == label || normalizedName.hasPrefix("\(label) ·") {
+            return normalizedName
+        }
+        return "\(label) · \(normalizedName)"
+    }
+}
+
+private struct NotificationAssetPolicy {
+    private let allowedHosts: Set<String>
+
+    init(bundle: Bundle) {
+        var hosts = Set(
+            (bundle.object(forInfoDictionaryKey: "BWChatAllowedAssetHosts") as? [String] ?? [])
+                .compactMap { $0.trimmedNonEmpty?.lowercased() }
+        )
+        if let baseURLString = bundle.object(forInfoDictionaryKey: "BWChatAPIBaseURL") as? String,
+           let baseURL = URL(string: baseURLString),
+           let host = baseURL.host?.lowercased() {
+            hosts.insert(host)
+        }
+        allowedHosts = hosts
+    }
+
+    func allows(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              url.user == nil,
+              url.password == nil,
+              let host = url.host?.lowercased(),
+              allowedHosts.contains(host) else {
+            return false
+        }
+        return true
+    }
+}
+
+private final class SecureAssetSessionDelegate: NSObject, URLSessionDataDelegate {
+    private struct Transfer {
+        var data = Data()
+        var acceptedResponse = false
+        let completion: (Data?) -> Void
+    }
+
+    private let policy: NotificationAssetPolicy
+    private let maximumBytes: Int
+    private let transferLock = NSLock()
+    private var transfers: [Int: Transfer] = [:]
+
+    init(policy: NotificationAssetPolicy, maximumBytes: Int) {
+        self.policy = policy
+        self.maximumBytes = maximumBytes
+    }
+
+    func register(task: URLSessionDataTask, completion: @escaping (Data?) -> Void) {
+        transferLock.lock()
+        transfers[task.taskIdentifier] = Transfer(completion: completion)
+        transferLock.unlock()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url, policy.allows(url) else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode),
+              httpResponse.expectedContentLength < 0
+                || httpResponse.expectedContentLength <= Int64(maximumBytes),
+              let finalURL = httpResponse.url,
+              policy.allows(finalURL),
+              httpResponse.mimeType?.lowercased().hasPrefix("image/") == true else {
+            finish(taskIdentifier: dataTask.taskIdentifier, data: nil)
+            completionHandler(.cancel)
+            return
+        }
+
+        transferLock.lock()
+        if var transfer = transfers[dataTask.taskIdentifier] {
+            transfer.acceptedResponse = true
+            transfers[dataTask.taskIdentifier] = transfer
+        }
+        transferLock.unlock()
+        completionHandler(.allow)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        var exceededLimit = false
+        var failureCompletion: ((Data?) -> Void)?
+        transferLock.lock()
+        if var transfer = transfers[dataTask.taskIdentifier], transfer.acceptedResponse {
+            if data.count > maximumBytes - transfer.data.count {
+                failureCompletion = transfers
+                    .removeValue(forKey: dataTask.taskIdentifier)?
+                    .completion
+                exceededLimit = true
+            } else {
+                transfer.data.append(data)
+                transfers[dataTask.taskIdentifier] = transfer
+            }
+        }
+        transferLock.unlock()
+
+        guard exceededLimit else { return }
+        // Cancel as soon as the accumulated response crosses 1 MB. This
+        // bounds memory/network use while the response is still arriving.
+        failureCompletion?(nil)
+        dataTask.cancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        transferLock.lock()
+        let transfer = transfers.removeValue(forKey: task.taskIdentifier)
+        transferLock.unlock()
+        guard let transfer else { return }
+
+        guard error == nil,
+              transfer.acceptedResponse,
+              !transfer.data.isEmpty,
+              transfer.data.count <= maximumBytes,
+              CGImageSourceCreateWithData(transfer.data as CFData, nil) != nil else {
+            transfer.completion(nil)
+            return
+        }
+        transfer.completion(transfer.data)
+    }
+
+    private func finish(taskIdentifier: Int, data: Data?) {
+        transferLock.lock()
+        let transfer = transfers.removeValue(forKey: taskIdentifier)
+        transferLock.unlock()
+        transfer?.completion(data)
     }
 }
 
@@ -1285,6 +1663,26 @@ private func notificationDisplayTextWithoutPreviewSuffix(_ value: String) -> Str
     let cleaned = String(normalized[..<range.lowerBound])
         .trimmingCharacters(in: .whitespacesAndNewlines)
     return cleaned.isEmpty ? normalized : cleaned
+}
+
+private func shouldNormalizeMessageInterruption(_ userInfo: [AnyHashable: Any]) -> Bool {
+    let explicitType = CommunicationInfo.firstString(
+        userInfo,
+        keys: ["push_type", "pushType", "type", "event_type", "eventType", "category"]
+    )?
+        .lowercased()
+        .replacingOccurrences(of: "-", with: "_")
+        .replacingOccurrences(of: " ", with: "_")
+    guard let explicitType else {
+        // Missing identities/types are treated as an ordinary notification;
+        // lack of metadata must never grant elevated interruption priority.
+        return true
+    }
+    let elevatedTypes: Set<String> = [
+        "call", "call_invite", "group_call", "group_call_invite",
+        "account_security", "safety_alert", "security", "security_alert"
+    ]
+    return !elevatedTypes.contains(explicitType)
 }
 
 private extension String {

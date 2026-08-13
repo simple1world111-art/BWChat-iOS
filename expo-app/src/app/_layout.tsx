@@ -241,10 +241,6 @@ function RootLayout() {
                                       name="wallet-transactions"
                                       options={{ headerShown: false }}
                                     />
-                                    <Stack.Screen
-                                      name="wallet-withdrawals"
-                                      options={{ headerShown: false }}
-                                    />
                                     <Stack.Screen name="settings" options={{ title: "设置" }} />
                                     <Stack.Screen
                                       name="language-settings"

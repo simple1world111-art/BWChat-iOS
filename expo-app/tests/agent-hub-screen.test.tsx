@@ -487,10 +487,6 @@ function wallet(spendableBalance: number) {
     gold_coin_balance: spendableBalance,
     activity_cat_food_balance: 0,
     spendable_balance: spendableBalance,
-    recharge_gold_coin_balance: spendableBalance,
-    gift_income_gold_coin_balance: 0,
-    withdraw_frozen_gold_coin_balance: 0,
-    withdrawable_gold_coin_balance: 0,
     chat_money_frozen_gold_coin_balance: 0,
   };
 }

@@ -8,6 +8,13 @@ import { env } from "@/config/env";
 import { adoptLocalImageFile } from "@/services/cache/ImageCacheService";
 import { galleryOwnerCacheKey } from "@/components/media/imageGalleryMath";
 import { prepareChatImage, type PreparedChatImage } from "@/services/messages/ChatImageService";
+import {
+  cancelChatOutboxNetworkRetry,
+  chatOutboxNetworkRetryDelayMilliseconds,
+  isChatOutboxDefinitelyOffline,
+  scheduleChatOutboxNetworkRetry,
+  type ChatOutboxRetryReason,
+} from "@/services/messages/ChatOutboxNetwork";
 import { resolveMediaUrl } from "@/utils/mediaUrl";
 
 export type ChatImageUploadState =
@@ -33,6 +40,7 @@ interface ChatImageJobBase {
   created_at: string;
   state: ChatImageUploadState;
   attempt_count: number;
+  retry_reason?: ChatOutboxRetryReason | undefined;
   next_attempt_at?: string | undefined;
   last_error?: string | undefined;
 }
@@ -125,6 +133,7 @@ export async function retryChatImageUpload(
   const queued = {
     ...job,
     state: "queued" as const,
+    retry_reason: undefined,
     next_attempt_at: undefined,
     last_error: undefined,
   };
@@ -266,10 +275,17 @@ async function runJob(input: ChatImageJob): Promise<void> {
       await saveAndEmit(job);
     }
     if (cancelled.has(key)) return;
+    if (await isChatOutboxDefinitelyOffline()) {
+      if (cancelled.has(key)) return;
+      await waitForNetwork(job);
+      return;
+    }
+    if (cancelled.has(key)) return;
     reachedUpload = true;
     const uploading = {
       ...job,
       state: "uploading" as const,
+      retry_reason: undefined,
       next_attempt_at: undefined,
       last_error: undefined,
     };
@@ -330,11 +346,11 @@ async function runJob(input: ChatImageJob): Promise<void> {
   } catch (error) {
     if (cancelled.has(key)) return;
     const message = errorMessage(error);
-    if (
-      reachedUpload &&
-      isTransientChatImageError(error) &&
-      job.attempt_count < maximumAutomaticAttempts
-    ) {
+    const transientUploadError = reachedUpload && isTransientChatImageError(error);
+    if (transientUploadError && (await isChatOutboxDefinitelyOffline())) {
+      if (cancelled.has(key)) return;
+      await waitForNetwork(job);
+    } else if (transientUploadError && job.attempt_count < maximumAutomaticAttempts) {
       const retryCount = job.attempt_count + 1;
       const baseSeconds = Math.min(2 ** Math.min(Math.max(job.attempt_count, 0), 8), 300);
       const jitterSeconds = Math.random() * baseSeconds * 0.2;
@@ -342,13 +358,20 @@ async function runJob(input: ChatImageJob): Promise<void> {
         ...job,
         state: "retry_waiting" as const,
         attempt_count: retryCount,
+        retry_reason: "transient_error" as const,
         next_attempt_at: new Date(Date.now() + (baseSeconds + jitterSeconds) * 1_000).toISOString(),
         last_error: message,
       };
       await saveAndEmit(waiting);
       scheduleRetry(waiting);
     } else {
-      await saveAndEmit({ ...job, state: "failed", last_error: message });
+      await saveAndEmit({
+        ...job,
+        state: "failed",
+        retry_reason: undefined,
+        next_attempt_at: undefined,
+        last_error: message,
+      });
     }
   } finally {
     inFlight.delete(key);
@@ -438,6 +461,22 @@ function assertGroupImageConfirmation(
 
 function scheduleRetry(job: ChatImageJob): void {
   const key = inFlightKey(job);
+  if (job.retry_reason === "network_offline") {
+    scheduleChatOutboxNetworkRetry(
+      networkRetryKey(job),
+      () => {
+        void runJob({
+          ...job,
+          state: "queued",
+          retry_reason: undefined,
+          next_attempt_at: undefined,
+          last_error: undefined,
+        });
+      },
+      job.next_attempt_at,
+    );
+    return;
+  }
   if (retryTimers.has(key) || job.attempt_count >= maximumAutomaticAttempts) return;
   const scheduledTime = job.next_attempt_at ? Date.parse(job.next_attempt_at) : Date.now();
   const delay = Math.max(0, Number.isFinite(scheduledTime) ? scheduledTime - Date.now() : 0);
@@ -445,16 +484,35 @@ function scheduleRetry(job: ChatImageJob): void {
     key,
     setTimeout(() => {
       retryTimers.delete(key);
-      void runJob({ ...job, state: "queued" });
+      void runJob({
+        ...job,
+        state: "queued",
+        retry_reason: undefined,
+        next_attempt_at: undefined,
+        last_error: undefined,
+      });
     }, delay),
   );
 }
 
 function clearRetryTimer(job: ChatImageJob): void {
   const key = inFlightKey(job);
+  cancelChatOutboxNetworkRetry(networkRetryKey(job));
   const timer = retryTimers.get(key);
   if (timer) clearTimeout(timer);
   retryTimers.delete(key);
+}
+
+async function waitForNetwork(job: ChatImageJob): Promise<void> {
+  const waiting = {
+    ...job,
+    state: "retry_waiting" as const,
+    retry_reason: "network_offline" as const,
+    next_attempt_at: new Date(Date.now() + chatOutboxNetworkRetryDelayMilliseconds).toISOString(),
+    last_error: undefined,
+  };
+  await saveAndEmit(waiting);
+  scheduleRetry(waiting);
 }
 
 async function saveAndEmit(job: ChatImageJob): Promise<void> {
@@ -524,6 +582,10 @@ function jobDirectory(job: Pick<ChatImageJob, "owner_id" | "id">): Directory {
 
 function inFlightKey(job: Pick<ChatImageJob, "owner_id" | "id">): string {
   return `${job.owner_id}:${job.id}`;
+}
+
+function networkRetryKey(job: Pick<ChatImageJob, "owner_id" | "id">): string {
+  return `chat-image:${inFlightKey(job)}`;
 }
 
 function safeFilename(value: string): string {

@@ -62,29 +62,41 @@ describe("group chat lifecycle and state source parity", () => {
     expect(source).toContain("releaseActiveConversation()");
     expect(source).toContain('dismissActiveConversationNotifications("group", String(groupId))');
     expect(source).toContain("message.mentions?.includes(ownerId) || message.mention_all");
-    expect(source).toMatch(/screenActiveRef\.current\s*&&\s*isNearBottomRef\.current/u);
-    expect(source.match(/screenActiveRef\.current\s*&&\s*isNearBottomRef\.current/gu)).toHaveLength(
-      3,
+    const visibleReadGuards = source.match(
+      /screenActiveRef\.current\s*&&\s*AppState\.currentState === "active"\s*&&\s*isNearBottomRef\.current/gu,
     );
+    expect(visibleReadGuards).toHaveLength(3);
     expect(source).toContain('readChatDraftSnapshot(ownerId, String(groupId), "group")');
     expect(source).toContain("activeSessionRef.current !== expectedSession");
     expect(source).toContain('state === "active" && previousState !== "active"');
     expect(source).toContain('resumeChatImageUploads(ownerId, "group", String(groupId))');
     expect(source).toContain('resumeChatVideoUploads(ownerId, "group", String(groupId))');
+    const appStateStart = source.indexOf('AppState.addEventListener("change"');
+    const appStateEnd = source.indexOf("return () => subscription.remove();", appStateStart);
+    expect(source.slice(appStateStart, appStateEnd)).not.toContain("void load(");
   });
 
-  it("persists text/sticker before transport and retains mention/reply/client identity", () => {
+  it("persists text/sticker/voice before transport and retains mention/reply/client identity", () => {
     for (const fact of [
       "createGroupChatOutboxJob(jobInput)",
       "saveGroupChatOutboxJob(sendingJob)",
       "removeGroupChatOutboxJob(sendingJob.owner_id, sendingJob.id)",
-      "clientMessageId: sendingJob.id",
+      "clientMessageId: sendingJob.client_message_id",
       "mentions: sendingJob.mentions ?? []",
       "mentionAll: sendingJob.mention_all",
       "replyToId: sendingJob.reply_to_id",
+      "requireAvailableChatVoiceUpload(sendingJob.voice)",
       "scheduleGroupOutboxJob(failed, expectedSession)",
     ])
       expect(source).toContain(fact);
+    const networkGate = source.indexOf("if (await isChatOutboxDefinitelyOffline())");
+    expect(networkGate).toBeGreaterThan(0);
+    expect(networkGate).toBeLessThan(source.indexOf("await sendGroupTextMessage", networkGate));
+    expect(source).toContain("groupChatOutboxOfflineWait(input)");
+    expect(source).toContain('job.retry_reason === "network_offline"');
+    expect(source).toContain("scheduleChatOutboxNetworkRetry(");
+    expect(source).toContain("cancelChatOutboxNetworkRetry(key)");
+    expect(source).toContain("queuedGroupChatOutboxJob(job)");
   });
 
   it("keeps an A retry alive across A→B→A and invalidates every callback on real unmount", () => {
@@ -93,6 +105,10 @@ describe("group chat lifecycle and state source parity", () => {
     expect(source).toContain("const outboxTimers = outboxTimersRef.current");
     expect(source).toContain("for (const timer of outboxTimers.values()) clearTimeout(timer)");
     expect(source).toContain("outboxTimers.clear()");
+    expect(source).toContain("const outboxNetworkRetryKeys = outboxNetworkRetryKeysRef.current");
+    expect(source).toContain(
+      "for (const key of outboxNetworkRetryKeys) cancelChatOutboxNetworkRetry(key)",
+    );
   });
 
   it("keeps media confirmations owner-global so switching groups cannot lose a completed upload", () => {

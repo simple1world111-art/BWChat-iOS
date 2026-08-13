@@ -6,7 +6,11 @@ const { withDangerousMod, withXcodeProject } = require("expo/config-plugins");
 const TARGET_NAME = "BWChatNotificationService";
 const SOURCE_FILE = "NotificationService.swift";
 
-function notificationServiceInfoPlist(apiBaseUrl) {
+function notificationServiceInfoPlist(apiBaseUrl, assetBaseUrls = []) {
+  const allowedAssetHosts = notificationAssetHosts(apiBaseUrl, assetBaseUrls);
+  const allowedAssetHostsPlist = allowedAssetHosts
+    .map((host) => `    <string>${escapeXml(host)}</string>`)
+    .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -21,8 +25,10 @@ function notificationServiceInfoPlist(apiBaseUrl) {
   <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
   <key>BWChatAPIBaseURL</key><string>${escapeXml(apiBaseUrl)}</string>
-  <key>NSAppTransportSecurity</key>
-  <dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+  <key>BWChatAllowedAssetHosts</key>
+  <array>
+${allowedAssetHostsPlist}
+  </array>
   <key>NSExtension</key>
   <dict>
     <key>NSExtensionAttributes</key>
@@ -116,7 +122,7 @@ function withNotificationServiceFiles(config, options) {
       fs.copyFileSync(source, path.join(destination, SOURCE_FILE));
       fs.writeFileSync(
         path.join(destination, `${TARGET_NAME}-Info.plist`),
-        notificationServiceInfoPlist(options.apiBaseUrl),
+        notificationServiceInfoPlist(options.apiBaseUrl, options.assetBaseUrls),
       );
       fs.writeFileSync(
         path.join(destination, `${TARGET_NAME}.entitlements`),
@@ -130,6 +136,7 @@ function withNotificationServiceFiles(config, options) {
 function withNotificationService(config, rawOptions = {}) {
   const options = {
     apiBaseUrl: rawOptions.apiBaseUrl,
+    assetBaseUrls: rawOptions.assetBaseUrls ?? [],
     appleTeamId: rawOptions.appleTeamId,
     buildNumber: rawOptions.buildNumber ?? "1",
     bundleIdentifier: rawOptions.bundleIdentifier,
@@ -139,11 +146,33 @@ function withNotificationService(config, rawOptions = {}) {
   for (const key of ["apiBaseUrl", "appleTeamId", "bundleIdentifier"]) {
     if (!options[key]) throw new Error(`with-notification-service requires ${key}`);
   }
+  if (!Array.isArray(options.assetBaseUrls)) {
+    throw new Error("with-notification-service assetBaseUrls must be an array");
+  }
   config = withNotificationServiceFiles(config, options);
   return withXcodeProject(config, (mod) => {
     mod.modResults = ensureNotificationServiceTarget(mod.modResults, options);
     return mod;
   });
+}
+
+function notificationAssetHosts(apiBaseUrl, assetBaseUrls = []) {
+  const hosts = [apiBaseUrl, ...assetBaseUrls].map((value) => {
+    let url;
+    try {
+      url = new URL(String(value));
+    } catch {
+      throw new Error(`Notification asset base URL must be absolute; received: ${value}`);
+    }
+    if (!["http:", "https:"].includes(url.protocol) || !url.hostname) {
+      throw new Error(`Notification asset base URL must use HTTP(S); received: ${value}`);
+    }
+    if (url.username || url.password) {
+      throw new Error(`Notification asset base URL must not contain credentials: ${value}`);
+    }
+    return url.hostname.toLowerCase();
+  });
+  return [...new Set(hosts)];
 }
 
 function escapeXml(value) {
@@ -159,3 +188,4 @@ module.exports = withNotificationService;
 module.exports.ensureNotificationServiceTarget = ensureNotificationServiceTarget;
 module.exports.notificationServiceEntitlements = notificationServiceEntitlements;
 module.exports.notificationServiceInfoPlist = notificationServiceInfoPlist;
+module.exports.notificationAssetHosts = notificationAssetHosts;

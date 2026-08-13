@@ -1,20 +1,14 @@
-import type { User, WalletBalanceSnapshot, WalletTransaction, WalletWithdrawal } from "@/models";
+import type { User, WalletBalanceSnapshot, WalletTransaction } from "@/models";
 import type { CatalogLanguage } from "@/localization/catalogs";
 
 export type WalletVisualAcceptanceVariant =
   | "wallet-coins"
   | "wallet-coins-compact"
-  | "wallet-earnings"
-  | "wallet-earnings-compact"
   | "wallet-transactions"
   | "wallet-transactions-rows"
   | "wallet-transactions-expense-rows"
   | "wallet-transactions-error"
-  | "wallet-transactions-loading"
-  | "wallet-withdrawals"
-  | "wallet-withdrawals-rows"
-  | "wallet-withdrawals-error"
-  | "wallet-withdrawals-loading";
+  | "wallet-transactions-loading";
 
 export type AuthVisualAcceptanceVariant = "auth-login" | "auth-register";
 
@@ -34,17 +28,11 @@ export const walletVisualAcceptanceVariant: WalletVisualAcceptanceVariant | unde
   __DEV__ &&
   (requestedVariant === "wallet-coins" ||
     requestedVariant === "wallet-coins-compact" ||
-    requestedVariant === "wallet-earnings" ||
-    requestedVariant === "wallet-earnings-compact" ||
     requestedVariant === "wallet-transactions" ||
     requestedVariant === "wallet-transactions-rows" ||
     requestedVariant === "wallet-transactions-expense-rows" ||
     requestedVariant === "wallet-transactions-error" ||
-    requestedVariant === "wallet-transactions-loading" ||
-    requestedVariant === "wallet-withdrawals" ||
-    requestedVariant === "wallet-withdrawals-rows" ||
-    requestedVariant === "wallet-withdrawals-error" ||
-    requestedVariant === "wallet-withdrawals-loading")
+    requestedVariant === "wallet-transactions-loading")
     ? requestedVariant
     : undefined;
 
@@ -105,10 +93,6 @@ export const walletVisualAcceptanceBalance: WalletBalanceSnapshot = {
   gold_coin_balance: 85,
   activity_cat_food_balance: 20,
   spendable_balance: 105,
-  recharge_gold_coin_balance: 50,
-  gift_income_gold_coin_balance: 35,
-  withdraw_frozen_gold_coin_balance: 0,
-  withdrawable_gold_coin_balance: 35,
   chat_money_frozen_gold_coin_balance: 0,
 };
 
@@ -161,62 +145,7 @@ export const walletVisualAcceptanceTransactions: readonly WalletTransaction[] = 
   },
 ] as const;
 
-export const walletVisualAcceptanceWithdrawals: readonly WalletWithdrawal[] = [
-  {
-    id: "wd-pending",
-    currency: "gold_coin",
-    gold_coin_amount: 100,
-    payout_usd: 0.5,
-    network: "TRC20",
-    wallet_address: "TQx3w8Yv9K2mN6pR4sUaBcDeFgHiJkLm",
-    status: "pending",
-    can_cancel: true,
-    created_at: "2026-08-07T09:40:00Z",
-  },
-  {
-    id: "wd-processing",
-    currency: "gold_coin",
-    gold_coin_amount: 200,
-    payout_usd: 1,
-    network: "ERC20",
-    wallet_address: "0x1234567890abcdef1234567890abcdef",
-    status: "processing",
-    can_cancel: false,
-    created_at: "2026-08-06T02:20:00Z",
-  },
-  {
-    id: "wd-completed",
-    currency: "gold_coin",
-    gold_coin_amount: 300,
-    payout_usd: 1.5,
-    payout_account: "BEP20:0xabcdef1234567890abcdef1234567890",
-    status: "completed",
-    can_cancel: false,
-    note: "链上已确认",
-    created_at: "2026-08-05T14:15:00Z",
-  },
-  {
-    id: "wd-rejected",
-    currency: "gold_coin",
-    gold_coin_amount: 400,
-    payout_cents: 200,
-    provider: "manual",
-    status: "rejected",
-    can_cancel: false,
-    note: "地址无效",
-    created_at: "2026-08-04T04:05:00Z",
-  },
-] as const;
-
 export const walletVisualAcceptanceRemoteConfig = {
-  minimum_withdrawal_usdt: 0.5,
-  withdrawal_step_usdt: 0.5,
-  usdt_per_gold_coin: 0.005,
-  withdrawal_networks: [
-    { network: "TRC20", enabled: true },
-    { network: "ERC20", enabled: true },
-    { network: "BEP20", enabled: true },
-  ],
   ad_reward_enabled: true,
   ad_reward: { reward_item: "gold_coin" },
 } as const;

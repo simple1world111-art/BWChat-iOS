@@ -182,6 +182,11 @@ function isStoredGroupMessage(value: unknown): value is GroupMessage {
 }
 
 function compareMessages(left: GroupMessage, right: GroupMessage): number {
+  const leftSequence = left.history_sequence ?? (left.id > 0 ? left.id : undefined);
+  const rightSequence = right.history_sequence ?? (right.id > 0 ? right.id : undefined);
+  if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
   const timeDifference = timestampValue(left.timestamp) - timestampValue(right.timestamp);
   return timeDifference !== 0 ? timeDifference : left.id - right.id;
 }

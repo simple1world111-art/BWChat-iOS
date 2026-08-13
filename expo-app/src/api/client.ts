@@ -12,6 +12,7 @@ export class APIError extends Error {
     readonly status: number,
     readonly payload?: unknown,
     readonly code?: string | number,
+    readonly retryAfterMilliseconds?: number,
   ) {
     super(message);
     this.name = "APIError";
@@ -31,6 +32,7 @@ type RequestOptions = Omit<RequestInit, "body"> & {
 };
 
 type AuthenticatedResourceOptions = Omit<RequestInit, "body" | "method"> & {
+  auth?: boolean;
   timeoutMs?: number;
   refreshAuth?: boolean;
   transientRetries?: boolean;
@@ -76,7 +78,7 @@ export async function authenticatedResourceRequest(
   options: AuthenticatedResourceOptions = {},
 ): Promise<Response> {
   const requestUrl = makeResourceURL(resource);
-  const authenticated = isSameOrigin(requestUrl, env.apiBaseUrl);
+  const authenticated = options.auth ?? isSameOrigin(requestUrl, env.apiBaseUrl);
   return executeResource(requestUrl, options, {
     authenticated,
     canRefresh: authenticated && options.refreshAuth !== false,
@@ -157,6 +159,7 @@ async function executeResource(
         response.status,
         payload,
         apiResponseCode(payload),
+        responseRetryAfterMilliseconds(response),
       );
     }
 
@@ -182,6 +185,7 @@ async function executeResource(
 
 function nativeAuthenticatedResourceInit(options: AuthenticatedResourceOptions): RequestInit {
   const result = { ...options } as Record<string, unknown>;
+  delete result.auth;
   delete result.timeoutMs;
   delete result.refreshAuth;
   delete result.transientRetries;
@@ -266,6 +270,7 @@ async function execute<T>(
         response.status,
         payload,
         apiResponseCode(payload),
+        responseRetryAfterMilliseconds(response),
       );
     }
 
@@ -504,9 +509,26 @@ function apiResponseCode(payload: unknown): string | number | undefined {
 }
 
 function retryDelay(response: Response, attempt: number): number {
-  const retryAfter = Number(response.headers.get("Retry-After"));
-  if (Number.isFinite(retryAfter) && retryAfter >= 0) return Math.min(retryAfter * 1_000, 2_000);
+  const retryAfter = responseRetryAfterMilliseconds(response);
+  if (retryAfter !== undefined) return Math.min(retryAfter, 2_000);
   return transientDelays[attempt] ?? 900;
+}
+
+export function parseRetryAfterMilliseconds(
+  value: string | null,
+  now = Date.now(),
+): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  const seconds = Number(normalized);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1_000, 5 * 60_000);
+  const date = Date.parse(normalized);
+  if (!Number.isFinite(date)) return undefined;
+  return Math.min(Math.max(0, date - now), 5 * 60_000);
+}
+
+function responseRetryAfterMilliseconds(response: Response): number | undefined {
+  return parseRetryAfterMilliseconds(response.headers.get("Retry-After"));
 }
 
 function delay(milliseconds: number): Promise<void> {

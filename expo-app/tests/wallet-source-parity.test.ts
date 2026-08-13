@@ -2,28 +2,24 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const originalRoot = "/Users/wegpt.com/Desktop/BWChat-iOS/BWChat";
+const originalRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const copiedRoot = "/Users/wegpt.com/Desktop/BWChat-Expo-HotUpdate/BWChat";
 const expoRoot = resolve(__dirname, "..");
 
-describe("locked Swift to Expo wallet source parity", () => {
-  it("locks matching untouched original and desktop-copy wallet fact sources", () => {
-    const sources: Readonly<Record<string, string>> = {
-      "Views/WalletView.swift": "4d8208be25e0bdc19b0fd7631b50c23d78c43e796e91686653e5e21f80f70920",
-      "Services/WalletStore.swift":
-        "cbc20644b9619fd707cf3372265af42e13528f5dcc2d3924455351af66b3cbe6",
-      "Services/APIService.swift":
-        "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
-      "Services/CacheRepository.swift":
-        "530f9734eeb9fdc8aeafc3e5430d5eae876754462372bb3c05c9b830526f0b66",
-      "Models/Gift.swift": "62961899ae81d7d7f16438fbd61a42ca44f6b2eb21227bd21b7b51f5f6b28fd1",
-      "Models/DynamicConfigModels.swift":
-        "8a09512ab3e119ac63499fae8aafd0f69c6d1dbc6489d97979bc7c29e3726803",
-    };
-    for (const [file, expected] of Object.entries(sources)) {
-      expect(hash(readFileSync(resolve(originalRoot, file)))).toBe(expected);
-      expect(hash(readFileSync(resolve(copiedRoot, file)))).toBe(expected);
-    }
+describe("wallet source parity", () => {
+  it("removes the native Gold Coin to USDT withdrawal implementation", () => {
+    const sources = [
+      "Views/WalletView.swift",
+      "Services/WalletStore.swift",
+      "Services/APIService.swift",
+      "Services/CacheRepository.swift",
+      "Models/Gift.swift",
+      "Models/DynamicConfigModels.swift",
+    ].map((file) => readFileSync(resolve(copiedRoot, file), "utf8"));
+    const nativeWallet = sources.join("\n");
+    expect(nativeWallet).not.toMatch(
+      /WalletWithdrawal|withdrawableGoldCoin|withdrawFrozen|USDT|\/wallet\/withdrawals/,
+    );
   });
 
   it("keeps all four wallet images byte-for-byte identical across both Swift trees and Expo", () => {
@@ -51,7 +47,7 @@ describe("locked Swift to Expo wallet source parity", () => {
     expect(registry).toContain("walletGoldCoinBadge:");
   });
 
-  it("keeps the complete balance, transaction, activity, withdrawal, ad and IAP route family", () => {
+  it("keeps the balance, transaction, activity, ad and IAP route family without USDT withdrawal APIs", () => {
     const api = expo("src/api/bwchat.ts");
     const walletApi = api.slice(
       api.indexOf("export async function getWalletBalance"),
@@ -61,8 +57,6 @@ describe("locked Swift to Expo wallet source parity", () => {
       '"/wallet/balance"',
       "`/wallet/transactions?${query.toString()}`",
       "`/wallet/activity-cat-food/transactions?${query.toString()}`",
-      '"/wallet/withdrawals"',
-      "`/wallet/withdrawals/${encodeURIComponent(id)}/cancel`",
       '"/wallet/ad-rewards/status"',
       '"/wallet/ad-rewards/sessions"',
       '"/wallet/ios-iap/confirm"',
@@ -73,7 +67,8 @@ describe("locked Swift to Expo wallet source parity", () => {
     expect(api).toContain("limit: String(Math.min(Math.max(options.limit ?? 20, 1), 50))");
     expect(api).toContain('reward_item: "gold_coin"');
     expect(api).toContain("signed_transaction_info: input.signedPayload");
-    expect(api).toContain('payout_method: "usdt"');
+    expect(api).not.toContain('"/wallet/withdrawals"');
+    expect(api).not.toContain('payout_method: "usdt"');
     expect(walletApi).not.toContain("requiredSuccessCode: true");
   });
 
@@ -84,7 +79,6 @@ describe("locked Swift to Expo wallet source parity", () => {
     expect(policy).toContain("balanceCacheTtlMs: 30_000");
     expect(policy).toContain("listCacheTtlMs: 120_000");
     expect(policy).toContain("staleRetentionMs: 30 * 24 * 60 * 60 * 1_000");
-    expect(policy).toContain("maxCachedWithdrawals: 500");
     expect(repository).toContain("Date.now() - envelope.savedAt < ttlMs");
     expect(repository).toContain("ttlMs + walletMetrics.staleRetentionMs");
     expect(repository).toContain("inFlightLoads");
@@ -92,27 +86,23 @@ describe("locked Swift to Expo wallet source parity", () => {
     expect(repository).toContain("void refreshTransactionCache(ownerId, cached.value, guard)");
     expect(provider).toContain("readCachedWalletBalance(ownerId)");
     expect(provider).toContain("requestedCursors.current.has(nextCursor)");
-    expect(provider).toContain("validateWithdrawalInput(input, balance, runtime, t)");
-    expect(provider).toContain("await Promise.all([refreshBalance(), refreshWithdrawals()])");
+    expect(provider).not.toContain("requestWithdrawal");
   });
 
-  it("preserves current-versus-background StoreKit delivery and all three wallet screens", () => {
+  it("preserves current-versus-background StoreKit delivery and the remaining wallet screens", () => {
     const purchase = expo("src/services/wallet/useWalletPurchases.ts");
     expect(purchase).toContain("expectedProduct.current === purchase.productId");
     expect(purchase).toContain("await isTransactionVerifiedIOS(purchase.productId)");
     expect(purchase).toContain("await refreshBalance(true)");
     expect(purchase).toContain("await finishTransaction({ purchase, isConsumable: true })");
     expect(purchase).toContain("if (presentsOutcome)");
-    for (const route of [
-      "src/app/wallet.tsx",
-      "src/app/wallet-transactions.tsx",
-      "src/app/wallet-withdrawals.tsx",
-    ]) {
+    for (const route of ["src/app/wallet.tsx", "src/app/wallet-transactions.tsx"]) {
       expect(existsSync(resolve(expoRoot, route))).toBe(true);
     }
     expect(expo("src/app/wallet-transactions.tsx")).toContain(
       "if (!error && !loading) void retry()",
     );
+    expect(existsSync(resolve(expoRoot, "src/app/wallet-withdrawals.tsx"))).toBe(false);
   });
 });
 

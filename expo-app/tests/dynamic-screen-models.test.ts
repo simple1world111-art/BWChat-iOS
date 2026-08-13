@@ -2,6 +2,8 @@ import {
   displayDynamicScreenTitle,
   dynamicInteger,
   isLegalDynamicScreenComplete,
+  legalDocumentKind,
+  legalDocumentLocaleMatches,
   localizedDynamicProp,
   parseLegalDocumentWire,
   parseDynamicScreen,
@@ -172,6 +174,9 @@ describe("dynamic screen native protocol", () => {
     ).toEqual({
       screenId: "privacy_policy",
       configVersion: "2026-08-12.1",
+      documentVersion: "2026-08-12.1",
+      effectiveAt: "2026-08-12T00:00:00Z",
+      locale: "zh-Hans",
       title: "隐私政策",
       components: [
         {
@@ -191,6 +196,9 @@ describe("dynamic screen native protocol", () => {
     expect(
       parseLegalDocumentWire({
         screen_id: "privacy_policy",
+        document_version: "2026-08-12.1",
+        effective_at: "2026-08-12T00:00:00Z",
+        locale: "en",
         title: "Privacy",
         body: "Complete legal body",
         support_email: "wrong-top@example.com",
@@ -200,6 +208,9 @@ describe("dynamic screen native protocol", () => {
     expect(
       parseLegalDocumentWire({
         screen_id: "privacy_policy",
+        document_version: "2026-08-12.1",
+        effective_at: "2026-08-12T00:00:00Z",
+        locale: "en",
         title: "Privacy",
         body: "Complete legal body",
         support: { support_email: "wrong@example.com" },
@@ -210,17 +221,132 @@ describe("dynamic screen native protocol", () => {
   it("rejects only incomplete compliance documents without changing ordinary SDUI", () => {
     const placeholder = parseLegalDocumentWire({
       screen_id: "privacy_policy",
+      document_version: "2026-08-12.1",
+      effective_at: "2026-08-12T00:00:00Z",
+      locale: "zh-Hans",
       title: "隐私政策",
       body: "仅处理提供服务所必需的数据。",
     })!;
     const complete = parseLegalDocumentWire({
       screen_id: "privacy_policy",
+      document_version: "2026-08-12.1",
+      effective_at: "2026-08-12T00:00:00Z",
+      locale: "zh-Hans",
       title: "隐私政策",
-      body: "完整隐私正文。".repeat(150),
+      body: "完整隐私正文。".repeat(200),
     })!;
 
     expect(isLegalDynamicScreenComplete("privacy_policy", placeholder, "zh-Hans")).toBe(false);
     expect(isLegalDynamicScreenComplete("privacy_policy", complete, "zh-Hans")).toBe(true);
     expect(isLegalDynamicScreenComplete("daily_rewards", placeholder, "zh-Hans")).toBe(true);
+  });
+
+  it("recognizes canonical, versioned, and configured legal document IDs", () => {
+    expect(legalDocumentKind("privacy_policy_v2")).toBe("privacy_policy");
+    expect(legalDocumentKind("legal-wallet-terms-v3")).toBe("wallet_terms");
+    expect(legalDocumentKind("privacy-center-2026", { privacyPolicy: "privacy-center-2026" })).toBe(
+      "privacy_policy",
+    );
+    expect(legalDocumentKind("daily_rewards")).toBeNull();
+  });
+
+  it("requires legal metadata, exact response IDs, and the active locale", () => {
+    const completeWallet = parseLegalDocumentWire({
+      screen_id: "legal_wallet_terms_v2",
+      document_version: "2026-08-13.1",
+      effective_at: "2026-08-13T00:00:00Z",
+      locale: "pt_BR",
+      title: "BBchat",
+      body: "Complete wallet terms. ".repeat(60),
+    })!;
+
+    expect(legalDocumentLocaleMatches("pt_BR", "pt-BR")).toBe(true);
+    expect(
+      isLegalDynamicScreenComplete(
+        "legal_wallet_terms_v2",
+        completeWallet,
+        "pt-BR",
+        "wallet_terms",
+      ),
+    ).toBe(true);
+    expect(
+      isLegalDynamicScreenComplete("wallet_terms_v2", completeWallet, "pt-BR", "wallet_terms"),
+    ).toBe(false);
+    expect(
+      isLegalDynamicScreenComplete(
+        "legal-wallet-terms-v2",
+        completeWallet,
+        "pt-BR",
+        "wallet_terms",
+      ),
+    ).toBe(false);
+    expect(
+      isLegalDynamicScreenComplete("legal_wallet_terms_v2", completeWallet, "en", "wallet_terms"),
+    ).toBe(false);
+    expect(
+      parseLegalDocumentWire({
+        screen_id: "wallet_terms",
+        title: "BBchat Recharge Agreement",
+        body: "Body",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects the retired wallet brand in visible remote titles or bodies only", () => {
+    const base = {
+      screenId: "wallet_terms",
+      documentVersion: "2026-08-13.1",
+      effectiveAt: "2026-08-13T00:00:00Z",
+      locale: "en",
+      title: "BBchat Recharge Agreement",
+      components: [
+        {
+          id: "body",
+          type: "text",
+          props: { text: "BBchat Gold Coins and Apple StoreKit terms. ".repeat(40) },
+        },
+      ],
+    };
+
+    expect(isLegalDynamicScreenComplete("wallet_terms", base, "en")).toBe(true);
+    expect(
+      isLegalDynamicScreenComplete(
+        "wallet_terms",
+        { ...base, title: "Cat-Box Recharge Agreement" },
+        "en",
+      ),
+    ).toBe(false);
+    expect(
+      isLegalDynamicScreenComplete(
+        "wallet_terms",
+        {
+          ...base,
+          components: [
+            {
+              id: "body",
+              type: "text",
+              props: { text: "猫箱充值协议。".repeat(200) },
+            },
+          ],
+        },
+        "en",
+      ),
+    ).toBe(false);
+    expect(
+      isLegalDynamicScreenComplete(
+        "wallet_terms",
+        {
+          ...base,
+          components: [
+            {
+              id: "body",
+              type: "text",
+              props: { text: "Promotional Cat Food is not purchased Gold Coins. ".repeat(30) },
+            },
+          ],
+        },
+        "en",
+      ),
+    ).toBe(true);
   });
 });

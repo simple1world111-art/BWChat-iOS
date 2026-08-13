@@ -119,6 +119,41 @@ describe("native chat voice contracts", () => {
     expect(form.has("receiver_id")).toBe(false);
     expect(form.has("client_message_id")).toBe(false);
   });
+
+  it("makes a retried voice upload idempotent when the caller supplies its outbox identity", async () => {
+    request.mockResolvedValueOnce({
+      id: 23,
+      sender_id: "me",
+      receiver_id: "friend",
+      msg_type: "voice",
+      content: "/voice/direct.m4a|4.2",
+    });
+    await sendDirectVoiceMessage("friend", voiceInput(4.24), "voice-job-23");
+    expect(request).toHaveBeenCalledWith(
+      "/chat/messages/voice",
+      expect.objectContaining({ headers: { "Idempotency-Key": "voice-job-23" } }),
+    );
+    const form = request.mock.calls[0]?.[1]?.body as FormData;
+    expect(form.get("client_message_id")).toBe("voice-job-23");
+  });
+
+  it("uses the same optional outbox identity for a retried group voice upload", async () => {
+    request.mockResolvedValueOnce({
+      id: 24,
+      group_id: 31,
+      sender_id: "me",
+      msg_type: "voice",
+      content: "/voice/group.m4a|7.8",
+    });
+    await sendGroupVoiceMessage(31, voiceInput(7.84), "group-voice-job-24");
+    expect(request).toHaveBeenCalledWith(
+      "/groups/31/messages/voice",
+      expect.objectContaining({ headers: { "Idempotency-Key": "group-voice-job-24" } }),
+    );
+    const form = request.mock.calls[0]?.[1]?.body as FormData;
+    expect(form.get("client_message_id")).toBe("group-voice-job-24");
+    expect(form.has("receiver_id")).toBe(false);
+  });
 });
 
 function voiceInput(duration: number) {

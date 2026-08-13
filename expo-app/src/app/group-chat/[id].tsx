@@ -5,6 +5,7 @@ import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   AppState,
   FlatList,
   Keyboard,
@@ -64,7 +65,10 @@ import { ChatStickerBubble } from "@/components/messages/ChatStickerBubble";
 import {
   ChatComposerPanelHost,
   ChatComposerPanelToggleButton,
+  chatComposerRestingInset,
   ChatComposerSurfaceBackground,
+  ChatComposerTextInput,
+  useChatComposerMicrophoneTransition,
 } from "@/components/messages/ChatComposerSurface";
 import { chatComposerInputHeight } from "@/components/messages/ChatComposerInputHeight";
 import { ChatStickerPanel } from "@/components/messages/ChatStickerPanel";
@@ -108,6 +112,10 @@ import { conversationEventSender } from "@/services/conversations/ConversationLi
 import { markConversationRead } from "@/services/conversations/ConversationReadService";
 import { dismissActiveConversationNotifications } from "@/services/push/PushService";
 import { publishGroupConversationPreviewUpdate } from "@/services/conversations/ConversationRepository";
+import {
+  conversationSyncCoordinator,
+  conversationSyncRequestTargets,
+} from "@/services/conversations/ConversationSyncCoordinator";
 import {
   groupDetailGeneration,
   loadCachedGroupDetail,
@@ -156,6 +164,7 @@ import { reconcileChatMessageContext } from "@/services/messages/ChatMessageReco
 import {
   createGroupChatOutboxJob,
   groupChatOutboxFailure,
+  groupChatOutboxOfflineWait,
   groupOptimisticOutboxMessage,
   queuedGroupChatOutboxJob,
   readGroupChatOutboxJob,
@@ -166,6 +175,11 @@ import {
   type GroupChatOutboxJob,
 } from "@/services/messages/GroupChatOutboxRepository";
 import {
+  cancelChatOutboxNetworkRetry,
+  isChatOutboxDefinitelyOffline,
+  scheduleChatOutboxNetworkRetry,
+} from "@/services/messages/ChatOutboxNetwork";
+import {
   filterClearedGroupMessages,
   readGroupHistoryClearWatermark,
   subscribeGroupHistoryClear,
@@ -174,6 +188,10 @@ import { subscribeGroupMessageLocation } from "@/services/messages/GroupMessageL
 import { pickChatMedia } from "@/services/native/NativeCapabilities";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import { parseChatVoiceContent } from "@/services/messages/chatVoicePolicy";
+import {
+  chatVoiceOutboxDefaultMimeType,
+  requireAvailableChatVoiceUpload,
+} from "@/services/messages/ChatVoiceOutboxPayload";
 import {
   completeGiftIdempotency,
   encodeGiftMessagePayload,
@@ -327,6 +345,8 @@ export default function GroupChatScreen() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const messagesRef = useRef<GroupMessage[]>([]);
   const listRef = useRef<FlatList<TimelineRow>>(null);
+  const timelineTouchDraggedRef = useRef(false);
+  const timelineTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const hiddenMessageIdsRef = useRef<Set<number>>(new Set());
   const hasMoreRef = useRef(false);
   const loadingMoreRef = useRef(false);
@@ -338,6 +358,7 @@ export default function GroupChatScreen() {
   const activeSessionRef = useRef(sessionKey);
   const syncAttemptRef = useRef(0);
   const outboxTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const outboxNetworkRetryKeysRef = useRef(new Set<string>());
   const outboxInFlightRef = useRef(new Set<string>());
   const menuActionInFlightRef = useRef(false);
   const backfillInFlightRef = useRef(new Set<string>());
@@ -364,6 +385,7 @@ export default function GroupChatScreen() {
     hiddenMessageIdsRef.current = new Set();
     hasMoreRef.current = false;
     loadingMoreRef.current = false;
+    isNearBottomRef.current = true;
     screenActiveRef.current = false;
     initialPushMessageHandledRef.current = null;
     messageReconciliationFlightsRef.current.clear();
@@ -415,6 +437,16 @@ export default function GroupChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialMemberCount, params.id, params.name, sessionKey]);
 
+  useLayoutEffect(() => {
+    const target = Number(params.messageId);
+    if (!Number.isSafeInteger(target) || target <= 0) return;
+    const latest = Number(params.latestMessageId);
+    const targetsNewest = Number.isSafeInteger(latest) && latest > 0 && target === latest;
+    isNearBottomRef.current = targetsNewest;
+    const frame = requestAnimationFrame(() => setIsNearBottom(targetsNewest));
+    return () => cancelAnimationFrame(frame);
+  }, [params.latestMessageId, params.messageId]);
+
   useEffect(() => {
     const previousFallback = groupFallbackTitleRef.current;
     const nextFallback = `${t("group.name.title")} ${params.id}`;
@@ -432,11 +464,14 @@ export default function GroupChatScreen() {
     // timers; returning A→B→A must not silently pause an already scheduled job.
     activeSessionRef.current = sessionKey;
     const outboxTimers = outboxTimersRef.current;
+    const outboxNetworkRetryKeys = outboxNetworkRetryKeysRef.current;
     return () => {
       activeSessionRef.current = "";
       syncAttemptRef.current += 1;
       for (const timer of outboxTimers.values()) clearTimeout(timer);
       outboxTimers.clear();
+      for (const key of outboxNetworkRetryKeys) cancelChatOutboxNetworkRetry(key);
+      outboxNetworkRetryKeys.clear();
     };
     // Session changes are handled by the pre-paint reset above. This effect is
     // deliberately mount-scoped so its cleanup represents a real unmount only.
@@ -528,7 +563,12 @@ export default function GroupChatScreen() {
       setError(null);
       for (const job of pendingJobs) scheduleGroupOutboxJob(job, expectedSession);
       const cachedReadThrough = maximumServerMessageId(cachedVisible);
-      if (cachedReadThrough !== undefined && screenActiveRef.current && isNearBottomRef.current)
+      if (
+        cachedReadThrough !== undefined &&
+        screenActiveRef.current &&
+        AppState.currentState === "active" &&
+        isNearBottomRef.current
+      )
         void markConversationRead(ownerId, "group", String(groupId), cachedReadThrough);
 
       const fetched: GroupMessage[] = [];
@@ -594,7 +634,12 @@ export default function GroupChatScreen() {
       setMessages(merged);
       const readThrough =
         maximumServerMessageId(serverVisible) ?? maximumServerMessageId(cachedVisible);
-      if (readThrough !== undefined && screenActiveRef.current && isNearBottomRef.current)
+      if (
+        readThrough !== undefined &&
+        screenActiveRef.current &&
+        AppState.currentState === "active" &&
+        isNearBottomRef.current
+      )
         void markConversationRead(ownerId, "group", String(groupId), readThrough);
 
       if (!wasBackfilled) {
@@ -673,11 +718,27 @@ export default function GroupChatScreen() {
 
   useEffect(() => {
     if (!ownerId || groupId <= 0) return;
+    return conversationSyncCoordinator.subscribe(ownerId, (request) => {
+      if (
+        !screenActiveRef.current ||
+        !conversationSyncRequestTargets(request, "group", String(groupId))
+      ) {
+        return;
+      }
+      return load();
+    });
+  }, [groupId, load, ownerId]);
+
+  useEffect(() => {
+    if (!ownerId || groupId <= 0) return;
     const expectedSession = sessionKey;
     let active = true;
     const applyRealtimeMessage = async (message: GroupMessage) => {
       const shouldReadImmediately =
-        message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current;
+        message.sender_id !== ownerId &&
+        screenActiveRef.current &&
+        AppState.currentState === "active" &&
+        isNearBottomRef.current;
       if (shouldReadImmediately) {
         void markConversationRead(ownerId, "group", String(groupId), message.id);
       }
@@ -763,7 +824,7 @@ export default function GroupChatScreen() {
         void removeCachedGroup(ownerId, groupId);
         router.dismissAll();
       } else if (event.type === "refresh_conversations" && screenActiveRef.current) {
-        void load();
+        // RealtimeProvider routes this through ConversationSyncCoordinator.
       }
     });
     return () => {
@@ -876,11 +937,16 @@ export default function GroupChatScreen() {
       syncAttemptRef.current += 1;
       setHistoryWatermark((current) => Math.max(current, event.cleared_before_sequence));
       setMessages((current) => {
+        const previousLatestId = latestGroupConversationPreviewMessage(current)?.id;
         const filtered = filterClearedGroupMessages(current, event.cleared_before_sequence);
         messagesRef.current = filtered;
         void publishGroupConversationPreviewUpdate({
           owner_id: ownerId,
           group_id: groupId,
+          ...(previousLatestId !== undefined &&
+          latestGroupConversationPreviewMessage(filtered)?.id !== previousLatestId
+            ? { authoritative_fallback_from_message_id: previousLatestId }
+            : {}),
           ...groupConversationPreviewFields(filtered, ownerId, t),
         });
         return filtered;
@@ -975,14 +1041,13 @@ export default function GroupChatScreen() {
           "group",
         );
       if (state === "active" && previousState !== "active" && screenActiveRef.current) {
-        void load();
         void resumeChatImageUploads(ownerId, "group", String(groupId));
         void resumeChatVideoUploads(ownerId, "group", String(groupId));
       }
       previousState = state;
     });
     return () => subscription.remove();
-  }, [composerMentions, draft, groupId, load, replyingTo, t, user?.user_id]);
+  }, [composerMentions, draft, groupId, replyingTo, t, user?.user_id]);
 
   useEffect(() => {
     if (call.session === null) return;
@@ -1010,6 +1075,7 @@ export default function GroupChatScreen() {
   }, [selectionEntries, t, visibleMessages]);
 
   const timeline = useMemo(() => makeTimeline(visibleMessages), [visibleMessages]);
+  const reversedTimeline = useMemo(() => [...timeline].reverse(), [timeline]);
   useEffect(() => {
     const authors = visibleMessages
       .filter((message) => message.sender_id.trim().length > 0)
@@ -1068,7 +1134,24 @@ export default function GroupChatScreen() {
     const existing = outboxTimersRef.current.get(job.id);
     if (existing) clearTimeout(existing);
     outboxTimersRef.current.delete(job.id);
-    if (job.state === "failed") return;
+    if (job.state === "failed") {
+      cancelGroupOutboxNetworkRetry(job);
+      return;
+    }
+    if (job.retry_reason === "network_offline") {
+      const retryKey = groupOutboxNetworkRetryKey(job);
+      outboxNetworkRetryKeysRef.current.add(retryKey);
+      scheduleChatOutboxNetworkRetry(
+        retryKey,
+        () => {
+          outboxNetworkRetryKeysRef.current.delete(retryKey);
+          scheduleGroupOutboxJob(queuedGroupChatOutboxJob(job), expectedSession);
+        },
+        job.next_attempt_at,
+      );
+      return;
+    }
+    cancelGroupOutboxNetworkRetry(job);
     const scheduledAt = job.next_attempt_at ? Date.parse(job.next_attempt_at) : Date.now();
     const delay = Math.max(0, Number.isFinite(scheduledAt) ? scheduledAt - Date.now() : 0);
     const timer = setTimeout(() => {
@@ -1076,6 +1159,12 @@ export default function GroupChatScreen() {
       void deliverGroupOutboxJob(job, expectedSession);
     }, delay);
     outboxTimersRef.current.set(job.id, timer);
+  }
+
+  function cancelGroupOutboxNetworkRetry(job: Pick<GroupChatOutboxJob, "owner_id" | "id">) {
+    const key = groupOutboxNetworkRetryKey(job);
+    cancelChatOutboxNetworkRetry(key);
+    outboxNetworkRetryKeysRef.current.delete(key);
   }
 
   async function deliverGroupOutboxJob(
@@ -1086,6 +1175,21 @@ export default function GroupChatScreen() {
     outboxInFlightRef.current.add(input.id);
     const sendingJob = sendingGroupChatOutboxJob(input);
     try {
+      const voiceUpload =
+        sendingJob.msg_type === "voice" ? requireAvailableChatVoiceUpload(sendingJob.voice) : null;
+      if (await isChatOutboxDefinitelyOffline()) {
+        const waiting = groupChatOutboxOfflineWait(input);
+        await saveGroupChatOutboxJob(waiting);
+        if (activeSessionRef.current === expectedSession) {
+          setMessages((current) => {
+            const merged = mergeMessages(current, groupOptimisticOutboxMessage(waiting));
+            messagesRef.current = merged;
+            return merged;
+          });
+        }
+        scheduleGroupOutboxJob(waiting, expectedSession);
+        return;
+      }
       await saveGroupChatOutboxJob(sendingJob);
       if (activeSessionRef.current === expectedSession) {
         setMessages((current) => {
@@ -1097,24 +1201,30 @@ export default function GroupChatScreen() {
       const confirmed =
         sendingJob.msg_type === "text"
           ? await sendGroupTextMessage(sendingJob.group_id, sendingJob.content, {
-              clientMessageId: sendingJob.id,
+              clientMessageId: sendingJob.client_message_id,
               mentions: sendingJob.mentions ?? [],
               mentionAll: sendingJob.mention_all,
               ...(sendingJob.reply_to_id !== undefined
                 ? { replyToId: sendingJob.reply_to_id }
                 : {}),
             })
-          : await sendGroupStickerMessage(
-              sendingJob.group_id,
-              sendingJob.sticker_pack_id ?? "",
-              sendingJob.sticker_id ?? "",
-              {
-                clientMessageId: sendingJob.id,
-                ...(sendingJob.reply_to_id !== undefined
-                  ? { replyToId: sendingJob.reply_to_id }
-                  : {}),
-              },
-            );
+          : sendingJob.msg_type === "sticker"
+            ? await sendGroupStickerMessage(
+                sendingJob.group_id,
+                sendingJob.sticker_pack_id ?? "",
+                sendingJob.sticker_id ?? "",
+                {
+                  clientMessageId: sendingJob.client_message_id,
+                  ...(sendingJob.reply_to_id !== undefined
+                    ? { replyToId: sendingJob.reply_to_id }
+                    : {}),
+                },
+              )
+            : await sendGroupVoiceMessage(
+                sendingJob.group_id,
+                voiceUpload ?? requireAvailableChatVoiceUpload(sendingJob.voice),
+                sendingJob.client_message_id,
+              );
       const normalized: GroupMessage = {
         ...confirmed,
         group_id: confirmed.group_id || sendingJob.group_id,
@@ -1133,13 +1243,14 @@ export default function GroupChatScreen() {
           ? { mentions: sendingJob.mentions }
           : {}),
         mention_all: confirmed.mention_all || sendingJob.mention_all,
-        client_message_id: confirmed.client_message_id ?? sendingJob.id,
+        client_message_id: confirmed.client_message_id ?? sendingJob.client_message_id,
         delivery_status: "sent",
       };
       await Promise.all([
         removeGroupChatOutboxJob(sendingJob.owner_id, sendingJob.id),
         saveGroupChatMessages(sendingJob.owner_id, sendingJob.group_id, [normalized]),
       ]);
+      cancelGroupOutboxNetworkRetry(sendingJob);
       await publishLatestCachedGroupConversationPreview(
         sendingJob.owner_id,
         sendingJob.group_id,
@@ -1283,6 +1394,7 @@ export default function GroupChatScreen() {
     const clientId = retry?.client_message_id ?? makeClientMessageId();
     const jobInput = {
       id: clientId,
+      client_message_id: clientId,
       owner_id: user.user_id,
       group_id: groupId,
       msg_type: "text" as const,
@@ -1340,49 +1452,45 @@ export default function GroupChatScreen() {
   const sendVoice = async (recording: ChatVoiceRecording, retryMessage?: GroupMessage) => {
     if (!user?.user_id || groupId <= 0) return;
     const expectedSession = sessionKey;
-    const sendingOwnerId = user.user_id;
-    const sendingGroupId = groupId;
     const clientMessageId = retryMessage?.client_message_id ?? makeClientMessageId();
-    const optimistic: GroupMessage = retryMessage
-      ? { ...retryMessage, delivery_status: "sending" }
-      : {
-          id: -Date.now(),
-          group_id: groupId,
-          sender_id: user.user_id,
-          msg_type: "voice",
-          content: `${recording.uri}|${recording.duration}`,
-          timestamp: new Date().toISOString(),
-          sender_nickname: user.nickname,
-          sender_avatar: user.avatar_url,
-          mention_all: false,
-          client_message_id: clientMessageId,
-          version: 1,
-          delivery_status: "sending",
-        };
+    const jobInput = {
+      id: clientMessageId,
+      client_message_id: clientMessageId,
+      owner_id: user.user_id,
+      group_id: groupId,
+      msg_type: "voice" as const,
+      content: `${recording.uri}|${recording.duration}`,
+      voice: {
+        uri: recording.uri,
+        filename: recording.filename,
+        mime_type: chatVoiceOutboxDefaultMimeType,
+        duration: recording.duration,
+      },
+      mention_all: false,
+      sender_nickname: user.nickname,
+      sender_avatar: user.avatar_url,
+      created_at: retryMessage?.timestamp ?? new Date().toISOString(),
+    };
+    const optimistic = groupOptimisticOutboxMessage({
+      ...jobInput,
+      state: "queued",
+      attempt_count: 0,
+    });
     setMessages((current) => {
       const merged = mergeMessages(current, optimistic);
       messagesRef.current = merged;
       return merged;
     });
     try {
-      const received = await sendGroupVoiceMessage(sendingGroupId, recording);
-      const normalized: GroupMessage = {
-        ...received,
-        group_id: received.group_id || sendingGroupId,
-        sender_id: received.sender_id || sendingOwnerId,
-        sender_nickname: received.sender_nickname || user.nickname,
-        sender_avatar: received.sender_avatar || user.avatar_url,
-        client_message_id: received.client_message_id ?? clientMessageId,
-        delivery_status: "sent",
-      };
-      await saveGroupChatMessages(sendingOwnerId, sendingGroupId, [normalized]);
-      await publishLatestCachedGroupConversationPreview(sendingOwnerId, sendingGroupId, t);
-      if (activeSessionRef.current !== expectedSession) return;
-      setMessages((current) => {
-        const merged = mergeMessages(current, normalized);
-        messagesRef.current = merged;
-        return merged;
-      });
+      const existing = retryMessage
+        ? await readGroupChatOutboxJob(user.user_id, clientMessageId)
+        : null;
+      const job =
+        existing?.msg_type === "voice"
+          ? queuedGroupChatOutboxJob(existing)
+          : await createGroupChatOutboxJob(jobInput);
+      if (existing?.msg_type === "voice") await saveGroupChatOutboxJob(job);
+      scheduleGroupOutboxJob(job, expectedSession);
     } catch (nextError) {
       if (activeSessionRef.current !== expectedSession) return;
       setMessages((current) => {
@@ -1411,6 +1519,7 @@ export default function GroupChatScreen() {
     const replyPreview = replyTarget ? replyPreviewFromMessage(replyTarget) : undefined;
     const jobInput = {
       id: clientMessageId,
+      client_message_id: clientMessageId,
       owner_id: user.user_id,
       group_id: groupId,
       msg_type: "sticker" as const,
@@ -1710,6 +1819,11 @@ export default function GroupChatScreen() {
       const data = [...makeTimeline(messagesRef.current)].reverse();
       const index = data.findIndex((row) => row.message.id === messageId);
       if (index < 0) return false;
+      const latestMessageId = maximumServerMessageId(messagesRef.current);
+      if (latestMessageId !== undefined && messageId < latestMessageId) {
+        isNearBottomRef.current = false;
+        setIsNearBottom(false);
+      }
       const expectedSession = sessionKey;
       requestAnimationFrame(() => {
         if (activeSessionRef.current !== expectedSession) return;
@@ -1942,11 +2056,15 @@ export default function GroupChatScreen() {
             );
             const selected = new Set(selectedIds);
             setMessages((current) => {
+              const previousLatestId = latestGroupConversationPreviewMessage(current)?.id;
               const next = current.filter((message) => !selected.has(message.id));
               messagesRef.current = next;
               void publishGroupConversationPreviewUpdate({
                 owner_id: ownerId,
                 group_id: groupId,
+                ...(previousLatestId !== undefined && selected.has(previousLatestId)
+                  ? { authoritative_fallback_from_message_id: previousLatestId }
+                  : {}),
                 ...groupConversationPreviewFields(next, ownerId, t),
               });
               return next;
@@ -2068,7 +2186,16 @@ export default function GroupChatScreen() {
           return;
         }
         case "delete": {
-          if (message.client_message_id && message.delivery_status === "failed") {
+          if (
+            message.client_message_id &&
+            (message.delivery_status === "sending" || message.delivery_status === "failed")
+          ) {
+            const networkRetryKey = groupOutboxNetworkRetryKey({
+              owner_id: user.user_id,
+              id: message.client_message_id,
+            });
+            cancelChatOutboxNetworkRetry(networkRetryKey);
+            outboxNetworkRetryKeysRef.current.delete(networkRetryKey);
             if (isImageMessage(message)) {
               await cancelChatImageUpload(user.user_id, message.client_message_id);
             } else if (isVideoMessage(message)) {
@@ -2086,11 +2213,15 @@ export default function GroupChatScreen() {
             hiddenMessageIdsRef.current = hidden;
           }
           setMessages((current) => {
+            const previousLatestId = latestGroupConversationPreviewMessage(current)?.id;
             const next = current.filter((item) => identity(item) !== identity(message));
             messagesRef.current = next;
             void publishGroupConversationPreviewUpdate({
               owner_id: user.user_id,
               group_id: groupId,
+              ...(previousLatestId === message.id
+                ? { authoritative_fallback_from_message_id: message.id }
+                : {}),
               ...groupConversationPreviewFields(next, user.user_id, t),
             }).catch((error) =>
               captureException(error, { operation: "group_message_delete_preview" }),
@@ -2244,6 +2375,17 @@ export default function GroupChatScreen() {
     newMessagesBelowCount,
     replyMessageIds: replyLocatorMessageIds,
   });
+  const dismissComposerSurface = useCallback(() => {
+    setMenuTarget(null);
+    if (panel !== null) {
+      setPanel(null);
+      return;
+    }
+    if (isFocused) Keyboard.dismiss();
+  }, [isFocused, panel]);
+  const claimTimelineTouchSequence = useCallback(() => {
+    timelineTouchDraggedRef.current = true;
+  }, []);
 
   const activateTimelineLocator = () => {
     if (timelineLocator?.kind === "mention") {
@@ -2265,6 +2407,16 @@ export default function GroupChatScreen() {
     setReplyLocatorMessageIds([]);
     isNearBottomRef.current = true;
     setIsNearBottom(true);
+    const throughMessageId = maximumServerMessageId(messagesRef.current);
+    if (
+      ownerId &&
+      groupId > 0 &&
+      throughMessageId !== undefined &&
+      screenActiveRef.current &&
+      AppState.currentState === "active"
+    ) {
+      void markConversationRead(ownerId, "group", String(groupId), throughMessageId);
+    }
     listRef.current?.scrollToOffset({ animated: true, offset: 0 });
   };
 
@@ -2317,7 +2469,7 @@ export default function GroupChatScreen() {
             <FlatList
               ref={listRef}
               contentContainerStyle={styles.list}
-              data={[...timeline].reverse()}
+              data={reversedTimeline}
               inverted
               keyExtractor={({ message }) => identity(message)}
               keyboardDismissMode="interactive"
@@ -2329,9 +2481,8 @@ export default function GroupChatScreen() {
               onEndReached={() => void loadMore()}
               onEndReachedThreshold={0.2}
               onScrollBeginDrag={() => {
-                Keyboard.dismiss();
-                setFocused(false);
-                setPanel(null);
+                timelineTouchDraggedRef.current = true;
+                if (panel !== null) setPanel(null);
                 setMenuTarget(null);
               }}
               onScroll={({ nativeEvent }) => {
@@ -2344,7 +2495,12 @@ export default function GroupChatScreen() {
                     setMentionLocatorMessageIds([]);
                     setReplyLocatorMessageIds([]);
                     const throughMessageId = maximumServerMessageId(messagesRef.current);
-                    if (ownerId && throughMessageId !== undefined)
+                    if (
+                      ownerId &&
+                      throughMessageId !== undefined &&
+                      screenActiveRef.current &&
+                      AppState.currentState === "active"
+                    )
                       void markConversationRead(
                         ownerId,
                         "group",
@@ -2361,11 +2517,28 @@ export default function GroupChatScreen() {
                     listRef.current?.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
                 }, 80);
               }}
-              onTouchStart={() => {
-                Keyboard.dismiss();
-                setFocused(false);
-                setPanel(null);
-                setMenuTarget(null);
+              onTouchCancel={() => {
+                timelineTouchDraggedRef.current = true;
+                timelineTouchStartRef.current = null;
+              }}
+              onTouchEnd={() => {
+                timelineTouchStartRef.current = null;
+                if (timelineTouchDraggedRef.current) return;
+                dismissComposerSurface();
+              }}
+              onTouchMove={({ nativeEvent }) => {
+                if (timelineTouchDraggedRef.current || timelineTouchStartRef.current === null)
+                  return;
+                const deltaX = nativeEvent.pageX - timelineTouchStartRef.current.x;
+                const deltaY = nativeEvent.pageY - timelineTouchStartRef.current.y;
+                if (deltaX * deltaX + deltaY * deltaY >= 64) timelineTouchDraggedRef.current = true;
+              }}
+              onTouchStart={({ nativeEvent }) => {
+                timelineTouchDraggedRef.current = false;
+                timelineTouchStartRef.current = {
+                  x: nativeEvent.pageX,
+                  y: nativeEvent.pageY,
+                };
               }}
               renderItem={({ item }) => {
                 const entry = selectionEntryFor(item.message);
@@ -2383,9 +2556,11 @@ export default function GroupChatScreen() {
                     messages={visibleMessages}
                     onMenuRequested={openMessageMenu}
                     onQuoteTap={(messageId) => void scrollToMessage(messageId)}
+                    onTimelineLongPressStart={claimTimelineTouchSequence}
                     recalledEditableText={recalledEditableTexts[item.message.id]}
                     onReedit={(text) => {
                       setDraft(text);
+                      setComposerSelection({ location: text.length, length: 0 });
                       setComposerFocusRequest((value) => value + 1);
                     }}
                     row={item}
@@ -2663,6 +2838,7 @@ function GroupMessageRow({
   messages,
   onMenuRequested,
   onQuoteTap,
+  onTimelineLongPressStart,
   recalledEditableText,
   onReedit,
   onRetry,
@@ -2683,6 +2859,7 @@ function GroupMessageRow({
   messages: GroupMessage[];
   onMenuRequested: (message: GroupMessage, anchor: ChatMessageAnchor) => boolean | void;
   onQuoteTap: (messageId: number) => void;
+  onTimelineLongPressStart: () => void;
   recalledEditableText: string | undefined;
   onReedit: (text: string) => void;
   onRetry: (message: GroupMessage) => void;
@@ -2773,7 +2950,10 @@ function GroupMessageRow({
               messageType={message.msg_type}
               onRetry={() => onRetry(message)}
             />
-            <ChatMessageLongPressSurface onLongPress={(anchor) => onMenuRequested(message, anchor)}>
+            <ChatMessageLongPressSurface
+              onLongPress={(anchor) => onMenuRequested(message, anchor)}
+              onLongPressStart={onTimelineLongPressStart}
+            >
               <MessageContent
                 imageUrls={imageUrls}
                 isMine={isMine}
@@ -3020,34 +3200,58 @@ function Composer({
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const selectionRef = useRef<ComposerTextSelection>({ start: draft.length, end: draft.length });
   const composerDraftRef = useRef<string | null>(null);
+  const requestedSelectionRef = useRef(selection);
+  const selectionFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
   const initialInputHeight = chatComposerInputHeight(draft);
+  const cancelScheduledSelection = useCallback(() => {
+    if (selectionFrameRef.current === null) return;
+    cancelAnimationFrame(selectionFrameRef.current);
+    selectionFrameRef.current = null;
+  }, []);
+  const scheduleSelection = useCallback(
+    (selection: ComposerTextSelection) => {
+      cancelScheduledSelection();
+      selectionFrameRef.current = requestAnimationFrame(() => {
+        selectionFrameRef.current = null;
+        inputRef.current?.setNativeProps({ selection });
+      });
+    },
+    [cancelScheduledSelection],
+  );
+  useEffect(() => {
+    requestedSelectionRef.current = selection;
+  }, [selection]);
   useEffect(() => {
     if (composerDraftRef.current !== draft) {
-      selectionRef.current = {
-        start: selection.location,
-        end: selection.location + selection.length,
+      const requestedSelection = requestedSelectionRef.current;
+      const start = Math.min(Math.max(requestedSelection.location, 0), draft.length);
+      const nextSelection = {
+        start,
+        end: Math.min(Math.max(start + requestedSelection.length, start), draft.length),
       };
+      selectionRef.current = nextSelection;
+      scheduleSelection(nextSelection);
     }
     composerDraftRef.current = null;
-  }, [draft, selection]);
+  }, [draft, scheduleSelection]);
+  useEffect(() => cancelScheduledSelection, [cancelScheduledSelection]);
   useEffect(() => {
     if (focusRequest <= 0) return;
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       setIsVoiceMode(false);
       inputRef.current?.focus();
+      inputRef.current?.setNativeProps({ selection: selectionRef.current });
     });
+    return () => cancelAnimationFrame(frame);
   }, [focusRequest]);
   const canSend = draft.trim().length > 0;
   const showsMic = !isVoiceMode && !isFocused && !panel && !draft;
+  const { microphoneOpacity, microphoneScale, textTranslateX } =
+    useChatComposerMicrophoneTransition(showsMic);
   return (
     <View style={styles.composerSurface}>
       <ChatComposerSurfaceBackground showsStickerPanel={panel === "stickers"} />
-      <View
-        style={[
-          styles.composerRow,
-          { paddingBottom: isFocused || panel ? 5 : 12 + safeAreaInsets.bottom },
-        ]}
-      >
+      <View style={[styles.composerRow, { paddingBottom: 5 }]}>
         {isVoiceMode ? (
           <ChatVoiceComposer
             onError={(message) => Alert.alert(t("messages.voiceSendFailed"), message)}
@@ -3060,25 +3264,37 @@ function Composer({
           />
         ) : (
           <View style={styles.inputChrome}>
-            {showsMic ? (
-              <Pressable
-                accessibilityLabel={t("chat.voiceInput")}
-                onPress={() => {
-                  onPanelChange(null);
-                  onFocusChange(false);
-                  setIsVoiceMode(true);
-                }}
-                style={styles.inlineMic}
+            {!isVoiceMode && !panel && !draft ? (
+              <Animated.View
+                accessibilityElementsHidden={!showsMic}
+                importantForAccessibility={showsMic ? "auto" : "no-hide-descendants"}
+                pointerEvents={showsMic ? "auto" : "none"}
+                style={[
+                  styles.inlineMic,
+                  { opacity: microphoneOpacity, transform: [{ scale: microphoneScale }] },
+                ]}
               >
-                <SymbolView name="mic.fill" size={20} weight="medium" tintColor={colors.accent} />
-              </Pressable>
+                <Pressable
+                  accessibilityLabel={t("chat.voiceInput")}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onPanelChange(null);
+                    onFocusChange(false);
+                    setIsVoiceMode(true);
+                  }}
+                  style={styles.inlineMicButton}
+                >
+                  <SymbolView name="mic.fill" size={20} weight="medium" tintColor={colors.accent} />
+                </Pressable>
+              </Animated.View>
             ) : null}
-            <TextInput
+            <ChatComposerTextInput
               ref={inputRef}
               maxLength={4_000}
               multiline
               onBlur={() => onFocusChange(false)}
               onChangeText={(value) => {
+                cancelScheduledSelection();
                 composerDraftRef.current = value;
                 onDraftChange(value);
               }}
@@ -3098,11 +3314,10 @@ function Composer({
               placeholderTextColor={colors.tertiaryText}
               returnKeyType="send"
               submitBehavior="submit"
-              selection={{ start: selection.location, end: selection.location + selection.length }}
               style={[
                 styles.composerInput,
                 initialInputHeight !== undefined && { height: initialInputHeight },
-                showsMic && styles.inputWithMic,
+                { transform: [{ translateX: textTranslateX }] },
               ]}
               value={draft}
             />
@@ -3166,6 +3381,7 @@ function Composer({
             onChooseMoney={onChooseMoney}
           />
         }
+        restingInset={chatComposerRestingInset(safeAreaInsets.bottom)}
         stickerPanel={
           <ChatStickerPanel
             onInsertEmoji={(value) => {
@@ -3177,9 +3393,7 @@ function Composer({
                 location: inserted.selection.start,
                 length: inserted.selection.end - inserted.selection.start,
               });
-              requestAnimationFrame(() =>
-                inputRef.current?.setNativeProps({ selection: inserted.selection }),
-              );
+              scheduleSelection(inserted.selection);
             }}
             onSendSticker={onSendSticker}
           />
@@ -3304,6 +3518,11 @@ function identity(message: GroupMessage): string {
 }
 
 function compareMessages(left: GroupMessage, right: GroupMessage): number {
+  const leftSequence = left.history_sequence ?? (left.id > 0 ? left.id : undefined);
+  const rightSequence = right.history_sequence ?? (right.id > 0 ? right.id : undefined);
+  if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
   const difference = timestampValue(left.timestamp) - timestampValue(right.timestamp);
   return difference !== 0 ? difference : left.id - right.id;
 }
@@ -3336,6 +3555,10 @@ function groupChatSessionKey(ownerId: string, groupId: number): string {
   return owner && Number.isSafeInteger(groupId) && groupId > 0
     ? `${encodeURIComponent(owner)}:group:${groupId}`
     : "";
+}
+
+function groupOutboxNetworkRetryKey(job: Pick<GroupChatOutboxJob, "owner_id" | "id">): string {
+  return `group-message:${job.owner_id}:${job.id}`;
 }
 
 function canonicalRouteMessageIds(...values: (string | undefined)[]): number[] {
@@ -3434,13 +3657,12 @@ function groupConversationPreviewFields(
   last_message?: string;
   last_message_time?: string;
   last_message_id?: number;
+  last_message_version?: number;
+  last_message_sequence?: number;
   last_message_sender_id?: string;
   subtitle?: string;
 } {
-  const latest = [...messages]
-    .filter((message) => message.delivery_status !== "failed")
-    .sort(compareMessages)
-    .at(-1);
+  const latest = latestGroupConversationPreviewMessage(messages);
   if (!latest) return {};
   const type = latest.msg_type.toLocaleLowerCase();
   const lastMessage = isRecalledChatMessage(latest)
@@ -3466,9 +3688,20 @@ function groupConversationPreviewFields(
     last_message: lastMessage,
     last_message_time: latest.timestamp,
     last_message_id: latest.id,
+    last_message_version: latest.version,
+    last_message_sequence: latest.history_sequence ?? latest.id,
     last_message_sender_id: latest.sender_id,
     ...(subtitle !== undefined ? { subtitle } : {}),
   };
+}
+
+function latestGroupConversationPreviewMessage(
+  messages: readonly GroupMessage[],
+): GroupMessage | undefined {
+  return [...messages]
+    .filter((message) => message.delivery_status !== "failed")
+    .sort(compareMessages)
+    .at(-1);
 }
 
 async function publishLatestCachedGroupConversationPreview(
@@ -3602,7 +3835,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
-  inputWithMic: { paddingLeft: 34 },
   inlineMic: {
     position: "absolute",
     left: 13,
@@ -3613,6 +3845,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  inlineMicButton: { width: 34, height: 40, alignItems: "center", justifyContent: "center" },
   iconButton: { width: 42, height: 54, alignItems: "center", justifyContent: "center" },
   sendCircle: {
     width: 40,

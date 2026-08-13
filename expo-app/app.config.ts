@@ -4,10 +4,11 @@ type AppEnvironment = "development" | "preview" | "production";
 
 const defaultEasProjectId = "f623eda4-1a5f-4227-9890-1a2eb5a6df2c";
 const defaultExpoOwner = "wegpt";
-const developmentApiBaseUrl = "http://52.193.78.191/api/v1";
-const developmentWebBaseUrl = "http://52.193.78.191";
+const developmentApiBaseUrl = "https://id7.com/api/v1";
+const developmentWebBaseUrl = "https://id7.com";
 const developmentIosAdMobAppId = "ca-app-pub-1877504503518465~7347579927";
 const developmentAndroidAdMobAppId = "ca-app-pub-3940256099942544~3347511713";
+const defaultIosAssociatedDomains = ["applinks:id7.com"];
 
 function resolveEnvironment(): AppEnvironment {
   const explicitValue = process.env.APP_ENV;
@@ -45,6 +46,39 @@ function validateUrl(name: string, value: string): string {
   } catch {
     throw new Error(`${name} must be an absolute URL; received: ${value}`);
   }
+}
+
+function requireSecureTransport(
+  name: string,
+  value: string,
+  secureProtocol: "https:" | "wss:",
+): void {
+  const protocol = new URL(value).protocol.toLowerCase();
+  if (protocol !== secureProtocol) {
+    throw new Error(`${name} must use ${secureProtocol.slice(0, -1)}`);
+  }
+}
+
+function optionalUrlList(name: string, rawValue: string | undefined): string[] {
+  return (rawValue ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value, index) => validateUrl(`${name}[${index}]`, value));
+}
+
+function associatedDomains(rawValue: string | undefined): string[] {
+  const values = (rawValue ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const domains = values.length > 0 ? values : defaultIosAssociatedDomains;
+  for (const domain of domains) {
+    if (!/^applinks:[a-z0-9.-]+$/iu.test(domain)) {
+      throw new Error(`IOS_ASSOCIATED_DOMAINS contains an invalid applinks entry: ${domain}`);
+    }
+  }
+  return [...new Set(domains.map((domain) => domain.toLowerCase()))];
 }
 
 function validateProjectId(value: string): string {
@@ -94,6 +128,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       `${apiBaseUrl.replace(/\/$/u, "")}/app/config`,
     ),
   );
+  const notificationAssetBaseUrls = optionalUrlList(
+    "EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS",
+    process.env.EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS,
+  );
+  const iosAssociatedDomains = associatedDomains(process.env.IOS_ASSOCIATED_DOMAINS);
+  requireSecureTransport("EXPO_PUBLIC_API_BASE_URL", apiBaseUrl, "https:");
+  requireSecureTransport("EXPO_PUBLIC_WEB_BASE_URL", webBaseUrl, "https:");
+  requireSecureTransport("EXPO_PUBLIC_WEBSOCKET_URL", webSocketUrl, "wss:");
+  requireSecureTransport("EXPO_PUBLIC_REMOTE_CONFIG_URL", remoteConfigUrl, "https:");
+  for (const [index, url] of notificationAssetBaseUrls.entries()) {
+    requireSecureTransport(`EXPO_PUBLIC_NOTIFICATION_ASSET_BASE_URLS[${index}]`, url, "https:");
+  }
   const rawSentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim();
   const sentryDsn = rawSentryDsn ? validateUrl("EXPO_PUBLIC_SENTRY_DSN", rawSentryDsn) : undefined;
   const iosAdMobAppId = requireForPackagedApp(
@@ -130,6 +176,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       appleTeamId: "A5U93R249R",
       bundleIdentifier: "com.bwchat.app",
       buildNumber: "8",
+      associatedDomains: iosAssociatedDomains,
       runtimeVersion: { policy: "appVersion" },
       bitcode: false,
       supportsTablet: false,
@@ -153,7 +200,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           "ru",
         ],
         ITSAppUsesNonExemptEncryption: false,
-        NSAppTransportSecurity: { NSAllowsArbitraryLoads: true },
+        NSAppTransportSecurity: {
+          NSAllowsArbitraryLoads: false,
+          // Expo Dev Client can still discover local Metro services without
+          // weakening arbitrary Internet transport.
+          NSAllowsLocalNetworking: environment === "development",
+        },
+        // Apple requires every donated communication intent to be declared by
+        // the parent app. Preserve Expo Router's activity alongside messaging.
+        NSUserActivityTypes: [
+          "INSendMessageIntent",
+          "$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route",
+        ],
         NSCameraUsageDescription: "BBchat 需要使用摄像头拍摄内容及进行视频通话。",
         NSContactsUsageDescription:
           "BBchat 只读取联系人电话号码并在本机规范化、加盐哈希，用于发现已注册好友。",
@@ -205,6 +263,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         "./plugins/with-notification-service",
         {
           apiBaseUrl,
+          assetBaseUrls: [apiBaseUrl, webBaseUrl, ...notificationAssetBaseUrls],
           appleTeamId: "A5U93R249R",
           buildNumber: process.env.EAS_BUILD_IOS_BUILD_NUMBER?.trim() || "8",
           bundleIdentifier: "com.bwchat.app.BWChatNotificationServiceExtension",

@@ -1,25 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import {
-  cancelWalletWithdrawal as cancelWalletWithdrawalRequest,
-  createWalletWithdrawal as createWalletWithdrawalRequest,
-  getWalletBalance,
-  getWalletTransactionPage,
-  getWalletWithdrawals,
-} from "@/api/bwchat";
+import { getWalletBalance, getWalletTransactionPage } from "@/api/bwchat";
 import {
   flexInt,
   isRecord,
   normalizeWalletBalanceSnapshot,
   normalizeWalletTransactionPage,
-  normalizeWalletWithdrawals,
 } from "@/api/normalizers";
-import type {
-  WalletBalanceSnapshot,
-  WalletTransaction,
-  WalletTransactionPage,
-  WalletWithdrawal,
-} from "@/models";
+import type { WalletBalanceSnapshot, WalletTransaction, WalletTransactionPage } from "@/models";
 import { cacheGiftWalletBalance } from "@/services/messages/ChatGiftRepository";
 import { walletMetrics } from "@/services/wallet/walletPolicy";
 
@@ -48,8 +36,6 @@ export class WalletRepositoryAccountChangedError extends Error {
 
 const balanceKeyPrefix = "bwchat.wallet.balance.v2";
 const transactionsKeyPrefix = "bwchat.wallet.transactions.v2";
-const withdrawalsKeyPrefix = "bwchat.wallet.withdrawals.v1";
-const payoutKeyPrefix = "bwchat.wallet.usdt.payout.v1";
 const inFlightLoads = new Map<string, Promise<unknown>>();
 
 export async function loadWalletBalance(
@@ -143,56 +129,6 @@ export async function loadMoreWalletTransactions(
   return value;
 }
 
-export async function loadWalletWithdrawalList(
-  ownerId: string,
-  forceRefresh = false,
-  guard?: WalletRepositoryAccountGuard,
-): Promise<WalletLoadResult<WalletWithdrawal[]>> {
-  const cached = await readEnvelope(withdrawalsKey(ownerId), normalizeWalletWithdrawals);
-  assertCurrentAccount(guard);
-  if (!forceRefresh && isFresh(cached, walletMetrics.listCacheTtlMs)) {
-    return { value: cached.value, source: "cache" };
-  }
-  try {
-    const value = (
-      await coalescedLoad(operationKey(withdrawalsKey(ownerId), guard), getWalletWithdrawals)
-    ).slice(0, walletMetrics.maxCachedWithdrawals);
-    assertCurrentAccount(guard);
-    await writeEnvelope(withdrawalsKey(ownerId), value).catch(() => undefined);
-    return { value, source: "remote" };
-  } catch (error) {
-    if (error instanceof WalletRepositoryAccountChangedError) throw error;
-    assertCurrentAccount(guard);
-    if (isUsableStale(cached, walletMetrics.listCacheTtlMs)) {
-      return { value: cached.value, source: "stale-cache", refreshError: error };
-    }
-    throw error;
-  }
-}
-
-export async function submitWalletWithdrawal(
-  _ownerId: string,
-  input: {
-    goldCoinAmount: number;
-    usdtAmount: string;
-    network: string;
-    walletAddress: string;
-  },
-  guard?: WalletRepositoryAccountGuard,
-): Promise<void> {
-  await createWalletWithdrawalRequest(input);
-  assertCurrentAccount(guard);
-}
-
-export async function cancelWalletWithdrawal(
-  _ownerId: string,
-  withdrawalId: string,
-  guard?: WalletRepositoryAccountGuard,
-): Promise<void> {
-  await cancelWalletWithdrawalRequest(withdrawalId);
-  assertCurrentAccount(guard);
-}
-
 export async function readCachedWalletBalance(
   ownerId: string,
 ): Promise<WalletBalanceSnapshot | undefined> {
@@ -203,43 +139,6 @@ export async function readCachedWalletTransactions(
   ownerId: string,
 ): Promise<WalletTransactionPage | undefined> {
   return (await readEnvelope(transactionsKey(ownerId), normalizeWalletTransactionPage))?.value;
-}
-
-export async function readCachedWalletWithdrawals(
-  ownerId: string,
-): Promise<WalletWithdrawal[] | undefined> {
-  return (await readEnvelope(withdrawalsKey(ownerId), normalizeWalletWithdrawals))?.value;
-}
-
-export async function saveWalletPayoutAccount(
-  ownerId: string,
-  network: string,
-  address: string,
-): Promise<void> {
-  await AsyncStorage.setItem(
-    payoutKey(ownerId),
-    JSON.stringify({ network: normalizeNetwork(network), address: address.trim() }),
-  );
-}
-
-export async function readWalletPayoutAccount(
-  ownerId: string,
-): Promise<{ network: string; address: string } | undefined> {
-  try {
-    const encoded = await AsyncStorage.getItem(payoutKey(ownerId));
-    if (!encoded) return undefined;
-    const decoded: unknown = JSON.parse(encoded);
-    if (!isRecord(decoded)) return undefined;
-    const network = typeof decoded.network === "string" ? normalizeNetwork(decoded.network) : "";
-    const address = typeof decoded.address === "string" ? decoded.address.trim() : "";
-    return network && address ? { network, address } : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export async function deleteWalletPayoutAccount(ownerId: string): Promise<void> {
-  await AsyncStorage.removeItem(payoutKey(ownerId));
 }
 
 export async function persistBalance(
@@ -283,19 +182,6 @@ function balanceKey(ownerId: string): string {
 
 function transactionsKey(ownerId: string): string {
   return `${transactionsKeyPrefix}:${ownerId}`;
-}
-
-function withdrawalsKey(ownerId: string): string {
-  return `${withdrawalsKeyPrefix}:${ownerId}`;
-}
-
-function payoutKey(ownerId: string): string {
-  return `${payoutKeyPrefix}:${ownerId}`;
-}
-
-function normalizeNetwork(network: string): string {
-  const trimmed = network.trim();
-  return trimmed.toLocaleUpperCase().startsWith("USDT-") ? trimmed.slice(5) : trimmed;
 }
 
 function isFresh<T>(

@@ -1,55 +1,74 @@
-export const VIDEO_MINIMUM_SCALE = 0.5;
-export const VIDEO_REST_SCALE_LIMIT = 1.05;
-export const VIDEO_PAN_MINIMUM_DISTANCE = 10;
-export const VIDEO_DISMISS_DISTANCE = 110;
-export const VIDEO_PREDICTED_DISMISS_DISTANCE = 450;
-export const VIDEO_PREDICTION_SECONDS = 0.2;
+import { resolveMediaUrl } from "@/utils/mediaUrl";
 
-export function videoBackgroundOpacity(verticalDrag: number): number {
-  return 1 - Math.min(Math.abs(verticalDrag) / 320, 0.9);
+const protectedImagePrefix = "/api/v1/images/";
+const publicImagePrefix = "/api/v1/public/images/";
+
+export type ChatVideoPlaybackAttempt = {
+  allowCache: boolean;
+  candidateIndex: number;
+  generation: number;
+};
+
+export function nextChatVideoPlaybackAttempt(
+  current: ChatVideoPlaybackAttempt,
+  sourceKind: "local" | "remote",
+  resolvedCandidateIndex: number,
+  candidateCount: number,
+): ChatVideoPlaybackAttempt | null {
+  if (sourceKind === "local") {
+    return {
+      allowCache: false,
+      candidateIndex: Math.max(0, resolvedCandidateIndex),
+      generation: current.generation + 1,
+    };
+  }
+  const nextCandidateIndex = Math.max(0, resolvedCandidateIndex) + 1;
+  if (nextCandidateIndex >= candidateCount) return null;
+  return {
+    allowCache: false,
+    candidateIndex: nextCandidateIndex,
+    generation: current.generation + 1,
+  };
 }
 
-export function videoDismissScale(verticalDrag: number): number {
-  const distance = Math.abs(verticalDrag);
-  if (distance < 8) return 1;
-  return Math.max(1 - distance / 900, 0.55);
-}
+export function resolveChatVideoPlaybackCandidates(videoUrl: string, apiBaseUrl: string): string[] {
+  const value = videoUrl.trim();
+  if (!value) return [];
+  if (value.startsWith("ph:")) return [value];
 
-export function predictedVideoTranslation(translation: number, velocity: number): number {
-  return translation + velocity * VIDEO_PREDICTION_SECONDS;
-}
+  let resolved: string | null;
+  try {
+    resolved = value.startsWith("/")
+      ? new URL(value, new URL(apiBaseUrl).origin).toString()
+      : resolveMediaUrl(value, apiBaseUrl);
+  } catch {
+    return [];
+  }
+  if (!resolved) return [];
+  try {
+    const parsed = new URL(resolved);
+    if (!["http:", "https:", "file:", "content:", "ph:"].includes(parsed.protocol)) return [];
 
-export function shouldDismissVideo(input: {
-  translationX: number;
-  translationY: number;
-  predictedTranslationY: number;
-}): boolean {
-  const vertical = Math.abs(input.translationY);
-  return vertical > Math.abs(input.translationX) && (
-    vertical > VIDEO_DISMISS_DISTANCE ||
-    Math.abs(input.predictedTranslationY) > VIDEO_PREDICTED_DISMISS_DISTANCE
-  );
+    const apiOrigin = new URL(apiBaseUrl).origin;
+    if (parsed.origin !== apiOrigin) return [parsed.toString()];
+
+    if (parsed.pathname.startsWith(protectedImagePrefix)) {
+      const authenticated = parsed.toString();
+      parsed.pathname = parsed.pathname.replace(protectedImagePrefix, publicImagePrefix);
+      return [authenticated, parsed.toString()];
+    }
+    if (parsed.pathname.startsWith(publicImagePrefix)) {
+      const publicUrl = parsed.toString();
+      parsed.pathname = parsed.pathname.replace(publicImagePrefix, protectedImagePrefix);
+      return [publicUrl, parsed.toString()];
+    }
+    return [parsed.toString()];
+  } catch {
+    // resolveMediaUrl already rejected malformed or unsupported remote URLs.
+  }
+  return [];
 }
 
 export function resolveChatVideoPlaybackUrl(videoUrl: string, apiBaseUrl: string): string | null {
-  let path = videoUrl.trim();
-  if (!path) return null;
-  if (path.startsWith("/api/v1/images/")) {
-    path = path.replace("/api/v1/images/", "/api/v1/public/images/");
-  }
-  try {
-    const parsed = new URL(path);
-    if (["http:", "https:", "file:", "content:", "ph:"].includes(parsed.protocol)) {
-      return parsed.toString();
-    }
-  } catch {
-    // Resolve the original server-relative shapes below.
-  }
-  try {
-    const api = new URL(apiBaseUrl);
-    if (path.startsWith("/")) return new URL(path, api.origin).toString();
-    return `${apiBaseUrl.replace(/\/$/u, "")}/${path.replace(/^\//u, "")}`;
-  } catch {
-    return null;
-  }
+  return resolveChatVideoPlaybackCandidates(videoUrl, apiBaseUrl)[0] ?? null;
 }

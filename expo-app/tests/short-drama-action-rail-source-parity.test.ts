@@ -36,38 +36,38 @@ const root = resolve(__dirname, "..");
 const nativeSources = [
   {
     copied: "../BWChat/Views/ShortDramaActionRail.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaActionRail.swift",
+    original: "../BWChat/Views/ShortDramaActionRail.swift",
     hash: "8fa2a398c06c2297fa215185653cccca8afcacc9a20d540d956e83100f0b70cc",
   },
   {
     copied: "../BWChat/Views/ShortDramaVideoPage.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaVideoPage.swift",
+    original: "../BWChat/Views/ShortDramaVideoPage.swift",
     hash: "48b5a6c5dc9962d6118652bd8994998eeba6bcf4ba9108a5bfe6e6b1f41ce662",
   },
   {
     copied: "../BWChat/Views/ShortDramaFeedView.swift",
-    original: "../../BWChat-iOS/BWChat/Views/ShortDramaFeedView.swift",
+    original: "../BWChat/Views/ShortDramaFeedView.swift",
     hash: "61bd4af279a5855af0d3ceadce6c94157be754ee29b142e40919b11274fc5f9d",
   },
   {
     copied: "../BWChat/Components/AvatarView.swift",
-    original: "../../BWChat-iOS/BWChat/Components/AvatarView.swift",
+    original: "../BWChat/Components/AvatarView.swift",
     hash: "a3c6f6de8c1ffc38cc07dfd0d9495a60830e18cf69864392f7cf7529f46bff92",
   },
   {
     copied: "../BWChat/ViewModels/ShortDramaFeedViewModel.swift",
-    original: "../../BWChat-iOS/BWChat/ViewModels/ShortDramaFeedViewModel.swift",
+    original: "../BWChat/ViewModels/ShortDramaFeedViewModel.swift",
     hash: "747f33afea7bc8ea2178172baf136fba0872b535677498e72d2d8a6b741624c8",
   },
   {
     copied: "../BWChat/Models/ShortDrama.swift",
-    original: "../../BWChat-iOS/BWChat/Models/ShortDrama.swift",
+    original: "../BWChat/Models/ShortDrama.swift",
     hash: "13abb0d63f53893bd48eff56fcf6d40f3bb7d570267280bcae276100344d6a11",
   },
   {
     copied: "../BWChat/Services/APIService.swift",
-    original: "../../BWChat-iOS/BWChat/Services/APIService.swift",
-    hash: "e0a29cc6030ad4329980affc5da3f29a34c3000a65637f855e19c7e38666a274",
+    original: "../BWChat/Services/APIService.swift",
+    hash: "8d0743a82ce63a40eddf8b435efead0769902ce2b12e1728bf6c247020b318d2",
   },
 ] as const;
 

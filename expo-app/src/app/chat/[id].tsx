@@ -5,6 +5,7 @@ import { router, useFocusEffect, useLocalSearchParams, useNavigation } from "exp
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   AppState,
   FlatList,
   Keyboard,
@@ -61,7 +62,10 @@ import { ChatStickerBubble } from "@/components/messages/ChatStickerBubble";
 import {
   ChatComposerPanelHost,
   ChatComposerPanelToggleButton,
+  chatComposerRestingInset,
   ChatComposerSurfaceBackground,
+  ChatComposerTextInput,
+  useChatComposerMicrophoneTransition,
 } from "@/components/messages/ChatComposerSurface";
 import { chatComposerInputHeight } from "@/components/messages/ChatComposerInputHeight";
 import { ChatStickerPanel } from "@/components/messages/ChatStickerPanel";
@@ -102,6 +106,10 @@ import { markConversationRead } from "@/services/conversations/ConversationReadS
 import { dismissActiveConversationNotifications } from "@/services/push/PushService";
 import { publishDirectConversationPreviewUpdate } from "@/services/conversations/ConversationRepository";
 import {
+  conversationSyncCoordinator,
+  conversationSyncRequestTargets,
+} from "@/services/conversations/ConversationSyncCoordinator";
+import {
   readChatDraftSnapshot,
   saveChatDraftSnapshot,
   type ChatDraftQuote,
@@ -141,6 +149,7 @@ import { reconcileChatMessageContext } from "@/services/messages/ChatMessageReco
 import {
   createDirectChatOutboxJob,
   directChatOutboxFailure,
+  directChatOutboxOfflineWait,
   directOptimisticOutboxMessage,
   queuedDirectChatOutboxJob,
   readDirectChatOutboxJob,
@@ -151,6 +160,11 @@ import {
   type DirectChatOutboxJob,
 } from "@/services/messages/DirectChatOutboxRepository";
 import {
+  cancelChatOutboxNetworkRetry,
+  isChatOutboxDefinitelyOffline,
+  scheduleChatOutboxNetworkRetry,
+} from "@/services/messages/ChatOutboxNetwork";
+import {
   filterClearedDirectMessages,
   readDirectHistoryClearWatermark,
   subscribeDirectHistoryClear,
@@ -158,6 +172,10 @@ import {
 import { pickChatMedia } from "@/services/native/NativeCapabilities";
 import { chatRealtimeService } from "@/services/realtime/ChatRealtimeService";
 import { parseChatVoiceContent } from "@/services/messages/chatVoicePolicy";
+import {
+  chatVoiceOutboxDefaultMimeType,
+  requireAvailableChatVoiceUpload,
+} from "@/services/messages/ChatVoiceOutboxPayload";
 import {
   completeGiftIdempotency,
   encodeGiftMessagePayload,
@@ -285,6 +303,8 @@ export default function ChatScreen() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const listRef = useRef<FlatList<TimelineRow>>(null);
+  const timelineTouchDraggedRef = useRef(false);
+  const timelineTouchStartRef = useRef<{ x: number; y: number } | null>(null);
   const hiddenMessageIdsRef = useRef<Set<number>>(new Set());
   const hasMoreRef = useRef(false);
   const loadingMoreRef = useRef(false);
@@ -295,8 +315,10 @@ export default function ChatScreen() {
   const activeSessionRef = useRef(sessionKey);
   const syncAttemptRef = useRef(0);
   const outboxTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const outboxNetworkRetryKeysRef = useRef(new Set<string>());
   const outboxInFlightRef = useRef(new Set<string>());
   const menuActionInFlightRef = useRef(false);
+  const backfillInFlightRef = useRef(new Set<string>());
   const draftSnapshotsRef = useRef(new Map<string, ChatDraftSnapshot>());
   const conversationPreviewSignatureRef = useRef("");
   activeSessionRef.current = sessionKey;
@@ -318,10 +340,13 @@ export default function ChatScreen() {
     syncAttemptRef.current += 1;
     for (const timer of outboxTimersRef.current.values()) clearTimeout(timer);
     outboxTimersRef.current.clear();
+    for (const key of outboxNetworkRetryKeysRef.current) cancelChatOutboxNetworkRetry(key);
+    outboxNetworkRetryKeysRef.current.clear();
     messagesRef.current = [];
     hiddenMessageIdsRef.current = new Set();
     hasMoreRef.current = false;
     loadingMoreRef.current = false;
+    isNearBottomRef.current = true;
     initialPushMessageHandledRef.current = null;
     messageReconciliationFlightsRef.current.clear();
     conversationPreviewSignatureRef.current = "";
@@ -353,6 +378,32 @@ export default function ChatScreen() {
     setSelectionEntries(null);
     setForwardDraft(null);
   }, [sessionKey]);
+
+  useEffect(() => {
+    const outboxTimers = outboxTimersRef.current;
+    const outboxNetworkRetryKeys = outboxNetworkRetryKeysRef.current;
+    return () => {
+      activeSessionRef.current = "";
+      syncAttemptRef.current += 1;
+      for (const timer of outboxTimers.values()) clearTimeout(timer);
+      outboxTimers.clear();
+      for (const key of outboxNetworkRetryKeys) cancelChatOutboxNetworkRetry(key);
+      outboxNetworkRetryKeys.clear();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const target = Number(messageId);
+    if (!Number.isSafeInteger(target) || target <= 0) return;
+    const latest = Number(latestMessageIdParam);
+    const targetsNewest = Number.isSafeInteger(latest) && latest > 0 && target === latest;
+    isNearBottomRef.current = targetsNewest;
+    // Route-targeted history remains notification-silent while it is focused,
+    // but it must not advance the read watermark until the user returns to the
+    // newest messages.
+    const frame = requestAnimationFrame(() => setIsNearBottom(targetsNewest));
+    return () => cancelAnimationFrame(frame);
+  }, [latestMessageIdParam, messageId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -438,7 +489,12 @@ export default function ChatScreen() {
       setError(null);
       for (const job of pendingJobs) scheduleDirectOutboxJob(job, expectedSession);
       const cachedReadThrough = maximumServerMessageId(cachedVisible);
-      if (cachedReadThrough !== undefined)
+      if (
+        cachedReadThrough !== undefined &&
+        screenActiveRef.current &&
+        AppState.currentState === "active" &&
+        isNearBottomRef.current
+      )
         void markConversationRead(ownerId, "dm", id, cachedReadThrough);
 
       const fetched: Message[] = [];
@@ -502,7 +558,13 @@ export default function ChatScreen() {
       setMessages(merged);
       const readThrough =
         maximumServerMessageId(serverVisible) ?? maximumServerMessageId(cachedVisible);
-      if (readThrough !== undefined) void markConversationRead(ownerId, "dm", id, readThrough);
+      if (
+        readThrough !== undefined &&
+        screenActiveRef.current &&
+        AppState.currentState === "active" &&
+        isNearBottomRef.current
+      )
+        void markConversationRead(ownerId, "dm", id, readThrough);
 
       if (!wasBackfilled) {
         hasMoreRef.current = false;
@@ -562,6 +624,8 @@ export default function ChatScreen() {
             last_message: preview,
             last_message_time: latest.timestamp,
             last_message_id: latest.id,
+            last_message_version: latest.version,
+            last_message_sequence: latest.id,
           }
         : {}),
     }).catch((error) => captureException(error, { operation: "direct_message_live_preview" }));
@@ -577,11 +641,22 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!ownerId || !id) return;
+    return conversationSyncCoordinator.subscribe(ownerId, (request) => {
+      if (!screenActiveRef.current || !conversationSyncRequestTargets(request, "dm", id)) return;
+      return load();
+    });
+  }, [id, load, ownerId]);
+
+  useEffect(() => {
+    if (!ownerId || !id) return;
     const expectedSession = sessionKey;
     let active = true;
     const applyRealtimeMessage = async (message: Message) => {
       const shouldReadImmediately =
-        message.sender_id !== ownerId && screenActiveRef.current && isNearBottomRef.current;
+        message.sender_id !== ownerId &&
+        screenActiveRef.current &&
+        AppState.currentState === "active" &&
+        isNearBottomRef.current;
       if (shouldReadImmediately) {
         void markConversationRead(ownerId, "dm", id, message.id);
       }
@@ -632,7 +707,7 @@ export default function ChatScreen() {
           (message.sender_id === ownerId && message.receiver_id === id);
         if (relevant) void applyRealtimeMessage(message);
       } else if (event.type === "refresh_conversations" && screenActiveRef.current) {
-        void load();
+        // RealtimeProvider routes this through ConversationSyncCoordinator.
       }
     });
     return () => {
@@ -750,14 +825,13 @@ export default function ChatScreen() {
             : {}),
         });
       if (state === "active" && previousState !== "active" && screenActiveRef.current) {
-        void load();
         void resumeChatImageUploads(ownerId, "direct", id);
         void resumeChatVideoUploads(ownerId, "direct", id);
       }
       previousState = state;
     });
     return () => subscription.remove();
-  }, [draft, id, load, name, replyingTo, t, user?.user_id]);
+  }, [draft, id, name, replyingTo, t, user?.user_id]);
 
   useEffect(() => {
     if (call.session === null) return;
@@ -783,6 +857,7 @@ export default function ChatScreen() {
   }, [selectionEntries, t, visibleMessages]);
 
   const timeline = useMemo(() => makeTimeline(visibleMessages), [visibleMessages]);
+  const reversedTimeline = useMemo(() => [...timeline].reverse(), [timeline]);
   const chatBackground = id ? appearance.effective("dm", id) : null;
   const giftRecipientSource = useMemo(
     () =>
@@ -799,7 +874,24 @@ export default function ChatScreen() {
     const existing = outboxTimersRef.current.get(job.id);
     if (existing) clearTimeout(existing);
     outboxTimersRef.current.delete(job.id);
-    if (job.state === "failed") return;
+    if (job.state === "failed") {
+      cancelDirectOutboxNetworkRetry(job);
+      return;
+    }
+    if (job.retry_reason === "network_offline") {
+      const retryKey = directOutboxNetworkRetryKey(job);
+      outboxNetworkRetryKeysRef.current.add(retryKey);
+      scheduleChatOutboxNetworkRetry(
+        retryKey,
+        () => {
+          outboxNetworkRetryKeysRef.current.delete(retryKey);
+          scheduleDirectOutboxJob(queuedDirectChatOutboxJob(job), expectedSession);
+        },
+        job.next_attempt_at,
+      );
+      return;
+    }
+    cancelDirectOutboxNetworkRetry(job);
     const scheduledAt = job.next_attempt_at ? Date.parse(job.next_attempt_at) : Date.now();
     const delay = Math.max(0, Number.isFinite(scheduledAt) ? scheduledAt - Date.now() : 0);
     const timer = setTimeout(() => {
@@ -807,6 +899,12 @@ export default function ChatScreen() {
       void deliverDirectOutboxJob(job, expectedSession);
     }, delay);
     outboxTimersRef.current.set(job.id, timer);
+  }
+
+  function cancelDirectOutboxNetworkRetry(job: Pick<DirectChatOutboxJob, "owner_id" | "id">) {
+    const key = directOutboxNetworkRetryKey(job);
+    cancelChatOutboxNetworkRetry(key);
+    outboxNetworkRetryKeysRef.current.delete(key);
   }
 
   async function deliverDirectOutboxJob(
@@ -817,6 +915,21 @@ export default function ChatScreen() {
     outboxInFlightRef.current.add(input.id);
     const sendingJob = sendingDirectChatOutboxJob(input);
     try {
+      const voiceUpload =
+        sendingJob.msg_type === "voice" ? requireAvailableChatVoiceUpload(sendingJob.voice) : null;
+      if (await isChatOutboxDefinitelyOffline()) {
+        const waiting = directChatOutboxOfflineWait(input);
+        await saveDirectChatOutboxJob(waiting);
+        if (activeSessionRef.current === expectedSession) {
+          setMessages((current) => {
+            const merged = mergeMessages(current, directOptimisticOutboxMessage(waiting));
+            messagesRef.current = merged;
+            return merged;
+          });
+        }
+        scheduleDirectOutboxJob(waiting, expectedSession);
+        return;
+      }
       await saveDirectChatOutboxJob(sendingJob);
       if (activeSessionRef.current === expectedSession) {
         setMessages((current) => {
@@ -828,22 +941,28 @@ export default function ChatScreen() {
       const confirmed =
         sendingJob.msg_type === "text"
           ? await sendTextMessage(sendingJob.target_id, sendingJob.content, {
-              clientMessageId: sendingJob.id,
+              clientMessageId: sendingJob.client_message_id,
               ...(sendingJob.reply_to_id !== undefined
                 ? { replyToId: sendingJob.reply_to_id }
                 : {}),
             })
-          : await sendDirectStickerMessage(
-              sendingJob.target_id,
-              sendingJob.sticker_pack_id ?? "",
-              sendingJob.sticker_id ?? "",
-              {
-                clientMessageId: sendingJob.id,
-                ...(sendingJob.reply_to_id !== undefined
-                  ? { replyToId: sendingJob.reply_to_id }
-                  : {}),
-              },
-            );
+          : sendingJob.msg_type === "sticker"
+            ? await sendDirectStickerMessage(
+                sendingJob.target_id,
+                sendingJob.sticker_pack_id ?? "",
+                sendingJob.sticker_id ?? "",
+                {
+                  clientMessageId: sendingJob.client_message_id,
+                  ...(sendingJob.reply_to_id !== undefined
+                    ? { replyToId: sendingJob.reply_to_id }
+                    : {}),
+                },
+              )
+            : await sendDirectVoiceMessage(
+                sendingJob.target_id,
+                voiceUpload ?? requireAvailableChatVoiceUpload(sendingJob.voice),
+                sendingJob.client_message_id,
+              );
       const normalized: Message = {
         ...confirmed,
         msg_type: confirmed.msg_type || sendingJob.msg_type,
@@ -856,13 +975,14 @@ export default function ChatScreen() {
         ...(confirmed.reply_to === undefined && sendingJob.reply_to
           ? { reply_to: sendingJob.reply_to }
           : {}),
-        client_message_id: confirmed.client_message_id ?? sendingJob.id,
+        client_message_id: confirmed.client_message_id ?? sendingJob.client_message_id,
         delivery_status: "sent",
       };
       await Promise.all([
         removeDirectChatOutboxJob(sendingJob.owner_id, sendingJob.id),
         saveDirectChatMessages(sendingJob.owner_id, sendingJob.target_id, [normalized]),
       ]);
+      cancelDirectOutboxNetworkRetry(sendingJob);
       if (activeSessionRef.current === expectedSession) {
         setMessages((current) => {
           const merged = mergeMessages(current, normalized);
@@ -893,43 +1013,54 @@ export default function ChatScreen() {
 
   async function backfillDirectChatHistory(expectedSession: string): Promise<void> {
     if (!id || !ownerId) return;
-    const cached = await readDirectChatCachedPage(ownerId, id, {
-      limit: directChatHistoryPolicy.maximumCachedMessages,
-    });
-    let cursor = minimumServerMessageId(cached.messages);
-    if (cursor === undefined) return;
-    for (
-      let pageIndex = 0;
-      pageIndex < directChatHistoryPolicy.maximumBackfillPages;
-      pageIndex += 1
-    ) {
-      try {
-        const page = await getMessages(id, {
-          beforeId: cursor,
-          limit: directChatHistoryPolicy.syncPageSize,
-        });
-        if (page.messages.length === 0) {
-          await markDirectChatHistoryBackfilled(ownerId, id);
-          return;
-        }
-        await saveDirectChatMessages(ownerId, id, page.messages);
-        const nextCursor = minimumServerMessageId(page.messages);
-        if (activeSessionRef.current === expectedSession) {
-          hasMoreRef.current = true;
-          setHasMore(true);
-        }
-        if (!page.hasMore || nextCursor === undefined || nextCursor >= cursor) {
-          await markDirectChatHistoryBackfilled(ownerId, id);
-          return;
-        }
-        cursor = nextCursor;
-      } catch {
-        if (activeSessionRef.current === expectedSession) {
-          hasMoreRef.current = true;
-          setHasMore(true);
-        }
+    if (backfillInFlightRef.current.has(expectedSession)) return;
+    backfillInFlightRef.current.add(expectedSession);
+    try {
+      const cached = await readDirectChatCachedPage(ownerId, id, {
+        limit: directChatHistoryPolicy.maximumCachedMessages,
+      });
+      if (activeSessionRef.current !== expectedSession) return;
+      let cursor = minimumServerMessageId(cached.messages);
+      if (cursor === undefined) {
+        await markDirectChatHistoryBackfilled(ownerId, id);
         return;
       }
+      for (
+        let pageIndex = 0;
+        pageIndex < directChatHistoryPolicy.maximumBackfillPages;
+        pageIndex += 1
+      ) {
+        if (activeSessionRef.current !== expectedSession) return;
+        try {
+          const page = await getMessages(id, {
+            beforeId: cursor,
+            limit: directChatHistoryPolicy.syncPageSize,
+          });
+          if (activeSessionRef.current !== expectedSession) return;
+          if (page.messages.length === 0) {
+            await markDirectChatHistoryBackfilled(ownerId, id);
+            return;
+          }
+          await saveDirectChatMessages(ownerId, id, page.messages);
+          if (activeSessionRef.current !== expectedSession) return;
+          const nextCursor = minimumServerMessageId(page.messages);
+          hasMoreRef.current = true;
+          setHasMore(true);
+          if (!page.hasMore || nextCursor === undefined || nextCursor >= cursor) {
+            await markDirectChatHistoryBackfilled(ownerId, id);
+            return;
+          }
+          cursor = nextCursor;
+        } catch {
+          if (activeSessionRef.current === expectedSession) {
+            hasMoreRef.current = true;
+            setHasMore(true);
+          }
+          return;
+        }
+      }
+    } finally {
+      backfillInFlightRef.current.delete(expectedSession);
     }
   }
 
@@ -943,6 +1074,7 @@ export default function ChatScreen() {
     const clientMessageId = retryMessage?.client_message_id ?? makeClientMessageId();
     const jobInput = {
       id: clientMessageId,
+      client_message_id: clientMessageId,
       owner_id: user.user_id,
       target_id: id,
       msg_type: "text" as const,
@@ -986,41 +1118,42 @@ export default function ChatScreen() {
   const sendVoice = async (recording: ChatVoiceRecording, retryMessage?: Message) => {
     if (!id || !user?.user_id) return;
     const expectedSession = sessionKey;
-    const sendingOwnerId = user.user_id;
-    const sendingTargetId = id;
     const clientMessageId = retryMessage?.client_message_id ?? makeClientMessageId();
-    const optimistic: Message = retryMessage
-      ? { ...retryMessage, delivery_status: "sending" }
-      : {
-          id: -Date.now(),
-          sender_id: user.user_id,
-          receiver_id: id,
-          msg_type: "voice",
-          content: `${recording.uri}|${recording.duration}`,
-          timestamp: new Date().toISOString(),
-          client_message_id: clientMessageId,
-          version: 1,
-          delivery_status: "sending",
-        };
+    const jobInput = {
+      id: clientMessageId,
+      client_message_id: clientMessageId,
+      owner_id: user.user_id,
+      target_id: id,
+      msg_type: "voice" as const,
+      content: `${recording.uri}|${recording.duration}`,
+      voice: {
+        uri: recording.uri,
+        filename: recording.filename,
+        mime_type: chatVoiceOutboxDefaultMimeType,
+        duration: recording.duration,
+      },
+      created_at: retryMessage?.timestamp ?? new Date().toISOString(),
+    };
+    const optimistic = directOptimisticOutboxMessage({
+      ...jobInput,
+      state: "queued",
+      attempt_count: 0,
+    });
     setMessages((current) => {
       const merged = mergeMessages(current, optimistic);
       messagesRef.current = merged;
       return merged;
     });
     try {
-      const confirmed = await sendDirectVoiceMessage(sendingTargetId, recording);
-      const normalized: Message = {
-        ...confirmed,
-        client_message_id: confirmed.client_message_id ?? clientMessageId,
-        delivery_status: "sent",
-      };
-      await saveDirectChatMessages(sendingOwnerId, sendingTargetId, [normalized]);
-      if (activeSessionRef.current !== expectedSession) return;
-      setMessages((current) => {
-        const merged = mergeMessages(current, normalized);
-        messagesRef.current = merged;
-        return merged;
-      });
+      const existing = retryMessage
+        ? await readDirectChatOutboxJob(user.user_id, clientMessageId)
+        : null;
+      const job =
+        existing?.msg_type === "voice"
+          ? queuedDirectChatOutboxJob(existing)
+          : await createDirectChatOutboxJob(jobInput);
+      if (existing?.msg_type === "voice") await saveDirectChatOutboxJob(job);
+      scheduleDirectOutboxJob(job, expectedSession);
     } catch (nextError) {
       if (activeSessionRef.current !== expectedSession) return;
       setMessages((current) =>
@@ -1046,6 +1179,7 @@ export default function ChatScreen() {
     const replyPreview = replyTarget ? replyPreviewFromMessage(replyTarget) : undefined;
     const jobInput = {
       id: clientMessageId,
+      client_message_id: clientMessageId,
       owner_id: user.user_id,
       target_id: id,
       msg_type: "sticker" as const,
@@ -1234,6 +1368,11 @@ export default function ChatScreen() {
       const data = [...makeTimeline(messagesRef.current)].reverse();
       const index = data.findIndex((row) => row.message.id === messageId);
       if (index < 0) return false;
+      const latestMessageId = maximumServerMessageId(messagesRef.current);
+      if (latestMessageId !== undefined && messageId < latestMessageId) {
+        isNearBottomRef.current = false;
+        setIsNearBottom(false);
+      }
       requestAnimationFrame(() => {
         listRef.current?.scrollToIndex({
           index,
@@ -1461,10 +1600,18 @@ export default function ChatScreen() {
               })
               .catch((error) => captureException(error, { operation: "direct_selection_delete" }));
             const selected = new Set(selectedIds);
+            const previousLatestId = latestDirectConversationPreviewMessage(
+              messagesRef.current,
+            )?.id;
             const filtered = messagesRef.current.filter((message) => !selected.has(message.id));
             messagesRef.current = filtered;
             setMessages(filtered);
-            void publishLocalDirectConversationPreview(filtered).catch((error) =>
+            void publishLocalDirectConversationPreview(
+              filtered,
+              previousLatestId !== undefined && selected.has(previousLatestId)
+                ? previousLatestId
+                : undefined,
+            ).catch((error) =>
               captureException(error, { operation: "direct_selection_delete_preview" }),
             );
             setReplyingTo((current) => (current && selected.has(current.id) ? null : current));
@@ -1585,6 +1732,12 @@ export default function ChatScreen() {
             const timer = outboxTimersRef.current.get(message.client_message_id);
             if (timer) clearTimeout(timer);
             outboxTimersRef.current.delete(message.client_message_id);
+            const networkRetryKey = directOutboxNetworkRetryKey({
+              owner_id: user.user_id,
+              id: message.client_message_id,
+            });
+            cancelChatOutboxNetworkRetry(networkRetryKey);
+            outboxNetworkRetryKeysRef.current.delete(networkRetryKey);
             if (isImageMessage(message))
               await cancelChatImageUpload(user.user_id, message.client_message_id);
             else if (isVideoMessage(message))
@@ -1592,12 +1745,16 @@ export default function ChatScreen() {
             else await removeDirectChatOutboxJob(user.user_id, message.client_message_id);
             if (activeSessionRef.current !== expectedSession) return;
           }
+          const previousLatestId = latestDirectConversationPreviewMessage(messagesRef.current)?.id;
           const filtered = messagesRef.current.filter(
             (item) => timelineIdentity(item) !== timelineIdentity(message),
           );
           messagesRef.current = filtered;
           setMessages(filtered);
-          void publishLocalDirectConversationPreview(filtered).catch((error) =>
+          void publishLocalDirectConversationPreview(
+            filtered,
+            previousLatestId === message.id ? message.id : undefined,
+          ).catch((error) =>
             captureException(error, { operation: "direct_message_delete_preview" }),
           );
           setReplyingTo((current) => (current?.id === message.id ? null : current));
@@ -1629,17 +1786,23 @@ export default function ChatScreen() {
 
   async function publishLocalDirectConversationPreview(
     currentMessages: readonly Message[],
+    authoritativeFallbackFromMessageId?: number,
   ): Promise<void> {
     if (!ownerId || !id) return;
     const latest = latestDirectConversationPreviewMessage(currentMessages);
     await publishDirectConversationPreviewUpdate({
       owner_id: ownerId,
       contact_id: id,
+      ...(authoritativeFallbackFromMessageId !== undefined
+        ? { authoritative_fallback_from_message_id: authoritativeFallbackFromMessageId }
+        : {}),
       ...(latest
         ? {
             last_message: directLocalPreviewText(latest, ownerId, name, t),
             last_message_time: latest.timestamp,
             last_message_id: latest.id,
+            last_message_version: latest.version,
+            last_message_sequence: latest.id,
           }
         : {}),
     });
@@ -1852,6 +2015,17 @@ export default function ChatScreen() {
     newMessagesBelowCount,
     replyMessageIds: replyLocatorMessageIds,
   });
+  const dismissComposerSurface = useCallback(() => {
+    setMenuTarget(null);
+    if (activePanel !== null) {
+      setActivePanel(null);
+      return;
+    }
+    if (isInputFocused) Keyboard.dismiss();
+  }, [activePanel, isInputFocused]);
+  const claimTimelineTouchSequence = useCallback(() => {
+    timelineTouchDraggedRef.current = true;
+  }, []);
 
   const activateTimelineLocator = () => {
     if (timelineLocator?.kind === "reply") {
@@ -1865,6 +2039,16 @@ export default function ChatScreen() {
     setReplyLocatorMessageIds([]);
     isNearBottomRef.current = true;
     setIsNearBottom(true);
+    const throughMessageId = maximumServerMessageId(messagesRef.current);
+    if (
+      ownerId &&
+      id &&
+      throughMessageId !== undefined &&
+      screenActiveRef.current &&
+      AppState.currentState === "active"
+    ) {
+      void markConversationRead(ownerId, "dm", id, throughMessageId);
+    }
     listRef.current?.scrollToOffset({ animated: true, offset: 0 });
   };
 
@@ -1884,7 +2068,7 @@ export default function ChatScreen() {
             <FlatList
               ref={listRef}
               contentContainerStyle={styles.list}
-              data={[...timeline].reverse()}
+              data={reversedTimeline}
               inverted
               ItemSeparatorComponent={() => <View style={styles.messageSeparator} />}
               keyExtractor={({ message }) => timelineIdentity(message)}
@@ -1897,15 +2081,32 @@ export default function ChatScreen() {
               onEndReached={() => void loadMore()}
               onEndReachedThreshold={0.2}
               onScrollBeginDrag={() => {
-                Keyboard.dismiss();
-                setInputFocused(false);
-                setActivePanel(null);
+                timelineTouchDraggedRef.current = true;
+                if (activePanel !== null) setActivePanel(null);
                 setMenuTarget(null);
               }}
-              onTouchStart={() => {
-                Keyboard.dismiss();
-                setInputFocused(false);
-                setActivePanel(null);
+              onTouchCancel={() => {
+                timelineTouchDraggedRef.current = true;
+                timelineTouchStartRef.current = null;
+              }}
+              onTouchEnd={() => {
+                timelineTouchStartRef.current = null;
+                if (timelineTouchDraggedRef.current) return;
+                dismissComposerSurface();
+              }}
+              onTouchMove={({ nativeEvent }) => {
+                if (timelineTouchDraggedRef.current || timelineTouchStartRef.current === null)
+                  return;
+                const deltaX = nativeEvent.pageX - timelineTouchStartRef.current.x;
+                const deltaY = nativeEvent.pageY - timelineTouchStartRef.current.y;
+                if (deltaX * deltaX + deltaY * deltaY >= 64) timelineTouchDraggedRef.current = true;
+              }}
+              onTouchStart={({ nativeEvent }) => {
+                timelineTouchDraggedRef.current = false;
+                timelineTouchStartRef.current = {
+                  x: nativeEvent.pageX,
+                  y: nativeEvent.pageY,
+                };
               }}
               onScroll={({ nativeEvent }) => {
                 const nextNearBottom = nativeEvent.contentOffset.y <= 24;
@@ -1915,6 +2116,16 @@ export default function ChatScreen() {
                   if (nextNearBottom) {
                     setNewMessagesBelowCount(0);
                     setReplyLocatorMessageIds([]);
+                    const throughMessageId = maximumServerMessageId(messagesRef.current);
+                    if (
+                      ownerId &&
+                      id &&
+                      throughMessageId !== undefined &&
+                      screenActiveRef.current &&
+                      AppState.currentState === "active"
+                    ) {
+                      void markConversationRead(ownerId, "dm", id, throughMessageId);
+                    }
                   }
                 }
               }}
@@ -1944,6 +2155,7 @@ export default function ChatScreen() {
                     messages={visibleMessages}
                     onMenuRequested={openMessageMenu}
                     onQuoteTap={(messageId) => void scrollToMessage(messageId)}
+                    onTimelineLongPressStart={claimTimelineTouchSequence}
                     recalledEditableText={recalledEditableTexts[item.message.id]}
                     onReedit={(text) => {
                       setDraft(text);
@@ -2181,6 +2393,7 @@ function MessageTimelineRow({
   messages,
   onMenuRequested,
   onQuoteTap,
+  onTimelineLongPressStart,
   recalledEditableText,
   onReedit,
   onRetry,
@@ -2202,6 +2415,7 @@ function MessageTimelineRow({
   messages: Message[];
   onMenuRequested: (message: Message, anchor: ChatMessageAnchor) => boolean | void;
   onQuoteTap: (messageId: number) => void;
+  onTimelineLongPressStart: () => void;
   recalledEditableText: string | undefined;
   onReedit: (text: string) => void;
   onRetry: (message: Message) => void;
@@ -2277,7 +2491,10 @@ function MessageTimelineRow({
               messageType={message.msg_type}
               onRetry={() => onRetry(message)}
             />
-            <ChatMessageLongPressSurface onLongPress={(anchor) => onMenuRequested(message, anchor)}>
+            <ChatMessageLongPressSurface
+              onLongPress={(anchor) => onMenuRequested(message, anchor)}
+              onLongPressStart={onTimelineLongPressStart}
+            >
               <MessageContent
                 imageUrls={imageUrls}
                 isMine={isMine}
@@ -2519,31 +2736,49 @@ function Composer({
   const [isVoiceMode, setIsVoiceMode] = useState(false);
   const selectionRef = useRef<ComposerTextSelection>({ start: draft.length, end: draft.length });
   const composerDraftRef = useRef<string | null>(null);
+  const selectionFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
   const initialInputHeight = chatComposerInputHeight(draft);
+  const cancelScheduledSelection = useCallback(() => {
+    if (selectionFrameRef.current === null) return;
+    cancelAnimationFrame(selectionFrameRef.current);
+    selectionFrameRef.current = null;
+  }, []);
+  const scheduleSelection = useCallback(
+    (selection: ComposerTextSelection) => {
+      cancelScheduledSelection();
+      selectionFrameRef.current = requestAnimationFrame(() => {
+        selectionFrameRef.current = null;
+        inputRef.current?.setNativeProps({ selection });
+      });
+    },
+    [cancelScheduledSelection],
+  );
   useEffect(() => {
     if (composerDraftRef.current !== draft) {
-      selectionRef.current = { start: draft.length, end: draft.length };
+      const selection = { start: draft.length, end: draft.length };
+      selectionRef.current = selection;
+      scheduleSelection(selection);
     }
     composerDraftRef.current = null;
-  }, [draft]);
+  }, [draft, scheduleSelection]);
+  useEffect(() => cancelScheduledSelection, [cancelScheduledSelection]);
   useEffect(() => {
     if (focusRequest <= 0) return;
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       setIsVoiceMode(false);
       inputRef.current?.focus();
+      inputRef.current?.setNativeProps({ selection: selectionRef.current });
     });
+    return () => cancelAnimationFrame(frame);
   }, [focusRequest]);
   const canSend = draft.trim().length > 0;
   const showMicrophone = !isVoiceMode && !isInputFocused && !activePanel && draft.length === 0;
+  const { microphoneOpacity, microphoneScale, textTranslateX } =
+    useChatComposerMicrophoneTransition(showMicrophone);
   return (
     <View style={styles.composerSurface}>
       <ChatComposerSurfaceBackground showsStickerPanel={activePanel === "stickers"} />
-      <View
-        style={[
-          styles.composerRow,
-          { paddingBottom: isInputFocused || activePanel ? 5 : 12 + safeAreaInsets.bottom },
-        ]}
-      >
+      <View style={[styles.composerRow, { paddingBottom: 5 }]}>
         {isVoiceMode ? (
           <ChatVoiceComposer
             onError={(message) => Alert.alert(t("messages.voiceSendFailed"), message)}
@@ -2556,25 +2791,37 @@ function Composer({
           />
         ) : (
           <View style={styles.inputChrome}>
-            {showMicrophone ? (
-              <Pressable
-                accessibilityLabel={t("chat.voiceInput")}
-                onPress={() => {
-                  onPanelChange(null);
-                  onFocusChange(false);
-                  setIsVoiceMode(true);
-                }}
-                style={styles.inlineMic}
+            {!isVoiceMode && !activePanel && draft.length === 0 ? (
+              <Animated.View
+                accessibilityElementsHidden={!showMicrophone}
+                importantForAccessibility={showMicrophone ? "auto" : "no-hide-descendants"}
+                pointerEvents={showMicrophone ? "auto" : "none"}
+                style={[
+                  styles.inlineMic,
+                  { opacity: microphoneOpacity, transform: [{ scale: microphoneScale }] },
+                ]}
               >
-                <SymbolView name="mic.fill" size={20} weight="medium" tintColor={colors.accent} />
-              </Pressable>
+                <Pressable
+                  accessibilityLabel={t("chat.voiceInput")}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    onPanelChange(null);
+                    onFocusChange(false);
+                    setIsVoiceMode(true);
+                  }}
+                  style={styles.inlineMicButton}
+                >
+                  <SymbolView name="mic.fill" size={20} weight="medium" tintColor={colors.accent} />
+                </Pressable>
+              </Animated.View>
             ) : null}
-            <TextInput
+            <ChatComposerTextInput
               ref={inputRef}
               maxLength={4_000}
               multiline
               onBlur={() => onFocusChange(false)}
               onChangeText={(value) => {
+                cancelScheduledSelection();
                 composerDraftRef.current = value;
                 onDraftChange(value);
               }}
@@ -2593,7 +2840,7 @@ function Composer({
               style={[
                 styles.composerInput,
                 initialInputHeight !== undefined && { height: initialInputHeight },
-                showMicrophone && styles.inputWithMic,
+                { transform: [{ translateX: textTranslateX }] },
               ]}
               value={draft}
             />
@@ -2665,6 +2912,7 @@ function Composer({
             onChooseMoney={onChooseMoney}
           />
         }
+        restingInset={chatComposerRestingInset(safeAreaInsets.bottom)}
         stickerPanel={
           <ChatStickerPanel
             onInsertEmoji={(value) => {
@@ -2672,9 +2920,7 @@ function Composer({
               selectionRef.current = inserted.selection;
               composerDraftRef.current = inserted.text;
               onDraftChange(inserted.text);
-              requestAnimationFrame(() =>
-                inputRef.current?.setNativeProps({ selection: inserted.selection }),
-              );
+              scheduleSelection(inserted.selection);
             }}
             onSendSticker={onSendSticker}
           />
@@ -2758,6 +3004,10 @@ function directChatSessionKey(ownerId: string, contactId: string | undefined): s
   return owner && contact ? `${encodeURIComponent(owner)}:${encodeURIComponent(contact)}` : "";
 }
 
+function directOutboxNetworkRetryKey(job: Pick<DirectChatOutboxJob, "owner_id" | "id">): string {
+  return `direct-message:${job.owner_id}:${job.id}`;
+}
+
 function canonicalRouteMessageIds(...values: (string | undefined)[]): number[] {
   return values.flatMap((value) => {
     const messageId = Number(value);
@@ -2816,6 +3066,7 @@ function timelineIdentity(message: Message): string {
 }
 
 function compareMessages(left: Message, right: Message): number {
+  if (left.id > 0 && right.id > 0 && left.id !== right.id) return left.id - right.id;
   const timeDifference = timestampValue(left.timestamp) - timestampValue(right.timestamp);
   return timeDifference !== 0 ? timeDifference : left.id - right.id;
 }
@@ -3067,7 +3318,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
   },
-  inputWithMic: { paddingLeft: 34 },
   inlineMic: {
     position: "absolute",
     left: 13,
@@ -3078,6 +3328,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  inlineMicButton: { width: 34, height: 40, alignItems: "center", justifyContent: "center" },
   composerIconButton: { width: 42, height: 54, alignItems: "center", justifyContent: "center" },
   sendCircle: {
     width: 40,

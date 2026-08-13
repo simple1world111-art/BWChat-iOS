@@ -12,10 +12,6 @@ const wallet = {
   gold_coin_balance: 90,
   activity_cat_food_balance: 10,
   spendable_balance: 100,
-  recharge_gold_coin_balance: 80,
-  gift_income_gold_coin_balance: 10,
-  withdraw_frozen_gold_coin_balance: 0,
-  withdrawable_gold_coin_balance: 10,
   chat_money_frozen_gold_coin_balance: 0,
 };
 
@@ -23,7 +19,13 @@ describe("game response models", () => {
   it("preserves server order, keeps the first duplicate and accepts the legacy price field", () => {
     const page = normalizeGameCatalogPage({
       items: [
-        { id: "b", name: "B", poster_url: "https://id7.com/b.png", order: 90, entry_price_cat_coins: "8" },
+        {
+          id: "b",
+          name: "B",
+          poster_url: "https://id7.com/b.png",
+          order: 90,
+          entry_price_cat_coins: "8",
+        },
         { id: "a", name: "A", poster_url: "https://id7.com/a.png", order: 10 },
         { id: "b", name: "changed", poster_url: "https://id7.com/c.png", order: 1 },
       ],
@@ -37,7 +39,15 @@ describe("game response models", () => {
   it("requires the same catalog fields as the Codable native model", () => {
     expect(() => normalizeGameCatalogItem({ id: "a", name: "A", order: 1 })).toThrow("游戏海报");
     expect(() => normalizeGameCatalogItem({ id: "a", name: "A", poster_url: "x" })).toThrow("排序");
-    expect(() => normalizeGameCatalogItem({ id: "a", name: "A", poster_url: "x", order: 1, entry_price_gold_coins: -1 })).toThrow();
+    expect(() =>
+      normalizeGameCatalogItem({
+        id: "a",
+        name: "A",
+        poster_url: "x",
+        order: 1,
+        entry_price_gold_coins: -1,
+      }),
+    ).toThrow();
   });
 
   it("accepts only payment-free positive-price lobby sessions", () => {
@@ -48,8 +58,12 @@ describe("game response models", () => {
       entry_price_gold_coins: 5,
     });
     expect(() => validateGameLobbySession(valid)).not.toThrow();
-    expect(() => validateGameLobbySession({ ...valid, paymentMethod: "gold_coins" })).toThrow("PAYMENT_WAS_APPLIED");
-    expect(() => validateGameLobbySession({ ...valid, entryPriceGoldCoins: 0 })).toThrow("INVALID_ENTRY_PRICE");
+    expect(() => validateGameLobbySession({ ...valid, paymentMethod: "gold_coins" })).toThrow(
+      "PAYMENT_WAS_APPLIED",
+    );
+    expect(() => validateGameLobbySession({ ...valid, entryPriceGoldCoins: 0 })).toThrow(
+      "INVALID_ENTRY_PRICE",
+    );
   });
 
   it("validates a server-authoritative gold-coin round and consistent spendable balance", () => {
@@ -62,14 +76,20 @@ describe("game response models", () => {
       wallet_balance: wallet,
     });
     expect(() => validateGameRoundStart(round)).not.toThrow();
-    expect(() => validateGameRoundStart({ ...round, paymentMethod: "cat_food" })).toThrow("PAYMENT_METHOD_MISMATCH");
-    expect(() => validateGameRoundStart({
-      ...round,
-      walletBalance: { ...round.walletBalance, spendable_balance: 99 },
-    })).toThrow("INVALID_GRANT");
-    expect(() => validateGameRoundStart({
-      ...round,
-      consumedProp: { definition_id: "ticket", remaining_quantity: 1 },
-    })).toThrow("INVALID_CONSUMPTION");
+    expect(() => validateGameRoundStart({ ...round, paymentMethod: "cat_food" })).toThrow(
+      "PAYMENT_METHOD_MISMATCH",
+    );
+    expect(() =>
+      validateGameRoundStart({
+        ...round,
+        walletBalance: { ...round.walletBalance, spendable_balance: 99 },
+      }),
+    ).toThrow("INVALID_GRANT");
+    expect(() =>
+      validateGameRoundStart({
+        ...round,
+        consumedProp: { definition_id: "ticket", remaining_quantity: 1 },
+      }),
+    ).toThrow("INVALID_CONSUMPTION");
   });
 });
