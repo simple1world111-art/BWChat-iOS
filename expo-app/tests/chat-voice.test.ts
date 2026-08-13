@@ -11,11 +11,42 @@ import {
   resolveChatVoicePlaybackUrl,
 } from "@/services/messages/chatVoicePolicy";
 
-jest.mock("@/api/client", () => ({ apiRequest: jest.fn() }));
+jest.mock("@/api/client", () => {
+  const actual = jest.requireActual("@/api/client") as object;
+  return { ...actual, apiRequest: jest.fn() };
+});
+jest.mock("expo-file-system", () => ({
+  File: class MockFile {
+    bytes() {
+      return Promise.resolve(new Uint8Array([86, 79, 73, 67, 69]));
+    }
+  },
+}));
+
+const NativeFormData = jest.requireActual("react-native/Libraries/Network/FormData")
+  .default as typeof FormData;
+const { installFormDataPatch } = jest.requireActual("expo/src/winter/FormData") as {
+  installFormDataPatch(formData: typeof FormData): typeof FormData;
+};
+const { convertFormDataAsync } = jest.requireActual("expo/src/winter/fetch/convertFormData") as {
+  convertFormDataAsync(
+    formData: FormData,
+    boundary?: string,
+  ): Promise<{ body: Uint8Array; boundary: string }>;
+};
 
 const request = jest.mocked(apiRequest);
+const StandardFormData = global.FormData;
 
 describe("native chat voice contracts", () => {
+  beforeAll(() => {
+    global.FormData = installFormDataPatch(NativeFormData);
+  });
+
+  afterAll(() => {
+    global.FormData = StandardFormData;
+  });
+
   beforeEach(() => request.mockReset());
 
   it("parses the original URL|duration payload and 80-200pt width", () => {
@@ -93,7 +124,8 @@ describe("native chat voice contracts", () => {
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.get("receiver_id")).toBe("friend");
     expect(form.get("duration")).toBe("4.2");
-    expect(form.has("voice")).toBe(true);
+    expectExpoByteBackedVoice(form.get("voice"));
+    await expectExpoSerializableVoiceMultipart(form);
     expect(form.has("client_message_id")).toBe(false);
   });
 
@@ -115,7 +147,8 @@ describe("native chat voice contracts", () => {
     });
     const form = request.mock.calls[0]?.[1]?.body as FormData;
     expect(form.get("duration")).toBe("7.8");
-    expect(form.has("voice")).toBe(true);
+    expectExpoByteBackedVoice(form.get("voice"));
+    await expectExpoSerializableVoiceMultipart(form);
     expect(form.has("receiver_id")).toBe(false);
     expect(form.has("client_message_id")).toBe(false);
   });
@@ -154,6 +187,25 @@ describe("native chat voice contracts", () => {
     expect(form.get("client_message_id")).toBe("group-voice-job-24");
     expect(form.has("receiver_id")).toBe(false);
   });
+
+  it("does not show a voice message as sent without a canonical server record", async () => {
+    request.mockResolvedValueOnce({ id: 0, msg_type: "voice", content: "" });
+    await expect(sendDirectVoiceMessage("friend", voiceInput(4.24))).rejects.toMatchObject({
+      code: "unconfirmed_media_message",
+      status: 502,
+    });
+
+    request.mockResolvedValueOnce({
+      id: 25,
+      group_id: 31,
+      msg_type: "text",
+      content: "not-voice",
+    });
+    await expect(sendGroupVoiceMessage(31, voiceInput(7.84))).rejects.toMatchObject({
+      code: "unconfirmed_media_message",
+      status: 502,
+    });
+  });
 });
 
 function voiceInput(duration: number) {
@@ -162,4 +214,23 @@ function voiceInput(duration: number) {
     filename: "voice_123.m4a",
     duration,
   };
+}
+
+function expectExpoByteBackedVoice(value: FormDataEntryValue | null) {
+  expect(value).toMatchObject({
+    name: "voice_123.m4a",
+    type: "audio/m4a",
+    bytes: expect.any(Function),
+  });
+  expect(value).not.toHaveProperty("uri");
+}
+
+async function expectExpoSerializableVoiceMultipart(form: FormData) {
+  const boundary = "----ExpoFetchFormBoundaryVoiceRegression";
+  const result = await convertFormDataAsync(form, boundary);
+  const multipart = new TextDecoder().decode(result.body);
+  expect(result.boundary).toBe(boundary);
+  expect(multipart).toContain('name="voice"; filename="voice_123.m4a"');
+  expect(multipart).toContain("content-type: audio/m4a");
+  expect(multipart).toContain("VOICE");
 }

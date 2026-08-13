@@ -45,7 +45,9 @@ describe("direct ChatView API wrapper contract", () => {
           ? { ...message(), msg_type: "image", content: "/media/image.jpg" }
           : operation.path === "/chat/messages/video"
             ? { ...message(), msg_type: "video", content: "/media/video.mp4" }
-            : message(),
+            : operation.path === "/chat/messages/voice"
+              ? { ...message(), msg_type: "voice", content: "/media/voice.m4a|2.0" }
+              : message(),
       );
       await operation.run();
       expect(request).toHaveBeenLastCalledWith(

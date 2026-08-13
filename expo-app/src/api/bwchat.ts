@@ -1712,7 +1712,7 @@ export async function sendDirectVoiceMessage(
   form.append("receiver_id", contactId);
   if (clientMessageId) form.append("client_message_id", clientMessageId);
   appendChatVoiceFile(form, voice);
-  return normalizeMessage(
+  const message = normalizeMessage(
     await apiRequest<unknown>("/chat/messages/voice", {
       method: "POST",
       ...(clientMessageId ? { headers: { "Idempotency-Key": clientMessageId } } : {}),
@@ -1722,6 +1722,7 @@ export async function sendDirectVoiceMessage(
       timeoutMs: 60_000,
     }),
   );
+  return requireConfirmedChatMedia(message, "direct", "voice");
 }
 
 export async function sendGroupVoiceMessage(
@@ -1732,7 +1733,7 @@ export async function sendGroupVoiceMessage(
   const form = new FormData();
   if (clientMessageId) form.append("client_message_id", clientMessageId);
   appendChatVoiceFile(form, voice);
-  return normalizeGroupMessage(
+  const message = normalizeGroupMessage(
     await apiRequest<unknown>(`/groups/${groupId}/messages/voice`, {
       method: "POST",
       ...(clientMessageId ? { headers: { "Idempotency-Key": clientMessageId } } : {}),
@@ -1742,6 +1743,7 @@ export async function sendGroupVoiceMessage(
       timeoutMs: 60_000,
     }),
   );
+  return requireConfirmedChatMedia(message, "group", "voice");
 }
 
 function appendChatImageFiles(
@@ -1779,7 +1781,7 @@ function requireConfirmedChatImage<T extends Message | GroupMessage>(
 function requireConfirmedChatMedia<T extends Message | GroupMessage>(
   message: T,
   scope: "direct" | "group",
-  expectedType: "image" | "video",
+  expectedType: "image" | "video" | "voice",
 ): T {
   if (
     message.id <= 0 ||
@@ -1815,11 +1817,13 @@ function appendChatVoiceFile(
   voice: { uri: string; filename: string; mimeType?: string | undefined; duration: number },
 ) {
   form.append("duration", formatChatVoiceUploadDuration(voice.duration));
-  form.append("voice", {
-    uri: voice.uri,
-    name: voice.filename,
-    type: voice.mimeType?.trim() || "audio/m4a",
-  } as unknown as Blob);
+  appendExpoFilePart(
+    form,
+    "voice",
+    voice.uri,
+    voice.filename,
+    voice.mimeType?.trim() || "audio/m4a",
+  );
 }
 
 export async function clearDirectMessageHistory(
