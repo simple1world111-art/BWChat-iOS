@@ -11,6 +11,7 @@ import {
   previewPublishArgs,
   productionPublishArgs,
   requireCleanMatchingCommit,
+  requireCleanWorkingTree,
   requirePreviewGroupId,
   requirePreviewVerification,
   validatePreviewBatch,
@@ -79,6 +80,9 @@ try {
       ]);
       process.exit(0);
     }
+    const currentCommit = runGit(["rev-parse", "HEAD"]);
+    const worktreeStatus = runGit(["status", "--porcelain", "--untracked-files=normal"]);
+    requireCleanWorkingTree(currentCommit, worktreeStatus, "Preview");
     const result = withResolvableExpoCli(projectRoot, () => runEas(args, { stdio: "inherit" }));
     if (result.error) throw result.error;
     process.exit(result.status ?? 1);

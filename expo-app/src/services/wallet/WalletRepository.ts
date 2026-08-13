@@ -36,7 +36,23 @@ export class WalletRepositoryAccountChangedError extends Error {
 
 const balanceKeyPrefix = "bwchat.wallet.balance.v2";
 const transactionsKeyPrefix = "bwchat.wallet.transactions.v2";
+const retiredWalletStoragePrefixes = [
+  ["bwchat.wallet.", "withdrawals.v1:"].join(""),
+  ["bwchat.wallet.", "usdt.payout.v1:"].join(""),
+] as const;
 const inFlightLoads = new Map<string, Promise<unknown>>();
+
+export async function purgeRetiredWalletStorage(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const retired = keys.filter((key) =>
+      retiredWalletStoragePrefixes.some((prefix) => key.startsWith(prefix)),
+    );
+    if (retired.length > 0) await AsyncStorage.multiRemove(retired);
+  } catch {
+    // The retired data is never read. Cleanup remains best-effort on damaged storage.
+  }
+}
 
 export async function loadWalletBalance(
   ownerId: string,

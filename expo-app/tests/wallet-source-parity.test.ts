@@ -84,7 +84,11 @@ describe("wallet source parity", () => {
     expect(repository).toContain("inFlightLoads");
     expect(repository).toContain("WalletRepositoryAccountChangedError");
     expect(repository).toContain("void refreshTransactionCache(ownerId, cached.value, guard)");
+    expect(repository).toContain("purgeRetiredWalletStorage");
+    expect(repository).not.toContain('const withdrawalsKeyPrefix = "bwchat.wallet.withdrawals');
+    expect(repository).not.toContain('const payoutKeyPrefix = "bwchat.wallet.usdt');
     expect(provider).toContain("readCachedWalletBalance(ownerId)");
+    expect(provider).toContain("void purgeRetiredWalletStorage()");
     expect(provider).toContain("requestedCursors.current.has(nextCursor)");
     expect(provider).not.toContain("requestWithdrawal");
   });

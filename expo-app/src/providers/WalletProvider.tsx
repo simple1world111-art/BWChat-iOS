@@ -29,6 +29,7 @@ import {
   loadWalletBalance,
   loadWalletTransactions,
   persistBalance,
+  purgeRetiredWalletStorage,
   readCachedWalletBalance,
   readCachedWalletTransactions,
   WalletRepositoryAccountChangedError,
@@ -134,6 +135,10 @@ function WalletScope({ children, ownerId }: { children: React.ReactNode; ownerId
     },
     [repositoryScope],
   );
+
+  useEffect(() => {
+    void purgeRetiredWalletStorage();
+  }, []);
 
   useEffect(() => {
     if (walletVisualAcceptanceEnabled || !ownerId) return;

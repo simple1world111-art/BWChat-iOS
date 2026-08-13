@@ -7,6 +7,7 @@ import {
   loadMoreWalletTransactions,
   loadWalletBalance,
   loadWalletTransactions,
+  purgeRetiredWalletStorage,
   readCachedWalletBalance,
   readCachedWalletTransactions,
   resetWalletRepositoryMemoryForTests,
@@ -134,6 +135,18 @@ describe("native wallet cache and pagination state machine", () => {
       transactions: [transaction("local"), transaction("shared"), transaction("remote")],
     });
     expect(fetchTransactions).toHaveBeenCalledWith({ cursor: "cursor-one", limit: 50 });
+  });
+
+  it("purges retired earnings and withdrawal data without reading it", async () => {
+    await AsyncStorage.multiSet([
+      ["bwchat.wallet.usdt.payout.v1:owner", "sensitive-address"],
+      ["bwchat.wallet.withdrawals.v1:owner", "retired-records"],
+      ["bwchat.wallet.balance.v2:owner", "current-balance"],
+    ]);
+
+    await purgeRetiredWalletStorage();
+
+    await expect(AsyncStorage.getAllKeys()).resolves.toEqual(["bwchat.wallet.balance.v2:owner"]);
   });
 });
 

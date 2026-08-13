@@ -166,17 +166,22 @@ export function previewGroupGitCommitHash(updates) {
 
 export function requireCleanMatchingCommit(previewCommit, currentCommit, status) {
   const normalizedPreview = previewCommit.trim().toLowerCase();
-  const normalizedCurrent = currentCommit.trim().toLowerCase();
-  if (!GIT_COMMIT_PATTERN.test(normalizedCurrent)) {
-    throw new Error("Unable to resolve the current Git commit.");
-  }
+  const normalizedCurrent = requireCleanWorkingTree(currentCommit, status, "Production");
   if (normalizedPreview !== normalizedCurrent) {
     throw new Error(
       `Production source commit ${normalizedCurrent} does not match verified Preview commit ${normalizedPreview}.`,
     );
   }
+  return normalizedCurrent;
+}
+
+export function requireCleanWorkingTree(currentCommit, status, target = "Update") {
+  const normalizedCurrent = currentCommit.trim().toLowerCase();
+  if (!GIT_COMMIT_PATTERN.test(normalizedCurrent)) {
+    throw new Error("Unable to resolve the current Git commit.");
+  }
   if (status.trim()) {
-    throw new Error("Production updates require a clean Git worktree after Preview verification.");
+    throw new Error(`${target} updates require a clean Git worktree.`);
   }
   return normalizedCurrent;
 }

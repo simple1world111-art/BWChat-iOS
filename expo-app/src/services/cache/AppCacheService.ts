@@ -100,6 +100,8 @@ const accountCachePrefixes = [
   "bwchat.wallet.balance.v1:",
   "bwchat.wallet.balance.v2:",
   "bwchat.wallet.transactions.v2:",
+  ["bwchat.wallet.", "withdrawals.v1:"].join(""),
+  ["bwchat.wallet.", "usdt.payout.v1:"].join(""),
 ] as const;
 
 export async function formattedVideoCacheSize(ownerId: string): Promise<string> {

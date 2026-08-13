@@ -16,6 +16,7 @@ import {
   productionRolloutArgs,
   productionRevertRolloutArgs,
   requireCleanMatchingCommit,
+  requireCleanWorkingTree,
   requirePreviewGroupId,
   requirePreviewVerification,
   requirePlatform,
@@ -259,6 +260,12 @@ check("rejects a dirty Production worktree", () =>
   assert.throws(
     () => requireCleanMatchingCommit(gitCommitHash, gitCommitHash, " M app.config.ts"),
     /clean Git worktree/,
+  ),
+);
+check("rejects a dirty Preview worktree", () =>
+  assert.throws(
+    () => requireCleanWorkingTree(gitCommitHash, " M src/app/wallet.tsx", "Preview"),
+    /Preview updates require a clean Git worktree/,
   ),
 );
 check("accepts only the documented 30/50/100 progression", () =>

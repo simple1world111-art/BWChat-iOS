@@ -35,6 +35,7 @@ jest.mock("@/services/wallet/WalletRepository", () => ({
   loadWalletBalance: jest.fn(),
   loadWalletTransactions: jest.fn(),
   persistBalance: jest.fn().mockResolvedValue(undefined),
+  purgeRetiredWalletStorage: jest.fn().mockResolvedValue(undefined),
   readCachedWalletBalance: jest.fn(),
   readCachedWalletTransactions: jest.fn().mockResolvedValue(undefined),
   WalletRepositoryAccountChangedError: class WalletRepositoryAccountChangedError extends Error {},
